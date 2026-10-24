@@ -246,7 +246,11 @@ INDEPENDENCE_PAIRS: tuple[tuple[str, str], ...] = (
 )
 # Roles whose seats hold write tools: their ladders may name only providers
 # whose runtime can write (`model_fleet.Provider.admits_writes`).
-WRITE_SCOPE_ROLES: frozenset[str] = frozenset({"implementation"})
+# WP-J B-2 — the reproduction seat WRITES and RUNS its red test
+# (Write+Edit+Bash in its sandbox worktree), so it joins the write scope and
+# rides the `claude_writer` ladder (anthropic + zai, the two write-admitting
+# vendors); openai admits no writes and is refused by the loader below.
+WRITE_SCOPE_ROLES: frozenset[str] = frozenset({"implementation", "reproduction_test"})
 
 
 @dataclass(frozen=True)

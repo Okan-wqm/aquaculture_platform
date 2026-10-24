@@ -11,7 +11,7 @@ from .canonical_path import matches_repo_glob, resolve_repo_relpath
 from .evidence_probe import BaselineResolution, GitProbeSession
 from .ledger import sha256_digest_of_canonical_json
 from .tool_registry import GovernanceError
-from .digest import sha256_digest, sha256_digest_file
+from .digest import sha256_digest, sha256_digest_file, sha256_digest_text
 
 
 SELF_OUTPUT_PREFIXES: tuple[str, ...] = (
@@ -382,6 +382,41 @@ def classify_evidence_ref(
     )
 
 
+def quote_matches_at(quote: Any, *, excerpt_content: Any) -> bool | None:
+    """THE verbatim-quote law: is ``quote`` copied byte-for-byte from the
+    pinned ``excerpt_content``?
+
+    One law, every caller (the ARIA-HIGH-195 lesson: two copies of a grammar
+    drifted and a synthesized plan's own evidence was graded missing). The
+    typed judgment parse (``typed_judgment._quote_verified``) and the untyped
+    submit re-grade (``evidence_validator._judge_agent_ref``) both ask this
+    function, so a judge's quote is checked against the bytes the mint pinned
+    under one name everywhere. Tri-state on purpose:
+
+    * ``None`` — nothing was pinned for the ref (``excerpt_content`` is not
+      a string): the quote is the judge's word and is carried unverified,
+      never graded as a match (mirrors ``_git_blob_matches``: no probe, no
+      verdict);
+    * ``False`` — the quote is not a string, is empty/whitespace, is longer
+      than ``QUOTE_MAX_CHARS``, or the pinned bytes do not contain it;
+    * ``True`` — the pinned bytes contain the quote verbatim.
+
+    ``QUOTE_MAX_CHARS`` is imported lazily: its owner is the typed-judgment
+    response contract, which imports this module for this law — a module-level
+    import would be a cycle, and the lazy form is the established pattern
+    here (``validate_rule_contracts`` does the same for ``BANNED_PHRASES``).
+    """
+    from .typed_judgment import QUOTE_MAX_CHARS
+
+    if not isinstance(quote, str) or not quote.strip():
+        return False
+    if len(quote) > QUOTE_MAX_CHARS:
+        return False
+    if not isinstance(excerpt_content, str):
+        return None
+    return quote in excerpt_content
+
+
 # ARIA-HIGH-195 — THE evidence-ref grammar: ``path`` or ``path:line``. It
 # lived twice: evidence_validator admitted a ``path:line:<excerpt>`` triplet
 # (V8.6, for plan_synthesizer's snippets) while this module split on the LAST
@@ -573,6 +608,52 @@ def _git_tree_exists(
     )
 
 
+def cited_blobs_code_hash(
+    repo_root: Path,
+    refs: list[str],
+    target_sha: str | None,
+    *,
+    session: "GitProbeSession | None" = None,
+) -> str | None:
+    """WP-J slice C — the code identity of a set of cited refs, or ``None``.
+
+    THE verdict-cache key's code half: one ``sha256:...`` over the sorted
+    ``(path, blob sha256)`` pairs of every cited ref's blob at
+    ``target_sha``, computed with the same ``git show <sha>:<path>`` bytes
+    and the same sha256 spelling as ``_git_blob_matches`` — one blob law,
+    two callers. A ref that names a line hashes its FILE (the line pin
+    matters to quoting, not to whether the cited code changed). A ref the
+    tree does not carry contributes its path with a ``absent`` marker: a
+    vanished file IS a code change for a verdict pinned to it.
+
+    Tri-state on purpose: ``None`` when there is no anchor, no repo, or a
+    git that did not answer inside the session's bounds — the cache treats
+    unknown as a MISS (fail toward minting), never as a verdict.
+
+    Both digests compose through the label's one owner (``digest.py``,
+    ARIA-LOW-517; F0.3 landing N1): the key's bytes are exactly the
+    hand-spelled form this function wrote before, so cached verdicts keep
+    hitting (pinned by ``test_wpj_landing_named_resolutions``).
+    """
+    if not isinstance(target_sha, str) or not target_sha.strip():
+        return None
+    probe = session if session is not None else GitProbeSession()
+    pairs: list[str] = []
+    for ref in refs:
+        parsed = parse_evidence_ref(str(ref or ""))
+        rel = parsed[0] if parsed is not None else str(ref or "").strip()
+        if not rel:
+            continue
+        outcome = probe.run(["git", "show", f"{target_sha}:{rel}"], cwd=repo_root)
+        if not outcome.answered:
+            return None
+        if outcome.returncode != 0:
+            pairs.append(f"{rel}:absent")
+            continue
+        pairs.append(f"{rel}:{sha256_digest(outcome.stdout)}")
+    return sha256_digest_text("\n".join(sorted(pairs)))
+
+
 __all__ = [
     "ARIA_DETECTOR_SOURCE_CLASS",
     "ARIA_DETECTOR_SOURCE_PREFIXES",
@@ -594,4 +675,6 @@ __all__ = [
     "classify_evidence_ref",
     "tool_evidence_refusal",
     "forbidden_detector_scope",
+    "quote_matches_at",
+    "cited_blobs_code_hash",
 ]

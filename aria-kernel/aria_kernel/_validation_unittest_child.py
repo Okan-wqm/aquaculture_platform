@@ -179,7 +179,10 @@ def _main() -> None:
     if sys.argv[7] != "--":
         raise ValueError("invalid private observation wire")
     arguments = sys.argv[8:]
-    sys.path[0] = os.getcwd()
+    # Launched with -P (validation.OBSERVATION_CHILD_INTERPRETER_FLAGS): no
+    # script directory leads sys.path, so the cwd is put first as
+    # `python3 -m unittest` puts it, ahead of PYTHONPATH and the stdlib.
+    sys.path.insert(0, os.getcwd())
     sys.argv = [os.path.basename(sys.executable) + " -m unittest", *arguments]
     try:
         import unittest

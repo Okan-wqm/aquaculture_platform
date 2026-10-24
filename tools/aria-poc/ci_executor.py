@@ -204,6 +204,14 @@ except Exception as _kernel_import_error:  # pragma: no cover - fallback keeps s
         "consensus_arbitration",
         "change_intelligence",
         "goldset_curation",
+        # WP-J B-2 — the four method-panel seats (bug hunt, reproduction,
+        # impact, architecture), added here in the SAME commit as the kernel
+        # set: this mirror's contract is no drift, and the no-drift test in
+        # test_role_hygiene_e14 is what makes the duplication legitimate.
+        "bug_hunt",
+        "reproduction_test",
+        "impact_assessment",
+        "architecture",
         # E9-c — adversarial re-review of an already-closed decision. Added
         # here in the same commit as the kernel set, which is the contract
         # this mirror is held to: standalone mode is the ONE mode where a
@@ -2695,9 +2703,15 @@ def _cost_identity(request_envelope: Mapping[str, Any], request_id: str | None) 
     """
     short_rid = (request_id or "")[-12:] or "unknown"
     cycle_id = request_envelope.get("cycle_id") or f"cyc-no-id-{short_rid}"
+    # WP-J slice C — a judge request's DECISION identity is its minted
+    # judgment_group_id: the fan-out mints no convergence and no plan, so
+    # the tail fallback made every judge row attribute to plan-<tail> and
+    # the 186 judge-lane rows / $114.86 in cost-attribution joined to no
+    # decision. The group never displaces a real convergence or plan.
     plan_id = (
         request_envelope.get("convergence_id")
         or request_envelope.get("plan_id")
+        or request_envelope.get("judgment_group_id")
         or f"plan-{short_rid}"
     )
     if not isinstance(cycle_id, str) or not cycle_id:

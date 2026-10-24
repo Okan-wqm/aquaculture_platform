@@ -985,6 +985,216 @@ F0.9b tombstone of the module (service-expertise PLAN §2 row 1.3)
   - `aria-kernel/aria_kernel/recursive_impact.py:302-304`
 - Rule: one owner per concept (PLAN-v2 F0.9b ownership atlas). Close with the F0.9b tombstone.
 
+## ARIA-HIGH-797
+
+The dataflow watchdog's container_state_truth and tenant_reality_parity probes have never measured
+anything. They run docker from the runner account, which by design cannot open docker.sock and
+cannot gain privilege.
+
+- Severity: HIGH; owner: Okan-wqm; deadline: 2026-11-06.
+- Plan item(s): RW-2 (runtime watch).
+- Evidence:
+  - `tools/watchdog/probe-runner.mjs:93` (`docker ps -q` run by the runner account; origin/main
+    ddf6d5723)
+  - `tools/watchdog/probe-runner.mjs:147-151` (`docker exec aqua-postgres psql` run by the runner
+    account)
+  - `scripts/aria/runner-habitat/systemd/actions-runner.identity.conf` (`SupplementaryGroups=`,
+    `NoNewPrivileges=yes`: no docker group, and sudo is inert for every job)
+  - Every run from 31069638350 (2026-08-06, the first) through 39963926798 (2026-10-23) reports
+    `permission denied ... docker.sock` for both probes.
+- Rule: a watchdog probe measures what it names. The runner account never gets docker access or a
+  privilege gain (ADR-0023).
+- Fix (RW-2): a root-owned probe with fixed arguments, `infrastructure/scripts/aqua-dataflow-probe.sh`.
+  It refuses every argument and opens every psql session read-only. It is reached through the
+  socket-activated units in `infrastructure/dataflow-probe/` and read by
+  `tools/watchdog/privileged-evidence.mjs`. A sudoers rule cannot work: `NoNewPrivileges=yes` makes
+  sudo inert for the job. The finding closes once the program lead installs the probe from the
+  runbook (`docs/runbooks/monitoring/dataflow-integrity.md`) and one dispatched run shows both
+  probes measured. ARIA-HIGH-798 covers why the gap went unseen for ten weeks.
+
+## ARIA-HIGH-798
+
+The dataflow watchdog's results reach no one. A probe-error exits 1, and the lane neither fails nor
+reports on exit 1. The probe*\* textfile is written to RUNNER_TEMP and only uploaded as an artifact,
+because the textfile directory is root:root 0755. So every probe*\* rule in
+60-dataflow-integrity.yml has no series and cannot fire.
+
+- Severity: HIGH; owner: Okan-wqm; deadline: 2026-11-06.
+- Raised by: the RW-2 implementer, while verifying RW-2.
+- Evidence:
+  - `.github/workflows/dataflow-integrity-watchdog.yml:94` and `:123` (`--textfile
+"$RUNNER_TEMP/aqua_probes.prom"`)
+  - `.github/workflows/dataflow-integrity-watchdog.yml:126-135` (the textfile is only uploaded as
+    an artifact)
+  - `.github/workflows/dataflow-integrity-watchdog.yml:146-157` (only exit 3 fails the run; a
+    probe that measured nothing passes)
+  - `docker-compose.droplet.yml:2205-2206` (node-exporter reads `/var/lib/node_exporter/textfile`)
+  - `infrastructure/monitoring/droplet/rules/60-dataflow-integrity.yml:165-204`
+    (TenantActiveWithoutPhysicalSchema, TenantProvisioningNeverCompleted, TenantRealityProbeStale)
+  - On 2026-10-23 the droplet's textfile directory held only `aqua_worktree_gc.prom`.
+- Rule: a probe that cannot measure fails visibly, and an alert rule reads a series that is
+  published on the host it scrapes. A rule that can never fire is a defect.
+- Failure scenario: the privileged probe measures an ACTIVE tenant with no usable schema, and no
+  alert fires, because Prometheus never sees `probe_finding_count`. This is the channel that let
+  ARIA-HIGH-797 run unseen from 2026-08-06.
+
+## ARIA-MEDIUM-800
+
+Container truth for the 2026-08-03 "ps lies" incident class has two owners, and the one meant to be
+authoritative is not installed on the droplet.
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-13.
+- Plan item(s): RW-2 (runtime watch), raised by its single-owner review and kept by the appellate as
+  dissent: the duplicate predates RW-2, which moves the existing measurement unchanged.
+- Evidence:
+  - `infrastructure/scripts/aqua-dataflow-probe.sh:64-74` (State.Running per container, measured by
+    root for the watchdog lane)
+  - `tools/watchdog/probe-runner.mjs:118-128` (the container_state_truth probe id the rules read)
+  - `tools/supervisor/runtime-supervisor.ts:105-125` (the supervisor's own container judgement)
+  - `infrastructure/supervisor/aqua-supervisor.service:6` ("container truth + host pressure")
+  - `infrastructure/monitoring/droplet/rules/60-dataflow-integrity.yml:215-236` (rules over both)
+- Rule: one owner per concept; an alert source that is not installed is a decorative rule.
+- Close when exactly one owner judges container truth for this class (the supervisor installed and
+  read through its published verdict with a freshness check, or its container judgement retired in
+  favour of the root probe), an invariant names that owner, and the alert rules read only it.
+
+## ARIA-MEDIUM-801
+
+The planner seats' target agents have three production owners: `plan_round_controller.DEFAULT_PLANNER_AGENTS`,
+`cross_review_bridge` (`CROSS_REVIEW_ROLE`, `PRIMARY_REVISION_ROLE`) and
+`convergent_planning_bridge.PLANNER_ROLES` each spell the role-to-agent pairs for primary_plan,
+challenger_plan and cross_review. If a planner agent is renamed, one mint path changes and the
+others do not.
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-13.
+- Raised by: WPJ-RED appellate, carried forward from the round-1 ssot dissent (dissent item 2).
+  Registered by WPJ-FAILOPEN before PR #2073 merges.
+- Evidence:
+  - `aria-kernel/aria_kernel/plan_round_controller.py:28-32`
+  - `aria-kernel/aria_kernel/cross_review_bridge.py:78-82`
+  - `aria-kernel/aria_kernel/convergent_planning_bridge.py:28-31`
+- Rule: one owner per concept (PLAN-v2 F0.9b ownership atlas). Close: one table maps a planning role
+  to its target agent. Both bridges read it, and a pin asserts that no second literal pair exists.
+  `agent_surface.py:218` already cites `DEFAULT_PLANNER_AGENTS["cross_review"]` as the reference.
+
+## ARIA-MEDIUM-802
+
+The `(run_id, finding_id, judgment_group_id)` join key has four copies:
+`outcome_truth._outcome_key` (with an inline tuple beside it), `feedback_store._judgment_key`,
+`judge_calibration._group_key` and `label_queue._key`. `agent_surface` also lists the judgment
+seats twice, once as `JUDGE_ROLES` and once as the keys of `EXPERT_METHODS`, and no pin checks that
+the two sets are equal.
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-13.
+- Raised by: WPJ-RED appellate, non-blocking ssot dissent (dissent item 3). The `outcome_truth` copy
+  came with WP-J `05d99ba06`. Registered by WPJ-FAILOPEN before PR #2073 merges.
+- Evidence:
+  - `aria-kernel/aria_kernel/outcome_truth.py:68-73`
+  - `aria-kernel/aria_kernel/outcome_truth.py:179`
+  - `aria-kernel/aria_kernel/feedback_store.py:466-472`
+  - `aria-kernel/aria_kernel/judge_calibration.py:144-149`
+  - `aria-kernel/aria_kernel/label_queue.py:73-74`
+  - `aria-kernel/aria_kernel/agent_surface.py:128-141`
+  - `aria-kernel/aria_kernel/agent_surface.py:159-171`
+- Rule: one owner per concept. Close: the other three readers call `feedback_store._judgment_key`,
+  whose docstring already calls it "the identity every judgment lane already keys on".
+  `JUDGE_ROLES` derives from `EXPERT_METHODS`, or a pin asserts that the two sets are equal. Today
+  `tests/test_panel_seats.py` checks only that the four new seats are members of both.
+
+## ARIA-HIGH-805
+
+`judge_fanout._existing_judge_dispatches` and `_judged_pairs` wrap their ledger reads in
+`except Exception` and return an empty set. An unreadable `agent_invocation_requests` ledger or
+feedback store then reads as "nothing minted" or "nothing judged", and the nightly fan-out re-mints
+judges for groups and findings that are already dispatched or answered (fail-open, the
+ARIA-HIGH-788 class).
+
+- Severity: HIGH; owner: Okan-wqm; deadline: 2026-11-13.
+- Raised by: WPJ-FAILOPEN appellate round 2, carry-forward item 1 (repeats appellate-r1 item 1;
+  security probe P9 found no registry row). Registered before PR #2073 merges. Both readers predate
+  WP-J and are on main.
+- Evidence:
+  - `aria-kernel/aria_kernel/judge_fanout.py:203-216`
+  - `aria-kernel/aria_kernel/judge_fanout.py:219-247`
+  - `aria-kernel/aria_kernel/ledger.py:94-109`
+- Rule: fail closed on an unreadable ledger. Close: both readers catch only `ledger_read_faults()`
+  (or a declared reader-fault set built from it) and refuse the mint with a named `GovernanceError`
+  that the cycle records as a blocked step, as `_rebuttal_already_minted` (`:1194-1218`) already
+  does. A mutation test kills the `except Exception` mutant of each.
+
+## ARIA-MEDIUM-807
+
+`request_admission._measure` holds a second definition of an unreadable cooldown ledger: it catches
+`(GovernanceError, OSError, ValueError)` around `provider_outage.cooled_providers`. That tuple
+disagrees with `provider_cooldown.cooldown_reader_faults()`. It absorbs every `ValueError`, reader
+defects included, and lets `LedgerIntegrityError` and `LedgerReadLimitError` (both `RuntimeError`)
+escape.
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-13.
+- Raised by: WPJ-FAILOPEN appellate round 2, carry-forward item 2 (repeats appellate-r1 item 2,
+  "fold or file"; arch probe p4). Registered before PR #2073 merges.
+- Evidence:
+  - `aria-kernel/aria_kernel/request_admission.py:324-327`
+  - `aria-kernel/aria_kernel/provider_cooldown.py:339-352`
+  - `aria-kernel/aria_kernel/ledger.py:84-89`
+  - `aria-kernel/aria_kernel/tool_registry.py:124`
+- Rule: one owner per concept. Close: the `cooled_providers` arm catches `cooldown_reader_faults()`.
+  A test drives a `LedgerIntegrityError` and a plain `ValueError` through it and pins that the first
+  records `cooldown_fault` and the second propagates. The capacity arm (`:321`) reads a different
+  ledger and is judged on its own declared fault set in the same fix.
+
+## ARIA-MEDIUM-809
+
+The judge rebuttal round's one-per-seat bound matches the untrusted substring
+`REBUTTAL_MARKER in suggested_prompt`. The dissenter's own first-round envelope embeds the adapter
+finding's `message` verbatim, so a finding message that contains "REBUTTAL ROUND 1" marks the seat
+as already rebutted and suppresses its one rebuttal.
+
+- Severity: MEDIUM (security); owner: Okan-wqm; deadline: 2026-11-13.
+- Raised by: WPJ-FAILOPEN appellate round 2, carry-forward item 3 (security probe P4). It comes from
+  WP-J commit `194d7faf3`, which ships in #2073. Registered before PR #2073 merges.
+- Evidence:
+  - `aria-kernel/aria_kernel/judge_fanout.py:1123`
+  - `aria-kernel/aria_kernel/judge_fanout.py:1213`
+  - `aria-kernel/aria_kernel/judge_fanout.py:121`
+  - `aria-kernel/aria_kernel/judge_fanout.py:945`
+- It fails closed (a false `rebuttal_already_minted` skip, never a second rebuttal), so it is not
+  the ARIA-HIGH-788 class. The harm: an adapter-controlled string can deny a dissenter its rebuttal.
+  Judge rationales are also embedded in the arbiter and anchor prompts (`:697`, `:945`); those match
+  only when the arbiter seat is the dissenting agent.
+- Rule: untrusted text is data, never a control signal. Close: the rebuttal envelope carries a
+  structured marker field (or the check is an exact first-line match of the kernel-rendered prompt).
+  A test mints a first-round envelope whose message contains the marker and pins that the rebuttal is
+  still minted.
+
+## ARIA-MEDIUM-811
+
+A non-UTF-8 byte in a hash-chained ledger raises `UnicodeDecodeError` from the ledger primitives'
+`read_text(encoding="utf-8")` calls. `UnicodeDecodeError` is outside `ledger_read_faults()`, so a
+reader that fails closed on store faults aborts the cycle with an undeclared exception instead.
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-13.
+- Raised by: WPJ-FAILOPEN appellate round 2, carry-forward item 4. Registered before PR #2073
+  merges. Reproduced at `fd5fc221e`: a file with one valid row and one `0xFF 0xFE` line makes both
+  `load_jsonl_verified` and `read_jsonl` raise `UnicodeDecodeError`, which
+  `except ledger_read_faults()` does not catch. `_verify_file_or_raise` maps only `OSError`
+  (`:2208`).
+- Evidence:
+  - `aria-kernel/aria_kernel/ledger.py:934`
+  - `aria-kernel/aria_kernel/ledger.py:952`
+  - `aria-kernel/aria_kernel/ledger.py:2200-2214`
+  - `aria-kernel/aria_kernel/ledger.py:94-109`
+- It fails closed (the cycle aborts). Rule: `ledger_read_faults()` is the closed set of store faults.
+  Close (owner fix in the primitive, not in callers): `load_jsonl_verified` and the other decode
+  sites map `UnicodeDecodeError` to `LedgerIntegrityError` (reason_kind=encoding, with the byte
+  offset). A test pins that a non-UTF-8 byte is caught by `ledger_read_faults()` through
+  `load_jsonl_verified` and `load_segments`.
+- Citation note for ARIA-MEDIUM-802: its evidence cites
+  `aria-kernel/aria_kernel/outcome_truth.py:179`, but at `fd5fc221e` the inline join-key tuple is at
+  `:180`. The registry CLI has no evidence-amend subcommand for an OPEN row, so the row is not
+  edited; the note is carried in the notes of ARIA-HIGH-805, ARIA-MEDIUM-807, ARIA-MEDIUM-809 and
+  ARIA-MEDIUM-811.
+
 ## ARIA-MEDIUM-791
 
 Three live path -> service attributions outside impact_graph.project_for_path remain until the
@@ -1007,6 +1217,58 @@ their names can disagree with the one service key
   PLAN-v2 F0.9b; \_asset_of is the per-path twin of \_detect_services and goes with it.
 - Failure scenario: security assessment files a finding on `apps/<dir>` as `service:<dir>` while
   the finding dimension names the same project by its project.json name, so the two never join.
+
+## ARIA-HIGH-795
+
+ARIA's production metric detectors never ran (watchdog_pull.observability_base_url null), and the
+one puller would send the platform's shared INTERNAL_API_KEY to whatever host the policy names, with
+no named hold when the source is unread and runtime candidates rejected as one-evidence findings
+
+- Severity: HIGH; owner: Okan-wqm; deadline: 2026-11-06.
+- Plan item(s): RW-1 (SEQUENCE.md "Runtime watch"), registered by its implementer.
+- Evidence (at befe16159):
+  - `aria-kernel/aria_kernel/genesis_policy.py:548` (observability_base_url None by default) and
+    `:551` (api_key_env names the runner's copy of the shared key)
+  - `aria-kernel/aria_kernel/aria_watchdog.py:110-112` (x-internal-api-key header to the
+    policy-named host)
+  - `aria-kernel/aria_kernel/aria_watchdog.py:740-751` (skips land only in the sweep payload) and
+    `aria-kernel/aria_kernel/cycle.py:2952-2961` (the digest copies candidates/emitted/suppressed)
+  - `aria-kernel/aria_kernel/aria_watchdog.py:575-596` (runtime candidates emitted as one-evidence
+    operational_anomaly, rejected and counted suppressed)
+  - `scripts/aria/provision_runner.sh:226` (the runner `.env` is required to hold
+    ARIA_OBSERVABILITY_API_KEY)
+- Rule: RW-1 decisions: no shared internal API key for ARIA; a read-only loopback source read by
+  the ONE puller; a missing or unreachable source is a named hold, never silence; runtime claims go
+  through the existing proof gate.
+- Failure scenario: the watchdog_sweep phase runs every night and reports nothing about production;
+  an operator who sets the URL to the observability-service hands ARIA's runner the platform's
+  internal key, and a 5xx storm still becomes no finding and no lead.
+
+## ARIA-MEDIUM-796
+
+The runtime watchdog's security-critical detector can never fire: security_events_total carries
+only a type label (no severity), and Prometheus's observability-service scrape is refused 401
+because that /metrics is INTERNAL_API_KEY-gated
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-06.
+- Raised by: the RW-1 implementer (read-only queries on the droplet Prometheus, 2026-10-23:
+  `up{app="observability-service"}` = 0 with lastError "server returned HTTP status 401
+  Unauthorized"; `count(security_events_total)` = 0).
+- Evidence:
+  - `apps/observability-service/src/security-events/security-metrics.service.ts:35` (labelNames
+    `['type']`, no severity)
+  - `aria-kernel/aria_kernel/aria_watchdog.py:343` (the detector requires `severity=critical`)
+  - `apps/observability-service/src/prometheus/prometheus.controller.ts:8-10` (/metrics behind the
+    global InternalApiGuard)
+  - `infrastructure/monitoring/droplet/file_sd/aqua-services.json:134` (the target Prometheus
+    scrapes) and `docker-compose.droplet.yml:2152` (a comment that says the scrape is not enabled)
+- Rule: a detector that names a signal the source never carries is a silent dead eye; every runtime
+  detector reads a series the droplet Prometheus holds.
+- Failure scenario: an auth-bypass storm is counted by the observability-service and never reaches
+  Prometheus, so the watchdog's security detector reports nothing. Not fixed in RW-1: it needs the
+  observability-service metrics surface (a public metrics-only endpoint like the other backends got
+  in OBS-HIGH-001, or a scrape credential held by Prometheus, never ARIA) and a severity source for
+  security event types.
 
 ## ARIA-MEDIUM-803
 

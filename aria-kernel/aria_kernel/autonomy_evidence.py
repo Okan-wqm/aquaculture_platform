@@ -1119,6 +1119,7 @@ CAPABILITY_SPECS: Mapping[str, CapabilitySpec] = MappingProxyType({
             f"{_KERNEL}feedback_store.py",
             f"{_KERNEL}finding_promotion.py",
             f"{_KERNEL}funnel_health.py",
+            f"{_KERNEL}outcome_truth.py",
             f"{_KERNEL}pr_tracking.py",
             f"{_KERNEL}rule_health.py",
             f"{_KERNEL}state_compact.py",
@@ -1139,6 +1140,9 @@ CAPABILITY_SPECS: Mapping[str, CapabilitySpec] = MappingProxyType({
         authorizing_consumer_paths=(
             f"{_KERNEL}finding_promotion.py",
             f"{_KERNEL}funnel_health.py",
+            # WP-J outcome_truth joins promotions to their outcomes and records
+            # the result as truth labels, so it authorizes on the proof surface.
+            f"{_KERNEL}outcome_truth.py",
             f"{_KERNEL}rule_health.py",
             f"{_KERNEL}state_compact.py",
         ),

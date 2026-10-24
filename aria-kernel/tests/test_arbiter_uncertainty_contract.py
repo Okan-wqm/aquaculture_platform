@@ -128,7 +128,36 @@ class ArbiterUncertaintyIsAValidOutcome(unittest.TestCase):
                 "confidence_uncalibrated",
                 # ARIA-HIGH-325 — a true_positive argued on inadmissible evidence.
                 "evidence_inadmissible",
+                # WP-J B-2 — the evidence-weighing arbiter's lawful non-verdict
+                # (the brief itself asks for it: judge_fanout
+                # .render_evidence_weighing_prompt). Slice B added the member
+                # without this pin, so the closed-set test went red at the tip.
+                "unverifiable",
+                # WP-J fix round — an anchor-grade closing set whose evidence
+                # union is empty escalates under this name, never anchors.
+                "anchor_evidence_empty",
+                # WP-J fix round — a panel whose seats echo each other.
+                "panel_echo",
             },
+        )
+
+    def test_every_reason_escalates_under_its_severity(self) -> None:
+        """A reason the sweep's severity table does not know is silently
+        dropped as ``benign_not_escalated`` (human_required), so the pin and
+        the table must move together — the vocabulary and its escalation are
+        one contract, not two."""
+        from aria_kernel.human_required import CONSENSUS_UNCERTAINTY_SEVERITY
+
+        self.assertEqual(CONSENSUS_UNCERTAINTY_SEVERITY["unverifiable"], "HIGH")
+        self.assertEqual(
+            {
+                reason
+                for reason in CONSENSUS_UNCERTAINTY_REASONS
+                if reason not in CONSENSUS_UNCERTAINTY_SEVERITY
+            },
+            # single_judge is the one deliberate non-escalation: a group with
+            # one judge has nothing to settle yet, not a failure to weigh.
+            {"single_judge"},
         )
 
 

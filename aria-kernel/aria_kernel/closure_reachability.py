@@ -27,12 +27,20 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from .literal_provenance import ProductionIndex
 
+# The ratchet's pinned-unreachable baseline, relative to the repo root. It
+# waives the closure gate, so it is test collection in the derived authority
+# set (`self_improvement.derived_authority_set`, PLAN-v2 B1).
+CLOSURE_BASELINE_RELPATH: tuple[str, ...] = ("aria-kernel", "closure-reachability-baseline.json")
+# What a pinned entry waives, named where the baseline's other readers name a
+# waiver's kind (`self_improvement.invariants_only_grow` compares every store).
+CLOSURE_PIN_KIND = "closure_reachability_pin"
 _LEDGER_HEADING = re.compile(r"^## (ORPHAN-[A-Z]+-\d+) ", re.MULTILINE)
 _BACKTICKED = re.compile(r"`([a-z][a-z0-9_]{3,})`")
 _RESOLVED = "RESOLVED"
@@ -68,6 +76,27 @@ def _is_producer_symbol(token: str) -> bool:
 class ClosureSymbol:
     finding_id: str
     symbol: str
+
+
+def _baseline_pins(baseline_file: Path) -> dict[str, dict[str, Any]]:
+    """The baseline's `pinned` map, `<finding>:<symbol>` → owner, date and
+    reason; empty when the file is absent (nothing is pinned)."""
+    if not baseline_file.exists():
+        return {}
+    return json.loads(baseline_file.read_text(encoding="utf-8")).get("pinned", {})
+
+
+def _pin_symbol(key: str) -> ClosureSymbol:
+    finding_id, symbol = key.split(":", 1)
+    return ClosureSymbol(finding_id=finding_id, symbol=symbol)
+
+
+def iter_closure_pins(repo_root: str | Path) -> Iterator[tuple[ClosureSymbol, dict[str, Any]]]:
+    """Every pinned (finding, symbol) of the checkout at `repo_root`, with its
+    entry, in key order. The pins WAIVE this gate, so they are compared beside
+    the dated waiver manifests by the invariants that only grow."""
+    for key, entry in sorted(_baseline_pins(Path(repo_root).joinpath(*CLOSURE_BASELINE_RELPATH)).items()):
+        yield _pin_symbol(key), entry
 
 
 @dataclass(frozen=True)
@@ -148,9 +177,7 @@ def scan_closure_reachability(
 ) -> ReachabilityReport:
     repo = Path(repo_root).resolve()
     ledger_path = repo / "docs" / "reviews" / "orphan-findings.md"
-    baseline_file = Path(baseline_path) if baseline_path else (
-        repo / "aria-kernel" / "closure-reachability-baseline.json"
-    )
+    baseline_file = Path(baseline_path) if baseline_path else repo.joinpath(*CLOSURE_BASELINE_RELPATH)
 
     # ProductionIndex expects the REPO root: its roster walks
     # aria-kernel/, tools/ and scripts/ from there.
@@ -160,10 +187,6 @@ def scan_closure_reachability(
         ledger_path.read_text(encoding="utf-8") if ledger_path.exists() else "",
         known,
     )
-
-    baseline: dict[str, Any] = {}
-    if baseline_file.exists():
-        baseline = json.loads(baseline_file.read_text(encoding="utf-8"))
 
     unreachable: list[ClosureSymbol] = []
     reachable: list[ClosureSymbol] = []
@@ -176,15 +199,10 @@ def scan_closure_reachability(
         else:
             unreachable.append(pair)
 
-    pinned_keys = set(baseline.get("pinned", {}))
-    pinned = [pair for pair in unreachable if f"{pair.finding_id}:{pair.symbol}" in pinned_keys]
-    shrunk = [
-        ClosureSymbol(finding_id=key.split(":", 1)[0], symbol=key.split(":", 1)[1])
-        for key in pinned_keys
-        if any(pair.finding_id == key.split(":", 1)[0] and pair.symbol == key.split(":", 1)[1]
-               for pair in reachable)
-    ]
-    violations = [pair for pair in unreachable if f"{pair.finding_id}:{pair.symbol}" not in pinned_keys]
+    pinned_symbols = {_pin_symbol(key) for key in _baseline_pins(baseline_file)}
+    pinned = [pair for pair in unreachable if pair in pinned_symbols]
+    shrunk = [pin for pin in sorted(pinned_symbols, key=lambda p: (p.finding_id, p.symbol)) if pin in reachable]
+    violations = [pair for pair in unreachable if pair not in pinned_symbols]
     return ReachabilityReport(
         unreachable=tuple(unreachable),
         pinned=tuple(pinned),
@@ -202,11 +220,9 @@ def write_baseline(repo_root: str | Path, *, owner: str, reason: str) -> dict[st
     from datetime import datetime, timezone
 
     repo = Path(repo_root).resolve()
-    baseline_file = repo / "aria-kernel" / "closure-reachability-baseline.json"
+    baseline_file = repo.joinpath(*CLOSURE_BASELINE_RELPATH)
     report = scan_closure_reachability(repo, baseline_path=baseline_file)
-    existing: dict[str, Any] = (
-        json.loads(baseline_file.read_text(encoding="utf-8")) if baseline_file.exists() else {}
-    ).get("pinned", {})
+    existing = _baseline_pins(baseline_file)
     now = datetime.now(timezone.utc).date().isoformat()
     pinned: dict[str, Any] = {}
     for pair in report.unreachable:
@@ -222,9 +238,12 @@ def write_baseline(repo_root: str | Path, *, owner: str, reason: str) -> dict[st
 
 
 __all__ = [
+    "CLOSURE_BASELINE_RELPATH",
+    "CLOSURE_PIN_KIND",
     "ClosureSymbol",
     "ReachabilityReport",
     "closure_symbols_in_ledger",
+    "iter_closure_pins",
     "scan_closure_reachability",
     "write_baseline",
 ]

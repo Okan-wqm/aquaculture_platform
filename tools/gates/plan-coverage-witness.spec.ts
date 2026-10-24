@@ -35,7 +35,8 @@ import test, { after } from 'node:test';
 
 import { parse as yamlParse } from 'yaml';
 
-import { indexFixtureTree, removeFixtureTree } from './fixture-tree';
+import { indexFixtureTree } from './fixture-git-index';
+import { removeFixtureTree } from './fixture-tree';
 
 const GATE_DIR = dirname(resolve(__filename));
 const REPO_ROOT = resolve(GATE_DIR, '..', '..');

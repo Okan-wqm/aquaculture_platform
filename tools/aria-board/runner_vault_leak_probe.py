@@ -95,7 +95,7 @@ answers first): ``git_https:GIT_ASKPASS``, ``git_https:SSH_ASKPASS``,
 :data:`JOB_GIT_CREDENTIALS`), and ``git_<transport>:GIT_CONFIG:<n>`` for each
 env-borne ``credential.helper``, ``credential.<url>.helper``,
 ``core.askPass`` or ``core.sshCommand`` entry, which git itself lists
-(:func:`job_git_config_entries`) and which is set alone as
+(:func:`git_config_entries`) and which is set alone as
 ``GIT_CONFIG_COUNT=1`` — its value only ever in that child's environment.
 ``git_https:job`` and ``git_ssh:job`` (the job's environment exactly as a job
 sees it, no probe ``GIT_SSH_COMMAND``) stay as composites in addition. Every
@@ -140,6 +140,22 @@ relative one); a tool that does not resolve is the named environment problem
 ``tool_missing:<name>``, inconclusive. The job's ``PATH`` stays in the base:
 it decides only what a job's own helper, askpass or ssh command resolves to,
 as it does for a job's git.
+
+EVERY STORED GIT CREDENTIAL, EACH ALONE (B0 corrective round 7, R7-1;
+ARIA-MEDIUM-812). ``git_https:stored[:<VARIABLE>]`` asks every config file of
+its place in one call — the system file, the XDG global and ``~/.gitconfig``
+— and git uses the first helper that answers, so a revoked helper earlier in
+that order hid a working one; and a passwd-home ``core.sshCommand`` was asked
+only through ``git_ssh:job``, where an env ``GIT_SSH_COMMAND`` overrides it:
+the R6-1 class at the default places, entirely inside the passwd home. git
+itself now also lists each stored place (:func:`git_config_places`; the one
+lister :func:`git_config_entries`, keeping the ``system`` and ``global``
+scopes under the place's own environment), and each of its credential
+entries is its own source, ``git_<transport>:stored[:<VARIABLE>]:<scope>:<n>``
+with git's scope name, asked exactly as an env-borne entry is: the named
+base and the place's one variable, :data:`CONFIG_FILES_OFF` and
+``GIT_CONFIG_COUNT=1``, no probe ``GIT_SSH_COMMAND``. The composites stay. A
+place git cannot list is ``git:stored[:<VARIABLE>]``, inconclusive.
 
 Exit status: 0 GREEN — every source ran and none reached the vault, the App
 key source included, and no data key is present; 1 RED — a source reached the
@@ -475,9 +491,11 @@ def credential_environment(env: dict[str, str], *, variable: str | None = None) 
 # THE pin that keeps git's configuration FILES — the system file and the
 # global one at the default place — from deciding a git source that asks a
 # credential of its own (B0 corrective round 6, R6-2): the probe's ssh
-# sources, whose URL an ``insteadOf`` there would rewrite. Never applied to
-# the ``:job`` composites, nor to ``git_https:stored*``, whose config file is
-# the place they ask.
+# sources, whose URL an ``insteadOf`` there would rewrite; each env-borne job
+# credential (R6-1); and each config entry asked alone, env-borne or listed
+# at a stored place (R6-1, R7-1), so no other entry of those files answers
+# first. Never applied to the ``:job`` composites, nor to the
+# ``git_https:stored*`` composites, whose config files are the place they ask.
 CONFIG_FILES_OFF = {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
 
 # Each env-borne git credential a job's git uses, by the transport it serves
@@ -508,43 +526,100 @@ def credential_key_transport(key: str) -> str | None:
 
 @dataclass(frozen=True)
 class GitConfigEntry:
-    """One env-borne git config entry that is a credential: its index among git's ``command`` entries, key, value.
+    """One credential entry of git's configuration, asked alone: where git listed it, its index there, key, value.
 
-    The value lives in memory and in the one child's environment that asks
-    it: never in argv, on disk or in the report (``repr`` omits it).
-    ``None`` when git lists the key with no value.
+    Its source is ``git_<transport>:<place>:<index>`` (B0 corrective round 6,
+    R6-1; round 7, R7-1): ``place`` is ``GIT_CONFIG`` for the job's
+    env-borne configuration, or ``stored[:<VARIABLE>]:<scope>`` for a stored
+    place, with git's own scope name; ``index`` counts every entry git lists
+    in that scope, so it names the entry's position, never its key's URL or
+    its value. ``location`` is the one job variable of the stored place it
+    was listed at (None at the default place and for the env-borne
+    configuration); the entry is asked under it, so a helper that reads
+    ``HOME`` reads the same home a job using that place reads. The value
+    lives in memory and in the one child's environment that asks it: never
+    in argv, on disk or in the report (``repr`` omits it). ``None`` when git
+    lists the key with no value.
     """
 
+    place: str
+    location: str | None
     index: int
     key: str
     value: str | None = field(repr=False)
 
 
-def job_git_config_entries(env: dict[str, str], git_cli: str) -> list[GitConfigEntry] | None:
-    """Each credential entry of the job's env-borne git configuration, as git itself lists them; None if git did not.
+# The scopes a stored place's own files are listed under: the system file
+# and the global one(s) at that place (B0 corrective round 7, R7-1).
+_STORED_SCOPES = frozenset({"system", "global"})
+# The scope of git's configuration from the environment.
+_ENV_SCOPES = frozenset({"command"})
 
-    git reads the entries (B0 corrective round 6, R6-1): ``git config --list
-    -z --show-scope`` under the named base plus the job's ``GIT_CONFIG_*``
-    variables alone, with :data:`CONFIG_FILES_OFF`, in
-    :func:`outside_any_repository`, keeping the ``command`` scope. The index counts
-    every ``command`` entry, so it names the entry's place in the job's
-    configuration, never its key's URL or its value.
+
+@dataclass(frozen=True)
+class GitConfigPlace:
+    """One place a job's git reads the uid's configuration from, and the environment git lists it under.
+
+    B0 corrective round 7, R7-1: a stored place (``stored[:<VARIABLE>]``,
+    the environment its ``git_https:stored`` composite runs under, keeping
+    the ``system`` and ``global`` scopes; its entries are named by scope),
+    or the job's env-borne configuration (``GIT_CONFIG``, the named base plus
+    the job's ``GIT_CONFIG_*`` variables alone with :data:`CONFIG_FILES_OFF`,
+    keeping the ``command`` scope; its entries keep the R6-1 names).
     """
-    asked = {**credential_environment(env), **{k: v for k, v in env.items() if _GIT_ENV_CONFIG.fullmatch(k)},
-             **CONFIG_FILES_OFF}
+
+    stem: str
+    location: str | None
+    scopes: frozenset[str]
+    environment: dict[str, str] = field(repr=False)
+
+    def entry_place(self, scope: str) -> str:
+        return self.stem if self.scopes == _ENV_SCOPES else f"{self.stem}:{scope}"
+
+
+def stored_place_name(location: str | None) -> str:
+    """``stored`` at the default place, ``stored:<VARIABLE>`` at a place the job's environment names."""
+    return GIT_STORED_LOGIN + (f":{location}" if location is not None else "")
+
+
+def git_config_places(env: dict[str, str]) -> list[GitConfigPlace]:
+    """Every place a job's git under ``env`` reads the uid's configuration from: each stored place, then the env's own."""
+    places = [GitConfigPlace(stored_place_name(location), location, _STORED_SCOPES,
+                             credential_environment(env, variable=location))
+              for location in (None, *job_named_locations(env, _GIT_LOGIN_LOCATIONS))]
+    if any(name in env for name in _GIT_ENV_CONFIG_SET_BY):
+        places.append(GitConfigPlace(GIT_CONFIG_ENTRY, None, _ENV_SCOPES, {
+            **credential_environment(env), **{k: v for k, v in env.items() if _GIT_ENV_CONFIG.fullmatch(k)},
+            **CONFIG_FILES_OFF}))
+    return places
+
+
+def git_config_entries(place: GitConfigPlace, git_cli: str) -> list[GitConfigEntry] | None:
+    """THE one lister: each credential entry of ``place``, as git itself lists them; None if git did not.
+
+    B0 corrective round 6, R6-1 (the job's env-borne configuration), round 7,
+    R7-1 (each stored place too): ``git config --list -z --show-scope``
+    under the place's environment, in :func:`outside_any_repository`,
+    keeping the place's scopes. Values stay in this process's memory.
+    """
     with outside_any_repository() as (outside, discovery):
-        done = _run([git_cli, "config", "--list", "-z", "--show-scope"], env={**asked, **discovery}, cwd=outside)
+        done = _run([git_cli, "config", "--list", "-z", "--show-scope"], env={**place.environment, **discovery},
+                    cwd=outside)
     if done is None or done.returncode != 0:
         return None
     fields = done.stdout.split("\0")
     if fields[-1] != "" or len(fields) % 2 != 1:
         return None
-    command = [item for scope, item in zip(fields[0:-1:2], fields[1:-1:2]) if scope == "command"]
     entries: list[GitConfigEntry] = []
-    for index, item in enumerate(command):
+    counted: dict[str, int] = {}
+    for scope, item in zip(fields[0:-1:2], fields[1:-1:2]):
+        if scope not in place.scopes:
+            continue
+        index = counted[scope] = counted.get(scope, -1) + 1
         key, newline, value = item.partition("\n")
         if credential_key_transport(key) is not None:
-            entries.append(GitConfigEntry(index, key, value if newline else None))
+            entries.append(GitConfigEntry(place.entry_place(scope), place.location, index, key,
+                                          value if newline else None))
     return entries
 
 
@@ -660,12 +735,25 @@ class GitRemoteSource:
     ``GIT_SSH_COMMAND``: the job's command decides), and one
     ``git_<transport>:GIT_CONFIG:<n>`` per env-borne ``credential.helper``,
     ``credential.<url>.helper``, ``core.askPass`` or ``core.sshCommand``
-    entry (:func:`job_git_config_entries`), set alone as
+    entry (:func:`git_config_entries`), set alone as
     ``GIT_CONFIG_COUNT=1``. ``git_https:job`` and ``git_ssh:job`` run under
     the job's environment exactly as a job sees it, as composites IN ADDITION:
     neither is ever the only source that asks a credential. Only the probe's
     own ssh sources pin GitHub's host key; under a job's ssh command an
     unknown host key fails, read as inconclusive.
+
+    Round 7, R7-1 (ARIA-MEDIUM-812): ``git_https:stored[:<VARIABLE>]``
+    asks every config file of its place in one call — the system file, the
+    XDG global and ``~/.gitconfig`` — and git uses the first helper that
+    answers, so a revoked helper earlier in that order hid a working one, and
+    a passwd-home ``core.sshCommand`` was asked only through ``git_ssh:job``,
+    where an env ``GIT_SSH_COMMAND`` overrides it. Each stored place is now
+    listed too (:func:`git_config_places`, :func:`git_config_entries`), and
+    each of its ``credential.helper``, ``credential.<url>.helper``,
+    ``core.askPass`` and ``core.sshCommand`` entries is its own source,
+    ``git_<transport>:stored[:<VARIABLE>]:<scope>:<n>``, asked exactly as an
+    env-borne entry is (``entry=``; no probe ``GIT_SSH_COMMAND``). The
+    ``git_https:stored*`` composites stay, in addition.
     """
 
     def __init__(self, *, transport: str, env: dict[str, str], tools: ProbeTools,
@@ -673,18 +761,20 @@ class GitRemoteSource:
                  entry: GitConfigEntry | None = None) -> None:
         self.transport, self.tools = transport, tools
         # Only the probe's own ssh sources run its ssh, with GitHub's host key pinned.
-        self.pins_ssh = transport == "ssh" and credential == GIT_STORED_LOGIN
+        self.pins_ssh = transport == "ssh" and credential == GIT_STORED_LOGIN and entry is None
         if entry is not None:
-            if (credential != GIT_CONFIG_ENTRY or location is not None or entry.value is None
+            # One listed config entry, asked alone: its place and index name
+            # it, so neither ``credential`` nor ``location`` is given.
+            if ((credential, location) != (GIT_STORED_LOGIN, None) or entry.value is None
                     or credential_key_transport(entry.key) != transport):
-                raise ValueError(f"{transport}:{credential}:{entry.index}")
-            self.env = {**credential_environment(env), **CONFIG_FILES_OFF, "GIT_CONFIG_COUNT": "1",
-                        "GIT_CONFIG_KEY_0": entry.key, "GIT_CONFIG_VALUE_0": entry.value}
-            self.name = f"git_{transport}:{GIT_CONFIG_ENTRY}:{entry.index}"
+                raise ValueError(f"{transport}:{entry.place}:{entry.index}")
+            self.env = {**credential_environment(env, variable=entry.location), **CONFIG_FILES_OFF,
+                        "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": entry.key, "GIT_CONFIG_VALUE_0": entry.value}
+            self.name = f"git_{transport}:{entry.place}:{entry.index}"
         elif transport == "https" and credential == GIT_STORED_LOGIN and (
                 location is None or location in _GIT_LOGIN_LOCATIONS):
             self.env = credential_environment(env, variable=location)
-            self.name = "git_https:stored" + (f":{location}" if location is not None else "")
+            self.name = f"git_https:{stored_place_name(location)}"
         elif transport == "ssh" and credential == GIT_STORED_LOGIN and (
                 location is None or location in _SSH_LOGIN_LOCATIONS):
             self.env = {**credential_environment(env, variable=location), **CONFIG_FILES_OFF}
@@ -702,28 +792,32 @@ class GitRemoteSource:
     def every_credential(cls, *, env: dict[str, str], tools: ProbeTools) -> list[CredentialSource]:
         """THE one list of git sources under ``env``, per transport: each stored place, each job credential alone, the job.
 
-        An env-borne config git could not list, or a credential entry with no
-        value, is an :class:`UnaskedSource` (inconclusive), never skipped.
+        Per transport: the stored composites, each stored place's credential
+        entries, each env-borne job credential, each env-borne config entry,
+        then the job composite. A place git could not list
+        (``git:<place>``), or a credential entry with no value, is an
+        :class:`UnaskedSource` (inconclusive), never skipped.
         """
-        entries = (job_git_config_entries(env, tools.git) if any(name in env for name in _GIT_ENV_CONFIG_SET_BY)
-                   else [])
-        sources: list[CredentialSource] = []
-        if entries is None:
-            sources.append(UnaskedSource(f"git:{GIT_CONFIG_ENTRY}", "git_config_unlisted"))
+        listed = [(place, git_config_entries(place, tools.git)) for place in git_config_places(env)]
+        sources: list[CredentialSource] = [UnaskedSource(f"git:{place.stem}", "git_config_unlisted")
+                                           for place, entries in listed if entries is None]
+        stored = [entry for place, entries in listed if place.stem != GIT_CONFIG_ENTRY for entry in entries or []]
+        env_borne = [entry for place, entries in listed if place.stem == GIT_CONFIG_ENTRY for entry in entries or []]
+
+        def asked_alone(transport: str, entries: list[GitConfigEntry]) -> list[CredentialSource]:
+            return [cls(transport=transport, env=env, tools=tools, entry=entry) if entry.value is not None else
+                    UnaskedSource(f"git_{transport}:{entry.place}:{entry.index}", "git_config_entry_without_value")
+                    for entry in entries if credential_key_transport(entry.key) == transport]
+
         for transport, locations in (("https", _GIT_LOGIN_LOCATIONS), ("ssh", _SSH_LOGIN_LOCATIONS)):
             sources += [cls(transport=transport, env=env, tools=tools),
                         *(cls(transport=transport, env=env, tools=tools, location=name)
                           for name in job_named_locations(env, locations)),
+                        *asked_alone(transport, stored),
                         *(cls(transport=transport, env=env, tools=tools, credential=name)
-                          for name, served in JOB_GIT_CREDENTIALS.items() if served == transport and env.get(name))]
-            for entry in entries or []:
-                if credential_key_transport(entry.key) != transport:
-                    continue
-                sources.append(cls(transport=transport, env=env, tools=tools, credential=GIT_CONFIG_ENTRY, entry=entry)
-                               if entry.value is not None else
-                               UnaskedSource(f"git_{transport}:{GIT_CONFIG_ENTRY}:{entry.index}",
-                                             "git_config_entry_without_value"))
-            sources.append(cls(transport=transport, env=env, tools=tools, credential=GIT_JOB))
+                          for name, served in JOB_GIT_CREDENTIALS.items() if served == transport and env.get(name)),
+                        *asked_alone(transport, env_borne),
+                        cls(transport=transport, env=env, tools=tools, credential=GIT_JOB)]
         return sources
 
     def reach(self, repository: str) -> Reach:

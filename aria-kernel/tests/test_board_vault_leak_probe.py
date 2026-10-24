@@ -976,6 +976,74 @@ class GitDiscoveryStopsAtTheScratchDirectoryTests(_PasswdHome):
                 self.assertEqual(env.get("GIT_CEILING_DIRECTORIES"), os.path.dirname(cwd))
 
 
+class StoredConfigEntriesEachAloneTests(_PasswdHome):
+    """B0 corrective round 7, R7-1 (security SEC-R5R1-1, P2 B/B2; evidence BLK-R5E-2, p02; ARIA-MEDIUM-812).
+
+    git_https:stored asked the system, XDG-global and ``~/.gitconfig`` files
+    in one call, and git uses the first helper that answers: a revoked helper
+    earlier in that order hid a working one, all inside the passwd home.
+    Each credential entry of a stored place is now asked alone,
+    ``git_<transport>:stored[:<VAR>]:<scope>:<n>``.
+    """
+
+    def _recorded_main(self, variables: dict[str, str]) -> tuple[int, dict, str, list[list[str]]]:
+        """``_main_app_refused`` with every argv the probe hands ``_run`` recorded."""
+        import subprocess
+
+        argvs: list[list[str]] = []
+        real_run = self.probe._run
+
+        def recording_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str] | None:
+            argvs.append(list(command))
+            return real_run(command, **kwargs)
+
+        with patch.object(self.probe, "_run", recording_run):
+            status, report, stdout = self._main_app_refused(variables)
+        return status, report, stdout, argvs
+
+    def test_a_revoked_helper_at_a_default_place_does_not_hide_a_working_one(self) -> None:
+        xdg = self.home / ".config" / "git" / "config"
+        revoked = f'[credential]\n\thelper = "{_REVOKED_HELPER}"\n'
+        cases = {
+            "control": {".gitconfig": _WORKING_HELPER},
+            "B_xdg_revoked_before_gitconfig_working": {".config/git/config": revoked, ".gitconfig": _WORKING_HELPER},
+            "B2_gitconfig_revoked_then_working": {".gitconfig": revoked + _WORKING_HELPER},
+        }
+        for case, files in cases.items():
+            with self.subTest(case=case):
+                for stale in (self.home / ".gitconfig", xdg):
+                    stale.unlink(missing_ok=True)
+                for name, text in files.items():
+                    (self.home / name).parent.mkdir(parents=True, exist_ok=True)
+                    (self.home / name).write_text(text, encoding="utf-8")
+                status, report, stdout, argvs = self._recorded_main({"LANG": "C.UTF-8"})
+                reached = [r["source"] for r in report["sources"] if r["status"] == self.probe.REACHABLE]
+                self.assertEqual((status, report["verdict"]), (1, "red"), report)
+                self.assertTrue([s for s in reached if s.startswith("git_https:stored:global:")], report["sources"])
+                for value in ("fixture-helper", "password=revoked", "echo username"):
+                    self.assertNotIn(value, stdout)
+                    self.assertFalse([argv for argv in argvs if any(value in arg for arg in argv)], value)
+
+    def test_each_stored_place_lists_system_and_global_entries_under_its_own_env(self) -> None:
+        other = self.root / "other-home"
+        other.mkdir()
+        (other / ".gitconfig").write_text(f'[core]\n\tsshCommand = ssh -i /fixture/key\n{_WORKING_HELPER}',
+                                          encoding="utf-8")
+        (self.home / ".gitconfig").write_text(_WORKING_HELPER, encoding="utf-8")
+        env = {"PATH": os.environ["PATH"], "HOME": str(other)}
+        sources = {source.name: source for source in self.probe.GitRemoteSource.every_credential(
+            env=env, tools=_tools(self.probe, git=self.real_git))}
+        self.assertLessEqual({"git_https:stored:global:0", "git_https:stored:HOME:global:1",
+                              "git_ssh:stored:HOME:global:0"}, set(sources), sorted(sources))
+        entry = sources["git_https:stored:HOME:global:1"].env
+        self.assertEqual({k: entry.get(k) for k in ("HOME", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_NOSYSTEM",
+                                                    "GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0")},
+                         {"HOME": str(other), "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1",
+                          "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "credential.https://github.com.helper"})
+        self.assertNotIn("GIT_SSH_COMMAND", sources["git_ssh:stored:HOME:global:0"].env)
+        self.assertFalse([name for name in sources if "fixture" in name or "github.com" in name])
+
+
 class _LocalVaultOverSsh(unittest.TestCase):
     """A vault served over a fake ssh, with nothing leaving the host.
 
@@ -1195,6 +1263,20 @@ class JobSshCommandEachAloneTests(_LocalVaultOverSsh):
         self._assert_red_by({"GIT_SSH_COMMAND": str(self.revoked_job_ssh), "GIT_CONFIG_COUNT": "1",
                              "GIT_CONFIG_KEY_0": "core.sshCommand", "GIT_CONFIG_VALUE_0": str(self.job_ssh)},
                             "git_ssh:GIT_CONFIG:0")
+
+    def test_a_passwd_home_ssh_command_is_asked_alone_beside_an_env_file_one(self) -> None:
+        # B0 corrective round 7, R7-1 (evidence p02 B; ARIA-MEDIUM-812): a
+        # passwd-home core.sshCommand was asked only through git_ssh:job,
+        # where an env GIT_SSH_COMMAND overrides it.
+        (self.home / ".gitconfig").write_text(f"[core]\n\tsshCommand = {self.job_ssh}\n", encoding="utf-8")
+        for case, variables in (("control", {"LANG": "C.UTF-8"}),
+                                ("env_file_revoked_ssh_command", {"GIT_SSH_COMMAND": str(self.revoked_job_ssh)})):
+            with self.subTest(case=case):
+                status, report = self._main(variables)
+                reached = [r["source"] for r in report["sources"] if r["status"] == self.probe.REACHABLE]
+                self.assertEqual((status, report["verdict"]), (1, "red"), report)
+                self.assertIn("git_ssh:stored:global:0", reached, report["sources"])
+                self.assertNotIn(str(self.job_ssh), json.dumps(report))
 
 
 if __name__ == "__main__":

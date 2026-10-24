@@ -556,15 +556,14 @@ class RunnerEnvironmentFileTests(unittest.TestCase):
         self.assertEqual(status, 2)
 
 
-class StoredLoginUnderThePasswdHomeTests(unittest.TestCase):
-    """B0 corrective round 4, R4-3 (security P6, evidence p04; appellate): an env file moves where gh looks, not the login.
+class _PasswdHome(unittest.TestCase):
+    """A scratch passwd home with a gh that models gh's lookup and a git whose HTTPS answer is git's own credential fill.
 
-    The runner uid's stored login lives under its passwd home. An env-file
-    GH_CONFIG_DIR, XDG_CONFIG_HOME or HOME points gh at another config
-    directory, and GH_HOST at another host, so a probe that asks gh under the
-    job's environment never asks that login — yet a job's code can unset the
-    variables and use it. The same measurement is made for git's credential
-    helper under the passwd home, with a real git.
+    The git wrapper runs the real ``git credential fill`` under the
+    environment and working directory the source hands it (no network), so
+    git's own config precedence, helpers, includes and repository discovery
+    decide; a password ``revoked`` is refused as GitHub refuses a revoked
+    token, any other password lists the vault's refs.
     """
 
     def setUp(self) -> None:
@@ -634,6 +633,58 @@ class StoredLoginUnderThePasswdHomeTests(unittest.TestCase):
             status = self.probe.main(["--env-file", str(env_file)])
         return status, out.getvalue()
 
+    def _main_app_refused(self, variables: dict[str, str]) -> tuple[int, dict, str]:
+        """``main()`` with the App source refused (404) and ``variables`` as the runner's one env file.
+
+        No App key would leave every run inconclusive; with it refused, an
+        exit of 2 is a source's own inconclusive answer and 0 is green.
+        """
+        import contextlib
+        import io
+
+        env_file = self.root / "runner.env"
+        env_file.write_text("".join(f"{name}={value}\n" for name, value in variables.items()), encoding="utf-8")
+        refused = lambda source, repository: self.probe.Reach(source.name, self.probe.UNREACHABLE, 404, "fixture")  # noqa: E731
+        out = io.StringIO()
+        with patch.object(self.probe.AppPrivateKeySource, "reach", refused), contextlib.redirect_stdout(out):
+            status = self.probe.main(["--app-id", "1", "--installation-id", "2", "--app-private-key",
+                                      str(self.root / "unused.pem"), "--env-file", str(env_file)])
+        return status, json.loads(out.getvalue()), out.getvalue()
+
+    def _assert_reached_by(self, source: str, cases: dict[str, dict[str, str]]) -> list[str]:
+        """Each env file of ``cases`` alone: exit 1, red, ``source`` reachable, no env-file value in stdout."""
+        reached_by_case: list[str] = []
+        for case, variables in cases.items():
+            with self.subTest(env_file=case):
+                status, stdout = self._run("\n".join(f"{name}={value}" for name, value in variables.items()))
+                report = json.loads(stdout)
+                reached = [r["source"] for r in report["sources"] if r["status"] == self.probe.REACHABLE]
+                self.assertEqual((status, report["verdict"]), (1, "red"), report)
+                self.assertIn(source, reached, report["sources"])
+                for value in variables.values():
+                    if len(value) > 1:
+                        self.assertNotIn(value, stdout)
+                reached_by_case += reached
+        return reached_by_case
+
+    def _askpass(self, name: str, answer: str) -> Path:
+        script = self.root / name
+        script.write_text(f"#!/bin/sh\necho {answer}\n", encoding="utf-8")
+        script.chmod(0o755)
+        return script
+
+
+class StoredLoginUnderThePasswdHomeTests(_PasswdHome):
+    """B0 corrective round 4, R4-3 (security P6, evidence p04; appellate): an env file moves where gh looks, not the login.
+
+    The runner uid's stored login lives under its passwd home. An env-file
+    GH_CONFIG_DIR, XDG_CONFIG_HOME or HOME points gh at another config
+    directory, and GH_HOST at another host, so a probe that asks gh under the
+    job's environment never asks that login — yet a job's code can unset the
+    variables and use it. The same measurement is made for git's credential
+    helper under the passwd home, with a real git.
+    """
+
     def _assert_red_through(self, prefix: str, lines: dict[str, str]) -> None:
         for name, value in lines.items():
             with self.subTest(env_file=name):
@@ -691,22 +742,6 @@ class StoredLoginUnderThePasswdHomeTests(unittest.TestCase):
                                                                                   tools=tools)],
                          ["gh_cli:stored"])
 
-    def _assert_reached_by(self, source: str, cases: dict[str, dict[str, str]]) -> list[str]:
-        """Each env file of ``cases`` alone: exit 1, red, ``source`` reachable, no env-file value in stdout."""
-        reached_by_case: list[str] = []
-        for case, variables in cases.items():
-            with self.subTest(env_file=case):
-                status, stdout = self._run("\n".join(f"{name}={value}" for name, value in variables.items()))
-                report = json.loads(stdout)
-                reached = [r["source"] for r in report["sources"] if r["status"] == self.probe.REACHABLE]
-                self.assertEqual((status, report["verdict"]), (1, "red"), report)
-                self.assertIn(source, reached, report["sources"])
-                for value in variables.values():
-                    if len(value) > 1:
-                        self.assertNotIn(value, stdout)
-                reached_by_case += reached
-        return reached_by_case
-
     def test_env_borne_git_configuration_does_not_hide_the_git_helper(self) -> None:
         # B0 corrective round 5, R5-3 (security P4, evidence p04): git takes
         # configuration from the environment too, and an env-file reset of
@@ -730,12 +765,6 @@ class StoredLoginUnderThePasswdHomeTests(unittest.TestCase):
         reached = self._assert_reached_by("git_https:job", {"GIT_ASKPASS": {"GIT_ASKPASS": str(askpass)}})
         # R6-1: the askpass is also asked alone; no stored source carries it.
         self.assertEqual(reached, ["git_https:GIT_ASKPASS", "git_https:job"])
-
-    def _askpass(self, name: str, answer: str) -> Path:
-        script = self.root / name
-        script.write_text(f"#!/bin/sh\necho {answer}\n", encoding="utf-8")
-        script.chmod(0o755)
-        return script
 
     def test_a_revoked_helper_does_not_hide_an_answering_job_askpass(self) -> None:
         # B0 corrective round 6, R6-1 (evidence BLK-R3E-1, p02 and p07): git
@@ -878,6 +907,73 @@ class StoredLoginUnderThePasswdHomeTests(unittest.TestCase):
         self.assertEqual((status, report["verdict"]), (2, "inconclusive"), report)
         self.assertIn("tool_missing:gh", report["environment_problems"])
         self.assertEqual([r["source"] for r in report["sources"] if r["source"].startswith("gh_cli")], [])
+
+
+_WORKING_HELPER = '[credential "https://github.com"]\n\thelper = "!f() { echo username=x-access-token; echo password=fixture-helper; }; f"\n'
+_REVOKED_HELPER = "!f() { echo username=x-access-token; echo password=revoked; }; f"
+
+
+def _ancestor_repository(git: str, root: Path, home: Path, config: str) -> Path:
+    """A repository whose ``.git/config`` holds ``config``: the probe's scratch parent once ``tempfile.tempdir`` names it.
+
+    Owned by the uid that runs the test, so git trusts it as it trusts a
+    ``/tmp/.git`` the runner uid's own ``safe.directory`` admits.
+    """
+    import subprocess
+
+    repo = root / "ancestor-repository"
+    subprocess.run([git, "init", "-q", str(repo)], check=True, capture_output=True,
+                   env={"PATH": os.environ["PATH"], "HOME": str(home), "GIT_CONFIG_NOSYSTEM": "1"})
+    with (repo / ".git" / "config").open("a", encoding="utf-8") as local:
+        local.write(config)
+    return repo
+
+
+class GitDiscoveryStopsAtTheScratchDirectoryTests(_PasswdHome):
+    """B0 corrective round 7, R7-3 (evidence BLK-R5E-1, p02 A; appellate's unprivileged-uid experiment).
+
+    git discovery climbed from the probe's scratch directory: an ancestor
+    repository (``/tmp/.git`` admitted by the uid's own ``safe.directory``)
+    was local config for every source that reads config, and its empty
+    ``credential.helper`` cleared the passwd home's helper.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        (self.home / ".gitconfig").write_text(_WORKING_HELPER, encoding="utf-8")
+
+    def test_an_ancestor_repositorys_empty_helper_does_not_clear_the_stored_helper(self) -> None:
+        repo = _ancestor_repository(self.real_git, self.root, self.home, "[credential]\n\thelper =\n")
+        for case, tempdir in (("control", None), ("tempdir_inside_a_repository", str(repo))):
+            with self.subTest(case=case), patch.object(tempfile, "tempdir", tempdir):
+                status, report, _stdout = self._main_app_refused({"LANG": "C.UTF-8"})
+                self.assertEqual((status, report["verdict"]), (1, "red"), report)
+                self.assertEqual({r["source"]: r["status"] for r in report["sources"]}["git_https:stored"],
+                                 self.probe.REACHABLE, report["sources"])
+
+    def test_every_git_child_stops_discovery_at_the_parent_of_its_scratch_directory(self) -> None:
+        import subprocess
+
+        git = shutil.which("git")
+        ran: list[tuple[list[str], dict[str, str], object]] = []
+        real_run = self.probe._run
+
+        def recording_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str] | None:
+            ran.append((list(command), dict(kwargs["env"]), kwargs.get("cwd")))
+            return real_run(command, **kwargs)
+
+        askpass = self._askpass("job-askpass", "revoked")
+        with patch.object(self.probe, "_run", recording_run):
+            self._main_app_refused({"GIT_ASKPASS": str(askpass), "GIT_CEILING_DIRECTORIES": "/nowhere",
+                                    "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "credential.helper",
+                                    "GIT_CONFIG_VALUE_0": _REVOKED_HELPER})
+        git_children = [(command, env, cwd) for command, env, cwd in ran if command[0] == git]
+        self.assertTrue([c for c, _e, _w in git_children if c[1:2] == ["config"]], "the lister ran")
+        self.assertTrue([c for c, _e, _w in git_children if c[1:2] == ["ls-remote"]], "the sources ran")
+        for command, env, cwd in git_children:
+            with self.subTest(command=command[1:3]):
+                self.assertIsInstance(cwd, str)
+                self.assertEqual(env.get("GIT_CEILING_DIRECTORIES"), os.path.dirname(cwd))
 
 
 class _LocalVaultOverSsh(unittest.TestCase):
@@ -1032,6 +1128,19 @@ class GitSshUnderEnvBorneConfigTests(_LocalVaultOverSsh):
         with (checkout / ".git" / "config").open("a", encoding="utf-8") as local:
             local.write(self.config.read_text(encoding="utf-8"))
         with contextlib.chdir(checkout):
+            status, report = self._main({"LANG": "C.UTF-8"})
+        self.assertEqual((status, report["verdict"]), (1, "red"), report)
+        self.assertEqual({r["source"]: r["status"] for r in report["sources"]}["git_ssh"],
+                         self.probe.REACHABLE, report["sources"])
+
+    def test_an_ancestor_repository_of_the_scratch_directory_does_not_move_git_ssh(self) -> None:
+        # B0 corrective round 7, R7-3 (evidence p02 A): CONFIG_FILES_OFF
+        # leaves local config, so a repository above the scratch directory
+        # moved git_ssh off ssh by its insteadOf; discovery now stops at the
+        # scratch directory's parent.
+        repo = _ancestor_repository(shutil.which("git"), self.root, self.home,
+                                    self.config.read_text(encoding="utf-8") + "[credential]\n\thelper =\n")
+        with patch.object(tempfile, "tempdir", str(repo)):
             status, report = self._main({"LANG": "C.UTF-8"})
         self.assertEqual((status, report["verdict"]), (1, "red"), report)
         self.assertEqual({r["source"]: r["status"] for r in report["sources"]}["git_ssh"],

@@ -115,9 +115,19 @@ overrides ``core.sshCommand``), so ``git_ssh`` and ``git_ssh:SSH_AUTH_SOCK``
 carry :data:`CONFIG_FILES_OFF` (``GIT_CONFIG_GLOBAL=/dev/null``,
 ``GIT_CONFIG_NOSYSTEM=1``) beside their ``GIT_SSH_COMMAND`` pin.
 ``git_https:stored*`` never carries it: its config file is the place it asks.
-Every git source also runs outside any repository: the operator runs the
-probe from a checkout, whose ``.git/config`` git would read as local config
-whatever ``GIT_CONFIG_GLOBAL`` says.
+
+NO REPOSITORY'S CONFIG REACHES A GIT CHILD (B0 corrective round 7, R7-3).
+git reads a repository's ``.git/config`` as local config whatever
+``GIT_CONFIG_GLOBAL`` says, and it finds that repository by climbing from its
+working directory: the operator runs the probe from a checkout, and a
+``/tmp/.git`` (or ``/tmp`` laid out as a bare repository) that the uid's own
+``safe.directory`` admits sits above any scratch directory under ``/tmp``. Its
+empty ``credential.helper`` cleared the stored helper, and its ``insteadOf``
+moved ``git_ssh`` off ssh. Every git child therefore runs in a fresh scratch
+directory with ``GIT_CEILING_DIRECTORIES`` set to that directory's parent
+(:func:`outside_any_repository`, the one place both are chosen; a job's own
+value is replaced in the ``:job`` composites too), so git looks for a
+repository in the scratch directory alone and finds none.
 
 THE PROBE'S OWN TOOLS (B0 corrective round 6, R6-3). The runner's ``.env``
 is the runner uid's to write, so a ``PATH`` in it could put a directory of
@@ -164,6 +174,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import contextlib
 import importlib.util
 import json
 import os
@@ -179,7 +190,7 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Protocol
+from typing import Any, Callable, Iterator, Protocol
 
 # The vault's name has one owner, the Board module; it is loaded BY PATH (it
 # imports the standard library and cryptography alone), never through the
@@ -352,6 +363,23 @@ def _run(command: list[str], *, env: dict[str, str],
         return None
 
 
+@contextlib.contextmanager
+def outside_any_repository() -> Iterator[tuple[str, dict[str, str]]]:
+    """THE working directory of every git child the probe runs, with the environment that keeps git inside it.
+
+    B0 corrective round 7, R7-3: git discovery climbs from its working
+    directory, so a fresh scratch directory alone is not outside every
+    repository — an ancestor's ``.git`` (``/tmp/.git`` admitted by the uid's
+    own ``safe.directory``) is local config to it. ``GIT_CEILING_DIRECTORIES``
+    set to the scratch directory's parent stops git from climbing into the
+    parent, so it looks in the scratch directory alone, which holds no
+    repository. Yields ``(scratch, environment addition)``; every git child
+    takes both, the addition last, so a job's own value is replaced.
+    """
+    with tempfile.TemporaryDirectory(prefix="aria-leak-probe-") as scratch:
+        yield scratch, {"GIT_CEILING_DIRECTORIES": os.path.dirname(scratch)}
+
+
 # The binaries the probe itself runs (B0 corrective round 6, R6-3).
 PROBE_TOOLS = ("gh", "git", "ssh")
 
@@ -497,15 +525,15 @@ def job_git_config_entries(env: dict[str, str], git_cli: str) -> list[GitConfigE
 
     git reads the entries (B0 corrective round 6, R6-1): ``git config --list
     -z --show-scope`` under the named base plus the job's ``GIT_CONFIG_*``
-    variables alone, with :data:`CONFIG_FILES_OFF` and a working directory
-    outside any repository, keeping the ``command`` scope. The index counts
+    variables alone, with :data:`CONFIG_FILES_OFF`, in
+    :func:`outside_any_repository`, keeping the ``command`` scope. The index counts
     every ``command`` entry, so it names the entry's place in the job's
     configuration, never its key's URL or its value.
     """
     asked = {**credential_environment(env), **{k: v for k, v in env.items() if _GIT_ENV_CONFIG.fullmatch(k)},
              **CONFIG_FILES_OFF}
-    with tempfile.TemporaryDirectory(prefix="aria-leak-probe-") as outside:
-        done = _run([git_cli, "config", "--list", "-z", "--show-scope"], env=asked, cwd=outside)
+    with outside_any_repository() as (outside, discovery):
+        done = _run([git_cli, "config", "--list", "-z", "--show-scope"], env={**asked, **discovery}, cwd=outside)
     if done is None or done.returncode != 0:
         return None
     fields = done.stdout.split("\0")
@@ -702,8 +730,8 @@ class GitRemoteSource:
         # No askpass of the probe's: an askpass the source's env or config
         # names is a credential, and with none git fails "terminal prompts
         # disabled" (a job has no terminal either), read as no credential.
-        env = dict(self.env, GIT_TERMINAL_PROMPT="0")
-        with tempfile.TemporaryDirectory(prefix="aria-leak-probe-") as scratch:
+        with outside_any_repository() as (scratch, discovery):
+            env = {**self.env, "GIT_TERMINAL_PROMPT": "0", **discovery}
             if self.transport == "https":
                 url = f"https://github.com/{repository}.git"
             else:
@@ -715,8 +743,9 @@ class GitRemoteSource:
                                           f" -o StrictHostKeyChecking=yes"
                                           f" -o UserKnownHostsFile={shlex.quote(str(known_hosts))}"
                                           f" -o HostKeyAlgorithms=ssh-ed25519")
-            # Outside any repository: the operator's working directory has no
-            # say in what git reads (a checkout's .git/config is config too).
+            # Outside any repository (R7-3): neither the operator's working
+            # directory nor a repository above the scratch directory has a
+            # say in what git reads (a repository's .git/config is config too).
             done = _run([self.tools.git, "ls-remote", "--heads", url], env=env, cwd=scratch)
         if done is None:
             return Reach(self.name, INCONCLUSIVE, None, "git_unavailable")

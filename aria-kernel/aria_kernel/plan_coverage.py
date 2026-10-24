@@ -4,12 +4,14 @@ WHY this module exists: convergence measures AGREEMENT, not COVERAGE — the
 primary and challenger planners can share a blind spot and happily converge
 on it. The planner prompts demand recursive impact tracing, but a prompt is
 a wish; nothing verified it. This module turns the obligation into machine
-truth: it invokes the repo's plan-coverage witness (a deterministic TypeScript
-gate that computes the impact closure of a plan's ``affected_surfaces`` from
-the Nx dependency graph, the NATS event-contract topology, and the
-entity->migration coupling), diffs the closure against what the plan claims
-or waives, and shapes the result into the ``coverage_computed`` event payload
-that ``plan_convergence.record_coverage`` validates and persists.
+truth: it computes the impact closure of a plan's ``affected_surfaces`` through
+the kernel's one closure (``impact_graph.impact_closure`` at depth
+``PLAN_CLOSURE_DEPTH``, over the code facts of the same tree), hands its node set
+to the repo's plan-coverage witness (a deterministic TypeScript gate that adds
+the entity->migration coupling and the event subscriptions it cannot resolve,
+and diffs the nodes against what the plan claims or waives), and shapes the
+result into the ``coverage_computed`` event payload that
+``plan_convergence.record_coverage`` validates and persists.
 
 Fail-closed discipline: this function NEVER raises for environmental
 problems. A missing node toolchain, a witness crash, a timeout, or garbage
@@ -33,6 +35,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .evidence_validator import coverage_manifest_pointer
+from .impact_graph import impact_closure
 from .plan_convergence import affected_surface_paths as _affected_surface_paths
 from .tool_registry import ensure_tools_dir, utc_now
 from .digest import sha256_digest
@@ -45,6 +48,9 @@ MODULE_FACTS_RELPATH = "tools/aria-adapters/module-schemas-source.ts"
 # The workspace's own installed ts-node: no package-manager launcher, so no registry fallback.
 TS_NODE_RELPATH = "node_modules/.bin/ts-node"
 DEFAULT_TIMEOUT_SECONDS = 180
+# The plan-time policy value of the closure's depth (service-expertise PLAN §8 SE-4): the plan
+# must address the projects one edge away from what it touches, or waive them.
+PLAN_CLOSURE_DEPTH = 1
 TREE_STATUS_TIMEOUT_SECONDS = 60
 COVERAGE_DIR = "coverage"
 # Severity is "material" (not "blocking"): a coverage gap must block
@@ -315,7 +321,7 @@ def _coverage_report_fields(
     closure = report.get("closure") or {}
     closure_summary = {
         "projects": len(closure.get("projects", [])),
-        "event_consumers": len(closure.get("event_consumers", [])),
+        "closure_nodes": len(closure.get("closure_nodes", [])),
         "migration_couplings": len(closure.get("migration_couplings", [])),
         "unmapped_paths": len(report.get("unmapped_paths", [])),
         "waived": len(waived),
@@ -370,7 +376,39 @@ def compute_plan_coverage(
     # GIT_DIR never names another repository's commit as the one the closure was computed at.
     computed_at_sha = workspace_head_sha(workspace) or "unknown"
 
+    # SE-4 — the closure has one owner, `impact_graph.impact_closure`, over the code facts of the
+    # tree the witness reads (computed through the same runner); the witness reports gaps against
+    # its node set and computes no project or event-consumer node of its own. Facts that cannot be
+    # computed hold the plan by name before the witness runs: an import-only closure would pass a
+    # plan whose contract dependents it never looked for.
+    service_facts = compute_service_facts(
+        workspace_root=workspace, base_sha=computed_at_sha, timeout_seconds=timeout_seconds, runner=run,
+    )
     witness_input = _coverage_witness_input(plan_content)
+    closure = impact_closure(
+        changed_files=witness_input["affected_paths"], workspace_root=workspace, base_dir=base_dir,
+        service_facts=service_facts, depth=PLAN_CLOSURE_DEPTH,
+    )
+    if "hold" in closure:
+        return environment_unable_payload(
+            round_number=round_number,
+            target_revision_id=target_revision_id,
+            target_plan_content_hash=target_plan_content_hash,
+            manifest_relpath=manifest_relpath,
+            manifest_hash=sha256_digest(b""),
+            computed_at_sha=computed_at_sha,
+            witness={"tool": WITNESS_RELPATH, "error": closure["hold"]},
+        )
+    witness_input["closure_nodes"] = [
+        {
+            "node_id": f"project:{entry['project']}",
+            "kind": "nx_project",
+            "why": f"{entry['reason']} from {entry['reached_from']}"
+            + (f" at {entry['evidence']}" if entry["evidence"] else ""),
+            "reached_from": entry["reached_from"],
+        }
+        for entry in closure["impacted"]
+    ]
     input_path = coverage_dir / f"{plan_id}-r{round_number}-input.json"
     input_path.write_text(json.dumps(witness_input, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 

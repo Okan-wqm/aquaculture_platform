@@ -8,11 +8,13 @@
  * the stdout JSON shape ARE the contract that aria_kernel/plan_coverage.py
  * depends on, so that is exactly what gets pinned.
  *
- * ARIA-HIGH-306: a fixture-only spec stayed green for months while the live
- * infrastructure/nats/services.yaml changed format under it and the witness
- * parsed none of it. The live cases below run the witness against the real
- * SSoT and the real event contracts and compare it to an independent read of
- * the same file, so the next format drift turns this spec red.
+ * SE-4 (service-expertise PLAN §2 'Service impact closure'): the closure has one
+ * owner, the kernel's impact_graph.impact_closure, which hands the witness its
+ * node set as `closure_nodes`. Which applications consume an event, the
+ * services.yaml reading behind it and the ARIA-HIGH-306/313 live cases moved
+ * with that computation: tools/gates/event-consumer-index.spec.ts (the code-fact
+ * bridge and eventConsumersFor) and tools/gates/nats-services.spec.ts (the SSoT
+ * reader) pin them; aria-kernel/tests/test_impact_closure.py pins the walk.
  *
  * Invoke via:
  *   ts-node --project tools/gates/tsconfig.json tools/gates/plan-coverage-witness.spec.ts
@@ -22,7 +24,6 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import {
   chmodSync,
-  existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -30,10 +31,8 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, relative, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import test, { after } from 'node:test';
-
-import { parse as yamlParse } from 'yaml';
 
 import { indexFixtureTree } from './fixture-git-index';
 import { removeFixtureTree } from './fixture-tree';
@@ -43,11 +42,7 @@ const REPO_ROOT = resolve(GATE_DIR, '..', '..');
 const WITNESS = join(GATE_DIR, 'plan-coverage-witness.ts');
 const FIXTURES = join(GATE_DIR, 'fixtures', 'plan-coverage');
 const GRAPH = join(FIXTURES, 'nx-graph.json');
-const SERVICES_YAML = join(FIXTURES, 'services.yaml');
 const FIXTURE_REPO = join(FIXTURES, 'repo');
-const LIVE_SERVICES_YAML = join(REPO_ROOT, 'infrastructure', 'nats', 'services.yaml');
-/** Run against the live SSoT and the real contracts; the nx graph stays the fixture's. */
-const LIVE_ARGS = ['--services-yaml', LIVE_SERVICES_YAML, '--repo-root', REPO_ROOT];
 
 /**
  * Throwaway directories this spec creates, removed when it ends. Every
@@ -66,23 +61,12 @@ function scratchDir(prefix: string): string {
   return dir;
 }
 
-// Typed `unknown` so every read of the parsed document is narrowed explicitly.
-const parseYaml: (input: string) => unknown = yamlParse;
-
-interface ServicesYamlLedger {
-  services: number;
-  publish_patterns: number;
-  subscribe_patterns: number;
-  event_types: number;
-}
-
 interface EventConsumerIndexLedger {
   files_scanned: number;
   sites: number;
   entries: number;
   unresolved: string[];
   unattributed: string[];
-  acl_catch_all: { event_type: string; application: string; grant: string }[];
 }
 
 interface WitnessRun {
@@ -91,136 +75,18 @@ interface WitnessRun {
     verdict: string;
     closure: {
       projects: { name: string; reason: string }[];
-      event_consumers: {
-        event_type: string;
-        consumer: string;
-        matching_pattern: string;
-        subject: string;
-        sources: string[];
-        code_sites: string[];
-      }[];
+      closure_nodes: { node_id: string; kind: string; why: string }[];
       migration_couplings: { service: string }[];
     };
     uncovered: { node_id: string; kind: string; why: string }[];
     waived: { node_id: string; reason: string }[];
     unmapped_paths: string[];
     ledger: {
-      services_yaml: ServicesYamlLedger | null;
       event_consumer_index: EventConsumerIndexLedger | null;
     };
     inputs_hash: string;
   };
   readonly stdout: string;
-}
-
-interface LiveService {
-  readonly name: string;
-  readonly application: string;
-  readonly publish: readonly string[];
-  readonly subscribe: readonly string[];
-}
-
-function stringList(value: unknown): string[] {
-  assert.ok(Array.isArray(value), 'services.yaml list expected');
-  return value.map((item: unknown) => {
-    assert.equal(typeof item, 'string');
-    return String(item);
-  });
-}
-
-/** The live SSoT read independently of the witness — the oracle the live cases compare to. */
-function loadLiveServices(): LiveService[] {
-  const document = parseYaml(readFileSync(LIVE_SERVICES_YAML, 'utf8'));
-  assert.ok(typeof document === 'object' && document !== null && 'services' in document);
-  const services: unknown = document.services;
-  assert.ok(Array.isArray(services));
-  return services.map((entry: unknown): LiveService => {
-    assert.ok(typeof entry === 'object' && entry !== null);
-    const record = entry as Record<string, unknown>;
-    return {
-      name: String(record['name']),
-      application: String(record['application']),
-      publish: stringList(record['publish']),
-      subscribe: stringList(record['subscribe']),
-    };
-  });
-}
-
-/** NATS overlap of two subject patterns (`*` = one token, `>` = one or more), the test's own. */
-function natsOverlap(a: string, b: string): boolean {
-  const left = a.split('.');
-  const right = b.split('.');
-  for (let index = 0; ; index += 1) {
-    const x = left[index];
-    const y = right[index];
-    if (x === undefined || y === undefined) return x === y;
-    if (x === '>' || y === '>') return true;
-    if (x !== '*' && y !== '*' && x !== y) return false;
-  }
-}
-
-interface AppSourceFile {
-  readonly app: string;
-  readonly path: string;
-  readonly text: string;
-}
-
-/** Every non-test .ts file under apps/<app>/src, read without the witness's scanner. */
-function appSourceFiles(): AppSourceFile[] {
-  const files: AppSourceFile[] = [];
-  const walk = (app: string, dir: string): void => {
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      const path = join(dir, entry.name);
-      if (entry.isDirectory()) {
-        if (entry.name !== 'node_modules' && entry.name !== '__tests__') walk(app, path);
-      } else if (entry.name.endsWith('.ts') && !/\.(spec|test|d)\.ts$/.test(entry.name)) {
-        files.push({ app, path: relative(REPO_ROOT, path), text: readFileSync(path, 'utf8') });
-      }
-    }
-  };
-  for (const app of readdirSync(join(REPO_ROOT, 'apps'))) {
-    const src = join(REPO_ROOT, 'apps', app, 'src');
-    if (existsSync(src)) walk(app, src);
-  }
-  return files;
-}
-
-/**
- * Literal subscription sites for `eventType`: the event bus's event-type methods called with the
- * type, and any `subscribe…(` call or `@SubscribeTo` / `@EventPattern` decorator given a literal
- * subject that overlaps one of `subjects` under NATS rules (a helper such as
- * `subscribeToEvent('events.X.>')` included; the site is the literal, not the inner call).
- */
-function literalSubscriptionSites(
-  eventType: string,
-  subjects: readonly string[],
-): { app: string; site: string }[] {
-  const byType = new RegExp(
-    `\\.(?:subscribe|subscribeWildcard|subscribeForTenant)\\(\\s*['"\`]${eventType}['"\`]`,
-    'g',
-  );
-  const bySubject = /(?:\.subscribe\w*|@(?:SubscribeTo|EventPattern))\(\s*['"`]([^'"`]+)['"`]/g;
-  const sites: { app: string; site: string }[] = [];
-  for (const file of appSourceFiles()) {
-    const lineOf = (index: number): number => file.text.slice(0, index).split('\n').length;
-    for (const match of file.text.matchAll(byType)) {
-      sites.push({ app: file.app, site: `${file.path}:${lineOf(match.index)}` });
-    }
-    for (const match of file.text.matchAll(bySubject)) {
-      const subject = match[1] ?? '';
-      if (subject.includes('.') && subjects.some((s) => natsOverlap(subject, s))) {
-        sites.push({ app: file.app, site: `${file.path}:${lineOf(match.index)}` });
-      }
-    }
-  }
-  return sites;
-}
-
-function writeServicesYaml(source: string): string {
-  const dir = scratchDir('plan-coverage-yaml-');
-  const path = join(dir, 'services.yaml');
-  writeFileSync(path, source, 'utf8');
-  return path;
 }
 
 function runWitness(input: object, extraArgs: string[] = []): WitnessRun {
@@ -236,8 +102,6 @@ function runWitness(input: object, extraArgs: string[] = []): WitnessRun {
     inputPath,
     '--graph',
     GRAPH,
-    '--services-yaml',
-    SERVICES_YAML,
     '--repo-root',
     FIXTURE_REPO,
     ...extraArgs,
@@ -258,25 +122,22 @@ function runWitness(input: object, extraArgs: string[] = []): WitnessRun {
   }
 }
 
-void test('touching a shared lib surfaces its reverse dependents as gaps (exit 1)', () => {
-  const run = runWitness({
-    schema_version: 1,
-    affected_paths: ['libs/farm-shared/src/index.ts'],
-    waivers: [],
-  });
-  assert.equal(run.exitCode, 1);
-  assert.equal(run.report.verdict, 'gaps');
-  const uncoveredIds = run.report.uncovered.map((n) => n.node_id).sort();
-  assert.deepEqual(uncoveredIds, ['project:farm-service', 'project:notification-service']);
-});
+/** Nodes the kernel's closure hands in: farm-shared's two dependents, reached from it. */
+const FARM_SHARED_DEPENDENTS = ['farm-service', 'notification-service'].map((project) => ({
+  node_id: `project:${project}`,
+  kind: 'nx_project',
+  why: 'import from farm-shared',
+  reached_from: 'farm-shared',
+}));
 
-void test('a dependents-of group waiver covers every reverse dependent (exit 0)', () => {
+void test('a dependents-of group waiver covers every given node reached from the project (exit 0)', () => {
   const run = runWitness({
     schema_version: 1,
     affected_paths: ['libs/farm-shared/src/index.ts'],
     waivers: [
       { node: 'dependents-of:farm-shared', reason: 'type-only change, tsc closure verified' },
     ],
+    closure_nodes: FARM_SHARED_DEPENDENTS,
   });
   assert.equal(run.exitCode, 0);
   assert.equal(run.report.verdict, 'covered_with_waivers');
@@ -289,6 +150,7 @@ void test('an exact node waiver covers only the named node', () => {
     schema_version: 1,
     affected_paths: ['libs/farm-shared/src/index.ts'],
     waivers: [{ node: 'project:farm-service', reason: 'consumer verified unaffected' }],
+    closure_nodes: FARM_SHARED_DEPENDENTS,
   });
   assert.equal(run.exitCode, 1);
   assert.deepEqual(
@@ -301,58 +163,14 @@ void test('an exact node waiver covers only the named node', () => {
   );
 });
 
-void test('touching an event contract surfaces untouched NATS consumers', () => {
+void test('an input without the closure node set is an environment error (exit 2), not a covered plan', () => {
   const run = runWitness({
     schema_version: 1,
-    affected_paths: ['libs/event-contracts/src/farm-events.ts'],
-    waivers: [
-      {
-        node: 'dependents-of:event-contracts',
-        reason: 'graph dependents covered by consumer node check',
-      },
-    ],
+    affected_paths: ['libs/farm-shared/src/index.ts'],
+    waivers: [],
   });
-  assert.equal(run.exitCode, 1);
-  const consumerNodes = run.report.uncovered.filter((n) => n.kind === 'event_consumer');
-  // The yaml names the NATS identity `notification_service`; the node names
-  // the nx project its `application:` field maps to. The matching grant is the
-  // fixture's one quoted item, a grant naming the event: the fixture repo has no
-  // code subscription, so the grant is the only source.
-  assert.deepEqual(
-    consumerNodes.map((n) => n.node_id),
-    ['event-consumer:notification-service:BatchHarvested'],
-  );
-  assert.deepEqual(run.report.closure.event_consumers, [
-    {
-      event_type: 'BatchHarvested',
-      consumer: 'notification-service',
-      matching_pattern: 'events.*.BatchHarvested',
-      subject: 'events.*.BatchHarvested',
-      sources: ['acl_grant'],
-      code_sites: [],
-    },
-  ]);
-});
-
-void test('a touched consumer project produces no event-consumer node', () => {
-  const run = runWitness({
-    schema_version: 1,
-    affected_paths: [
-      'libs/event-contracts/src/farm-events.ts',
-      'apps/notification-service/src/handlers/batch-harvested.handler.ts',
-    ],
-    waivers: [
-      { node: 'dependents-of:event-contracts', reason: 'covered by direct touch + consumer check' },
-    ],
-  });
-  // The consumer IS recognized (through `application:`), and is covered
-  // because the plan touches its nx project — not because nothing matched.
-  assert.deepEqual(
-    run.report.closure.event_consumers.map((c) => c.consumer),
-    ['notification-service'],
-  );
-  const consumerNodes = run.report.uncovered.filter((n) => n.kind === 'event_consumer');
-  assert.equal(consumerNodes.length, 0);
+  assert.equal(run.exitCode, 2);
+  assert.equal(run.stdout, '');
 });
 
 // --- SE-4 (service-expertise PLAN §2 'Service impact closure', §8 SE-4 (iv)) ---------------------
@@ -361,10 +179,7 @@ void test('a touched consumer project produces no event-consumer node', () => {
 // closure's node set as `closure_nodes` ({node_id, kind, why}; the key is the test writer's) and
 // the witness reports gaps against it. It computes no `project:` or `event-consumer:` node of its
 // own; it keeps `migration:` nodes, `event-consumer-unresolved:` sites, waivers and the coverage
-// diff. Each case carries node:test's `todo` option until SE-4 lands (the gate suites' convention
-// for red tests ahead of their implementation, as SE-3 did); the implementer removes it.
-const SE4_PENDING =
-  'SE-4 (service-expertise PLAN §8): the witness still computes its own project: / event-consumer: nodes';
+// diff.
 
 /** Closure node ids the witness owns no more: everything but migration and unresolved sites. */
 function closureNodeIds(run: WitnessRun): string[] {
@@ -380,41 +195,33 @@ const GATEWAY_NODE = {
   why: 'contract:gateway_subgraph at infrastructure/apollo-router/subgraphs.json:14',
 };
 
-void test(
-  'SE-4 (iv): given a node set, the witness reports gaps against it and adds no nx reverse dependent',
-  { todo: SE4_PENDING },
-  () => {
-    const run = runWitness({
-      schema_version: 1,
-      affected_paths: ['libs/farm-shared/src/index.ts'],
-      waivers: [],
-      closure_nodes: [GATEWAY_NODE],
-    });
-    assert.equal(run.exitCode, 1, run.stdout);
-    // The fixture nx graph makes farm-service and notification-service reverse dependents of
-    // farm-shared; neither is in the given set, so neither is a node.
-    assert.deepEqual(closureNodeIds(run), ['project:gateway-api']);
-  },
-);
+void test('SE-4 (iv): given a node set, the witness reports gaps against it and adds no nx reverse dependent', () => {
+  const run = runWitness({
+    schema_version: 1,
+    affected_paths: ['libs/farm-shared/src/index.ts'],
+    waivers: [],
+    closure_nodes: [GATEWAY_NODE],
+  });
+  assert.equal(run.exitCode, 1, run.stdout);
+  // The fixture nx graph makes farm-service and notification-service reverse dependents of
+  // farm-shared; neither is in the given set, so neither is a node.
+  assert.deepEqual(closureNodeIds(run), ['project:gateway-api']);
+});
 
-void test(
-  'SE-4 (iv): given a node set, a touched event contract adds no event-consumer node of its own',
-  { todo: SE4_PENDING },
-  () => {
-    const run = runWitness({
-      schema_version: 1,
-      affected_paths: ['libs/event-contracts/src/farm-events.ts'],
-      waivers: [],
-      closure_nodes: [],
-    });
-    // The fixture services.yaml grants notification-service BatchHarvested: today that grant makes
-    // event-consumer:notification-service:BatchHarvested, and the graph makes project: nodes.
-    assert.deepEqual(closureNodeIds(run), [], JSON.stringify(run.report.uncovered));
-    assert.equal(run.exitCode, 0, run.stdout);
-  },
-);
+void test('SE-4 (iv): given a node set, a touched event contract adds no event-consumer node of its own', () => {
+  const run = runWitness({
+    schema_version: 1,
+    affected_paths: ['libs/event-contracts/src/farm-events.ts'],
+    waivers: [],
+    closure_nodes: [],
+  });
+  // The fixture services.yaml grants notification-service BatchHarvested: today that grant makes
+  // event-consumer:notification-service:BatchHarvested, and the graph makes project: nodes.
+  assert.deepEqual(closureNodeIds(run), [], JSON.stringify(run.report.uncovered));
+  assert.equal(run.exitCode, 0, run.stdout);
+});
 
-void test('SE-4 (iv): a waiver still covers a node of the given set', { todo: SE4_PENDING }, () => {
+void test('SE-4 (iv): a waiver still covers a node of the given set', () => {
   const run = runWitness({
     schema_version: 1,
     affected_paths: ['libs/farm-shared/src/index.ts'],
@@ -427,145 +234,6 @@ void test('SE-4 (iv): a waiver still covers a node of the given set', { todo: SE
     run.report.waived.map((n) => n.node_id),
     ['project:gateway-api'],
   );
-});
-
-void test('quoted and unquoted services.yaml items both parse, and the ledger counts them', () => {
-  const run = runWitness({
-    schema_version: 1,
-    affected_paths: ['libs/event-contracts/src/farm-events.ts'],
-    waivers: [],
-  });
-  assert.deepEqual(run.report.ledger.services_yaml, {
-    services: 2,
-    publish_patterns: 6,
-    subscribe_patterns: 4,
-    event_types: 1,
-  });
-});
-
-void test('subjects come from the declared publish grants; events.*.<T> only when none declares <T>', () => {
-  // Every service carries the schema's grant minimums (publish >= 3, subscribe >= 2). Each
-  // subscriber names the event on one root, so the root the publish grants declare decides which
-  // one consumes it.
-  const subscribers = [
-    '- name: gateway_service',
-    '  application: gateway-api',
-    '  description: events-root subscriber',
-    '  publish:',
-    '  - _INBOX.>',
-    '  - $JS.API.INFO',
-    '  - $JS.ACK.>',
-    '  subscribe:',
-    '  - events.*.BatchHarvested',
-    '  - _INBOXGATEWAY_SERVICE.>',
-    '- name: notification_service',
-    '  application: notification-service',
-    '  description: telemetry-root subscriber',
-    '  publish:',
-    '  - _INBOX.>',
-    '  - $JS.API.INFO',
-    '  - $JS.ACK.>',
-    '  subscribe:',
-    '  - telemetry.*.BatchHarvested',
-    '  - _INBOXNOTIFICATION_SERVICE.>',
-  ];
-  const yamlWith = (farmPublish: string): string =>
-    [
-      'version: 1',
-      'services:',
-      '- name: farm_service',
-      '  application: farm-service',
-      '  description: farm publisher',
-      '  publish:',
-      `  - ${farmPublish}`,
-      '  - $JS.API.INFO',
-      '  - _INBOX.>',
-      '  subscribe:',
-      '  - _INBOXFARM_SERVICE.>',
-      '  - events.*.SensorReading',
-      ...subscribers,
-      '',
-    ].join('\n');
-  const input = {
-    schema_version: 1,
-    affected_paths: ['libs/event-contracts/src/farm-events.ts'],
-    waivers: [],
-  };
-
-  // Declared on the telemetry root: only the telemetry subscriber consumes it.
-  const declared = runWitness(input, [
-    '--services-yaml',
-    writeServicesYaml(yamlWith('telemetry.*.BatchHarvested')),
-  ]);
-  assert.deepEqual(declared.report.closure.event_consumers, [
-    {
-      event_type: 'BatchHarvested',
-      consumer: 'notification-service',
-      matching_pattern: 'telemetry.*.BatchHarvested',
-      subject: 'telemetry.*.BatchHarvested',
-      sources: ['acl_grant'],
-      code_sites: [],
-    },
-  ]);
-
-  // Declared by no service: the event bus's default root, events.*.<T>.
-  const undeclared = runWitness(input, [
-    '--services-yaml',
-    writeServicesYaml(yamlWith('events.*.OtherEvent')),
-  ]);
-  assert.deepEqual(undeclared.report.closure.event_consumers, [
-    {
-      event_type: 'BatchHarvested',
-      consumer: 'gateway-api',
-      matching_pattern: 'events.*.BatchHarvested',
-      subject: 'events.*.BatchHarvested',
-      sources: ['acl_grant'],
-      code_sites: [],
-    },
-  ]);
-});
-
-void test('ARIA-HIGH-313: a catch-all grant is a permission, not a consumer; the ledger keeps it', () => {
-  const catchAll = writeServicesYaml(
-    [
-      'version: 1',
-      'services:',
-      '- name: farm_service',
-      '  application: farm-service',
-      '  description: farm publisher',
-      '  publish:',
-      '  - events.*.BatchHarvested',
-      '  - $JS.API.INFO',
-      '  - _INBOX.>',
-      '  subscribe:',
-      '  - _INBOXFARM_SERVICE.>',
-      '  - events.*.SensorReading',
-      '- name: gateway_service',
-      '  application: gateway-api',
-      '  description: may receive every event',
-      '  publish:',
-      '  - _INBOX.>',
-      '  - $JS.API.INFO',
-      '  - $JS.ACK.>',
-      '  subscribe:',
-      '  - events.>',
-      '  - _INBOXGATEWAY_SERVICE.>',
-      '',
-    ].join('\n'),
-  );
-  const run = runWitness(
-    { schema_version: 1, affected_paths: ['libs/event-contracts/src/farm-events.ts'], waivers: [] },
-    ['--services-yaml', catchAll],
-  );
-  assert.deepEqual(run.report.closure.event_consumers, []);
-  assert.deepEqual(
-    run.report.uncovered.filter((n) => n.kind === 'event_consumer'),
-    [],
-    run.stdout,
-  );
-  assert.deepEqual(run.report.ledger.event_consumer_index?.acl_catch_all, [
-    { event_type: 'BatchHarvested', application: 'gateway-api', grant: 'events.>' },
-  ]);
 });
 
 /** A throwaway repository with a minimal event bus, removed when the spec ends. */
@@ -597,36 +265,6 @@ function writeCodeRepo(listener: string): string {
 
 const DEMO_IMPORT = "import { EventBus } from '../../../platform/libs/event-bus/src/event-bus';";
 
-void test('ARIA-HIGH-313: a durable subscription in code is a consumer with no grant naming the event', () => {
-  const repo = writeCodeRepo(
-    [
-      DEMO_IMPORT,
-      'export class DemoListener {',
-      '  constructor(private readonly bus: EventBus) {}',
-      '  async start(): Promise<void> {',
-      "    await this.bus.subscribeWildcard('BatchHarvested', this);",
-      '  }',
-      '}',
-      '',
-    ].join('\n'),
-  );
-  const run = runWitness(
-    { schema_version: 1, affected_paths: ['libs/event-contracts/src/farm-events.ts'], waivers: [] },
-    ['--repo-root', repo],
-  );
-  assert.equal(run.exitCode, 1, run.stdout);
-  assert.deepEqual(
-    run.report.uncovered.filter((n) => n.kind === 'event_consumer').map((n) => n.node_id),
-    [
-      'event-consumer:demo-service:BatchHarvested',
-      'event-consumer:notification-service:BatchHarvested',
-    ],
-  );
-  const demo = run.report.closure.event_consumers.find((c) => c.consumer === 'demo-service');
-  assert.deepEqual(demo?.sources, ['code_subscription']);
-  assert.deepEqual(demo?.code_sites, ['apps/demo-service/src/demo.listener.ts:5']);
-});
-
 void test('ARIA-HIGH-313: a subscription the scan cannot resolve is an uncovered node, never a silent pass', () => {
   const repo = writeCodeRepo(
     [
@@ -642,7 +280,12 @@ void test('ARIA-HIGH-313: a subscription the scan cannot resolve is an uncovered
     ].join('\n'),
   );
   const run = runWitness(
-    { schema_version: 1, affected_paths: ['libs/event-contracts/src/farm-events.ts'], waivers: [] },
+    {
+      schema_version: 1,
+      affected_paths: ['libs/event-contracts/src/farm-events.ts'],
+      waivers: [],
+      closure_nodes: [],
+    },
     ['--repo-root', repo],
   );
   assert.equal(run.exitCode, 1, run.stdout);
@@ -657,171 +300,12 @@ void test('ARIA-HIGH-313: a subscription the scan cannot resolve is an uncovered
   );
 });
 
-void test('services that lost their grants are refused by the SSoT schema (exit 2), not an empty closure', () => {
-  const emptied = writeServicesYaml(
-    [
-      'version: 1',
-      'services:',
-      '- name: farm_service',
-      '  application: farm-service',
-      '  description: every grant lost',
-      '  publish: []',
-      '  subscribe: []',
-      '',
-    ].join('\n'),
-  );
-  const run = runWitness(
-    { schema_version: 1, affected_paths: ['libs/event-contracts/src/farm-events.ts'], waivers: [] },
-    ['--services-yaml', emptied],
-  );
-  assert.equal(run.exitCode, 2);
-  assert.equal(run.stdout, '');
-});
-
-void test('a services.yaml entry without application: is an environment error (exit 2)', () => {
-  const unmapped = writeServicesYaml(
-    [
-      'version: 1',
-      'services:',
-      '- name: notification_service',
-      '  description: no nx project named',
-      '  publish:',
-      '  - events.*.NotificationSent',
-      '  subscribe:',
-      '  - events.*.BatchHarvested',
-      '',
-    ].join('\n'),
-  );
-  const run = runWitness(
-    { schema_version: 1, affected_paths: ['libs/event-contracts/src/farm-events.ts'], waivers: [] },
-    ['--services-yaml', unmapped],
-  );
-  assert.equal(run.exitCode, 2);
-  assert.equal(run.stdout, '');
-});
-
-void test('the live services.yaml parses: the ledger counts every publish and subscribe grant', () => {
-  const live = loadLiveServices();
-  const run = runWitness(
-    {
-      schema_version: 1,
-      affected_paths: ['libs/event-contracts/src/notification-events.ts'],
-      waivers: [],
-    },
-    LIVE_ARGS,
-  );
-  assert.ok(run.exitCode === 0 || run.exitCode === 1, `witness exit ${run.exitCode}`);
-  const ledger = run.report.ledger.services_yaml;
-  assert.ok(ledger !== null);
-  assert.equal(ledger.services, live.length);
-  assert.equal(
-    ledger.publish_patterns,
-    live.reduce((sum, s) => sum + s.publish.length, 0),
-  );
-  assert.equal(
-    ledger.subscribe_patterns,
-    live.reduce((sum, s) => sum + s.subscribe.length, 0),
-  );
-  assert.ok(ledger.subscribe_patterns >= 1);
-});
-
-void test('ARIA-HIGH-313: the live UserInvited consumers are its code subscriptions and the grants naming it', () => {
-  const live = loadLiveServices();
-  const declared = live
-    .flatMap((s) => s.publish)
-    .filter((p) => p.split('.').includes('UserInvited'));
-  assert.ok(
-    declared.includes('events.*.UserInvited'),
-    'auth_service declares events.*.UserInvited',
-  );
-  // The oracle, read without the witness: literal subscription sites in the apps' code, plus the
-  // subscribe grants that name the event. A catch-all grant (events.>) is a permission, not a
-  // consumer, so it is not part of the oracle.
-  const sites = literalSubscriptionSites('UserInvited', declared);
-  const fromGrants = live
-    .filter((s) =>
-      s.subscribe.some(
-        (pattern) =>
-          pattern.split('.').includes('UserInvited') &&
-          declared.some((subject) => natsOverlap(pattern, subject)),
-      ),
-    )
-    .map((s) => s.application);
-  const expected = [...new Set([...sites.map((site) => site.app), ...fromGrants])]
-    .map((app) => `event-consumer:${app}:UserInvited`)
-    .sort();
-  // The consumer the ACL-only closure missed (the finding's example).
-  assert.ok(expected.includes('event-consumer:notification-service:UserInvited'), 'oracle');
-
-  const run = runWitness(
-    {
-      schema_version: 1,
-      affected_paths: ['libs/event-contracts/src/notification-events.ts'],
-      waivers: [],
-    },
-    LIVE_ARGS,
-  );
-  const nodes = run.report.uncovered
-    .filter((n) => n.kind === 'event_consumer' && n.node_id.endsWith(':UserInvited'))
-    .map((n) => n.node_id)
-    .sort();
-  assert.deepEqual(nodes, expected);
-  const notification = run.report.closure.event_consumers.find(
-    (c) => c.event_type === 'UserInvited' && c.consumer === 'notification-service',
-  );
-  assert.ok(notification !== undefined, 'notification-service consumes UserInvited');
-  assert.ok(notification.sources.includes('code_subscription'));
-  for (const site of sites.filter((s) => s.app === 'notification-service')) {
-    assert.ok(notification.code_sites.includes(site.site), `${site.site} is named`);
-  }
-  assert.deepEqual(run.report.ledger.event_consumer_index?.unresolved, []);
-});
-
-void test('ARIA-HIGH-313: a library subscription reaches every app that wires its module', () => {
-  // libs/backend-common's TenantErasureTargetModule subscribes to TenantErasureRequested on behalf
-  // of every service that imports TenantErasureTargetModule.forService(...).
-  const wiring = appSourceFiles()
-    .filter((file) => file.text.includes('TenantErasureTargetModule.forService('))
-    .map((file) => file.app);
-  assert.ok(wiring.length >= 2, 'several services wire the erasure target module');
-  const run = runWitness(
-    {
-      schema_version: 1,
-      affected_paths: ['libs/event-contracts/src/tenant-events.ts'],
-      waivers: [],
-      options: { max_nodes: 100_000 },
-    },
-    LIVE_ARGS,
-  );
-  const nodes = new Set(run.report.uncovered.map((n) => n.node_id));
-  for (const app of new Set(wiring)) {
-    assert.ok(nodes.has(`event-consumer:${app}:TenantErasureRequested`), app);
-  }
-});
-
-void test('a change to auth-events.ts yields event-consumer nodes named by nx project on the live SSoT', () => {
-  const live = loadLiveServices();
-  const applications = new Set(live.map((s) => s.application));
-  const run = runWitness(
-    { schema_version: 1, affected_paths: ['libs/event-contracts/src/auth-events.ts'], waivers: [] },
-    LIVE_ARGS,
-  );
-  const consumerNodes = run.report.uncovered.filter((n) => n.kind === 'event_consumer');
-  assert.ok(consumerNodes.length >= 1, 'auth events have live subscribers');
-  for (const node of consumerNodes) {
-    const consumer = node.node_id.split(':')[1] ?? '';
-    assert.ok(
-      applications.has(consumer),
-      `${node.node_id} names an application, not a NATS identity`,
-    );
-  }
-});
-
 void test('an entity edit without a migration surfaces migration:<svc>; with one it does not', () => {
   const withoutMigration = runWitness({
     schema_version: 1,
     affected_paths: ['apps/farm-service/src/batch/entities/batch.entity.ts'],
     waivers: [],
+    closure_nodes: [],
   });
   assert.equal(withoutMigration.exitCode, 1);
   assert.deepEqual(
@@ -835,6 +319,7 @@ void test('an entity edit without a migration surfaces migration:<svc>; with one
       'apps/farm-service/src/database/migrations/1800000000000-add-batch-column.ts',
     ],
     waivers: [],
+    closure_nodes: [],
   });
   assert.equal(withMigration.exitCode, 0);
   assert.equal(withMigration.report.verdict, 'covered');
@@ -849,6 +334,7 @@ void test('an entity edit without a migration surfaces migration:<svc>; with one
       'apps/farm-service/src/database/migrations/1800000000001-unrelated.ts',
     ],
     waivers: [],
+    closure_nodes: [],
   });
   assert.equal(unrelated.exitCode, 1);
   assert.deepEqual(
@@ -865,6 +351,7 @@ void test('paths owned by no nx project are unmapped, never gaps', () => {
       '.claude/agents/aria-drafter.md',
     ],
     waivers: [],
+    closure_nodes: [],
   });
   assert.equal(run.exitCode, 0);
   assert.equal(run.report.verdict, 'covered');
@@ -876,6 +363,7 @@ void test('closure over max_nodes collapses to a single closure:oversized gap', 
     schema_version: 1,
     affected_paths: ['libs/farm-shared/src/index.ts'],
     waivers: [],
+    closure_nodes: FARM_SHARED_DEPENDENTS,
     options: { max_nodes: 1 },
   });
   assert.equal(run.exitCode, 1);
@@ -893,6 +381,7 @@ void test('output is deterministic — identical inputs produce identical stdout
       'apps/farm-service/src/batch/entities/batch.entity.ts',
     ],
     waivers: [{ node: 'dependents-of:farm-shared', reason: 'verified' }],
+    closure_nodes: FARM_SHARED_DEPENDENTS,
   };
   const first = runWitness(input);
   const second = runWitness(input);
@@ -933,6 +422,7 @@ void test('unreadable graph is an environment error (exit 2), not an empty cover
       schema_version: 1,
       affected_paths: ['libs/farm-shared/src/index.ts'],
       waivers: [],
+      closure_nodes: FARM_SHARED_DEPENDENTS,
     }),
     'utf8',
   );
@@ -982,6 +472,7 @@ function runWitnessBuildingItsGraph(fakeNx: 'writes-graph' | 'fails'): {
       schema_version: 1,
       affected_paths: ['libs/farm-shared/src/index.ts'],
       waivers: [],
+      closure_nodes: FARM_SHARED_DEPENDENTS,
     }),
     'utf8',
   );
@@ -1006,8 +497,6 @@ function runWitnessBuildingItsGraph(fakeNx: 'writes-graph' | 'fails'): {
         WITNESS,
         '--input',
         inputPath,
-        '--services-yaml',
-        SERVICES_YAML,
         '--repo-root',
         FIXTURE_REPO,
       ],

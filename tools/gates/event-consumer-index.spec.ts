@@ -1403,8 +1403,6 @@ const KNOWN_PRODUCER_READERS: Readonly<Record<string, readonly string[]>> = {
 const KNOWN_DEFINITION_READERS: Readonly<Record<string, readonly string[]>> = {
   // Its `eventType: 'X'` literal regex, part of the same producer reader.
   'CONTRACT-MEDIUM-015': ['e2e/tests/integration/nats-invariants.spec.ts'],
-  // extractEventTypes; removed with the witness's event-consumer nodes by SE-4.
-  'ARIA-MEDIUM-793': ['tools/gates/plan-coverage-witness.ts'],
   'CONTRACT-MEDIUM-016': [
     'tests/invariants/feeding-event-delivery-semantics.spec.ts',
     'tests/invariants/pii-events-mandatory-crypto-shred.spec.ts',

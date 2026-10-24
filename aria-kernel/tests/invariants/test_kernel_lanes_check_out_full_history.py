@@ -23,9 +23,9 @@ The governed set is derived, not listed, across EVERY workflow file: a job
 runs the kernel when it provisions it (a ``uses:`` of the local
 ``.github/actions/setup-aria-kernel`` action, under whatever checkout path
 it lives) or invokes it in a ``run:`` step. The rule is "a kernel workspace
-is a whole clone", and three of the lanes that run the kernel are not named
-``aria-*`` (``finding-closure-reconcile``, ``finding-state-sweep``,
-``rule-health-report``); a name filter would have left them ungoverned. The
+is a whole clone", and two of the lanes that run the kernel are not named
+``aria-*`` (``finding-state-sweep``, ``rule-health-report``); a name filter
+would have left them ungoverned. The
 dataflow watchdog ran the kernel until ARIA-MEDIUM-271 (it ingested its
 signal into its own checkout, thrown away with the job); it now hands the
 signal to the cycle by dispatch and runs no kernel code. ``aria-external-watchdog.yml`` falls outside by
@@ -67,10 +67,35 @@ _LANES_THAT_READ_HISTORY_LIVE: frozenset[str] = frozenset({
     "aria-auto-cycle.yml",
     "aria-agent-executor.yml",
     "aria-state-maintenance.yml",
-    "finding-closure-reconcile.yml",
     "finding-state-sweep.yml",
     "rule-health-report.yml",
 })
+
+
+# MF-1 (PROC-HIGH-039): the kernel reads the finding registry through the
+# registry CLI's projection (``report_ingestion.read_registry_view`` runs
+# ``node_modules/.bin/ts-node … finding-registry.ts project``), which walks the
+# merged history for ``Closes:`` trailers. A lane that reaches the view needs
+# the whole history (above) AND the repository's node dependencies, or the
+# view refuses by name. The floor below is the set traced to reach the view:
+# the cycle (report ingestion, the deadline organ, the adapter quarantine) and
+# the kernel suite's live-checkout job. A lane added to it must provision node.
+_NODE_DEPS_ACTION_SUFFIX = ".github/actions/ensure-node-deps"
+_LANES_THAT_READ_THE_REGISTRY_VIEW: dict[str, str] = {
+    "aria-auto-cycle.yml": "cycle",
+    "aria-kernel.yml": "workspace",
+}
+
+
+def job_provisions_node_deps(job: Any) -> bool:
+    """A job installs the repository's node dependencies (npm ci) or keeps them (ensure-node-deps)."""
+    for step in _steps(job):
+        uses = str(step.get("uses") or "").strip()
+        if uses.startswith("./") and uses.endswith(_NODE_DEPS_ACTION_SUFFIX):
+            return True
+        if "npm ci" in str(step.get("run") or ""):
+            return True
+    return False
 
 
 def _is_kernel_setup_action(uses: str) -> bool:
@@ -162,6 +187,16 @@ class KernelLanesCheckOutFullHistory(unittest.TestCase):
                     if str(step.get("uses") or "").startswith(_CHECKOUT_PREFIX)
                 ]
                 self.assertTrue(checkouts, f"{name}:{job_name} runs the kernel without a checkout")
+
+    def test_every_lane_that_reads_the_registry_view_has_history_and_node(self) -> None:
+        # Guard (MF-1): green at the branch base; it keeps the projection's
+        # two runtime needs on the lanes that reach it.
+        for name, job_name in sorted(_LANES_THAT_READ_THE_REGISTRY_VIEW.items()):
+            workflow = yaml.safe_load((_WORKFLOWS / name).read_text(encoding="utf-8"))
+            job = workflow["jobs"][job_name]
+            self.assertTrue(job_runs_kernel(job), f"{name}:{job_name} no longer runs the kernel")
+            self.assertTrue(job_provisions_node_deps(job), f"{name}:{job_name} reads the registry view without node")
+            self.assertEqual(shallow_checkout_violations(name, {"jobs": {job_name: job}}), [])
 
     def test_the_watchdog_is_outside_the_governed_set_by_construction(self) -> None:
         # Not an allowlist: the watchdog is ungoverned because it does not

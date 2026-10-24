@@ -1,107 +1,61 @@
-"""Plan 026R §A.5 — report_ingestion strict mode contract.
+"""Plan 026R §A.5 — the registry is read strictly.
 
-3 tests:
+WHY. A corrupt registry row read tolerantly is a finding silently dropped.
+The kernel used to parse findings.jsonl itself, strictly by default with an
+operator opt-in tolerant mode. Since MF-1 (PROC-HIGH-039) the kernel reads
+the registry only through the registry CLI's projection
+(``report_ingestion.read_registry_view``); the projection parses every row
+or refuses, so there is no tolerant mode left to opt into — a second parser
+that skipped rows would also read the stored state, the copy that lags.
 
-* Clean registry under ``strict_registry=True`` (default) passes —
-  rows ingested, no malformed.
-* Corrupt row under strict mode raises ``GovernanceError`` AFTER
-  emitting ``ledger_row_corrupt`` to the diagnostic sink.
-* Operator opt-in ``strict_registry=False`` preserves the legacy
-  (rows, malformed) tuple shape AND still emits the diagnostic.
+WHAT these tests pin:
+  * a clean registry projects every row;
+  * a corrupt row refuses the view by name, and report ingestion with it,
+    instead of dropping the row.
 """
 from __future__ import annotations
 
-import json
 import tempfile
 import unittest
 from pathlib import Path
 
-from aria_kernel.report_ingestion import _read_registry, report_ingestion_scan
+from aria_kernel.report_ingestion import read_registry_view, report_ingestion_scan
 from aria_kernel.tool_registry import GovernanceError
+from aria_kernel.workspace import ensure_workspace, workspace_paths
+
+from tests.test_report_ingestion_registry_view import _ProjectionRepo, _chained, _registry_row
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
-def _clean_registry_bytes() -> str:
-    rows = [
-        {
-            "id": "F-EXT-001",
-            "finding_id": "F-EXT-001",
-            "summary": "external clean finding",
-            "status": "OPEN",
-            "owner_agent": "ext",
-            "severity": "MEDIUM",
-            "concept": "concept-a",
-            "ref": "docs/reviews/_registry/findings.jsonl",
-        },
-        {
-            "id": "F-EXT-002",
-            "finding_id": "F-EXT-002",
-            "summary": "external clean finding 2",
-            "status": "OPEN",
-            "owner_agent": "ext",
-            "severity": "LOW",
-            "concept": "concept-b",
-            "ref": "docs/reviews/_registry/findings.jsonl",
-        },
-    ]
-    return "\n".join(json.dumps(r) for r in rows) + "\n"
-
-
-class ReadRegistryStrictTests(unittest.TestCase):
+@unittest.skipUnless((_REPO_ROOT / "node_modules/.bin/ts-node").is_file(),
+                     "the repository's ts-node is not installed in this checkout")
+class RegistryReadIsStrictTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.tmp = Path(tempfile.mkdtemp(prefix="aria-a5-strict-"))
-        self.registry = self.tmp / "findings.jsonl"
+        self.tmp = tempfile.TemporaryDirectory(prefix="aria-a5-strict-")
+        self.repo = _ProjectionRepo(Path(self.tmp.name) / "repo")
 
     def tearDown(self) -> None:
-        import shutil
-        shutil.rmtree(self.tmp, ignore_errors=True)
+        self.tmp.cleanup()
 
-    def test_clean_registry_strict_returns_rows_and_no_malformed(self) -> None:
-        self.registry.write_text(_clean_registry_bytes(), encoding="utf-8")
-        rows, malformed = _read_registry(self.registry)
-        self.assertEqual(len(rows), 2)
-        self.assertEqual(malformed, [])
-        self.assertEqual(rows[0]["id"], "F-EXT-001")
-        self.assertEqual(rows[1]["id"], "F-EXT-002")
+    def test_a_clean_registry_projects_every_row(self) -> None:
+        self.repo.write_registry([_registry_row("ARIA-HIGH-961"), _registry_row("ARIA-LOW-962")])
+        self.repo.commit("chore(registry): seed", "2026-10-01T10:00:00Z")
+        self.assertEqual([row["id"] for row in read_registry_view(self.repo.root).rows],
+                         ["ARIA-HIGH-961", "ARIA-LOW-962"])
 
-    def test_corrupt_registry_strict_raises_and_emits_diagnostic(self) -> None:
-        self.registry.write_text(
-            json.dumps({"id": "F-1", "finding_id": "F-1", "summary": "x", "status": "OPEN"})
-            + "\n"
-            + "{not valid json\n"
-            + json.dumps({"id": "F-3", "finding_id": "F-3", "summary": "z", "status": "OPEN"})
-            + "\n",
-            encoding="utf-8",
-        )
+    def test_a_corrupt_row_refuses_the_view_and_ingestion_by_name(self) -> None:
+        chained = _chained([_registry_row("ARIA-HIGH-961"), _registry_row("ARIA-LOW-962")])
+        first, second = chained.splitlines()
+        self.repo.write("docs/reviews/_registry/findings.jsonl", f"{first}\n{{not valid json\n{second}\n")
+        self.repo.commit("chore(registry): a torn row", "2026-10-01T10:00:00Z")
         with self.assertRaises(GovernanceError) as ctx:
-            _read_registry(self.registry)
-        self.assertIn("strict_jsonl_row_corrupt", str(ctx.exception))
-        # Diagnostic sink should have received a row (best-effort check —
-        # sink falls back to stderr if write fails; existence is the
-        # observability surface but not a strict invariant).
-        sink_dir = self.registry.parent / "diagnostics"
-        if sink_dir.exists():
-            files = list(sink_dir.rglob("*.json*"))
-            self.assertGreaterEqual(len(files), 1, files)
-
-    def test_corrupt_registry_tolerant_preserves_legacy_tuple_shape(self) -> None:
-        # Operator opt-in tolerant mode — corrupt row tracked in malformed
-        # list, clean rows in rows list, diagnostic still emitted.
-        self.registry.write_text(
-            json.dumps({"id": "F-1", "finding_id": "F-1", "summary": "x", "status": "OPEN"})
-            + "\n"
-            + "{not valid json\n"
-            + json.dumps({"id": "F-3", "finding_id": "F-3", "summary": "z", "status": "OPEN"})
-            + "\n",
-            encoding="utf-8",
-        )
-        rows, malformed = _read_registry(self.registry, strict=False)
-        self.assertEqual(len(rows), 2)
-        self.assertEqual(rows[0]["id"], "F-1")
-        self.assertEqual(rows[1]["id"], "F-3")
-        self.assertEqual(len(malformed), 1)
-        self.assertEqual(malformed[0]["line"], 2)
-        # Diagnostic sink received the corruption event in tolerant mode
-        # too (every observation lands in the sink regardless of mode).
+            read_registry_view(self.repo.root)
+        self.assertIn("finding_registry_cli_refused", str(ctx.exception))
+        paths = workspace_paths(self.repo.root, Path(self.tmp.name) / "ws")
+        ensure_workspace(paths)
+        with self.assertRaises(GovernanceError):
+            report_ingestion_scan(paths, cycle_id="c1")
 
 
 if __name__ == "__main__":

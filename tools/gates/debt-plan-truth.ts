@@ -4,48 +4,46 @@
  *
  * WHAT THIS MODULE ANSWERS
  *
- *   1. `deriveRegistrySnapshot(registryText)` — the registry tip hash, row
- *      count, OPEN / IN-PROGRESS counts and the active CRITICAL ids (every
+ *   1. `deriveRegistrySnapshot(rows)` — the registry tip hash, row count,
+ *      OPEN / IN-PROGRESS counts and the active CRITICAL ids (every
  *      unresolved state — OPEN, IN-PROGRESS, BLOCKED, STALE — in registry
  *      order, per `isUnresolvedFindingState`), as a pure function of the
- *      registry.
+ *      projected rows (finding-registry-projection.ts).
  *   2. `checkDebtPlanTruth(snapshot, rows)` — does the truth table's active
  *      table cover exactly that active CRITICAL set? Four ways to fail, each
  *      naming ids: an active CRITICAL with no row (`missingRows`: a new one
  *      needs an owner, a first sprint and a truth bucket — human judgement), a
  *      row whose CRITICAL is no longer active (`retiredRows`), the same id on
  *      two rows (`duplicateRows`), and a bucket outside the closed vocabulary.
- *   3. `retireResolvedRows(truthTable, snapshot)` — the one write left: the
- *      reconcile lane, which is the only writer of RESOLVED, moves the row of
- *      each CRITICAL it resolved into `Resolved Evidence`.
  *
- * WHY (PROC-HIGH-046). The plan used to RECORD the five registry scalars and
- * the active id list in manifest.json, README.md and finding-truth-table.md,
- * and `gates:debt-plan:repin` rewrote them after every `findings:add`. So every
- * PR that added a finding rewrote the same lines as every other: 78 of 78
- * registry merges on main in the fortnight before did, and 53 merge commits
- * record hand-resolved conflicts in those three files. The scalars protected
- * nothing beyond themselves — the registry and the plan share one CODEOWNERS
- * entry, so a mirror adds no review. The part that carried judgement is the
- * active CRITICAL set against the truth table, and that is what is compared,
+ * WHY THE PROJECTION (MF-1, PROC-HIGH-039). RESOLVED is derived from merged
+ * `Closes:` trailers at read time, so a CRITICAL leaves the active set in the
+ * tree of the PR whose trailer closes it. That PR therefore deletes the
+ * CRITICAL's active row itself, and the check names a kept row on that PR,
+ * not on main after a second commit. The reconcile lane used to retire the
+ * row after the merge — a second writer on main — and nothing does now. The
+ * `Resolved Evidence` section stays as frozen history; `--resolved` derives
+ * the closer of every resolved CRITICAL instead of a hand-written row.
+ *
+ * WHY DERIVED AT ALL (PROC-HIGH-046). The plan used to RECORD the five
+ * registry scalars and the active id list in manifest.json, README.md and
+ * finding-truth-table.md, and `gates:debt-plan:repin` rewrote them after
+ * every `findings:add`, so every PR that added a finding rewrote the same
+ * lines as every other. The part that carried judgement is the active
+ * CRITICAL set against the truth table, and that is what is compared,
  * against the registry itself instead of a copy of it.
  *
- * The retirement keeps the three properties ORPHAN-MEDIUM-444/448 put into the
- * old repin: the refusal is a precondition checked before any write, every
- * anchor miss throws, and the whole result is planned before the file is
- * written.
- *
  * CLI:
- *   ts-node tools/gates/debt-plan-truth.ts                    # print the snapshot, check, exit 0/1
- *   ts-node tools/gates/debt-plan-truth.ts --retire-resolved  # the reconcile lane's write
+ *   ts-node tools/gates/debt-plan-truth.ts             # print the snapshot, check, exit 0/1
+ *   ts-node tools/gates/debt-plan-truth.ts --resolved  # every resolved CRITICAL and its closer
  */
 
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import { isUnresolvedFindingState } from './finding-registry-chain';
+import { projectRegistry } from './finding-registry-projection';
 
-export const REGISTRY_PATH = 'docs/reviews/_registry/findings.jsonl';
 export const DEBT_PLAN_DIR = 'docs/plans/2026-06-18-enterprise-grade-debt-closure';
 export const TRUTH_TABLE_PATH = `${DEBT_PLAN_DIR}/finding-truth-table.md`;
 
@@ -71,15 +69,11 @@ export const DERIVED_MANIFEST_KEYS = [
   'active_critical_ids',
 ] as const;
 
-/** Matches the short form the hand-written Resolved Evidence entries use. */
-const SHORT_SHA_LENGTH = 9;
-
 interface RegistryRow {
   readonly id: string;
   readonly severity: string;
   readonly state: string;
   readonly content_hash: string;
-  readonly closing_commits?: readonly string[];
 }
 
 export interface RegistrySnapshot {
@@ -88,22 +82,11 @@ export interface RegistrySnapshot {
   readonly open: number;
   readonly inProgress: number;
   readonly activeCriticalIds: readonly string[];
-  /** Latest closing commit per id; the registry is append-only, the last row wins. */
-  readonly closingCommitById: ReadonlyMap<string, string>;
 }
 
-export function deriveRegistrySnapshot(registryText: string): RegistrySnapshot {
-  const rows = registryText
-    .split(/\r?\n/)
-    .filter((line) => line.trim() !== '')
-    .map((line) => JSON.parse(line) as RegistryRow);
+export function deriveRegistrySnapshot(rows: readonly RegistryRow[]): RegistrySnapshot {
   const tip = rows[rows.length - 1];
-  if (tip === undefined) throw new Error(`registry is empty: ${REGISTRY_PATH}`);
-  const closingCommitById = new Map<string, string>();
-  for (const row of rows) {
-    const latest = row.closing_commits?.[row.closing_commits.length - 1];
-    if (latest !== undefined) closingCommitById.set(row.id, latest);
-  }
+  if (tip === undefined) throw new Error('the finding registry is empty');
   return {
     tipHash: tip.content_hash,
     entries: rows.length,
@@ -115,7 +98,6 @@ export function deriveRegistrySnapshot(registryText: string): RegistrySnapshot {
       // (ARIA-HIGH-534), and the `blocked` / `stale` buckets exist for it.
       .filter((row) => row.severity === 'CRITICAL' && isUnresolvedFindingState(row.state))
       .map((row) => row.id),
-    closingCommitById,
   };
 }
 
@@ -184,106 +166,24 @@ export function checkDebtPlanTruth(
   };
 }
 
-/**
- * Appends to the END OF THE `Resolved Evidence` SECTION, not the end of the
- * file: they coincide today, and writing to the file's end would silently
- * misfile every closure once a section is added after it.
- */
-function appendToResolvedEvidence(raw: string, entry: string): string {
-  const heading = '\n## Resolved Evidence\n';
-  const start = raw.indexOf(heading);
-  if (start === -1) {
-    throw new Error('finding-truth-table.md: no `## Resolved Evidence` section to append to');
-  }
-  const afterHeading = start + heading.length;
-  const nextHeading = raw.indexOf('\n## ', afterHeading);
-  const sectionEnd = nextHeading === -1 ? raw.length : nextHeading;
-  const section = raw.slice(afterHeading, sectionEnd).trimEnd();
-  // The entry is a bullet. It continues the list the section ends with; after a paragraph it must
-  // start a list of its own, which markdownlint (MD032, enforced by docs-check) wants set off by a
-  // blank line — a note written by hand after the last bullet is exactly that case.
-  const lastBlock = section.slice(section.lastIndexOf('\n\n') + 2);
-  const endsInList = /^\s*[-*+]\s/.test(lastBlock);
-  const separator = endsInList ? '\n' : '\n\n';
-  return `${raw.slice(0, afterHeading)}${section}${separator}${entry}\n${raw.slice(sectionEnd)}`;
-}
-
-/**
- * Moves the row of every CRITICAL that left the active set into `Resolved
- * Evidence`, naming its closing commit and the bucket it left. Pure: returns
- * the bytes to write. Refuses — throws before anything is written — when the
- * table is wrong in a way only a human can fix: an active CRITICAL with no
- * row, a duplicate row, an unknown bucket, or a CRITICAL that left the active
- * set without a closing commit. Only RESOLVED leaves the active set (BLOCKED
- * and STALE stay in it), so this last case is a RESOLVED row with no closer.
- */
-export function retireResolvedRows(
-  truthTable: string,
-  snapshot: RegistrySnapshot,
-): { readonly contents: string; readonly retired: readonly string[] } {
-  const verdict = checkDebtPlanTruth(snapshot, truthTableActiveRows(truthTable));
-  const judgement = [
-    ...verdict.missingRows.map((id) => `${id} is an active CRITICAL with no truth-table row`),
-    ...verdict.duplicateRows.map((id) => `${id} has more than one truth-table row`),
-    ...verdict.invalidBuckets.map(({ id, bucket }) => `${id} has unknown bucket '${bucket}'`),
-    ...verdict.retiredRows
-      .filter((id) => !snapshot.closingCommitById.has(id))
-      .map((id) => `${id} left the active set with no closing commit`),
-  ];
-  if (judgement.length > 0) {
-    throw new Error(
-      `debt-plan truth table needs a human edit; nothing was written:\n  ${judgement.join('\n  ')}`,
-    );
-  }
-
-  let raw = truthTable;
-  for (const id of verdict.retiredRows) {
-    const row = new RegExp(`^\\|\\s*\`${id}\`.*\\r?\\n`, 'm');
-    const match = raw.match(row);
-    if (match?.[0] === undefined) throw new Error(`finding-truth-table.md: no row for ${id}`);
-    const bucket = truthTableActiveRows(match[0])[0]?.bucket ?? 'unknown';
-    const commit = snapshot.closingCommitById.get(id) ?? '';
-    raw = raw.replace(row, '');
-    // Wrapped to the prose width docs-check enforces (MD013 exempts tables,
-    // not bullets), with the short sha the existing entries use.
-    raw = appendToResolvedEvidence(
-      raw,
-      [
-        `- \`${id}\`: registry state is \`RESOLVED\` with closing commit`,
-        `  \`${commit.slice(0, SHORT_SHA_LENGTH)}\`, derived by \`finding-registry reconcile\` against \`origin/main\`.`,
-        `  Left the active table from bucket \`${bucket}\`.`,
-      ].join('\n'),
-    );
-  }
-  return { contents: raw, retired: verdict.retiredRows };
-}
-
 function main(argv: readonly string[]): number {
-  if (argv.some((arg) => arg !== '--retire-resolved')) {
-    process.stderr.write('usage: debt-plan-truth.ts [--retire-resolved]\n');
+  if (argv.length > 1 || (argv.length === 1 && argv[0] !== '--resolved')) {
+    process.stderr.write('usage: debt-plan-truth.ts [--resolved]\n');
     return 2;
   }
   const repoRoot = resolve(__dirname, '..', '..');
-  const truthTablePath = resolve(repoRoot, TRUTH_TABLE_PATH);
-  const snapshot = deriveRegistrySnapshot(readFileSync(resolve(repoRoot, REGISTRY_PATH), 'utf8'));
-  const truthTable = readFileSync(truthTablePath, 'utf8');
+  const rows = projectRegistry(repoRoot);
 
-  if (argv.includes('--retire-resolved')) {
-    try {
-      const { contents, retired } = retireResolvedRows(truthTable, snapshot);
-      if (retired.length === 0) {
-        process.stdout.write('debt-plan truth: no resolved CRITICAL row to retire\n');
-        return 0;
-      }
-      writeFileSync(truthTablePath, contents, 'utf8');
-      process.stdout.write(`debt-plan truth: retired ${retired.join(', ')}\n`);
-      return 0;
-    } catch (error) {
-      process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
-      return 1;
+  if (argv[0] === '--resolved') {
+    for (const row of rows) {
+      if (row.severity !== 'CRITICAL' || row.state !== 'RESOLVED') continue;
+      process.stdout.write(`${row.id}\t${row.closing_commits.join(',')}\t${row.closed_at ?? ''}\n`);
     }
+    return 0;
   }
 
+  const snapshot = deriveRegistrySnapshot(rows);
+  const truthTable = readFileSync(resolve(repoRoot, TRUTH_TABLE_PATH), 'utf8');
   process.stdout.write(
     [
       `Registry tip hash: ${snapshot.tipHash}`,

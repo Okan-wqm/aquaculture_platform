@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 from .feedback import add_feedback, build_feedback_event, slug
 from .batch_containment import guard_item, with_item_failures
@@ -17,14 +18,22 @@ from .workspace import WorkspacePaths, record_workspace_governance
 DEFAULT_BACKFILL_LIMIT = 100
 LARGE_BACKFILL_THRESHOLD = 500
 
-# The review registry (docs/reviews/_registry/README.md): the hash-chained
-# findings.jsonl, and the delta rows a branch records under deltas/ until a
-# fold writes them into the chain (program plan rev2 F-P2). Every kernel read
-# of the registry goes through read_registry_view (ARIA-HIGH-279): three sites
-# each parsed findings.jsonl themselves and none could see a delta row.
+# The review registry (docs/reviews/_registry/README.md). Every kernel read of
+# it goes through read_registry_view (ARIA-HIGH-279), and the view IS the
+# registry CLI's projection (MF-1, PROC-HIGH-039): RESOLVED is derived from
+# merged ``Closes:`` trailers by tools/gates/finding-registry-projection.ts,
+# the one owner of that derivation, so the kernel sees a closure the moment
+# the fix merges, as every gate does.
 REGISTRY_FINDINGS_RELPATH: tuple[str, ...] = ("docs", "reviews", "_registry", "findings.jsonl")
-REGISTRY_DELTAS_RELPATH: tuple[str, ...] = ("docs", "reviews", "_registry", "deltas")
 _REGISTRY_FINDINGS_REF = "/".join(REGISTRY_FINDINGS_RELPATH)
+# The registry CLI and the repository-local ts-node that runs it. The kernel
+# runs it in exactly one place, run_registry_cli (the view below, and the
+# autonomy closure verifier's chain and closure verdicts).
+_TS_NODE_RELPATH: tuple[str, ...] = ("node_modules", ".bin", "ts-node")
+_REGISTRY_CLI = "tools/gates/finding-registry.ts"
+_GATES_TSCONFIG = "tools/gates/tsconfig.json"
+_REGISTRY_CLI_TIMEOUT_SECONDS = 300
+_PROJECT_JSONL: tuple[str, ...] = ("project", "--format=jsonl")
 # findings.jsonl.schema.json `state` enum; pinned against the schema by
 # tests/test_report_ingestion_registry_view.py.
 REGISTRY_STATES: frozenset[str] = frozenset({"OPEN", "IN-PROGRESS", "RESOLVED", "STALE", "BLOCKED"})
@@ -32,7 +41,7 @@ REGISTRY_STATES: frozenset[str] = frozenset({"OPEN", "IN-PROGRESS", "RESOLVED", 
 
 @dataclass(frozen=True)
 class RegistryEntry:
-    """One finding's effective row and the repo-relative file that holds it."""
+    """One finding's projected row and the repo-relative file that holds it."""
 
     row: dict[str, Any]
     source: str
@@ -43,71 +52,104 @@ class RegistryView:
     """The registry as every kernel reader sees it: one row per finding."""
 
     entries: tuple[RegistryEntry, ...]
-    malformed: tuple[dict[str, Any], ...]
 
     @property
     def rows(self) -> list[dict[str, Any]]:
         return [entry.row for entry in self.entries]
 
 
-def read_registry_view(repo_root: str | Path, *, strict: bool = True) -> RegistryView:
-    """The chain with every delta row folded over it.
+def read_registry_view(repo_root: str | Path) -> RegistryView:
+    """The registry's projection at the checkout, read through its own CLI.
 
-    WHY: a transition a merged PR recorded as a delta row is the finding's
-    state from that merge on, not from the fold that later rewrites the chain;
-    a reader of the chain alone reports the state before the PR.
+    WHY: ``state: RESOLVED`` in findings.jsonl copied what a merged
+    ``Closes:`` trailer records, and only a later reconcile commit refreshed
+    the copy, so a reader of the stored state saw every closure late. The
+    projection derives it at read time; a second derivation here would be a
+    second owner of one fact, so the kernel asks the owner, as
+    ``autonomy_closure`` does for the chain.
 
-    WHAT (the delta contract, F-P2 writes to it): each
-    ``deltas/*.jsonl`` line is a registry row in the chain's own shape, chain
-    hashes not required. Files fold in name order. A row whose ``id`` the
-    chain holds replaces that row in place — the transition ``close`` and
-    ``reopen`` make by rewriting it — and a new ``id`` is appended; within one
-    file the later row wins. An ``override_of`` successor is its own finding
-    and leaves the row it overrides untouched (the README's successor
-    pattern). A row without an ``id``, with a state outside REGISTRY_STATES,
-    or claiming an ``id`` another delta file claims is refused under
-    ``strict`` and recorded in ``malformed`` otherwise, never folded. Corrupt
-    lines follow ``_read_registry``. An absent chain raises: this checkout is
-    not the repository the kernel serves.
+    WHAT: ``finding-registry.ts project --format=jsonl`` run by the
+    repository's own ts-node in ``repo_root``: every row of the working
+    tree's registry, RESOLVED where history merged into HEAD closes it.
+    Needs the repository's node dependencies and its whole history (the
+    kernel lanes provision both; tests/invariants/
+    test_kernel_lanes_check_out_full_history.py). Without ts-node, or when the
+    projection refuses (a corrupt row, an unreadable or shallow history), it
+    raises :class:`RegistryCliRefused` by name: a silent read of the stored
+    file, or of truncated history, would report closed findings open.
+    An absent registry raises: this checkout is not the repository the kernel
+    serves.
     """
     root = Path(repo_root)
     chain = root.joinpath(*REGISTRY_FINDINGS_RELPATH)
     if not chain.is_file():
         raise FileNotFoundError(f"finding_registry_missing:{chain.as_posix()}")
-    rows, malformed = _read_registry(chain, strict=strict)
-    folded: dict[str, RegistryEntry] = {}
-    for index, row in enumerate(rows):
-        finding_id = row.get("id")
-        key = finding_id if isinstance(finding_id, str) and finding_id else f"{_REGISTRY_FINDINGS_REF}#{index}"
-        folded[key] = RegistryEntry(row, _REGISTRY_FINDINGS_REF)
-    deltas = root.joinpath(*REGISTRY_DELTAS_RELPATH)
-    claimed: dict[str, str] = {}
-    for path in sorted(deltas.glob("*.jsonl")):
-        ref = path.relative_to(root).as_posix()
-        delta_rows, delta_malformed = _read_registry(path, strict=strict)
-        malformed.extend({**item, "file": ref} for item in delta_malformed)
-        for ordinal, row in enumerate(delta_rows, start=1):
-            defect = _delta_row_defect(row, ref, claimed)
-            if defect is not None:
-                if strict:
-                    raise GovernanceError(f"finding_registry_delta_{defect}:{ref}:{ordinal}")
-                malformed.append({"file": ref, "line": ordinal, "reason": defect.split(":", 1)[0]})
-                continue
-            claimed[row["id"]] = ref
-            folded[row["id"]] = RegistryEntry(row, ref)
-    return RegistryView(entries=tuple(folded.values()), malformed=tuple(malformed))
+    entries: list[RegistryEntry] = []
+    for ordinal, line in enumerate(run_registry_cli(root, _PROJECT_JSONL).splitlines(), start=1):
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise GovernanceError(f"finding_registry_projection_unreadable:{ordinal}") from exc
+        if not isinstance(row, dict):
+            raise GovernanceError(f"finding_registry_projection_unreadable:{ordinal}")
+        entries.append(RegistryEntry(row, _REGISTRY_FINDINGS_REF))
+    return RegistryView(entries=tuple(entries))
 
 
-def _delta_row_defect(row: dict[str, Any], ref: str, claimed: dict[str, str]) -> str | None:
-    finding_id = row.get("id")
-    if not isinstance(finding_id, str) or not finding_id.strip():
-        return "row_without_id"
-    if row.get("state") not in REGISTRY_STATES:
-        return "row_state_unknown"
-    owner = claimed.get(finding_id)
-    if owner is not None and owner != ref:
-        return f"conflict:{finding_id}:{owner}"
-    return None
+class RegistryCliRefused(GovernanceError):
+    """The registry CLI did not run, or refused to answer.
+
+    ``finding_registry_cli_unavailable:<why>`` when the repository's ts-node is
+    absent or the process could not run or finish; ``finding_registry_cli_refused:
+    <last stderr line>`` when it exited with a code the caller does not read as
+    an answer; ``finding_registry_cli_unreadable:<why>`` when its answer is not
+    UTF-8. Never a fallback answer: the caller that can fail closed (the
+    autonomy closure verifier) maps it to its own verdict, every other caller
+    lets it propagate.
+    """
+
+
+def run_registry_cli(
+    root: Path,
+    args: Sequence[str],
+    *,
+    stdin: bytes | None = None,
+    answer_exit_codes: frozenset[int] = frozenset({0}),
+) -> str:
+    """``tools/gates/finding-registry.ts <args>`` run in ``root`` by the
+    repository's own ts-node: its stdout, or :class:`RegistryCliRefused`.
+
+    WHY: the registry's chain, its projection and every closure verdict have
+    one owner, the TypeScript CLI; the kernel asks it rather than transcribing
+    it, and asks it through this one runner so the argv, the timeout and what
+    counts as a refusal cannot differ between the kernel's callers.
+
+    ``stdin`` is piped to the CLI (``verify --stdin``, ``project --stdin``).
+    ``answer_exit_codes`` are the exits whose stdout is the answer: ``{0}``
+    for ``project --format=jsonl``; ``{0, 1}`` for the verdict commands, which
+    print a verdict either way and exit 1 when it is negative.
+    """
+    ts_node = root.joinpath(*_TS_NODE_RELPATH)
+    if not ts_node.is_file():
+        raise RegistryCliRefused(f"finding_registry_cli_unavailable:ts_node_absent:{ts_node.as_posix()}")
+    argv = [str(ts_node), "--transpile-only", "--project", _GATES_TSCONFIG, _REGISTRY_CLI, *args]
+    try:
+        completed = subprocess.run(
+            argv, cwd=root, input=stdin, capture_output=True, check=False,
+            timeout=_REGISTRY_CLI_TIMEOUT_SECONDS,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise RegistryCliRefused(f"finding_registry_cli_unavailable:{type(exc).__name__}") from exc
+    if completed.returncode not in answer_exit_codes:
+        stderr = completed.stderr.decode("utf-8", errors="replace").strip().splitlines()
+        detail = stderr[-1] if stderr else f"exit {completed.returncode}"
+        raise RegistryCliRefused(f"finding_registry_cli_refused:{detail}")
+    try:
+        return completed.stdout.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise RegistryCliRefused("finding_registry_cli_unreadable:stdout_not_utf8") from exc
 
 
 def positive_backfill_limit(value: object) -> int:
@@ -134,15 +176,13 @@ def report_ingestion_scan(
     backfill_limit: int = DEFAULT_BACKFILL_LIMIT,
     confirm_large_backfill: bool = False,
     acknowledge: bool = False,
-    strict_registry: bool = True,
 ) -> dict[str, Any]:
-    """Plan 026R §A.5 — ``strict_registry=True`` (default) makes
-    ``_read_registry`` raise GovernanceError on the first corrupt
-    row. Operator opt-in ``strict_registry=False`` preserves the
-    legacy tolerant tuple shape (rows, malformed) for compatibility
-    with downstream reports that count malformed rows; corrupt
-    rows still emit ``ledger_row_corrupt`` to the diagnostic sink
-    (Plan 024 §H-7) so the audit trail records them either way.
+    """Ingest the registry's OPEN findings the dedup cache has not seen.
+
+    The registry is read through its projection (``read_registry_view``),
+    which refuses a corrupt row by name (Plan 026R §A.5's strict default; the
+    tolerant mode went with the second parser, MF-1): a finding a merged
+    trailer closed is RESOLVED there and is not ingested as open work.
     """
     registry = paths.repo_root.joinpath(*REGISTRY_FINDINGS_RELPATH)
     cache_path = paths.state_dir / "ingested_findings.json"
@@ -155,10 +195,6 @@ def report_ingestion_scan(
         )
         return {"schema_version": 1, "cycle_id": cycle_id, "status": "skipped", "reason": "registry_missing", "ingested_count": 0}
 
-    # Plan 026R §A.5 — strict by default; corrupt rows raise.
-    # Operator-opt-in tolerant mode preserves the legacy
-    # ``malformed_count`` reporting for known-imperfect upstream
-    # exports (e.g. partial third-party scan dumps).
     # ARIA-HIGH-192 — the guard bounds the WORK one call may do, not the size
     # of the registry it caches. The first call only baselines (ingests 0)
     # and every later call ingests at most ``backfill_limit``; guarding on
@@ -167,8 +203,8 @@ def report_ingestion_scan(
     backfill_limit = positive_backfill_limit(backfill_limit)
     if backfill_limit > LARGE_BACKFILL_THRESHOLD and not (confirm_large_backfill and acknowledge):
         raise ValueError("large_backfill_requires_confirm_large_backfill_and_acknowledge")
-    view = read_registry_view(paths.repo_root, strict=strict_registry)
-    rows, malformed = view.rows, view.malformed
+    view = read_registry_view(paths.repo_root)
+    rows = view.rows
 
     cache_missing = not cache_path.exists()
     previously_baselined = _has_report_baseline(paths)
@@ -193,7 +229,6 @@ def report_ingestion_scan(
                 "cycle_id": cycle_id,
                 "reason": "baseline_rebuilt" if previously_baselined else "baseline_created",
                 "baseline_count": len(baseline),
-                "malformed_count": len(malformed),
             },
         )
         return {
@@ -202,7 +237,6 @@ def report_ingestion_scan(
             "status": "baselined",
             "cache_missing": True,
             "baseline_count": len(baseline),
-            "malformed_count": len(malformed),
             "ingested_count": 0,
         }
 
@@ -244,7 +278,6 @@ def report_ingestion_scan(
         "status": "ok",
         "ingested_count": len(ingested),
         "skipped_count": skipped,
-        "malformed_count": len(malformed),
         "cache_path": cache_path.as_posix(),
         "ingested": ingested,
     }, item_failures)
@@ -277,87 +310,10 @@ def _ingest_one_finding(
     return finding_event
 
 
-def _read_registry(
-    path: Path,
-    *,
-    strict: bool = True,
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Plan 026R §A.5 — strict-by-default registry reader.
-
-    Two modes:
-
-    * **strict (default)** — routes through
-      ``strict_jsonl_reader.read_strict_jsonl`` so the first corrupt
-      row raises ``GovernanceError`` AFTER emitting the
-      ``ledger_row_corrupt`` diagnostic. Returns (rows, []).
-    * **tolerant** (operator opt-in via
-      ``ingest_external_reports(strict_registry=False)``) — preserves
-      the legacy (rows, malformed) tuple shape. Corrupt rows are
-      tracked in the ``malformed`` list AND emit
-      ``ledger_row_corrupt`` to the diagnostic sink, so the audit
-      trail is recorded either way. Operators choose this mode
-      when consuming known-imperfect third-party scan exports where
-      "drop the bad row, keep going" is the desired behaviour.
-
-    Non-dict rows (e.g. an array literal where an object is
-    expected) are tracked as ``row_not_object`` in tolerant mode and
-    raise ``GovernanceError`` in strict mode — a schema break is a
-    real defect, not a missing-row.
-    """
-    rows: list[dict[str, Any]] = []
-    malformed: list[dict[str, Any]] = []
-    if not path.exists():
-        return rows, malformed
-    if strict:
-        from .strict_jsonl_reader import read_strict_jsonl
-        from .tool_registry import GovernanceError
-        for line_no, row in enumerate(
-            read_strict_jsonl(path, base_dir=path.parent), start=1,
-        ):
-            if not isinstance(row, dict):
-                raise GovernanceError(
-                    f"report_ingestion_row_not_object: "
-                    f"{path}:{line_no}"
-                )
-            rows.append(row)
-        return rows, malformed
-    # Tolerant mode — explicit diagnostic emit + malformed tracking +
-    # continue. Body is 3 statements (track + emit + continue), so it
-    # does NOT match the §A.3 silent-skip AST predicate (which flags
-    # only bare-``continue`` bodies inside JSONL-row-iteration loops).
-    from .diagnostics import emit_ledger_corruption_diagnostic
-    for line_no, line in enumerate(
-        path.read_text(encoding="utf-8").splitlines(), start=1,
-    ):
-        if not line.strip():
-            continue
-        try:
-            row = json.loads(line)
-        except json.JSONDecodeError as exc:
-            malformed.append({"line": line_no, "reason": str(exc)})
-            emit_ledger_corruption_diagnostic(
-                {
-                    "kind": "ledger_row_corrupt",
-                    "ledger": str(path),
-                    "line_no": line_no,
-                    "error": str(exc),
-                    "raw_excerpt": line[:200],
-                },
-                base_dir=path.parent,
-            )
-            continue
-        if not isinstance(row, dict):
-            malformed.append({"line": line_no, "reason": "row_not_object"})
-            continue
-        rows.append(row)
-    return rows, malformed
-
-
 def _feedback_event_from_finding(
     paths: WorkspacePaths, row: dict[str, Any], *, source_ref: str, cycle_id: str,
 ) -> dict[str, Any]:
-    # `source_ref` is the file holding the row: a delta row cites its delta
-    # file, which the chain does not yet contain.
+    # `source_ref` is the file holding the row.
     refs = _refs(row)
     ref = refs[0] if refs else source_ref
     evidence_refs = sorted(dict.fromkeys([*refs, source_ref]))

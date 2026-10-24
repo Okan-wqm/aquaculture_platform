@@ -31,10 +31,10 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 import { removeFixtureTree } from '../../tools/gates/fixture-tree';
+import { projectRegistry } from '../../tools/gates/finding-registry-projection';
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const EXCEPTIONS_PATH = join(REPO_ROOT, 'scripts', 'ci', 'npm-audit-exceptions.json');
 const GATE = join(REPO_ROOT, 'scripts', 'ci', 'npm-audit-gate.mjs');
-const REGISTRY = join(REPO_ROOT, 'docs', 'reviews', '_registry', 'findings.jsonl');
 
 /**
  * RATCHET — only ever goes DOWN, except in the same commit as the reviewed
@@ -97,14 +97,14 @@ function exceptions(): Record<string, ExceptionEntry> {
   return doc.advisories ?? {};
 }
 
+/**
+ * Each finding's state as every reader sees it: the projection, where a merged
+ * `Closes:` trailer makes a finding RESOLVED the moment it merges. The stored
+ * `state` is not refreshed by any workflow (MF-1, PROC-HIGH-039), so a gate
+ * that read it would keep an exception alive past its closed finding.
+ */
 function registryFindings(): Map<string, string> {
-  const states = new Map<string, string>();
-  for (const line of readFileSync(REGISTRY, 'utf8').split('\n')) {
-    if (line.trim().length === 0) continue;
-    const row = JSON.parse(line) as { id?: string; state?: string };
-    if (typeof row.id === 'string') states.set(row.id, row.state ?? 'OPEN');
-  }
-  return states;
+  return new Map(projectRegistry(REPO_ROOT).map((row) => [row.id, row.state]));
 }
 
 /** Run the real CLI against a fixture pair; returns its exit code and output. */

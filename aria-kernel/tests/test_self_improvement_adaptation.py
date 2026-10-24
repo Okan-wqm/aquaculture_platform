@@ -37,6 +37,7 @@ from aria_kernel.request_admission import admit_request
 from aria_kernel.surface_waivers import DORMANT_CONTROL_MANIFEST, WAIVER_MANIFESTS, waiver_manifest_path
 from aria_kernel.tool_registry import ensure_tools_dir
 from tests._helpers.hermetic_git import apply_hermetic_git_env
+from tests._helpers.registry_projection import project_registry_as_stored
 
 
 def _git_env() -> dict[str, str]:
@@ -49,6 +50,7 @@ def _git_env() -> dict[str, str]:
 
 class _Store(unittest.TestCase):
     def setUp(self) -> None:
+        project_registry_as_stored(self)
         self._tmp = tempfile.TemporaryDirectory()
         root = Path(self._tmp.name)
         self.ws = root / "repo"

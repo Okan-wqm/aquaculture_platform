@@ -447,6 +447,45 @@ class TheReviewerSetPerSurfaceIsTheLiteral(unittest.TestCase):
             "only when it is named here")
 
 
+# -- the merge-time cost cap never cuts a touched path's owner -----------------
+# SE-2-C B1. The routing rows ``apps/*/src/gdpr/**``, ``apps/*/src/**/tenant*.ts``
+# and ``apps/*/src/**/entities/*.entity.ts`` reach every ``apps/*`` file, so
+# Gate C's candidate set for a multi-service plan is wider than the deleted
+# touch map's. The cap (``max_specialists_per_cycle``) used to keep Tier-1
+# candidates first and cut the rest by name, which dropped ``sensor-expert``
+# from a four-service plan the touch map reviewed in full: the reviewer set
+# narrowed silently (DECISIONS.md Q4). The owner of a touched path (the
+# primary of a row claiming the whole subtree it sits in) now goes first.
+_FOUR_SERVICE_PLAN = (
+    "apps/farm-service/src/a.ts",
+    "apps/sensor-service/src/b.ts",
+    "apps/hr-service/src/c.ts",
+    "apps/billing-service/src/d.ts",
+)
+# What the deleted touch map selected for that plan (branch base 39c8c9679).
+_FOUR_SERVICE_OWNERS = frozenset({"farm-expert", "sensor-expert", "hr-expert", "billing-expert"})
+
+
+class TheCostCapNeverCutsATouchedPathsOwner(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.routing = load_routing_table(_REPO_ROOT)
+
+    def _select(self, **cap: int) -> list[str]:
+        return specialist_review_runner.select_specialist_agents(
+            touched_services=list(_FOUR_SERVICE_PLAN), pressures=[], profile="standard",
+            routing=self.routing, **cap)
+
+    def test_the_default_cap_keeps_every_service_owner(self) -> None:
+        selected = self._select()
+        self.assertEqual(sorted(_FOUR_SERVICE_OWNERS - set(selected)), [],
+                         f"Gate C cut a touched service's own domain expert: {selected}")
+
+    def test_owners_fill_the_cap_before_any_wider_reviewer(self) -> None:
+        self.assertEqual(frozenset(self._select(max_specialists_per_cycle=len(_FOUR_SERVICE_OWNERS))),
+                         _FOUR_SERVICE_OWNERS)
+
+
 # -- writer and maintenance agents are never reviewers -------------------------
 def _write_agent(repo: Path, rel: str, tools: str) -> None:
     path = repo / ".claude" / "agents" / rel

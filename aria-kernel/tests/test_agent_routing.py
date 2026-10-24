@@ -21,6 +21,7 @@ if str(_KERNEL) not in sys.path:
 from aria_kernel.agent_routing import (  # noqa: E402
     ROUTING_TABLE_REL,
     load_routing_table,
+    owning_agents_for_paths,
     recommended_agents_for_project,
     reviewing_agents_for_paths,
     routing_domain_for_path,
@@ -172,6 +173,33 @@ class ReviewingAgentsForPathsTests(unittest.TestCase):
         self.assertEqual(routing_domain_for_path("libs/backend-common/src/auth/a.ts", self.routing),
                          "libs/backend-common/src/auth")
         self.assertIsNone(routing_domain_for_path("docs/x.md", self.routing))
+
+
+class OwningAgentsForPathsTests(unittest.TestCase):
+    """SE-2-C B1 — a path's owners are the primaries of the rows that claim the
+    whole subtree it sits in. A row whose glob a wildcard cuts earlier
+    (``apps/*/src/gdpr/**``, a brace group) reaches only some paths under its
+    prefix, so it reviews the path but does not own it."""
+
+    def setUp(self) -> None:
+        self._td = tempfile.TemporaryDirectory()
+        self.routing = load_routing_table(_repo_with_table(Path(self._td.name), _PROSE_AND_BRACE_TABLE))
+
+    def tearDown(self) -> None:
+        self._td.cleanup()
+
+    def test_a_service_file_is_owned_by_its_service_row_only(self) -> None:
+        path = "apps/farm-service/src/batch.ts"
+        self.assertEqual(owning_agents_for_paths([path], self.routing), ["farm-expert"])
+        self.assertIn("gdpr-erasure-executor", reviewing_agents_for_paths([path], self.routing))
+
+    def test_a_wildcard_or_brace_row_owns_nothing(self) -> None:
+        self.assertEqual(owning_agents_for_paths(
+            ["apps/auth-service/src/privacy/p.ts", "apps/hr-service/src/gdpr/h.ts"], self.routing), [])
+
+    def test_a_directory_and_a_line_ref_resolve_to_the_same_owner(self) -> None:
+        self.assertEqual(owning_agents_for_paths(
+            ["apps/farm-service/", "./apps/farm-service/src/a.ts:3"], self.routing), ["farm-expert"])
 
 
 class ExaminationIntegrationTests(unittest.TestCase):

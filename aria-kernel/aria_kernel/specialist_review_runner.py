@@ -52,7 +52,12 @@ from .agent_invocations import (
     create_agent_invocation_request,
     derive_request_state,
 )
-from .agent_routing import load_routing_table, reviewing_agents_for_paths, routing_domain_for_path
+from .agent_routing import (
+    load_routing_table,
+    owning_agents_for_paths,
+    reviewing_agents_for_paths,
+    routing_domain_for_path,
+)
 from .agent_surface import TERMINAL_REQUEST_STATES
 from .must_satisfy import must_satisfy_item
 from .request_admission import admit_request
@@ -232,8 +237,14 @@ def select_specialist_agents(
          expert + memory-leak-auditor
       3. Profile gate — ``observe`` strips Tier-1 specialists; other
          profiles keep them
-      4. Cost cap — sort by (tier asc, domain specificity desc); take
-         first ``max_specialists_per_cycle`` to honour token budget
+      4. Cost cap — sort by (owner first, tier asc, name asc); take
+         first ``max_specialists_per_cycle`` to honour token budget. An
+         owner is the primary of a row claiming the whole subtree a
+         touched path sits in (``agent_routing.owning_agents_for_paths``);
+         wildcard rows such as ``apps/*/src/gdpr/**`` reach every
+         ``apps/*`` path, so without owner-first ordering their Tier-1
+         reviewers displaced a touched service's own expert from a
+         multi-service plan (SE-2-C B1, DECISIONS.md Q4)
 
     Selection is deterministic — no randomness. Same inputs → same
     output. Enables I-V6.1-03 reproducibility invariant.
@@ -269,10 +280,13 @@ def select_specialist_agents(
     if profile == "observe":
         candidates -= _TIER_1_SPECIALISTS
 
-    # Step 4 — cost cap (deterministic sort: tier asc, name asc)
-    def _sort_key(agent: str) -> tuple[int, str]:
+    # Step 4 — cost cap (deterministic sort: owner first, tier asc, name asc)
+    owners = frozenset(owning_agents_for_paths(touched_services, routing))
+
+    def _sort_key(agent: str) -> tuple[int, int, str]:
+        owner_priority = 0 if agent in owners else 1
         tier_priority = 0 if agent in _TIER_1_SPECIALISTS else 1
-        return (tier_priority, agent)
+        return (owner_priority, tier_priority, agent)
 
     sorted_candidates = sorted(candidates, key=_sort_key)
     return sorted_candidates[:max_specialists_per_cycle]

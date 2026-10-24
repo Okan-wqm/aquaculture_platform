@@ -64,9 +64,27 @@ def _pattern_prefix(glob: str) -> str:
     return cleaned[:cut].rstrip("/")
 
 
+def _owned_subtree(glob: str) -> str | None:
+    """The repo subtree one code-span routing glob claims WHOLE: the glob is a
+    literal path or ``<literal>/**`` (``apps/farm-service/**`` →
+    ``apps/farm-service``; ``CLAUDE.md`` → ``CLAUDE.md``). ``None`` when a
+    wildcard or brace cuts the glob earlier (``apps/*/src/gdpr/**``,
+    ``apps/auth-service/src/{privacy,modules/gdpr}/**``, ``docker-compose*``):
+    such a row reaches only some paths under its prefix, so it reviews them
+    without owning them."""
+    cleaned = glob.strip()
+    prefix = _pattern_prefix(cleaned)
+    if prefix and cleaned in (prefix, f"{prefix}/**"):
+        return prefix
+    return None
+
+
 def load_routing_table(repo_root: str | Path) -> list[dict[str, Any]]:
     """Parse the orchestrator routing table into rows of
-    ``{prefixes, primary, also_notify}``. Returns ``[]`` when the file is absent.
+    ``{prefixes, subtrees, primary, also_notify}``. Returns ``[]`` when the
+    file is absent. ``prefixes`` are the literal prefixes of every glob (what
+    the row can reach); ``subtrees`` are the ones it claims whole
+    (`_owned_subtree`, what the row owns).
 
     Prefixes come only from the code-span globs of the pattern cell. A prose
     row (no code span, e.g. the cross-cutting supply-chain row) is an
@@ -87,10 +105,12 @@ def load_routing_table(repo_root: str | Path) -> list[dict[str, Any]]:
             continue
         globs = _CODE_SPAN_RE.findall(cells[0])
         prefixes = [p for p in (_pattern_prefix(g) for g in globs) if p]
+        subtrees = [t for t in (_owned_subtree(g) for g in globs) if t is not None]
         primary = _clean_agents(cells[1])
         also_notify = _clean_agents(cells[2]) if len(cells) > 2 else []
         if prefixes and (primary or also_notify):
-            rows.append({"prefixes": prefixes, "primary": primary, "also_notify": also_notify})
+            rows.append({"prefixes": prefixes, "subtrees": subtrees, "primary": primary,
+                         "also_notify": also_notify})
     return rows
 
 
@@ -142,6 +162,27 @@ def reviewing_agents_for_paths(
     return sorted(agents)
 
 
+def owning_agents_for_paths(
+    paths: Iterable[str], routing: list[dict[str, Any]]
+) -> list[str]:
+    """The owners of a path set: the primary agents of every row that claims
+    a whole subtree (``subtrees``) containing a path. A subset of
+    `reviewing_agents_for_paths`: a row cut by a wildcard
+    (``apps/*/src/gdpr/**`` reaches every ``apps/*`` file through the prefix
+    ``apps``) still reviews the path but does not own it. The merge-time cost
+    cap keeps owners ahead of every wider reviewer
+    (`specialist_review_runner.select_specialist_agents`), so a touched
+    service's own domain expert is never cut for a wider one (DECISIONS.md
+    Q4: the merge-time reviewer set must not narrow silently)."""
+    owners: set[str] = set()
+    for path in paths:
+        clean = lexical_repo_path(path).rstrip("/")
+        for row in routing:
+            if any(clean == tree or clean.startswith(tree + "/") for tree in row["subtrees"]):
+                owners.update(row["primary"])
+    return sorted(owners)
+
+
 def routing_domain_for_path(path: str, routing: list[dict[str, Any]]) -> str | None:
     """The review domain a path falls in: the most specific routing prefix
     that is the path itself or contains it (``apps/farm-service/src/x.ts``
@@ -183,6 +224,7 @@ __all__ = [
     "ROUTING_INPUT_DIR",
     "ROUTING_TABLE_REL",
     "load_routing_table",
+    "owning_agents_for_paths",
     "recommended_agents_for_project",
     "reviewing_agents_for_paths",
     "routing_domain_for_path",

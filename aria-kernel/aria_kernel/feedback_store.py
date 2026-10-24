@@ -111,11 +111,15 @@ ARBITRATED_UNCERTAINTY_REASONS: frozenset[str] = frozenset(CONSENSUS_UNCERTAINTY
 # Pre-registered here, before any measured cycle: the outcome is new (WP-J
 # B-2) and nothing routed non-panel uncertainty to the arbiter before F0.7,
 # so no baseline rate exists on the record and the ceiling is the margin
-# alone. Exit criterion: the measured rate stays <= this value (the
-# consensus sweep reports it every cycle). Enforced at the one producer,
-# `record_consensus_uncertainty`, on the Wilson lower bound so a store's
-# first unverifiable answer is admissible and a run of them is not.
+# alone. Exit criterion: the measured rate stays <= this value. Enforced
+# where the rate is read, never by refusing an answer (a refused answer is a
+# group left minted-but-unanswered and missing from the very rate this
+# bounds): `unverifiable_rate` reports `over_ceiling` on the Wilson lower
+# bound, so a store's first unverifiable answer is not a breach and a run of
+# them is, and the consensus sweep discloses each breach by name
+# (`UNVERIFIABLE_RATE_CEILING_BREACH`) on the governance ledger.
 UNVERIFIABLE_RATE_CEILING: float = 0.25
+UNVERIFIABLE_RATE_CEILING_BREACH: str = "unverifiable_rate_ceiling"
 # Typed-judgment plan Phase 6 — how the consensus gate treats calibration.
 # `measure_only`: the legacy confidence gate bit for bit, the row records
 # what `enforce` would have excluded; `enforce`: closing authority belongs
@@ -2112,26 +2116,30 @@ def record_consensus_uncertainty(
     of the kernel minting an outcome its own law refuses. The fix is one
     producer: the same row shape, the same ledger, the same idempotent
     escalation_id, so the arbiter lane reads BOTH lanes off one ledger.
-
-    F0.7 — an ``unverifiable`` outcome is refused by name
-    (``unverifiable_rate_ceiling``) when it would put the tool's rate over
-    ``UNVERIFIABLE_RATE_CEILING``; a plain GovernanceError, because the rate
-    moves and a later replay may be admitted.
     """
+    _require_registered_uncertainty_reason(reason)
+    row = _consensus_uncertainty(tool_id, run_id, finding_id, group_id, reason)
+    return _append_consensus_uncertainty(row, tool_id=tool_id, cycle_id=cycle_id, base_dir=base_dir)
+
+
+def _require_registered_uncertainty_reason(reason: str) -> None:
     if reason not in CONSENSUS_UNCERTAINTY_REASONS:
         raise GovernanceError(
             f"unregistered_consensus_uncertainty_reason: {reason!r} — the "
             "vocabulary is CONSENSUS_UNCERTAINTY_REASONS (closed)"
         )
-    row = _consensus_uncertainty(tool_id, run_id, finding_id, group_id, reason)
+
+
+def _append_consensus_uncertainty(
+    row: dict[str, Any], *, tool_id: str, cycle_id: str | None, base_dir: str | Path | None,
+) -> dict[str, Any]:
+    """Append ``row`` unless its escalation_id is already on the ledger."""
     uncertainties_path = (
         ensure_tools_dir(base_dir) / "feedback-consensus-uncertainties.jsonl"
     )
     seen = {str(item["escalation_id"]) for item in consensus_uncertainty_rows(base_dir=base_dir)
             if item.get("escalation_id")}
     if str(row.get("escalation_id")) not in seen:
-        if reason == TERMINAL_UNCERTAINTY_REASON:
-            _require_unverifiable_under_ceiling(tool_id, base_dir)
         append_jsonl(
             uncertainties_path,
             {
@@ -2162,7 +2170,10 @@ def consensus_uncertainty_rows(
 def unverifiable_rate(*, tool_id: str, base_dir: str | Path | None = None) -> dict[str, Any]:
     """F0.7 — the tool's unverifiable rate against its pre-registered ceiling:
     distinct unverifiable groups over those plus the distinct groups an
-    ``ai_consensus`` row settled. ``rate`` is None while both are zero."""
+    ``ai_consensus`` row settled. ``rate`` and ``wilson_lower`` are None while
+    both are zero; ``over_ceiling`` is the breach, read on the lower bound."""
+    from .judge_calibration import wilson_lower
+
     unverifiable = {
         (str(item.get("run_id") or ""), str(item.get("finding_id") or ""), str(item.get("judgment_group_id") or ""))
         for item in consensus_uncertainty_rows(tool_id=tool_id, base_dir=base_dir)
@@ -2173,29 +2184,16 @@ def unverifiable_rate(*, tool_id: str, base_dir: str | Path | None = None) -> di
         if row.get("source_type") == "ai_consensus"
     }
     judged = len(unverifiable) + len(settled)
+    lower = wilson_lower(len(unverifiable), judged)
     return {
         "tool_id": tool_id,
         "unverifiable": len(unverifiable),
         "settled": len(settled),
         "rate": round(len(unverifiable) / judged, 4) if judged else None,
+        "wilson_lower": lower,
         "ceiling": UNVERIFIABLE_RATE_CEILING,
+        "over_ceiling": lower is not None and lower > UNVERIFIABLE_RATE_CEILING,
     }
-
-
-def _require_unverifiable_under_ceiling(tool_id: str, base_dir: str | Path | None) -> None:
-    """Refuse one more unverifiable outcome when the Wilson lower bound of the
-    rate it would produce exceeds ``UNVERIFIABLE_RATE_CEILING``."""
-    from .judge_calibration import wilson_lower
-
-    current = unverifiable_rate(tool_id=tool_id, base_dir=base_dir)
-    unverifiable = current["unverifiable"] + 1
-    lower = wilson_lower(unverifiable, unverifiable + current["settled"])
-    if lower is not None and lower > UNVERIFIABLE_RATE_CEILING:
-        raise GovernanceError(
-            f"unverifiable_rate_ceiling: tool {tool_id!r} would have {unverifiable} unverifiable of "
-            f"{unverifiable + current['settled']} judged groups (Wilson lower bound {lower}) over the "
-            f"pre-registered ceiling {UNVERIFIABLE_RATE_CEILING}"
-        )
 
 
 def _consensus_uncertainty(

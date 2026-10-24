@@ -204,18 +204,27 @@ class UnverifiableRateCeilingTest(_Case):
                     **({"judge_count": 2, "judges_voted": 2} if source == "ai_consensus" else {}),
                 )
 
-    def test_an_unverifiable_answer_over_the_ceiling_is_refused_by_name(self) -> None:
+    def _answer_unverifiable(self, finding: str) -> dict:
+        [arbiter] = _arbiters(self.tools, f"judge:tool-a:run-1:{finding}")
+        return record_judge_verdict_from_response(
+            request=arbiter, response=_answer(arbiter, reason="unverifiable"), base_dir=self.tools)
+
+    def test_an_unverifiable_answer_over_the_ceiling_is_recorded_and_the_breach_named(self) -> None:
+        # Corrective B2 — the ceiling is enforced where the rate is read: a
+        # refused answer would leave its group minted-but-unanswered and
+        # outside the very rate the exit criterion reads.
+        from aria_kernel.feedback_store import unverifiable_rate
+
         self._settle(99)
         self._split(group="judge:tool-a:run-1:U-1", finding="U-1")
         self._split(group="judge:tool-a:run-1:U-2", finding="U-2")
         dispatch_arbiter_for_split_verdicts(tool_id=TOOL, base_dir=self.tools)
-        [first] = _arbiters(self.tools, "judge:tool-a:run-1:U-1")
-        [second] = _arbiters(self.tools, "judge:tool-a:run-1:U-2")
 
         # 1 of 100 judged groups unverifiable: under any sane ceiling.
-        admitted = record_judge_verdict_from_response(
-            request=first, response=_answer(first, reason="unverifiable"), base_dir=self.tools)
-        self.assertEqual(admitted["reason"], "unverifiable")
+        self.assertEqual(self._answer_unverifiable("U-1")["reason"], "unverifiable")
+        self.assertFalse(unverifiable_rate(tool_id=TOOL, base_dir=self.tools)["over_ceiling"])
+        self.assertEqual(sweep_consensus_uncertainties_for_human_required(base_dir=self.tools)
+                         ["unverifiable_rate_ceiling"], [])
 
         prior = [_consensus_uncertainty(TOOL, "run-1", f"P-{i}", f"judge:tool-a:run-1:P-{i}", "unverifiable")
                  for i in range(99)]
@@ -223,13 +232,32 @@ class UnverifiableRateCeilingTest(_Case):
             fh.write(json.dumps({"schema_version": 1, "recorded_at": utc_now(), "tool_id": TOOL,
                                  "cycle_id": "cyc-1", "uncertainties": prior}) + "\n")
 
-        # ~100 of ~200 judged groups unverifiable: over the ceiling, refused by name.
-        with self.assertRaises(GovernanceError) as ctx:
-            record_judge_verdict_from_response(
-                request=second, response=_answer(second, reason="unverifiable"), base_dir=self.tools)
-        self.assertIn("unverifiable_rate_ceiling", str(ctx.exception))
-        ledger = (self.tools / "feedback-consensus-uncertainties.jsonl").read_text(encoding="utf-8")
-        self.assertNotIn("judge:tool-a:run-1:U-2", ledger)
+        # ~101 of ~200 judged groups unverifiable: recorded, and the breach is named.
+        self.assertEqual(self._answer_unverifiable("U-2")["reason"], "unverifiable")
+        rate = unverifiable_rate(tool_id=TOOL, base_dir=self.tools)
+        self.assertEqual(rate["unverifiable"], 101)
+        self.assertTrue(rate["over_ceiling"])
+        sweep = sweep_consensus_uncertainties_for_human_required(base_dir=self.tools)
+        self.assertEqual([b["tool_id"] for b in sweep["unverifiable_rate_ceiling"]], [TOOL])
+        governance = (self.tools / "governance.jsonl").read_text(encoding="utf-8")
+        self.assertIn('"unverifiable_rate_ceiling"', governance)
+
+    def test_every_refusable_answer_is_counted_and_no_group_is_stranded(self) -> None:
+        from aria_kernel.feedback_store import unverifiable_rate
+        from aria_kernel.judge_fanout import arbitration_groups
+
+        findings = [f"U-{i}" for i in range(6)]
+        for finding in findings:
+            self._split(group=f"judge:tool-a:run-1:{finding}", finding=finding)
+        generate_ai_consensus(tool_id=TOOL, base_dir=self.tools)
+        dispatch_arbiter_for_split_verdicts(tool_id=TOOL, base_dir=self.tools)
+        for finding in findings:
+            self._answer_unverifiable(finding)
+
+        self.assertEqual(unverifiable_rate(tool_id=TOOL, base_dir=self.tools)["unverifiable"], 6)
+        self.assertEqual(arbitration_groups(tool_id=TOOL, base_dir=self.tools), [])
+        sweep = sweep_consensus_uncertainties_for_human_required(base_dir=self.tools)
+        self.assertEqual([b["tool_id"] for b in sweep["unverifiable_rate_ceiling"]], [TOOL])
 
 
 class ArbiterBoundToItsInputsTest(_Case):

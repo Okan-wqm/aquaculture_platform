@@ -30,7 +30,14 @@ from .agent_invocations import _claims_path, _request_event_count, derive_reques
 from .artifact_safety import published_text
 from .ledger import STATE_LOCK_LIVENESS_SECONDS, load_declared_jsonl, load_segments, state_transaction
 from .notify import NOTIFY_WORST_CASE_SECONDS, notify_best_effort
-from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, tools_dir, utc_now
+from .tool_registry import (
+    GovernanceError,
+    append_tools_governance,
+    append_tools_governance_once,
+    ensure_tools_dir,
+    tools_dir,
+    utc_now,
+)
 
 # The longest `record_human_required` can legitimately wait: its record write
 # and governance append (ONE state transaction behind a live holder —
@@ -801,11 +808,14 @@ def sweep_consensus_uncertainties_for_human_required(
     that law, kept as the cycle's ``consensus_escalation`` record of it: it
     creates nothing, and reports how many of the ledger's uncertainties each
     lane holds and each tool's unverifiable rate against its pre-registered
-    ceiling — the two numbers F0.7's exit criterion reads.
+    ceiling — the two numbers F0.7's exit criterion reads. A tool over the
+    ceiling is listed under ``UNVERIFIABLE_RATE_CEILING_BREACH`` and disclosed
+    by that name on the governance ledger (once per distinct count).
     """
     from .feedback_store import (
         ARBITRATED_UNCERTAINTY_REASONS,
         TERMINAL_UNCERTAINTY_REASON,
+        UNVERIFIABLE_RATE_CEILING_BREACH,
         consensus_uncertainty_rows,
         unverifiable_rate,
     )
@@ -819,8 +829,14 @@ def sweep_consensus_uncertainties_for_human_required(
                 else "arbiter" if reason in ARBITRATED_UNCERTAINTY_REASONS else "not_arbitrated")
         routed[lane] += 1
         tools.add(str(item.get("tool_id") or ""))
+    rates = [unverifiable_rate(tool_id=tool, base_dir=root) for tool in sorted(tools) if tool]
+    breaches = [rate for rate in rates if rate["over_ceiling"]]
+    for breach in breaches:
+        append_tools_governance_once(root, UNVERIFIABLE_RATE_CEILING_BREACH, breach,
+                                     claim_keys=("tool_id", "unverifiable", "settled"))
     return {
         "created": [],
         "routed": routed,
-        "unverifiable_rate": [unverifiable_rate(tool_id=tool, base_dir=root) for tool in sorted(tools) if tool],
+        "unverifiable_rate": rates,
+        UNVERIFIABLE_RATE_CEILING_BREACH: breaches,
     }

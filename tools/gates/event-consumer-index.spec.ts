@@ -44,7 +44,8 @@ import {
   trackedTree,
 } from './event-consumer-index';
 import { isUnresolvedFindingState } from './finding-registry-chain';
-import { indexFixtureTree, removeFixtureTree } from './fixture-tree';
+import { indexFixtureTree } from './fixture-git-index';
+import { removeFixtureTree } from './fixture-tree';
 import { hermeticGitEnv } from './hermetic-git';
 import { loadNatsServices } from './nats-services';
 

@@ -4,6 +4,10 @@
  *
  * Read-only, credential-free probes over surfaces the platform already
  * exposes (design: plan tranquil-sniffing-pancake §F5; taxonomy K-A/K-B).
+ * The two probes that need root-only facts (container_state_truth,
+ * tenant_reality_parity) read them from the root-owned privileged probe
+ * through privileged-evidence.mjs; this runner never starts docker or psql
+ * (RW-2: the runner account has no docker and no privilege gain, ADR-0023).
  * Emits one JSON evidence document on stdout (the post-deploy-verify
  * convention) and probe_* metrics in Prometheus textfile format to
  * --textfile <path> for the node_exporter textfile collector.
@@ -13,8 +17,16 @@
  */
 import { execFileSync } from 'node:child_process';
 
-import { classifyTenantReality, parseTenantRealityRows } from './tenant-reality.mjs';
 import { writeFileSync } from 'node:fs';
+
+import {
+  measurementOf,
+  parsePrivilegedEvidence,
+  PRIVILEGED_PROBE_SOCKET,
+  PRIVILEGED_PROBE_TIMEOUT_MS,
+  readPrivilegedEvidence,
+} from './privileged-evidence.mjs';
+import { classifyTenantReality } from './tenant-reality.mjs';
 
 const args = Object.fromEntries(
   process.argv
@@ -24,6 +36,19 @@ const args = Object.fromEntries(
 );
 const HOST = args.host ?? 'https://app.suderra.com';
 const results = [];
+
+// One connection answers both privileged probes. Asked on first use, inside
+// the first probe that needs it, so a refused connection is that probe's
+// probe-error (and the second probe's, from the same settled promise), never
+// an unhandled rejection.
+let privilegedEvidence;
+function privileged() {
+  privilegedEvidence ??= readPrivilegedEvidence(
+    PRIVILEGED_PROBE_SOCKET,
+    PRIVILEGED_PROBE_TIMEOUT_MS,
+  ).then(parsePrivilegedEvidence);
+  return privilegedEvidence;
+}
 
 async function probe(id, target_auditor, fn) {
   const started = Date.now();
@@ -88,23 +113,17 @@ await probe('socketio_handshake', 'realtime-sync-auditor', async () => {
 });
 
 // P3 — container truth: docker ps text lies (2026-08-03 outage class); the
-// only trustworthy fields are State.Running + Health.
+// only trustworthy fields are State.Running + Health. Measured by root (the
+// privileged probe); judged here.
 await probe('container_state_truth', 'job-queue-auditor', async () => {
-  const out = execFileSync('docker', ['ps', '-q'], { encoding: 'utf8' })
-    .trim()
-    .split('\n')
-    .filter(Boolean);
-  let deadListed = 0;
-  for (const id of out) {
-    const st = execFileSync('docker', ['inspect', '--format', '{{.State.Running}}', id], {
-      encoding: 'utf8',
-    }).trim();
-    if (st !== 'true') deadListed += 1;
-  }
+  const { listed, notRunningButListed } = measurementOf(
+    await privileged(),
+    'container_state_truth',
+  );
   return {
-    ok: deadListed === 0,
-    critical: deadListed > 0,
-    detail: `listed=${out.length} not-running-but-listed=${deadListed}`,
+    ok: notRunningButListed === 0,
+    critical: notRunningButListed > 0,
+    detail: `listed=${listed} not-running-but-listed=${notRunningButListed}`,
   };
 });
 
@@ -127,29 +146,12 @@ await probe('aria_state_freshness', 'job-queue-auditor', async () => {
 // healthy tenant in the panel — it was found by hand on 2026-08-06
 // (ORPHAN-HIGH-570), not by any alarm, because provisioning had no metric at
 // all. This probe asks Postgres instead of the ledger.
+// The privileged probe owns the statement (one read-only session against
+// auth.tenants and information_schema, schema name derived as
+// getTenantSchemaName() does); tenant-reality.mjs owns the judgement.
 await probe('tenant_reality_parity', 'multi-tenant-saas-expert', async () => {
-  // Schema naming SSoT: getTenantSchemaName()
-  // (libs/backend-common/src/database/tenant-schema.utils.ts:76) — 'tenant_'
-  // plus the first 16 hex characters of the UUID, NOT the whole UUID. The
-  // join re-derives it in SQL so one round trip answers for every tenant.
-  // A schema that exists but holds no table is counted as missing: an empty
-  // shell cannot store tenant data either, and it is the shape a
-  // half-completed provisioning run leaves behind.
-  const sql = `SELECT t.status,
-                      (s.schema_name IS NOT NULL) AS schema_exists,
-                      COALESCE((SELECT count(*) FROM information_schema.tables it
-                                 WHERE it.table_schema = s.schema_name), 0) AS table_count
-                 FROM auth.tenants t
-                 LEFT JOIN information_schema.schemata s
-                        ON s.schema_name = 'tenant_' || left(replace(t.id::text, '-', ''), 16)`;
-  // execFileSync with an argv array: no shell, so nothing here is parsed as a
-  // command line. The statement is a constant — no interpolation reaches SQL.
-  const raw = execFileSync(
-    'docker',
-    ['exec', 'aqua-postgres', 'psql', '-U', 'aquaculture', '-d', 'aquaculture', '-tAc', sql],
-    { encoding: 'utf8', timeout: 20000 },
-  );
-  return classifyTenantReality(parseTenantRealityRows(raw));
+  const { tenants } = measurementOf(await privileged(), 'tenant_reality_parity');
+  return classifyTenantReality(tenants);
 });
 
 const criticals = results.filter((r) => r.critical);

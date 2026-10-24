@@ -146,9 +146,9 @@ jobs:
             echo ""
             echo "## 1. Finding registry state"
             echo ""
-            # Run finding-registry export to CSV, then aggregate.
-            npx ts-node --project tools/gates/tsconfig.json \
-              tools/gates/finding-registry.ts export csv > /tmp/registry.csv
+            # The registry as readers see it (RESOLVED derived from merged
+            # Closes: trailers; MF-1), as CSV, then aggregated.
+            npx ts-node --project tools/gates/tsconfig.json tools/gates/finding-registry.ts project --format=csv > /tmp/registry.csv
             echo "| Severity | OPEN | IN-PROGRESS | RESOLVED | STALE | BLOCKED | Total |"
             echo "|---|---|---|---|---|---|---|"
             for sev in CRITICAL HIGH MEDIUM LOW; do
@@ -165,11 +165,12 @@ jobs:
             echo "### By owner_agent (top 10 by open + in-progress + stale count)"
             echo ""
             echo '```'
-            # Aggregate by owner agent from full jsonl (more fields than csv export).
-            REGISTRY=docs/reviews/_registry/findings.jsonl
+            # Aggregate by owner agent from the projected rows (more fields
+            # than the CSV carries).
+            npx ts-node --project tools/gates/tsconfig.json tools/gates/finding-registry.ts project --format=jsonl > /tmp/registry.jsonl
             node -e "
               const fs = require('fs');
-              const lines = fs.readFileSync('$REGISTRY', 'utf8').trim().split('\n');
+              const lines = fs.readFileSync('/tmp/registry.jsonl', 'utf8').trim().split('\n');
               const byOwner = {};
               for (const l of lines) {
                 const e = JSON.parse(l);

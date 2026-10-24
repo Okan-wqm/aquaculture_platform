@@ -156,6 +156,24 @@ class SeamRegistryTests(unittest.TestCase):
             + ", ".join(decorative),
         )
 
+    def test_every_reviewed_row_names_a_module_with_a_spawn_site(self) -> None:
+        # A spawn site that moves to another module leaves its reviewed row
+        # behind: the walk then demands a row for the new module, and nothing
+        # removed the old one, whose reason now describes a process the module
+        # no longer starts (MF-1 moved the registry CLI runner from
+        # autonomy_closure into report_ingestion).
+        stale = [
+            module
+            for module in sorted(SPAWN_ONLY_NOT_SEAM)
+            if (REPO_ROOT / module).is_file() and not iter_spawn_sites(REPO_ROOT / module)
+        ]
+        self.assertEqual(
+            stale,
+            [],
+            "SPAWN_ONLY_NOT_SEAM rows whose module has no spawn site (move the row with the "
+            "spawn site, or delete it): " + ", ".join(stale),
+        )
+
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

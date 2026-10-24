@@ -72,26 +72,7 @@ jobs:
         run: npx ts-node --project tools/gates/tsconfig.json tools/gates/commit-msg-validator.ts --mode=range "${{ steps.range.outputs.base }}" "${{ steps.range.outputs.head }}"
 
       - name: Validate registry integrity (hash chain)
-        run: |
-          # Re-compute the hash chain to detect mid-chain tampering.
-          # Uses the same canonical-JSON + sha256hex algorithm as
-          # tools/scripts/seed-finding-registry.mjs so this is a
-          # self-contained check with no external deps.
-          node -e "
-          const { createHash } = require('crypto');
-          const { readFileSync, existsSync } = require('fs');
-          const registry = 'docs/reviews/_registry/findings.jsonl';
-          if (!existsSync(registry)) { console.log('No registry file; skipping.'); process.exit(0); }
-          const lines = readFileSync(registry, 'utf8').trim().split('\n').filter(Boolean);
-          function canon(v){if(v===null||typeof v!=='object')return JSON.stringify(v);if(Array.isArray(v))return '['+v.map(canon).join(',')+']';const k=Object.keys(v).sort();return '{'+k.map(x=>JSON.stringify(x)+':'+canon(v[x])).join(',')+'}';}
-          let prev = '0'.repeat(64);
-          for (let i = 0; i < lines.length; i++) {
-            const e = JSON.parse(lines[i]);
-            if (e.prev_hash !== prev) { console.error('Chain break at entry', i, e.id); process.exit(1); }
-            const { content_hash, ...rest } = e;
-            const recomp = createHash('sha256').update(canon(rest), 'utf8').digest('hex');
-            if (recomp !== content_hash) { console.error('Hash mismatch at entry', i, e.id); process.exit(1); }
-            prev = content_hash;
-          }
-          console.log('Registry chain valid (' + lines.length + ' entries).');
-          "
+        # The registry's own verifier: finding-registry-chain.ts is the one
+        # implementation of the hash algebra. This step used to carry an
+        # inline third copy of it (MF-1, PROC-HIGH-039).
+        run: npx ts-node --project tools/gates/tsconfig.json tools/gates/finding-registry.ts verify

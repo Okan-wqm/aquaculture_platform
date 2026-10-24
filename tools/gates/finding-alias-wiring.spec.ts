@@ -3,7 +3,7 @@
  *
  * `finding-traceability.spec.ts` pins the matcher. This spec pins the WIRING:
  * the commit-msg gate (admission, run as the CLI it is in the hook and in CI)
- * and `collectMergedClosures` (derivation, what `reconcile` reads) each have to
+ * and `collectMergedClosures` (derivation, what the projection reads) each have to
  * load `alias_review_files` from the sidecar and hand it to the matcher. If
  * either stops doing so, a merged trailer that names an alias and cites the
  * review file where the alias heading lives (the FE-HIGH-321 → FE-HIGH-313
@@ -20,7 +20,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { after, test } from 'node:test';
 
-import { collectMergedClosures } from './finding-registry';
+import { collectMergedClosures } from './finding-registry-projection';
 import { removeFixtureTree } from './fixture-tree';
 import { hermeticGitEnv } from './hermetic-git';
 

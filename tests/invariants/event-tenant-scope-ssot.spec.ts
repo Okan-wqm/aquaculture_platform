@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
 
+import { projectRegistry } from '../../tools/gates/finding-registry-projection';
 import { isNatsEventHandler } from './helpers/nats-event-handler';
 import { stripComments } from './helpers/ts-source';
 
@@ -195,11 +196,10 @@ describe('INVARIANT: event tenancy scope is an explicit contract value (SEC-HIGH
   });
 
   it('the burn-down list cannot outlive its finding', () => {
-    const registry = readRepoFile('docs/reviews/_registry/findings.jsonl')
-      .split('\n')
-      .filter((line) => line.trim() !== '')
-      .map((line) => JSON.parse(line) as { id: string; state: string });
-    const finding = registry.find((entry) => entry.id === BURN_DOWN_FINDING_ID);
+    // The projection, not the stored `state`: a merged `Closes:` trailer
+    // resolves the finding the moment it merges and no workflow refreshes the
+    // stored copy (MF-1, PROC-HIGH-039).
+    const finding = projectRegistry(REPO_ROOT).find((entry) => entry.id === BURN_DOWN_FINDING_ID);
     expect(finding).toBeDefined();
     if (HAND_ROLLED_GUARD_BURN_DOWN.size > 0) {
       expect(finding?.state).not.toBe('RESOLVED');

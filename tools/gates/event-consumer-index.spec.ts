@@ -44,6 +44,7 @@ import {
   trackedTree,
 } from './event-consumer-index';
 import { isUnresolvedFindingState } from './finding-registry-chain';
+import { projectRegistry } from './finding-registry-projection';
 import { indexFixtureTree } from './fixture-git-index';
 import { removeFixtureTree } from './fixture-tree';
 import { hermeticGitEnv } from './hermetic-git';
@@ -1277,7 +1278,6 @@ void test('R2: a tracked project.json that is not JSON is a named unavailability
 const CONSTRUCTOR_NAME = ['create', 'BaseEvent'].join('');
 const MEMBER_NAME = ['event', 'Type'].join('');
 const OWNER_MODULE = 'tools/gates/event-consumer-index.ts';
-const REGISTRY_PATH = 'docs/reviews/_registry/findings.jsonl';
 
 type ReaderConcept = 'producer' | 'definition';
 
@@ -1426,15 +1426,13 @@ const NOT_DEFINITION_READERS: Readonly<Record<string, string>> = {
     "the event an upcaster upcasts (its object's eventType property), not where the event is defined",
 };
 
-/** Registry id -> state. */
+/**
+ * Registry id -> state, as the projection reports it: a merged `Closes:` trailer resolves a
+ * finding the moment it merges and no workflow refreshes the stored `state` (MF-1,
+ * PROC-HIGH-039), so the stored state would keep a listed reader alive past its closed finding.
+ */
 function registryStates(): Map<string, string> {
-  const states = new Map<string, string>();
-  for (const line of readFileSync(join(REPO_ROOT, REGISTRY_PATH), 'utf8').split('\n')) {
-    if (line.trim() === '') continue;
-    const row = JSON.parse(line) as { id: string; state: string };
-    states.set(row.id, row.state);
-  }
-  return states;
+  return new Map(projectRegistry(REPO_ROOT).map((row) => [row.id, row.state]));
 }
 
 function assertOneOwner(

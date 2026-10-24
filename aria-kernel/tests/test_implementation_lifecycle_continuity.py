@@ -185,9 +185,10 @@ def drive_plan_to_converged(
             "target_plan_content_hash": content_hash,
             "reviewer": "farm-expert",
             "risks": [],
-            "reviewed_commit_sha": workspace_head_sha(bound_workspace_root(tools)), "critique_content_hash": "sha256:" + "b" * 64,
+            "critique_content_hash": "sha256:" + "b" * 64,
             "status_after": "ANSWERED",
         },
+        reviewed_commit_sha=workspace_head_sha(bound_workspace_root(tools)),
         workspace_root=workspace_root,
         base_dir=tools,
     )

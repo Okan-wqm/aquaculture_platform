@@ -13,6 +13,7 @@ findings ARIA-HIGH-779 and ARIA-LOW-785.
 from __future__ import annotations
 
 import hashlib
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -127,6 +128,15 @@ class AVerdictReachedBeforeAnyCommit(unittest.TestCase):
         self.converge([SURFACE])
         self.commit("apps/hr-service/src/leave/leave.service.ts")
         self.assertTrue(self.request()["event_appended"])
+
+    def test_a_broken_checkout_makes_it_unverifiable(self) -> None:
+        # PV R4 — a git failure is not "no commit": a verdict on the empty
+        # tree is not read as fresh once git cannot read the checkout.
+        self.converge([SURFACE])
+        shutil.move(str(self.repo / ".git"), str(Path(self.tmp.name) / "moved-git"))
+        (self.repo / ".git").write_text(f"gitdir: {Path(self.tmp.name) / 'missing'}\n", encoding="utf-8")
+        with self.assertRaisesRegex(GovernanceError, "plan_verdict_unverifiable:workspace_head_unreadable"):
+            self.request()
 
 
 class SurfacesThatAreDirectoriesOrGlobs(_PlanFixture):

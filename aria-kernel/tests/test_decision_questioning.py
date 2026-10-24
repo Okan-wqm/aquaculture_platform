@@ -155,8 +155,9 @@ class _QuestioningFixture(unittest.TestCase):
                 "target_plan_content_hash": task["target_plan_content_hash"],
                 "reviewer": REVIEWER,
                 "risks": [],
-                "reviewed_commit_sha": workspace_head_sha(self.root), "critique_content_hash": content_hash({"reviewer": REVIEWER, "risks": []}),
+                "critique_content_hash": content_hash({"reviewer": REVIEWER, "risks": []}),
             },
+            reviewed_commit_sha=workspace_head_sha(self.root),
             workspace_root=self.root,
             base_dir=self.tools_dir,
         )

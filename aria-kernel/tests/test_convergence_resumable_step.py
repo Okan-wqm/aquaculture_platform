@@ -373,9 +373,8 @@ class PlannerTwinContextTests(_StepCase):
                                                 "reviewer_agent", "review_direction")}
             review["risks"] = risks
             review["verdict"] = "material_risks_present" if risks else "agreed"
-            review["reviewed_commit_sha"] = workspace_head_sha(self.root)
             review["review_content_hash"] = content_hash(review)
-            record_cross_review(plan_id="plan-1", review=review, workspace_root=self.root, base_dir=self.tools)
+            record_cross_review(plan_id="plan-1", review=review, reviewed_commit_sha=workspace_head_sha(self.root), workspace_root=self.root, base_dir=self.tools)
         self.assertEqual(fold_plan_state(plan_id="plan-1", base_dir=self.tools)["state"], "CROSS_REVIEWED")
 
     def _record_current_revision(self, body: dict) -> dict:
@@ -649,9 +648,9 @@ class CrossCycleConvergence(_StepCase):
                     "review_direction": direction,
                     "risks": [],
                     "verdict": "agreed",
-                    "reviewed_commit_sha": workspace_head_sha(self.root),
                     "review_content_hash": content_hash({"r": reviewer}),
                 },
+                reviewed_commit_sha=workspace_head_sha(self.root),
                 workspace_root=self.root,
                 base_dir=self.tools,
             )
@@ -719,7 +718,8 @@ class PlanContractCarriedToThePrimary(_StepCase):
                 review={"task_packet_hash": task["task_packet_hash"], "target_revision_id": task["target_revision_id"],
                         "target_plan_content_hash": task["target_plan_content_hash"], "reviewer_agent": reviewer,
                         "review_direction": direction, "risks": [], "verdict": "agreed",
-                        "reviewed_commit_sha": workspace_head_sha(self.root), "review_content_hash": content_hash({"r": reviewer})},
+                        "review_content_hash": content_hash({"r": reviewer})},
+                reviewed_commit_sha=workspace_head_sha(self.root),
                 workspace_root=self.root, base_dir=self.tools,
             )
         self.assertEqual(self.step()["arbiter_verdict"], "in_progress")

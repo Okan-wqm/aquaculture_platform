@@ -331,6 +331,12 @@ def dispose_anchor_stale_requests(
     summary["waiting_judge_backlog_full"] = len(waiting)
     summary["waiting_sample"] = waiting[:20]
     summary["waiting_request_admission"] = len(waiting_admission)
+    # PV R12 — a re-mint is anchored at the workspace HEAD; it is read before
+    # the batch's first write, so a checkout git cannot read raises here and
+    # the sweep writes nothing, instead of handing every planned re-mint to
+    # the operator as a failed effect.
+    if any(decision.action == ACTION_REMINT for *_rest, decision in planned):
+        gate.head()
     # Written before any effect, so a crash mid-batch leaves the plan on the
     # ledger; the next sweep decides the unwritten items again.
     append_tools_governance(root, STARTED_GOVERNANCE_KIND, {

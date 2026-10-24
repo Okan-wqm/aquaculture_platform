@@ -76,6 +76,7 @@ from aria_kernel.request_admission import admit_request
 from aria_kernel.promotion_controller import promote_converged_plan_to_dispatch
 from aria_kernel.state_store import STATE_BRANCH
 from aria_kernel.plan_convergence import (
+    answered_cross_review_request_commit,
     evaluate_plan,
     force_plan_human_required,
     plan_status,
@@ -5523,6 +5524,13 @@ def _main(argv: list[str] | None = None) -> int:
                 plan_id=args.plan_id,
                 review=review_payload,
                 workspace_root=args.workspace_root,
+                # PV P3 (R10) — the review is bound to the commit the request
+                # row it answers was anchored at, never to a commit the file names.
+                reviewed_commit_sha=answered_cross_review_request_commit(
+                    plan_id=args.plan_id,
+                    request_id=review_payload.get("agent_invocation_request_id"),
+                    base_dir=args.tools_dir,
+                ),
                 base_dir=args.tools_dir,
             )
         elif args.plan_command == "record-revision":

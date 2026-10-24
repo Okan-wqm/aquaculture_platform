@@ -205,6 +205,14 @@ PRIOR_REVIEW_RISKS_OPEN_REASON = "prior_review_risks_open"
 PLAN_VERDICT_STALE = "plan_verdict_stale"
 PLAN_VERDICT_UNBOUND = "plan_verdict_unbound"
 PLAN_VERDICT_UNVERIFIABLE = "plan_verdict_unverifiable"
+# PV P3 (R10, R11) — the refusals of a review whose reviewed commit has no
+# kernel source: the answered request row names no anchor, or names null while
+# the store's checkout holds a commit (`cross_review_request_unanchored`); a
+# review or critique payload that names its own reviewed commit
+# (`review_payload_names_reviewed_commit`) — the kernel binds it, never the
+# caller.
+CROSS_REVIEW_REQUEST_UNANCHORED = "cross_review_request_unanchored"
+REVIEW_PAYLOAD_NAMES_REVIEWED_COMMIT = "review_payload_names_reviewed_commit"
 # Plan-coverage verdict vocabulary. "gaps" blocks convergence via the
 # round loop; "environment_unable" escalates straight to HUMAN_REQUIRED
 # (the environment will not heal round-over-round); the two covered
@@ -348,11 +356,21 @@ def record_cross_review(
     plan_id: str,
     review: dict[str, Any],
     workspace_root: str | Path,
+    reviewed_commit_sha: str | None,
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
+    """Record one direction's answer, bound to the commit its reviewer reviewed.
+
+    ``reviewed_commit_sha`` is the kernel's: the answered request row's
+    ``target_sha`` (:func:`answered_request_reviewed_commit`), never a field of
+    ``review`` — a payload that names one is refused (PV R10), and null is
+    admitted only while the store's checkout has no commit (PV R11).
+    """
     _validate_id(plan_id, "plan_id")
     root = ensure_tools_dir(base_dir)
-    payload = _normalize_cross_review(review)
+    _refuse_payload_reviewed_commit(review, "cross-review")
+    require_review_anchor(reviewed_commit_sha, base_dir=root)
+    payload = {**_normalize_cross_review(review), "reviewed_commit_sha": reviewed_commit_sha}
     mismatch = _cross_review_hash_mismatch(root, payload)
     if mismatch:
         event = _append_rejection(root, "cross_review_content_hash_mismatch", {"plan_id": plan_id, **mismatch})
@@ -360,7 +378,7 @@ def record_cross_review(
     return _mutate(
         plan_id=plan_id,
         command_name="record-cross-review",
-        canonical_payload=review,
+        canonical_payload={**review, "reviewed_commit_sha": reviewed_commit_sha},
         event_type="cross_review_recorded",
         payload=payload,
         base_dir=root,
@@ -373,16 +391,22 @@ def record_critique(
     plan_id: str,
     critique: dict[str, Any],
     workspace_root: str | Path,
+    reviewed_commit_sha: str | None,
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
+    """Record one critic's answer, bound to the commit it reviewed — the
+    kernel's argument, under the law :func:`record_cross_review` applies."""
     _validate_id(plan_id, "plan_id")
+    root = ensure_tools_dir(base_dir)
+    _refuse_payload_reviewed_commit(critique, "critique")
+    require_review_anchor(reviewed_commit_sha, base_dir=root)
     return _mutate(
         plan_id=plan_id,
         command_name="record-critique",
-        canonical_payload=critique,
+        canonical_payload={**critique, "reviewed_commit_sha": reviewed_commit_sha},
         event_type="critique_recorded",
-        payload=_normalize_critique(critique),
-        base_dir=base_dir,
+        payload={**_normalize_critique(critique), "reviewed_commit_sha": reviewed_commit_sha},
+        base_dir=root,
         validator=lambda state, payload: _validate_critique(state, payload, workspace_root),
     )
 
@@ -506,7 +530,11 @@ def submit_cross_review_v8(
     # validator judges it again as the event's own law).
     prior_risk_dispositions = review.get("prior_risk_dispositions", [])
     _validate_prior_risk_dispositions(state, prior_risk_dispositions, round_number)
-    _require_reviewed_commit(reviewed_commit_sha)
+    # PV P3 (R10, R11) — the binding is the kernel's argument, judged before
+    # the round's task request is appended: a refused anchor leaves the plan
+    # in CHALLENGER_DRAFTED, never requested with no answer recordable.
+    _refuse_payload_reviewed_commit(review, "V8 cross-review")
+    require_review_anchor(reviewed_commit_sha, base_dir=root)
 
     # Z3-K2 — deterministic PER-DIRECTION content hash over the risks that
     # apply to that direction. One hash for both directions was half of the
@@ -620,9 +648,6 @@ def submit_cross_review_v8(
                 # not one direction's: each direction record carries the
                 # whole answer, and the fold keeps one row per risk.
                 "prior_risk_dispositions": prior_risk_dispositions,
-                # PV P3 (R2) — the commit this review judged; the round's
-                # verdict is bound to it, not to HEAD when it is evaluated.
-                "reviewed_commit_sha": reviewed_commit_sha,
                 # agent_invocation_request_id intentionally omitted —
                 # V8 bypasses the per-task content-hash mismatch check
                 # because the agent submitted ONE envelope covering both
@@ -630,6 +655,9 @@ def submit_cross_review_v8(
                 # per-task envelopes.
             },
             workspace_root=workspace_root,
+            # PV P3 (R2) — the commit this review judged; the round's
+            # verdict is bound to it, not to HEAD when it is evaluated.
+            reviewed_commit_sha=reviewed_commit_sha,
             base_dir=root,
         )
 
@@ -1632,7 +1660,8 @@ def plan_verdict_staleness(state: dict[str, Any], *, base_dir: str | Path | None
     (``plan_evaluated.reviewed_commit_sha``; null when the reviewed checkout
     had no commit, i.e. the reviewed tree was the empty tree). Any change
     between that tree and today's HEAD of the store's checkout
-    (``tool_registry.bound_workspace_root``) to a path the plan names
+    (``tool_registry.bound_workspace_root``, read through
+    :func:`plan_verdict_anchor`) to a path the plan names
     (:func:`plan_verdict_paths`; a surface may be a directory or a glob)
     makes it stale: ``plan_verdict_stale:<changed path>``. A verdict recorded
     before the binding existed names no reviewed tree at all
@@ -1650,7 +1679,7 @@ def plan_verdict_staleness(state: dict[str, Any], *, base_dir: str | Path | None
     reviewed = payload["reviewed_commit_sha"]
     workspace = bound_workspace_root(base_dir)
     try:
-        head = workspace_head_sha(workspace)
+        head = plan_verdict_anchor(base_dir)
     except WorkspaceViewRefused as exc:
         return f"{PLAN_VERDICT_UNVERIFIABLE}:{exc.reason}"
     if head is None:
@@ -1697,20 +1726,85 @@ def _require_reviewed_commit(value: Any) -> None:
         )
 
 
-def _reviewed_commit_field(review: dict[str, Any]) -> dict[str, Any]:
-    """The review's ``reviewed_commit_sha`` as recorded: kept only when named, so an
-    absent binding stays absent (``plan_verdict_unbound``), never null (the empty tree)."""
-    return {"reviewed_commit_sha": review["reviewed_commit_sha"]} if "reviewed_commit_sha" in review else {}
+def plan_verdict_anchor(base_dir: str | Path | None) -> str | None:
+    """PV P3 (R11) — the commit a plan review is anchored at: HEAD of the store's checkout.
+
+    The one checkout a review is minted against, a null anchor is judged
+    against, and a verdict's staleness is compared in
+    (``tool_registry.bound_workspace_root``), so the binding and the
+    comparison can never read two repositories. None: that checkout has no
+    commit (the reviewed tree is the empty tree). A checkout git cannot read
+    raises ``WorkspaceViewRefused`` (``workspace_view.workspace_head_sha``).
+    """
+    return workspace_head_sha(bound_workspace_root(base_dir))
 
 
-def _require_recorded_reviewed_commit(payload: dict[str, Any]) -> None:
-    """PV P3 (R2) — every review recorded names the commit it reviewed."""
-    if "reviewed_commit_sha" not in payload:
+def answered_request_reviewed_commit(request: dict[str, Any]) -> str | None:
+    """PV P3 (R2, R10) — the commit the answered request row was anchored at (its ``target_sha``).
+
+    The kernel minted the row; its anchor is the only source a review's
+    reviewed commit has. A row that names no anchor is refused
+    (``cross_review_request_unanchored``).
+    """
+    if "target_sha" not in request:
         raise GovernanceError(
-            "reviewed_commit_sha required: a review names the commit it reviewed "
-            "(the answered request's target_sha; null when that checkout had no commit)"
+            f"{CROSS_REVIEW_REQUEST_UNANCHORED}: request {str(request.get('request_id'))[:80]!r} names no "
+            "target_sha, so the review names no reviewed commit"
         )
-    _require_reviewed_commit(payload["reviewed_commit_sha"])
+    return request["target_sha"]
+
+
+def answered_cross_review_request_commit(
+    *, plan_id: str, request_id: Any, base_dir: str | Path | None,
+) -> str | None:
+    """PV P3 (R10) — the anchor of the cross-review request row ``request_id`` names.
+
+    The operator's record lane (``plan record-cross-review``) answers a round
+    ``plan advance-rounds`` minted, whose request rows carry ``target_sha``.
+    A review that names no request row, or one that is not a cross-review
+    request of this plan, has no kernel anchor and is refused
+    (``cross_review_request_unanchored``).
+    """
+    from .agent_invocations import find_request
+
+    if not isinstance(request_id, str) or not request_id:
+        raise GovernanceError(
+            f"{CROSS_REVIEW_REQUEST_UNANCHORED}: the review names no agent_invocation_request_id, so no "
+            "request row anchors its reviewed commit"
+        )
+    row = find_request(ensure_tools_dir(base_dir), request_id)
+    if row.get("role") != "cross_review" or row.get("convergence_id") != plan_id:
+        raise GovernanceError(
+            f"{CROSS_REVIEW_REQUEST_UNANCHORED}: request {request_id[:80]!r} is not a cross-review request "
+            f"of plan {plan_id!r}"
+        )
+    return answered_request_reviewed_commit(row)
+
+
+def require_review_anchor(reviewed_commit_sha: Any, *, base_dir: str | Path | None) -> None:
+    """PV P3 (R3, R11) — a review's anchor is one full object id, or null only for a checkout with no commit.
+
+    Null means "the reviewer reviewed the empty tree". It is true only while
+    the store's checkout (:func:`plan_verdict_anchor`) has no commit; any
+    other null is a mint that read a different checkout (a daemon's cwd, a
+    caller's workspace), and recording it would read every later commit as
+    a change from nothing.
+    """
+    _require_reviewed_commit(reviewed_commit_sha)
+    if reviewed_commit_sha is None and plan_verdict_anchor(base_dir) is not None:
+        raise GovernanceError(
+            f"{CROSS_REVIEW_REQUEST_UNANCHORED}: the review names no reviewed commit while the store's "
+            f"checkout {str(bound_workspace_root(base_dir))[:200]} has one"
+        )
+
+
+def _refuse_payload_reviewed_commit(review: Any, kind: str) -> None:
+    """PV P3 (R10) — the reviewed commit is the kernel's argument; a payload never names it."""
+    if isinstance(review, dict) and "reviewed_commit_sha" in review:
+        raise GovernanceError(
+            f"{REVIEW_PAYLOAD_NAMES_REVIEWED_COMMIT}: a {kind} payload names reviewed_commit_sha; the "
+            "kernel binds the review to its answered request's target_sha"
+        )
 
 
 def round_reviewed_commit(state: dict[str, Any], round_number: int) -> str | None:
@@ -3038,7 +3132,6 @@ def _normalize_cross_review(review: dict[str, Any]) -> dict[str, Any]:
         # PV P1 — the reviewer's resolved/open/withdrawn answer on every
         # prior-round reviewer risk; the only door that clears one.
         "prior_risk_dispositions": review.get("prior_risk_dispositions", []),
-        **_reviewed_commit_field(review),
         "review_content_hash": review.get("review_content_hash"),
         "agent_invocation_request_id": review.get("agent_invocation_request_id"),
         "status_after": review.get("status_after", "ANSWERED"),
@@ -3056,7 +3149,6 @@ def _normalize_critique(critique: dict[str, Any]) -> dict[str, Any]:
         "risks": critique.get("risks", []),
         "critique_content_hash": critique.get("critique_content_hash"),
         "status_after": critique.get("status_after", "ANSWERED"),
-        **_reviewed_commit_field(critique),
     }
 
 
@@ -3184,7 +3276,6 @@ def _validate_critique(state: dict[str, Any], payload: dict[str, Any], workspace
     names = reviewer_names(workspace_root=workspace_root)
     if reviewer not in names:
         raise GovernanceError(f"unknown reviewer: {reviewer}")
-    _require_recorded_reviewed_commit(payload)
     round_data = _round_for_target(state, target_revision_id, target_hash)
     task = round_data["tasks"].get(packet_hash)
     if task is None:
@@ -3216,7 +3307,6 @@ def _validate_cross_review_record(state: dict[str, Any], payload: dict[str, Any]
     names = reviewer_names(workspace_root=workspace_root)
     if reviewer not in names:
         raise GovernanceError(f"unknown reviewer: {reviewer}")
-    _require_recorded_reviewed_commit(payload)
     cross = _cross_review_for_target(state, target_revision_id, target_hash)
     task = cross["tasks"].get(packet_hash)
     if task is None:

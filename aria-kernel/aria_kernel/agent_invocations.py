@@ -3419,7 +3419,7 @@ def _anchor_refusal_reason(
     """Why this request must not be claimed, or whether that could be decided.
 
     ORPHAN-MEDIUM-492. ``target_sha`` is the commit the request's evidence and
-    plan are grounded at (see ``convergence_drainer._resolve_workspace_head_sha``)
+    plan are grounded at (see ``workspace_view.workspace_head_sha``)
     — it is already minted, persisted and hashed into the context envelope, and
     until now nothing on the selection path read it.
 

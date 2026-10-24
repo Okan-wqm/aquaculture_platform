@@ -18,7 +18,6 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from aria_kernel.convergence_drainer import _resolve_workspace_head_sha
 from aria_kernel.convergent_planning_bridge import issue_challenger_envelope
 from aria_kernel.cross_review_bridge import (
     issue_completeness_critic_envelope,
@@ -26,6 +25,7 @@ from aria_kernel.cross_review_bridge import (
     issue_primary_envelope,
 )
 from aria_kernel.evidence_trust import classify_evidence_ref
+from aria_kernel.workspace_view import workspace_head_sha
 from tests._helpers.git_fixtures import make_local_git_repo
 
 
@@ -71,11 +71,11 @@ class TargetShaGrading(unittest.TestCase):
     def test_resolve_workspace_head_sha(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo, head = self._repo_with_committed_file(Path(tmp))
-            self.assertEqual(_resolve_workspace_head_sha(repo), head)
+            self.assertEqual(workspace_head_sha(repo), head)
 
     def test_resolve_head_sha_none_outside_git(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            self.assertIsNone(_resolve_workspace_head_sha(Path(tmp)))
+            self.assertIsNone(workspace_head_sha(Path(tmp)))
 
 
 class EnvelopesForwardTargetSha(unittest.TestCase):
@@ -93,7 +93,7 @@ class EnvelopesForwardTargetSha(unittest.TestCase):
     def test_drainer_threads_target_sha_to_every_mint(self) -> None:
         from aria_kernel import convergence_drainer
         src = inspect.getsource(convergence_drainer.run_convergence_drainer)
-        self.assertIn("target_sha = _resolve_workspace_head_sha(workspace_root)", src)
+        self.assertIn("target_sha = workspace_head_sha(workspace_root or Path.cwd())", src)
         # CL-1 (ORPHAN-725): the resumable step has one mint per state
         # branch — the invariant is DERIVED, not a magic number: every
         # issue_* envelope mint in the source forwards target_sha.
@@ -104,7 +104,11 @@ class EnvelopesForwardTargetSha(unittest.TestCase):
             "issue_completeness_critic_envelope",
         ))
         self.assertGreaterEqual(mint_count, 4)
-        self.assertEqual(src.count("target_sha=target_sha"), mint_count)
+        # PV R11 — the cross-review mint forwards the plan-verdict anchor (HEAD
+        # of the store's checkout, the commit its verdict is bound to); every
+        # other mint forwards the workspace HEAD.
+        self.assertEqual(src.count("target_sha=cross_review_anchor"), src.count("issue_cross_review_envelope("))
+        self.assertEqual(src.count("target_sha=target_sha") + src.count("target_sha=cross_review_anchor"), mint_count)
 
 
 if __name__ == "__main__":

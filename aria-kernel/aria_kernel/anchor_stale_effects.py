@@ -64,9 +64,9 @@ class RemintGate:
     def head(self) -> str | None:
         """The workspace HEAD a successor is anchored at (the fan-out's `target_sha`)."""
         if not self._head_read:
-            from .convergence_drainer import _resolve_workspace_head_sha
+            from .workspace_view import workspace_head_sha
 
-            self._head = _resolve_workspace_head_sha(self.workspace)
+            self._head = workspace_head_sha(self.workspace)
             self._head_read = True
         return self._head
 

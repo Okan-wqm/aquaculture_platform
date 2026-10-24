@@ -256,8 +256,8 @@ class NativePlanCoverageTests(unittest.TestCase):
         record_critique(plan_id=plan_id, critique={
             "task_packet_hash": task["task_packet_hash"], "target_revision_id": latest["revision_id"],
             "target_plan_content_hash": latest["content_hash"], "reviewer": "farm-expert", "risks": [],
-            "reviewed_commit_sha": workspace_head_sha(repo), "critique_content_hash": content_hash({"reviewer": "farm-expert", "risks": []}),
-        }, workspace_root=repo, base_dir=tools)
+            "critique_content_hash": content_hash({"reviewer": "farm-expert", "risks": []}),
+        }, reviewed_commit_sha=workspace_head_sha(repo), workspace_root=repo, base_dir=tools)
         self.assertEqual(plan_status(plan_id=plan_id, base_dir=tools)["state"], "CRITIQUED")
         events_path = tools / "plans" / "events.jsonl"
         before = load_declared_jsonl(events_path, expected_surface="plan_convergence_events")

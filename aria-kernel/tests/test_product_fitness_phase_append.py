@@ -53,14 +53,13 @@ class ProductFitnessDeclaredAppend(unittest.TestCase):
             return original(path, payload, **kwargs)
 
         import aria_kernel.product_fitness as pf_mod
-        import aria_kernel.convergence_drainer as cd_mod
         import aria_kernel.github_adapters as gh_mod
 
         with patch.object(pf_mod, "load_charter", return_value=charter), \
              patch.object(pf_mod, "evaluate_fitness", return_value=verdict), \
              patch.object(pf_mod, "streak_from_history", return_value={"consecutive_green_nights": 1}), \
              patch.object(gh_mod, "select_checks_reader", return_value=None), \
-             patch.object(cd_mod, "_resolve_workspace_head_sha", return_value="a" * 40), \
+             patch("aria_kernel.workspace_view.workspace_head_sha", return_value="a" * 40), \
              patch("aria_kernel.ledger.append_declared_jsonl", side_effect=spy):
             context = type("Ctx", (), {
                 "base_dir": self.tools,

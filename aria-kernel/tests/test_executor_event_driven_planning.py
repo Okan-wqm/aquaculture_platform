@@ -137,9 +137,10 @@ class _PlanCase(unittest.TestCase):
                     "target_revision_id": task["target_revision_id"],
                     "target_plan_content_hash": task["target_plan_content_hash"],
                     "reviewer_agent": reviewer, "review_direction": direction, "risks": [],
-                    "verdict": "agreed", "reviewed_commit_sha": workspace_head_sha(self.root),
+                    "verdict": "agreed",
                     "review_content_hash": content_hash({"r": reviewer}),
                 },
+                reviewed_commit_sha=workspace_head_sha(self.root),
                 workspace_root=self.root,
                 base_dir=self.tools,
             )

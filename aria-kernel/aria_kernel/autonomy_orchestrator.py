@@ -262,7 +262,6 @@ def _drain_next_cycle_queue(
     # A queue item is consumed only after its agent request is appended.
     import json
 
-    from .convergence_drainer import _resolve_workspace_head_sha
     from .pressure import explain_pressure
     from .pressure_evidence import (
         PROMPT_PROVENANCE_REFS_KEY,
@@ -286,10 +285,15 @@ def _drain_next_cycle_queue(
     # every one of them a real file the agent had genuinely read. One lane
     # carried the baseline and the other did not; the same helper now serves
     # both.
-    target_sha = _resolve_workspace_head_sha(workspace_root)
-    # The tree the agent law reads refs in: the checkout `target_sha` was
-    # resolved from (the resolver's own fallback is the working directory).
+    #
+    # The tree the agent law reads refs in is the checkout `target_sha` is
+    # read from (the working directory when no workspace is named), through
+    # the kernel's one HEAD owner, before any queue item is consumed: a
+    # checkout git cannot read raises here (PV R12).
+    from .workspace_view import workspace_head_sha
+
     projection_root = Path(workspace_root) if workspace_root else Path.cwd()
+    target_sha = workspace_head_sha(projection_root)
 
     from .agent_invocations import (
         create_agent_invocation_request,
@@ -975,13 +979,13 @@ def _calibration_reporter_and_auto_promotion(
             # ARIA-HIGH-004 — the report names the commit this cycle ran at
             # (the checkout HEAD every other phase resolves), so a SHADOW ->
             # ACTIVE transition can bind it; no workspace, no commit.
-            from .convergence_drainer import _resolve_workspace_head_sha
+            from .workspace_view import workspace_head_sha
 
             calibration_result = generate_adapter_calibration_report(
                     tool_ids=_v7_calibration_tool_ids,
                     base_dir=root,
                     cycle_id=cycle_id,
-                    target_sha=_resolve_workspace_head_sha(workspace_root) if workspace_root else None,
+                    target_sha=workspace_head_sha(workspace_root) if workspace_root else None,
                 )
             cycle_summary["calibration_reporter"] = calibration_result
         except Exception as _v7_calib_exc:

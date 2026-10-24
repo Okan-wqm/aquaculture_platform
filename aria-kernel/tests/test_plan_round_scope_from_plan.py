@@ -180,9 +180,8 @@ class _TwoCandidateCycle(unittest.TestCase):
                 "evidence_refs": [FARM + ":1"],
             }] if index == 0 else []
             review["verdict"] = "material_risks_present" if review["risks"] else "agreed"
-            review["reviewed_commit_sha"] = workspace_head_sha(self.root)
             review["review_content_hash"] = content_hash(review)
-            record_cross_review(plan_id=PLAN_ID, review=review, workspace_root=self.root, base_dir=self.tools)
+            record_cross_review(plan_id=PLAN_ID, review=review, reviewed_commit_sha=workspace_head_sha(self.root), workspace_root=self.root, base_dir=self.tools)
         self.assertEqual(fold_plan_state(plan_id=PLAN_ID, base_dir=self.tools)["state"], "CROSS_REVIEWED")
 
     # -- assertions ----------------------------------------------------------

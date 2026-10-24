@@ -248,11 +248,11 @@ def production_converged_plan(
             "target_plan_content_hash": task["target_plan_content_hash"],
             "reviewer": reviewer,
             "risks": [],
-            # The commit the critic reviewed: HEAD of the checkout the store serves, the
-            # anchor the drainer mints a request at.
-            "reviewed_commit_sha": workspace_head_sha(bound_workspace_root(tools_dir)),
             "critique_content_hash": plan_content_hash({"reviewer": reviewer, "risks": []}),
         },
+        # The commit the critic reviewed: HEAD of the checkout the store serves, the
+        # anchor the drainer mints a request at.
+        reviewed_commit_sha=workspace_head_sha(bound_workspace_root(tools_dir)),
         workspace_root=workspace_root,
         base_dir=tools_dir,
     )

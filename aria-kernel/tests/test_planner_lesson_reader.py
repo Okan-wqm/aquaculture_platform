@@ -131,9 +131,10 @@ class EveryPlannerMintCarriesTheLessonTests(_LedgerCase):
                        "target_revision_id": "rev-0", "target_plan_content_hash": digest,
                        "sla_deadline": "2099-01-01T00:00:00+00:00", "status_after": "PENDING"}],
         })
-        record_critique(plan_id="plan-now", workspace_root=self.workspace, base_dir=self.tools, critique={
+        record_critique(plan_id="plan-now", workspace_root=self.workspace, base_dir=self.tools,
+                        reviewed_commit_sha=workspace_head_sha(self.workspace), critique={
             "task_packet_hash": packet, "target_revision_id": "rev-0", "target_plan_content_hash": digest,
-            "reviewer": "farm-expert", "risks": [], "reviewed_commit_sha": workspace_head_sha(self.workspace), "critique_content_hash": "sha256:" + "b" * 64,
+            "reviewer": "farm-expert", "risks": [], "critique_content_hash": "sha256:" + "b" * 64,
             "status_after": "ANSWERED",
         })
 

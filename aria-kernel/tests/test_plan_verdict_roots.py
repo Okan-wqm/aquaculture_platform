@@ -34,7 +34,6 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from aria_kernel.convergence_drainer import _resolve_workspace_head_sha
 from aria_kernel.ledger import append_declared_jsonl
 from aria_kernel.plan_convergence import (
     _reviewer_dissent_gate,
@@ -42,6 +41,7 @@ from aria_kernel.plan_convergence import (
     evaluate_plan,
     events_path,
     fold_plan_state,
+    plan_verdict_anchor,
     plan_verdict_staleness,
     record_cross_review,
     request_cross_review,
@@ -79,7 +79,7 @@ class R1OneHermeticGitOwner(_PlanFixture):
     def test_the_binding_source_reads_the_named_checkout_under_a_foreign_git_dir(self) -> None:
         foreign = _foreign_checkout(Path(self.tmp.name))
         with mock.patch.dict(os.environ, {"GIT_DIR": str(foreign / ".git")}):
-            self.assertEqual(_resolve_workspace_head_sha(self.repo), self.commit_a)
+            self.assertEqual(plan_verdict_anchor(self.tools), self.commit_a)
 
     def test_a_fresh_verdict_stays_fresh_under_a_foreign_git_dir(self) -> None:
         self.converged_at_a()
@@ -141,13 +141,15 @@ class R2BoundToTheReviewedCommit(_PlanFixture):
             round_reviewed_commit(state, 1)
 
     def test_a_review_recorded_without_a_reviewed_commit_is_refused(self) -> None:
+        # PV R10 — the reviewed commit is the record function's required
+        # argument, so a review cannot be recorded without one.
         self.start()
         self.challenger("challenger-rev-0")
         tasks = _request_round_tasks(self)
-        review = _direction_review(self, tasks[0], risks=[])
-        del review["reviewed_commit_sha"]
-        with self.assertRaisesRegex(GovernanceError, "reviewed_commit_sha required"):
-            record_cross_review(plan_id="plan-1", review=review, workspace_root=self.repo, base_dir=self.tools)
+        with self.assertRaisesRegex(TypeError, "reviewed_commit_sha"):
+            record_cross_review(plan_id="plan-1", review=_direction_review(self, tasks[0], risks=[]),
+                                workspace_root=self.repo, base_dir=self.tools)
+        self.assertEqual(fold_plan_state(plan_id="plan-1", base_dir=self.tools)["state"], "CROSS_REVIEW_REQUESTED")
 
 
 class R3TheEventLawTypesTheReviewedCommit(_PlanFixture):
@@ -198,13 +200,16 @@ class R4AGitFailureIsNotTheEmptyTree(_PlanFixture):
         with self.assertRaisesRegex(WorkspaceViewRefused, "workspace_head_unreadable"):
             workspace_head_sha(self.repo)
         with self.assertRaisesRegex(WorkspaceViewRefused, "workspace_head_unreadable"):
-            _resolve_workspace_head_sha(self.repo)
+            plan_verdict_anchor(self.tools)
 
-    def test_a_verdict_on_the_empty_tree_is_unverifiable_in_a_broken_checkout(self) -> None:
+    def test_a_verdict_is_unverifiable_in_a_broken_checkout(self) -> None:
+        # A null (empty-tree) verdict exists only in a checkout with no commit
+        # (PV R11); its broken-checkout case is
+        # test_plan_verdict_binding.AVerdictReachedBeforeAnyCommit.
         self.start()
         self.challenger("challenger-rev-0")
         submit_cross_review_v8(plan_id="plan-1", review={"verdict": "agreed", "risks": []},
-                               workspace_root=self.repo, base_dir=self.tools, reviewed_commit_sha=None)
+                               workspace_root=self.repo, base_dir=self.tools, reviewed_commit_sha=self.commit_a)
         self.assertEqual(_terminal(self.evaluate(1)), "CONVERGED")
         self._break_checkout()
         with self.assertRaisesRegex(GovernanceError, "plan_verdict_unverifiable:workspace_head_unreadable"):
@@ -215,13 +220,13 @@ class R4AGitFailureIsNotTheEmptyTree(_PlanFixture):
         self.start()
         self.challenger("challenger-rev-0")
         submit_cross_review_v8(plan_id="plan-1", review={"verdict": "agreed", "risks": []},
-                               workspace_root=self.repo, base_dir=self.tools, reviewed_commit_sha=None)
+                               workspace_root=self.repo, base_dir=self.tools, reviewed_commit_sha=self.commit_a)
         self.assertEqual(_terminal(self.evaluate(1)), "CONVERGED")
         with mock.patch.dict(os.environ, {}, clear=False):
             os.environ.pop("SUDO_UID", None)
             subprocess.run(["chown", "-R", "65534:65534", str(self.repo / ".git")], check=True)
             with self.assertRaisesRegex(WorkspaceViewRefused, "workspace_head_unreadable"):
-                _resolve_workspace_head_sha(self.repo)
+                plan_verdict_anchor(self.tools)
             with self.assertRaisesRegex(GovernanceError, "plan_verdict_unverifiable:workspace_head_unreadable"):
                 self.request_implementation_of_plan()
 
@@ -330,10 +335,10 @@ class R8OneIdNamesOneRisk(_PlanFixture):
         self.challenger("challenger-rev-0")
         first, second = _request_round_tasks(self)
         record_cross_review(plan_id="plan-1", review=_direction_review(self, first, risks=[_risk("CR-001", "nice_to_have")]),
-                            workspace_root=self.repo, base_dir=self.tools)
+                            workspace_root=self.repo, base_dir=self.tools, reviewed_commit_sha=self.commit_a)
         with self.assertRaisesRegex(GovernanceError, "CR-R1-CR-001 is already recorded in round 1 with different content"):
             record_cross_review(plan_id="plan-1", review=_direction_review(self, second, risks=[_risk("CR-001", "material")]),
-                                workspace_root=self.repo, base_dir=self.tools)
+                                workspace_root=self.repo, base_dir=self.tools, reviewed_commit_sha=self.commit_a)
 
     def test_identical_rows_of_the_two_directions_are_one_risk(self) -> None:
         self.start()
@@ -381,6 +386,7 @@ def _request_round_tasks(case: _PlanFixture) -> list[dict]:
 
 
 def _direction_review(case: _PlanFixture, task: dict, *, risks: list[dict]) -> dict:
+    """One direction's answer; the reviewed commit is the record function's argument, not a field."""
     return {
         "task_packet_hash": task["task_packet_hash"],
         "target_revision_id": task["target_revision_id"],
@@ -390,7 +396,6 @@ def _direction_review(case: _PlanFixture, task: dict, *, risks: list[dict]) -> d
         "review_content_hash": content_hash({"risks": risks, "direction": task["review_direction"]}),
         "verdict": "material_risks_present",
         "risks": risks,
-        "reviewed_commit_sha": case.commit_a,
     }
 
 

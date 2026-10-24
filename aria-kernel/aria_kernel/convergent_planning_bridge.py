@@ -162,8 +162,12 @@ def start_convergent_plan_with_challenger(
     ``plan_started`` record (``plan_round_contract``, ARIA-HIGH-345), never
     from the caller; the operator's obligations are added to them.
     """
-    from .convergence_drainer import _resolve_workspace_head_sha
+    from .workspace_view import workspace_head_sha
 
+    # The challenger's evidence anchor is read before the plan is opened: a
+    # checkout git cannot read raises here (PV R12), not after a started plan
+    # whose round-1 challenger was never minted.
+    target_sha = workspace_head_sha(workspace_root if workspace_root is not None else Path.cwd())
     started = start_convergent_plan_drafted_by_primary(
         plan_id=plan_id,
         plan_content=plan_content,
@@ -182,7 +186,7 @@ def start_convergent_plan_with_challenger(
         allowed_scope=list(contract.allowed_scope),
         base_dir=base_dir,
         plan_revision_hash=revision_hash,
-        target_sha=_resolve_workspace_head_sha(workspace_root),
+        target_sha=target_sha,
         context_repo_root=workspace_root,
         context_source_paths=context_paths,
         admission=admission,

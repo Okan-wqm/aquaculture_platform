@@ -601,7 +601,7 @@ class PhaseWiringTest(unittest.TestCase):
             with patch.object(cycle_mod, "list_tools", return_value=[{"tool_id": "tool-a"}]), \
                  patch("aria_kernel.feedback_store.generate_judgment_sample",
                        return_value={"items": []}), \
-                 patch("aria_kernel.convergence_drainer._resolve_workspace_head_sha",
+                 patch("aria_kernel.workspace_view.workspace_head_sha",
                        return_value="f" * 40):
                 result = cycle_mod._phase_judgment_pipeline(context)
 

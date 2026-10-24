@@ -622,8 +622,9 @@ class PlanConvergenceTests(unittest.TestCase):
                 "target_plan_content_hash": task["target_plan_content_hash"],
                 "reviewer": reviewer,
                 "risks": risks,
-                "reviewed_commit_sha": workspace_head_sha(self.root), "critique_content_hash": content_hash({"reviewer": reviewer, "risks": risks}),
+                "critique_content_hash": content_hash({"reviewer": reviewer, "risks": risks}),
             },
+            reviewed_commit_sha=workspace_head_sha(self.root),
             workspace_root=self.root,
             base_dir=self.tools_dir,
         )
@@ -678,9 +679,9 @@ class PlanConvergenceTests(unittest.TestCase):
                 "review_direction": direction,
                 "risks": risks,
                 "verdict": verdict or ("material_risks_present" if any(map(is_material_risk, risks)) else "agreed"),
-                "reviewed_commit_sha": workspace_head_sha(self.root),
                 "review_content_hash": content_hash({"reviewer": reviewer, "direction": direction, "risks": risks}),
             },
+            reviewed_commit_sha=workspace_head_sha(self.root),
             workspace_root=self.root,
             base_dir=self.tools_dir,
         )

@@ -147,8 +147,8 @@ class _ScopeBoundFixture(unittest.TestCase):
         record_critique(plan_id=plan_id, critique={
             "task_packet_hash": task["task_packet_hash"], "target_revision_id": latest["revision_id"],
             "target_plan_content_hash": latest["content_hash"], "reviewer": "farm-expert", "risks": [],
-            "reviewed_commit_sha": workspace_head_sha(bound_workspace_root(self.tools)), "critique_content_hash": content_hash({"reviewer": "farm-expert", "risks": []}),
-        }, workspace_root=self.root, base_dir=self.tools)
+            "critique_content_hash": content_hash({"reviewer": "farm-expert", "risks": []}),
+        }, reviewed_commit_sha=workspace_head_sha(bound_workspace_root(self.tools)), workspace_root=self.root, base_dir=self.tools)
 
     def _revise(self, plan_id: str, body: dict, revision_id: str = "r1") -> dict:
         state = plan_status(plan_id=plan_id, base_dir=self.tools)

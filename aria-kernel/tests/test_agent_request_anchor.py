@@ -2,7 +2,7 @@
 
 ``target_sha`` has always been minted onto the request row (it is the commit
 the plan's evidence is grounded at, see
-``convergence_drainer._resolve_workspace_head_sha``) and hashed into the
+``workspace_view.workspace_head_sha``) and hashed into the
 context envelope. Nothing on the selection path ever read it, so
 ``next_pending_request`` returned the oldest PENDING row regardless of whether
 the repo had moved underneath it.

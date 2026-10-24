@@ -168,10 +168,11 @@ class B1APlanWaitingThroughAnOutageIsAdoptedNotAbandoned(_Store):
         })
         state = plan_status(plan_id="plan-o", base_dir=self.tools)
         task = next(iter(state["rounds"][state["current_round"]]["tasks"].values()))
-        record_critique(plan_id="plan-o", workspace_root=self.root, base_dir=self.tools, critique={
+        record_critique(plan_id="plan-o", workspace_root=self.root, base_dir=self.tools,
+                        reviewed_commit_sha=workspace_head_sha(self.root), critique={
             "task_packet_hash": task["task_packet_hash"], "target_revision_id": task["target_revision_id"],
             "target_plan_content_hash": task["target_plan_content_hash"], "reviewer": "farm-expert",
-            "risks": [], "reviewed_commit_sha": workspace_head_sha(self.root), "critique_content_hash": content_hash({"reviewer": "farm-expert", "risks": []}),
+            "risks": [], "critique_content_hash": content_hash({"reviewer": "farm-expert", "risks": []}),
         })
         evaluated = evaluate_plan(plan_id="plan-o", round_number=1, base_dir=self.tools)
         self.assertEqual(evaluated.get("event", {}).get("payload", {}).get("terminal_state"), "CONVERGED", evaluated)

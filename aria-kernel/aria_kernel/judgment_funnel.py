@@ -402,6 +402,7 @@ def route_judgment_sample(
     tier0_failed: list[dict[str, Any]] = []
     cache_hits: list[dict[str, Any]] = []
     hold_reason: str | None = None
+    judges_hash: str | None = None
     # The tier ladder, BEFORE any seat is planned or asked for:
     #   * severity routes (T2 one seat for S/M, T3 for HIGH, T4 for
     #     CRITICAL) while Jev tier 1 runs as SHADOW;
@@ -474,13 +475,12 @@ def route_judgment_sample(
                 hold_reason = admission.refusal
                 break
     if hold_reason is None:
-        # J2 — the judge seats' contract identity at this call's target_sha,
-        # once per call: the cache key's judge half for every item below.
-        from .judgment_cache import judge_seats_code_hash
+        # J2 — the judge bench as the executor delivers it (one owner,
+        # agent_contract_delivery), once per call: the cache key's judge
+        # half for every item below and the stamp on every routing row.
+        from .agent_contract_delivery import judge_seats_contract_hash
 
-        judges_hash_now = (
-            judge_seats_code_hash(repo_root, target_sha) if repo_root is not None and planned else None
-        )
+        judges_hash = judge_seats_contract_hash() if planned else None
         for item, tier, calibration in planned:
             # TIER-0 FIRST, FREE (the operator's funnel law, step 2): the
             # mechanical gate — slice A's tier0_gate, one law — runs before
@@ -517,7 +517,7 @@ def route_judgment_sample(
             hit = cache_lookup(
                 root, finding_fingerprint=str(item.get("finding_fingerprint") or ""),
                 code_hash=_cited_code_hash(item, repo_root, target_sha),
-                judges_hash=judges_hash_now,
+                judges_hash=judges_hash,
                 rule_contract_hash=_rule_contract_hash(root, item),
                 calibration_gate=calibration_gate,
             )
@@ -560,7 +560,7 @@ def route_judgment_sample(
         + [{"item": entry["item"], "reason": f"tier0:{entry['reason']}"} for entry in tier0_failed]
         + [{"item": entry["item"], "reason": "cache_hit"} for entry in cache_hits],
         tiers=routed_tiers, calibration=routed_calibration, tier1=tier1,
-        target_sha=target_sha, now=now,
+        target_sha=target_sha, judges_hash=judges_hash, now=now,
     )
     if tier0_refused or tier0_failed:
         # MEASURE mode (the WP-J falsifiability rollout): one governance row
@@ -633,6 +633,7 @@ def _append_routing_rows(
     calibration: list[bool],
     tier1: dict[int, dict[str, Any]],
     target_sha: str | None,
+    judges_hash: str | None,
     now: datetime,
 ) -> None:
     from .judge_fanout import _group_id
@@ -664,6 +665,10 @@ def _append_routing_rows(
             # J2 — the rule contract the seats are asked under; the verdict
             # cache keys the settled verdict by it.
             "rule_contract_hash": _rule_contract_hash(root, item) if hold is None else None,
+            # J2 — the judge bench the seats are delivered under; the
+            # verdict cache keys the settled verdict by THIS stamp, never by
+            # a bench recomputed after an edit.
+            "judges_hash": judges_hash if hold is None else None,
             "cache_hit": True if hold == "cache_hit" else None,
             "target_sha": target_sha,
             "held": hold,

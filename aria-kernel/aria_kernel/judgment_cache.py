@@ -26,11 +26,13 @@ only the join (key) → (judgment_group_id, verdict); the ground-truth ledger
 stays the one owner of what was decided.
 
 J2 (SEPT-HARVEST §2) — WHO judged and under which law is part of the key.
-Besides the cited code, an entry is keyed by ``judges_hash`` (every judge
-seat's agent file at the verdict's ``target_sha``: the same blob law over
-``agent_resolver``'s candidate paths), ``rule_contract_hash`` (the rule's
-claim as routed, stamped on the routing row) and ``calibration_gate`` (the
-gate the consensus closed under). An edited judge prompt, a rewritten rule
+Besides the cited code, an entry is keyed by ``judges_hash`` (the judge
+bench as the executor DELIVERS it — ``agent_contract_delivery.
+judge_seats_contract_hash``, the digest of each seat's ``agent_contract_hash``
+rendered from the kernel checkout, the identity calibration scopes on;
+stamped on the routing row), ``rule_contract_hash`` (the rule's claim as
+routed, stamped on the routing row) and ``calibration_gate`` (the gate the
+consensus closed under). An edited judge prompt, a rewritten rule
 contract or a gate switched to ``enforce`` is a miss: no cached verdict
 outlives the judge, claim or law that produced it. Each half is tri-state
 like the code half — unknown is a miss.
@@ -66,24 +68,6 @@ CACHE_KEY_FIELDS: tuple[str, ...] = (
 
 def _key_of(row: dict[str, Any]) -> tuple[Any, ...]:
     return tuple(row.get(name) for name in CACHE_KEY_FIELDS)
-
-
-def judge_seats_code_hash(repo_root: str | Path, target_sha: str | None) -> str | None:
-    """J2 — the identity of every judge seat's contract file at ``target_sha``.
-
-    The seats are the agents ``agent_surface`` pairs with the judge roles;
-    each contributes every path ``agent_resolver`` would look it up at, hashed
-    by ``evidence_trust.cited_blobs_code_hash`` (an absent candidate is a
-    marker, so a moved or new file is a change). ``None`` when git cannot
-    answer: unknown, a miss.
-    """
-    from .agent_resolver import agent_md_candidates
-    from .agent_surface import JUDGE_ROLES, ROLE_TARGET_PAIRING
-    from .evidence_trust import cited_blobs_code_hash
-
-    agents = sorted({agent for role in JUDGE_ROLES for agent in ROLE_TARGET_PAIRING[role]})
-    refs = [path for agent in agents for path in agent_md_candidates(agent)]
-    return cited_blobs_code_hash(Path(repo_root), refs, target_sha)
 
 
 def _consensus_gate(row: dict[str, Any]) -> str:
@@ -126,9 +110,9 @@ def record_settled_verdicts(
     repo_root: str | Path | None,
 ) -> int:
     """Learn the settled verdicts: route rows whose group settled get a
-    cache entry keyed by the FINDING's cited blobs and the judge seats'
-    contracts at the route's anchor, the rule contract the route stamped and
-    the gate the consensus closed under.
+    cache entry keyed by the FINDING's cited blobs at the route's anchor,
+    the judge bench and rule contract the route stamped and the gate the
+    consensus closed under.
 
     Idempotent by key: an entry is written once per key. A route whose key
     has an unknown half is not cached. Returns how many entries were added.
@@ -146,7 +130,6 @@ def record_settled_verdicts(
     if not settled or repo_root is None:
         return 0
     known = {_key_of(row) for row in _rows(root)}
-    judges_by_sha: dict[str, str | None] = {}
     added = 0
     for route in routing_rows:
         group = str(route.get("judgment_group_id") or "")
@@ -154,21 +137,17 @@ def record_settled_verdicts(
         refs = route.get("cited_refs") or []
         target_sha = route.get("target_sha")
         rule_contract_hash = route.get("rule_contract_hash")
-        if group not in settled or not fingerprint or not refs or not rule_contract_hash:
+        judges_hash = route.get("judges_hash")
+        if (group not in settled or not fingerprint or not refs
+                or not rule_contract_hash or not judges_hash):
             continue
         code_hash = cited_blobs_code_hash(Path(repo_root), list(refs), target_sha)
         if code_hash is None:
             continue
-        sha_key = str(target_sha or "")
-        if sha_key not in judges_by_sha:
-            judges_by_sha[sha_key] = judge_seats_code_hash(repo_root, target_sha)
-        judges_hash = judges_by_sha[sha_key]
-        if judges_hash is None:
-            continue
         entry = {
             "finding_fingerprint": fingerprint,
             "code_hash": code_hash,
-            "judges_hash": judges_hash,
+            "judges_hash": str(judges_hash),
             "rule_contract_hash": str(rule_contract_hash),
             "calibration_gate": _consensus_gate(settled[group]),
         }
@@ -204,6 +183,5 @@ __all__ = [
     "CACHE_SURFACE",
     "cache_lookup",
     "cache_path",
-    "judge_seats_code_hash",
     "record_settled_verdicts",
 ]

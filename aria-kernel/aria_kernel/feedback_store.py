@@ -9,6 +9,7 @@ from collections.abc import Callable
 from typing import Any
 
 from .confidence import confidence_in_unit_interval
+from .digest import is_sha256_digest
 from .agent_surface import EXPERT_METHODS
 from .git_object_id import ANY_OBJECT_FORMAT, is_object_id
 from .model_fleet import dispatching_provider_for_model
@@ -751,6 +752,10 @@ def record_operator_feedback(
     # judgment_bridge (``folded_judge_method``). None on legacy rows.
     method: str | None = None,
     prompt_hash: str | None = None,
+    # J2 (SEPT-HARVEST §2) — the hash of the contract (agent file + inlined
+    # knowledge) the judge model was shown, stamped by ci_executor and kept
+    # by judgment_bridge: calibration is scoped to the version that earned it.
+    agent_contract_hash: str | None = None,
     confidence: float | None = None,
     rationale: str | None = None,
     evidence_refs: list[str] | None = None,
@@ -812,6 +817,8 @@ def record_operator_feedback(
         raise GovernanceError("agents must be an array of non-empty strings")
     if target_sha is not None and not is_object_id(target_sha, formats=ANY_OBJECT_FORMAT):
         raise GovernanceError("target_sha must be a full git object id")
+    if agent_contract_hash is not None and not is_sha256_digest(agent_contract_hash):
+        raise GovernanceError("agent_contract_hash must be a sha256 digest")
     # One gate for the whole number semantics: isinstance lets bool and
     # NaN through (nan < 0 and nan > 1 are both False), and those must be
     # refusals, not probabilities.
@@ -906,6 +913,8 @@ def record_operator_feedback(
         "model": model,
         "method": method,
         "prompt_hash": prompt_hash,
+        # J2 — additive: absent on rows written before it (unknown version).
+        "agent_contract_hash": agent_contract_hash,
         "confidence": confidence,
         "rationale": rationale,
         "evidence_refs": evidence_refs or [],

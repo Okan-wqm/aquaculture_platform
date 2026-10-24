@@ -414,9 +414,9 @@ def record_judge_verdict_from_response(
     if role == "consensus_arbitration":
         # J4 — first, the arbiter is bound to its inputs: an answer about
         # seats that moved since the mint writes nothing.
-        from .judge_fanout import require_current_arbiter_inputs
+        from .judge_fanout import ARBITER_SUBJECT_BELIEF, require_current_arbiter_inputs
 
-        require_current_arbiter_inputs(request, base_dir=base_dir)
+        subject = require_current_arbiter_inputs(request, base_dir=base_dir)
         arb_block = _verdict_field(details)
         arb_reason = arb_block.get("uncertainty_reason")
         if arb_block.get("verdict") is None and arb_reason in CONSENSUS_UNCERTAINTY_REASONS:
@@ -432,6 +432,10 @@ def record_judge_verdict_from_response(
                 base_dir=base_dir,
             )
             return {"kind": "consensus_uncertainty", **row}
+        if subject == ARBITER_SUBJECT_BELIEF:
+            from .belief_escalation import record_belief_arbitration
+
+            return record_belief_arbitration(request=request, verdict_block=arb_block, base_dir=base_dir)
     verdict_block = _verdict_field(details)
 
     tool_id = request.get("tool_id") or verdict_block.get("tool_id")

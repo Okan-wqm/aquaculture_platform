@@ -649,8 +649,10 @@ def _seat_payload(judge_id: str, row: dict[str, Any]) -> dict[str, Any]:
 
 
 # F0.7 + J4 (SEPT-HARVEST) — what an arbiter was asked about, bound on its
-# envelope. The subject kind the arbiter answers: a judged finding's seats.
+# envelope. The subject kinds the arbiter answers: a judged finding's seats,
+# or a belief's standing contradiction (belief_escalation).
 ARBITER_SUBJECT_FINDING: str = "finding"
+ARBITER_SUBJECT_BELIEF: str = "belief"
 
 
 def arbiter_inputs(subject: str, facts: Any) -> dict[str, Any]:
@@ -774,7 +776,7 @@ def require_current_arbiter_inputs(
 
     ``arbiter_inputs_unbound``: an envelope minted before the binding, which
     can prove nothing about what it was asked. ``arbiter_inputs_stale``: the
-    group's seats changed after the
+    group's seats (or the belief's standing contradiction) changed after the
     mint — a rebuttal revote, a late seat. Both are ``BridgeContractRefused``
     (the same answer is refused on every replay, and the bridge logs it as an
     ``agent_bridge_warning``); nothing is written, and the mint re-offers the
@@ -785,7 +787,11 @@ def require_current_arbiter_inputs(
     if not isinstance(bound, dict) or not bound.get("digest"):
         raise BridgeContractRefused(f"arbiter_inputs_unbound: {request.get('request_id')!r} ({group_id})")
     subject = str(bound.get("subject") or "")
-    if subject == ARBITER_SUBJECT_FINDING:
+    if subject == ARBITER_SUBJECT_BELIEF:
+        from .belief_escalation import standing_contradiction_inputs
+
+        current = standing_contradiction_inputs(belief_id=str(bound["facts"]["belief_id"]), base_dir=base_dir)
+    elif subject == ARBITER_SUBJECT_FINDING:
         grouped, _settled = _judge_rows_by_group(str(request.get("tool_id") or ""), base_dir)
         key = (str(request.get("run_id") or ""), str(request.get("finding_id") or ""), group_id)
         current = _seat_inputs(grouped.get(key) or {})
@@ -993,7 +999,7 @@ def _mint_arbiter(
     cycle_id: str | None,
     target_sha: str | None,
 ) -> dict[str, Any]:
-    """One arbiter envelope. Shared by the split arm and the anchor arm so a
+    """One arbiter envelope. Shared by the split, anchor and belief arms so a
     change to the arbiter's contract cannot land on one lane only. J4 — the
     envelope carries the ``arbiter_inputs`` it was minted over."""
     group_id = str(group.get("judgment_group_id") or "")
@@ -1209,6 +1215,71 @@ def dispatch_arbiter_for_anchor_groups(
         "minted": minted,
         "skipped": skipped,
     }
+
+
+# F0.7 — the literal first line of the BELIEF brief (the mode-marker
+# discipline of ANCHOR_MODE_MARKER): `.claude/agents/aria-consensus-arbiter.md`
+# keys its Belief Contradiction Mode section on this exact string.
+BELIEF_MODE_MARKER: str = "MODE: belief_contradiction"
+
+
+def dispatch_arbiter_for_belief(
+    *,
+    belief_id: str,
+    contradiction: dict[str, Any],
+    open_cycles: int,
+    cycle_id: str | None = None,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """F0.7 — a belief contradiction that stood across cycles is the
+    arbiter's question, not an operator's.
+
+    One envelope per (belief, contradiction) inputs digest, so the same
+    standing contradiction re-observed next cycle is not asked again; an
+    ``unverifiable`` answer is terminal. The answer folds through
+    ``belief_escalation.record_belief_arbitration``.
+    """
+    from .belief_escalation import belief_panel_finding_id, contradiction_inputs
+
+    root = ensure_tools_dir(base_dir)
+    inputs = contradiction_inputs(belief_id=belief_id, contradiction=contradiction)
+    tool_id = str(contradiction.get("source_tool_id") or "unknown")
+    group_id = f"belief:{belief_id}"
+    finding_id = belief_panel_finding_id(belief_id)
+    if (group_id, inputs["digest"]) in _minted_arbiter_inputs(root):
+        return {"judgment_group_id": group_id, "reason": "already_dispatched"}
+    if (group_id, finding_id, group_id) in _uncertain_group_keys(tool_id, root)[1]:
+        return {"judgment_group_id": group_id, "reason": "terminal_unverifiable"}
+    admission = _arbiter_admission(root, cycle_id)
+    if not admission.admitted:
+        return {"judgment_group_id": group_id, "reason": admission.refusal}
+    prompt = "\n".join([
+        BELIEF_MODE_MARKER,
+        "ARIA's memory holds a belief that a scanner has contradicted in every",
+        f"one of the last {open_cycles} cycles. Judge which side the repository supports.",
+        f"belief_id: {belief_id}",
+        f"source_tool_id: {tool_id}",
+        f"contradiction: {str(contradiction.get('reason') or '')[:500]}",
+        "Return details.consensus with verdict false_positive when the "
+        "contradiction holds (the BELIEF is wrong) or true_positive when the "
+        "belief stands, with confidence and the file:line evidence you relied "
+        "on; when neither side can be weighed, omit verdict and set "
+        "details.consensus.uncertainty_reason=unverifiable.",
+    ])
+    return _mint_arbiter(
+        root,
+        tool_id=tool_id,
+        admission=admission,
+        group={"judgment_group_id": group_id, "run_id": group_id, "finding_id": finding_id},
+        prompt=prompt,
+        criterion=(
+            "Rule on the standing contradiction and return details.consensus, "
+            "or uncertainty_reason=unverifiable when neither side can be weighed"
+        ),
+        inputs=inputs,
+        cycle_id=cycle_id,
+        target_sha=None,
+    )
 
 
 # WP-J B-2 — the rebuttal round (operator protocol step 5: "If refuted with

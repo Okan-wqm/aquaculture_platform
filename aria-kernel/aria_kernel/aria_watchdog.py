@@ -333,7 +333,9 @@ def detect_http_5xx_share(
     fresh one on a long-lived service is judged on its own volume.
 
     A sample that names no service (RUNTIME_SERVICE_LABEL) cannot point at
-    a code area, so it counts toward no service.
+    a code area, so it counts toward no service; the sweep names how many
+    such series it read (``unattributed_series``), so a feed whose targets
+    lost the label is never recorded as clean.
     """
     errors_by_service: dict[str, float] = {}
     total_by_service: dict[str, float] = {}
@@ -977,6 +979,13 @@ def run_watchdog_sweep(
                     "window_seconds": window_seconds,
                     "samples": len(samples),
                     "missing_families": missing,
+                    # RW-1 corrective R6 — series no detector can attribute
+                    # (no RUNTIME_SERVICE_LABEL: the target lost its `app`
+                    # label), counted and carried to the digest and the
+                    # report instead of dropped.
+                    "unattributed_series": sum(
+                        1 for _, labels, _ in samples if not labels.get(RUNTIME_SERVICE_LABEL)
+                    ),
                     "candidates": len(anomalies),
                     "leads": [],
                     "refused_leads": [],

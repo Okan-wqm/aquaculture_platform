@@ -548,6 +548,41 @@ class TheWindowIsTheSweepCadence(unittest.TestCase):
                     watchdog_pull_policy(repo)
 
 
+# ─── Series that name no service are named, not dropped (corrective R6) ────
+
+
+class SeriesWithoutTheServiceLabelAreNamed(_Workspace):
+    """RW-1 corrective R6. A runtime series whose target lost the ``app``
+    label points at no code area, so no detector can judge it; dropping it
+    silently made a window full of 5xx read as a clean feed."""
+
+    def test_series_without_the_app_label_are_counted_in_the_payload_and_the_report(self) -> None:
+        unlabelled = [
+            ("http_requests_total", {"namespace": "aquaculture", "status_code": "500"}, 1000.0),
+            ("http_requests_total", {"namespace": "aquaculture", "status_code": "200"}, 10.0),
+        ]
+        with _RecordingPrometheus(lifetime=unlabelled) as prometheus:
+            self.configure(prometheus.base_url)
+            payload = self.sweep()
+        runtime = payload["runtime"]
+        self.assertTrue(
+            runtime.get("hold") in RUNTIME_SOURCE_HOLDS or runtime.get("unattributed_series", 0) > 0, runtime,
+        )
+        self.assertEqual(runtime.get("unattributed_series"), 2, runtime)
+        self.assertIn("2 unattributed series", self.report_lines(payload))
+
+    def test_a_feed_with_the_app_label_on_every_series_reads_clean_and_says_nothing_of_it(self) -> None:
+        with _RecordingPrometheus() as prometheus:
+            self.configure(prometheus.base_url)
+            payload = self.sweep()
+        runtime = payload["runtime"]
+        self.assertNotIn("hold", runtime, runtime)
+        self.assertEqual(runtime.get("unattributed_series"), 0, runtime)
+        report = self.report_lines(payload)
+        self.assertIn("runtime feed: read", report)
+        self.assertNotIn("unattributed", report)
+
+
 # ─── Every kernel-test sweep names its own source (corrective R7) ──────────
 
 

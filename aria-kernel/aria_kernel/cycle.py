@@ -2965,12 +2965,16 @@ def _phase_metrics(context: PhaseContext) -> dict[str, Any]:
         # renders: the named hold when the source was not read (a hold that
         # stopped at the sweep payload was the silence RW-1 removed), else
         # "read" with the telemetry leads raised and refused; and, whenever
-        # the source answered, the runtime families it held no series for.
+        # the source answered, the runtime families it held no series for
+        # and the series it read that name no service.
         runtime = watchdog_sweep["runtime"]
         watchdog["runtime_feed"] = runtime.get("hold", "read")
         watchdog["runtime_leads"] = len(runtime.get("leads", ()))
         watchdog["runtime_refused_leads"] = len(runtime.get("refused_leads", ()))
         watchdog["runtime_missing_families"] = ",".join(runtime.get("missing_families", ()))
+        # A read whose series lack the service label is not a clean read
+        # (RW-1 corrective R6); a hold read no series to count.
+        watchdog["runtime_unattributed_series"] = runtime.get("unattributed_series", 0)
         phase_digests["watchdog_sweep"] = watchdog
     author = _phase_digest_of(
         _ran_result(context, "experiment_author"),

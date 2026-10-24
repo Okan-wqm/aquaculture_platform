@@ -950,12 +950,17 @@ def _render_watchdog_section(reflection: dict[str, Any]) -> list[str]:
     feed = sweep.get("runtime_feed")
     missing = sweep.get("runtime_missing_families")
     no_series = f"; no series for {missing}" if missing else ""
+    unattributed = sweep.get("runtime_unattributed_series", 0)
+    unattributed_text = (
+        f"; {unattributed} unattributed series (no app target label, judged by no detector)"
+        if unattributed else ""
+    )
     if feed is None:
         feed_line = "- runtime feed: not recorded (digest predates RW-1)"
     elif feed == "read":
         feed_line = (
             f"- runtime feed: read ({sweep.get('runtime_leads', 0)} telemetry leads, "
-            f"{sweep.get('runtime_refused_leads', 0)} refused{no_series})"
+            f"{sweep.get('runtime_refused_leads', 0)} refused{no_series}{unattributed_text})"
         )
     else:
         feed_line = f"- runtime feed: held — {feed}{no_series}"

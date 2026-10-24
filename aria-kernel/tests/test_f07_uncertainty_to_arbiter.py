@@ -1,0 +1,285 @@
+"""F0.7 + J4 — judgment uncertainty goes to the arbiter, never to a human.
+
+PLAN-v2 §3 F0.7: consensus_escalation (human_required.py's consensus sweep),
+belief_escalation and WP-J's three reasons (`anchor_evidence_empty`,
+`panel_echo`, `unverifiable`) route to the bounded rebuttal and
+`dispatch_arbiter_for_split_verdicts`; `unverifiable` is terminal and outside
+truth, and its rate has a ceiling. Exit: new consensus HUMAN_REQUIRED = 0 and
+the unverifiable rate <= baseline + a pre-registered margin.
+
+SEPT-HARVEST J4: the arbiter is bound to its inputs. `_mint_arbiter` stamps
+the seats it was asked about; the bridge refuses `arbiter_inputs_stale` when
+the group's seat set or verdicts changed after the mint (a rebuttal revote, a
+late seat), writes no ai_judge row, and the group is re-offered.
+
+Pinned NEW API (red by ImportError inside the test, never at collection):
+`feedback_store.UNVERIFIABLE_RATE_CEILING`. The unverifiable rate it bounds is
+read off the ledgers the judgment lane already writes, per tool:
+unverifiable outcomes / (unverifiable outcomes + settled ai_consensus groups).
+"""
+from __future__ import annotations
+
+import json
+import tempfile
+from datetime import datetime, timezone
+import unittest
+from pathlib import Path
+
+from aria_kernel.agent_invocations import list_agent_invocation_requests, sweep_expired_anchors
+from aria_kernel.belief_escalation import escalate_stuck_contradictions
+from aria_kernel.feedback_store import (
+    _consensus_uncertainty,
+    generate_ai_consensus,
+    load_feedback,
+    record_operator_feedback,
+)
+from aria_kernel.human_required import (
+    list_human_required,
+    sweep_consensus_uncertainties_for_human_required,
+)
+from aria_kernel.judge_fanout import (
+    CONSENSUS_ARBITER_AGENT,
+    CONSENSUS_ARBITRATION_ROLE,
+    dispatch_arbiter_for_split_verdicts,
+    dispatch_rebuttal_for_dissent,
+)
+from aria_kernel.judgment_bridge import record_judge_verdict_from_response
+from aria_kernel.memory import _record_contradiction
+from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir, utc_now
+
+TOOL = "tool-a"
+GROUP = "judge:tool-a:run-1:F-1"
+
+
+def _vote(tools: Path, judge_id: str, verdict: str, *, group: str = GROUP, finding: str = "F-1",
+          request_id: str | None = None, model: str = "opus", rationale: str | None = None,
+          refs: list[str] | None = None) -> None:
+    record_operator_feedback(
+        tool_id=TOOL, run_id="run-1", finding_id=finding, verdict=verdict, severity="high",
+        note=f"{judge_id} verdict", source_type="ai_judge", judge_id=judge_id, model=model,
+        confidence=0.9, rationale=rationale or f"{judge_id} read the code its own way",
+        evidence_refs=[f"aria-kernel/aria_kernel/judge_fanout.py:{len(judge_id)}"] if refs is None else refs,
+        judgment_group_id=group, request_ids=[request_id or f"REQ-{judge_id}-{finding}"],
+        base_dir=tools,
+    )
+
+
+def _arbiters(tools: Path, group: str = GROUP) -> list[dict]:
+    return [row for row in list_agent_invocation_requests(base_dir=tools, role=CONSENSUS_ARBITRATION_ROLE)
+            if row.get("judgment_group_id") == group]
+
+
+def _answer(request: dict, *, verdict: str | None = None, reason: str | None = None) -> dict:
+    consensus: dict = {"confidence": 0.85, "rationale": "weighed the seats' evidence",
+                       "evidence_refs": ["aria-kernel/aria_kernel/judge_fanout.py:1"]}
+    if verdict is not None:
+        consensus["verdict"] = verdict
+    else:
+        consensus["uncertainty_reason"] = reason
+    return {"role": CONSENSUS_ARBITRATION_ROLE, "request_id": request["request_id"],
+            "details": {"agent_subagent_type": CONSENSUS_ARBITER_AGENT, "consensus": consensus}}
+
+
+def _arbiter_rows(tools: Path, group: str = GROUP) -> list[dict]:
+    return [row for row in load_feedback(tool_id=TOOL, base_dir=tools)
+            if row.get("judgment_group_id") == group and row.get("judge_id") == CONSENSUS_ARBITER_AGENT]
+
+
+class _Case(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory(prefix="aria-f07-")
+        self.addCleanup(self._tmp.cleanup)
+        self.tools = ensure_tools_dir(Path(self._tmp.name) / "aria-tools")
+
+    def _human_required(self) -> list[dict]:
+        return list_human_required(base_dir=self.tools).rows
+
+    def _split(self, group: str = GROUP, finding: str = "F-1") -> None:
+        _vote(self.tools, "aria-evidence-judge", "true_positive", group=group, finding=finding)
+        _vote(self.tools, "aria-adversarial-judge", "false_positive", group=group, finding=finding)
+
+
+class SplitVerdictReachesTheArbiterTest(_Case):
+    def test_a_split_goes_to_the_arbiter_not_to_human_required(self) -> None:
+        self._split()
+        consensus = generate_ai_consensus(tool_id=TOOL, base_dir=self.tools)
+        self.assertEqual([u["reason"] for u in consensus["uncertainties"]], ["judge_disagreement"])
+
+        # No arbiter in flight (none minted yet, or the last one answered):
+        # the sweep is where the operator used to be asked.
+        sweep = sweep_consensus_uncertainties_for_human_required(base_dir=self.tools)
+
+        self.assertEqual(sweep["created"], [])
+        self.assertEqual(self._human_required(), [])
+        minted = dispatch_arbiter_for_split_verdicts(tool_id=TOOL, base_dir=self.tools)
+        self.assertEqual([m["judgment_group_id"] for m in minted["minted"]], [GROUP])
+
+    def _anchor_group(self, *, refs: list[str] | None, rationale: str | None) -> None:
+        for judge, model in (("aria-evidence-judge", "opus"), ("aria-adversarial-judge", "sonnet"),
+                             ("aria-test-writer-seat", "glm")):
+            _vote(self.tools, judge, "false_positive", model=model, refs=refs, rationale=rationale)
+
+    def _assert_wp_j_reason_goes_to_the_arbiter(self, reason: str) -> None:
+        consensus = generate_ai_consensus(tool_id=TOOL, base_dir=self.tools)
+        self.assertEqual([u["reason"] for u in consensus["uncertainties"]], [reason])
+
+        sweep = sweep_consensus_uncertainties_for_human_required(base_dir=self.tools)
+        minted = dispatch_arbiter_for_split_verdicts(tool_id=TOOL, base_dir=self.tools)
+
+        self.assertEqual(sweep["created"], [])
+        self.assertEqual(self._human_required(), [])
+        self.assertEqual([m["judgment_group_id"] for m in minted["minted"]], [GROUP])
+
+    def test_anchor_evidence_empty_goes_to_the_arbiter(self) -> None:
+        self._anchor_group(refs=[], rationale=None)
+        self._assert_wp_j_reason_goes_to_the_arbiter("anchor_evidence_empty")
+
+    def test_panel_echo_goes_to_the_arbiter(self) -> None:
+        self._anchor_group(refs=None, rationale="the guard returns early so the rule cannot fire here")
+        self._assert_wp_j_reason_goes_to_the_arbiter("panel_echo")
+
+
+class ConsensusEscalationMintsNoHumanRequiredTest(_Case):
+    def test_no_consensus_uncertainty_reason_mints_human_required(self) -> None:
+        # The exit criterion, read at the sweep: new consensus HUMAN_REQUIRED = 0.
+        from aria_kernel.feedback_store import CONSENSUS_UNCERTAINTY_REASONS
+
+        rows = [_consensus_uncertainty(TOOL, f"run-{i}", f"F-{i}", f"g-{i}", reason)
+                for i, reason in enumerate(CONSENSUS_UNCERTAINTY_REASONS)]
+        path = self.tools / "feedback-consensus-uncertainties.jsonl"
+        path.write_text(json.dumps({"schema_version": 1, "recorded_at": utc_now(), "tool_id": TOOL,
+                                    "cycle_id": "cyc-1", "uncertainties": rows}) + "\n", encoding="utf-8")
+
+        sweep = sweep_consensus_uncertainties_for_human_required(base_dir=self.tools)
+
+        self.assertEqual(sweep["created"], [])
+        self.assertEqual([r["context"].get("kind") for r in self._human_required()], [])
+
+
+class UnverifiableIsTerminalTest(_Case):
+    def test_an_unverifiable_arbitration_is_terminal_and_outside_truth(self) -> None:
+        self._split()
+        generate_ai_consensus(tool_id=TOOL, base_dir=self.tools)
+        dispatch_arbiter_for_split_verdicts(tool_id=TOOL, base_dir=self.tools, cycle_id="cyc-1")
+        [arbiter] = _arbiters(self.tools)
+        record_judge_verdict_from_response(request=arbiter, response=_answer(arbiter, reason="unverifiable"),
+                                           base_dir=self.tools)
+        # The arbitration is over (its envelope is terminal), so nothing holds
+        # the sweep back the way an in-flight arbiter does.
+        sweep_expired_anchors(base_dir=self.tools, now=datetime(2100, 1, 1, tzinfo=timezone.utc))
+
+        sweep = sweep_consensus_uncertainties_for_human_required(base_dir=self.tools)
+        again = dispatch_arbiter_for_split_verdicts(tool_id=TOOL, base_dir=self.tools, cycle_id="cyc-2")
+        rebuttal = dispatch_rebuttal_for_dissent(tool_id=TOOL, base_dir=self.tools, cycle_id="cyc-2")
+        generate_ai_consensus(tool_id=TOOL, base_dir=self.tools)
+
+        # Terminal: nobody is asked again — not a human, not the arbiter, not a seat.
+        self.assertEqual(sweep["created"], [])
+        self.assertEqual(self._human_required(), [])
+        self.assertEqual(again["minted"], [])
+        self.assertEqual(rebuttal["minted"], [])
+        # Outside truth: no settled row and no arbiter verdict row for the group.
+        self.assertEqual([r for r in load_feedback(tool_id=TOOL, base_dir=self.tools)
+                          if r.get("source_type") == "ai_consensus"], [])
+        self.assertEqual(_arbiter_rows(self.tools), [])
+
+
+class UnverifiableRateCeilingTest(_Case):
+    def test_the_ceiling_is_a_named_bound_below_a_coin_flip(self) -> None:
+        # New API pin: the pre-registered ceiling has one name and one owner.
+        from aria_kernel.feedback_store import UNVERIFIABLE_RATE_CEILING
+
+        self.assertIsInstance(UNVERIFIABLE_RATE_CEILING, float)
+        self.assertGreater(UNVERIFIABLE_RATE_CEILING, 0.0)
+        self.assertLess(UNVERIFIABLE_RATE_CEILING, 0.5)
+
+    def _settle(self, count: int) -> None:
+        for i in range(count):
+            group = f"judge:tool-a:run-1:S-{i}"
+            for source in ("ai_judge", "ai_consensus"):
+                record_operator_feedback(
+                    tool_id=TOOL, run_id="run-1", finding_id=f"S-{i}", verdict="false_positive",
+                    severity="medium", note="settled", source_type=source, judge_id=CONSENSUS_ARBITER_AGENT,
+                    confidence=0.9, judgment_group_id=group, base_dir=self.tools,
+                    **({"judge_count": 2, "judges_voted": 2} if source == "ai_consensus" else {}),
+                )
+
+    def test_an_unverifiable_answer_over_the_ceiling_is_refused_by_name(self) -> None:
+        self._settle(99)
+        self._split(group="judge:tool-a:run-1:U-1", finding="U-1")
+        self._split(group="judge:tool-a:run-1:U-2", finding="U-2")
+        dispatch_arbiter_for_split_verdicts(tool_id=TOOL, base_dir=self.tools)
+        [first] = _arbiters(self.tools, "judge:tool-a:run-1:U-1")
+        [second] = _arbiters(self.tools, "judge:tool-a:run-1:U-2")
+
+        # 1 of 100 judged groups unverifiable: under any sane ceiling.
+        admitted = record_judge_verdict_from_response(
+            request=first, response=_answer(first, reason="unverifiable"), base_dir=self.tools)
+        self.assertEqual(admitted["reason"], "unverifiable")
+
+        prior = [_consensus_uncertainty(TOOL, "run-1", f"P-{i}", f"judge:tool-a:run-1:P-{i}", "unverifiable")
+                 for i in range(99)]
+        with (self.tools / "feedback-consensus-uncertainties.jsonl").open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps({"schema_version": 1, "recorded_at": utc_now(), "tool_id": TOOL,
+                                 "cycle_id": "cyc-1", "uncertainties": prior}) + "\n")
+
+        # ~100 of ~200 judged groups unverifiable: over the ceiling, refused by name.
+        with self.assertRaises(GovernanceError) as ctx:
+            record_judge_verdict_from_response(
+                request=second, response=_answer(second, reason="unverifiable"), base_dir=self.tools)
+        self.assertIn("unverifiable_rate_ceiling", str(ctx.exception))
+        ledger = (self.tools / "feedback-consensus-uncertainties.jsonl").read_text(encoding="utf-8")
+        self.assertNotIn("judge:tool-a:run-1:U-2", ledger)
+
+
+class ArbiterBoundToItsInputsTest(_Case):
+    def test_a_rebuttal_revote_after_the_mint_makes_the_answer_stale(self) -> None:
+        self._split()
+        dispatch_arbiter_for_split_verdicts(tool_id=TOOL, base_dir=self.tools, cycle_id="cyc-1")
+        [arbiter] = _arbiters(self.tools)
+        # The dissenter revotes (the rebuttal round) after the arbiter was minted.
+        _vote(self.tools, "aria-adversarial-judge", "true_positive", request_id="REQ-rebuttal")
+
+        with self.assertRaises(GovernanceError) as ctx:
+            record_judge_verdict_from_response(request=arbiter, response=_answer(arbiter, verdict="false_positive"),
+                                               base_dir=self.tools)
+
+        self.assertIn("arbiter_inputs_stale", str(ctx.exception))
+        self.assertEqual(_arbiter_rows(self.tools), [])
+
+    def test_a_late_seat_is_refused_and_the_group_is_re_offered(self) -> None:
+        self._split()
+        dispatch_arbiter_for_split_verdicts(tool_id=TOOL, base_dir=self.tools, cycle_id="cyc-1")
+        [stale] = _arbiters(self.tools)
+        _vote(self.tools, "aria-test-writer-seat", "false_positive")
+
+        with self.assertRaises(GovernanceError) as ctx:
+            record_judge_verdict_from_response(request=stale, response=_answer(stale, verdict="false_positive"),
+                                               base_dir=self.tools)
+        self.assertIn("arbiter_inputs_stale", str(ctx.exception))
+
+        reoffer = dispatch_arbiter_for_split_verdicts(tool_id=TOOL, base_dir=self.tools, cycle_id="cyc-2")
+        self.assertEqual([m["judgment_group_id"] for m in reoffer["minted"]], [GROUP])
+        fresh = next(row for row in _arbiters(self.tools) if row["request_id"] != stale["request_id"])
+        record_judge_verdict_from_response(request=fresh, response=_answer(fresh, verdict="false_positive"),
+                                           base_dir=self.tools)
+        self.assertEqual(len(_arbiter_rows(self.tools)), 1)
+
+
+class BeliefEscalationGoesToTheArbiterTest(_Case):
+    def test_a_standing_contradiction_asks_the_arbiter_not_a_human(self) -> None:
+        for cycle in ("cyc-1", "cyc-2", "cyc-3"):
+            _record_contradiction(self.tools, cycle_id=cycle, belief_id="B-stuck",
+                                  reason="adapter re-emitted a withdrawn claim", source_tool_id="adapter-x")
+
+        escalate_stuck_contradictions(cycle_id="cyc-3", base_dir=self.tools)
+        escalate_stuck_contradictions(cycle_id="cyc-4", base_dir=self.tools)
+
+        self.assertEqual(self._human_required(), [])
+        arbiters = [row for row in list_agent_invocation_requests(base_dir=self.tools, role=CONSENSUS_ARBITRATION_ROLE)
+                    if "B-stuck" in json.dumps(row, sort_keys=True)]
+        self.assertEqual([row["target_agent"] for row in arbiters], [CONSENSUS_ARBITER_AGENT])
+
+
+if __name__ == "__main__":
+    unittest.main()

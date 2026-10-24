@@ -84,7 +84,12 @@ class SuperiorityPolicyThreadingTests(unittest.TestCase):
             override = repo_root / "aria-config" / "genesis_policy.json"
             override.parent.mkdir(parents=True, exist_ok=True)
             override.write_text(
-                json.dumps({"superiority": {"min_duel_matches": 1}}),
+                # F1.7 — the block is pre-registered and replaced whole by an
+                # override, so the override writes every key.
+                json.dumps({"superiority": {
+                    "min_duel_matches": 1, "window_days": 30,
+                    "alpha": 0.05, "min_discordant_pairs": 6,
+                }}),
                 encoding="utf-8",
             )
             policy = superiority_policy(repo_root)

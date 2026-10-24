@@ -482,6 +482,36 @@ def _kill_process_group(process: "subprocess.Popen[str]") -> None:
         process.kill()
 
 
+# B1 round 4 R2 — the observation child is a program run BY PATH, and a
+# script's own directory leads sys.path: without isolation
+# aria-kernel/aria_kernel/ would be the child's first import root, and a
+# `json.py` added there would run in place of the standard library's before
+# the child's first line. `-P` drops the script's directory and keeps
+# PYTHONPATH, which the child must honour as `python3 -m unittest` does
+# (`-I` would drop it too). The child's imports then resolve at the suite's
+# import roots, which is where `authority_closure` resolves them.
+OBSERVATION_CHILD_INTERPRETER_FLAGS: tuple[str, ...] = ("-P",)
+
+
+def observation_child_argv(
+    interpreter: str,
+    *,
+    receipt_fd: int,
+    byte_limit: int,
+    path_limit: int,
+    receipt_limit: int,
+    modules: list[str],
+    time_budget: float,
+    unittest_arguments: list[str],
+) -> list[str]:
+    """The argv that runs a unittest command through the observation child
+    (``_validation_unittest_child.py``, beside this module): the child's
+    private wire, then the command's own unittest arguments."""
+    return [interpreter, *OBSERVATION_CHILD_INTERPRETER_FLAGS, str(Path(__file__).with_name("_validation_unittest_child.py")),
+            str(receipt_fd), str(byte_limit), str(path_limit), str(receipt_limit),
+            _canonical_input_json(modules), str(time_budget), "--", *unittest_arguments]
+
+
 def _run_one(
     *,
     command: str,
@@ -548,14 +578,14 @@ def _run_one(
                 os.set_blocking(receipt_read, False)
                 os.set_blocking(receipt_write, False)
                 receipt_limit = min(4096, os.fpathconf(receipt_write, "PC_PIPE_BUF"))
-                spawned_argv = [argv[0], str(Path(__file__).with_name("_validation_unittest_child.py")),
-                                str(receipt_write), str(reserved_bytes), str(child_path_limit), str(receipt_limit),
-                                _canonical_input_json(execution_profile["modules"]), "", "--", *argv[3:]]
                 spawn_options["pass_fds"] = (receipt_write,)
                 child_time_budget = max(0.0, observer_deadline - time.monotonic())
                 if observed is not None and observed.get("reason") == "qualification_deadline":
                     child_time_budget = 0.0
-                spawned_argv[7] = str(child_time_budget)
+                spawned_argv = observation_child_argv(
+                    argv[0], receipt_fd=receipt_write, byte_limit=reserved_bytes, path_limit=child_path_limit,
+                    receipt_limit=receipt_limit, modules=execution_profile["modules"],
+                    time_budget=child_time_budget, unittest_arguments=argv[3:])
             except OSError:
                 # The command has not started. Optional observation may fall
                 # back here only; never re-execute after an attempted spawn.

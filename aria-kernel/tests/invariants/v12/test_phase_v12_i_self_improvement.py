@@ -194,7 +194,9 @@ class TokenEconomy(_Store):
 
 class SelfImprovement(_Store):
     def test_I_V12_SELF_01_missions_authority_surfaces_adjudication(self) -> None:
-        self.assertEqual(si.authority_surface_violations(["aria-kernel/aria_kernel/search.py", "tools/aria-poc/claude_runtime.py"]), [])
+        # cycle_rhythm is a module no decider of the authority set executes;
+        # search.py is one since the set is closed under execution (B1 R2).
+        self.assertEqual(si.authority_surface_violations(["aria-kernel/aria_kernel/cycle_rhythm.py", "tools/aria-poc/claude_runtime.py"]), [])
         self.assertEqual(si.authority_surface_violations(["aria-kernel/aria_kernel/hooks.py"]), ["authority_surface:aria-kernel/aria_kernel/hooks.py"])
         self.assertEqual(si.authority_surface_violations([".github/workflows/aria-auto-cycle.yml"]), ["authority_surface:.github/workflows/aria-auto-cycle.yml"])
         self.assertEqual(si.authority_surface_violations(["apps/farm-service/x.py"]), ["outside_kernel_scope:apps/farm-service/x.py"])
@@ -221,7 +223,7 @@ class SelfImprovement(_Store):
                                base_dir=self.tools)
         with self.assertRaises(GovernanceError):
             si.propose_self_change(mission_id=str(foreign["mission_id"]), base_dir=self.tools, workspace_root=self.ws,
-                                   evidence_paths=["aria-kernel/aria_kernel/search.py"], problem="p", proposed_change="c")
+                                   evidence_paths=["aria-kernel/aria_kernel/cycle_rhythm.py"], problem="p", proposed_change="c")
         mission_id = str(missions[0]["mission_id"]) if missions else str(open_mission(
             source_kind=si.SELF_IMPROVEMENT_SOURCE_KIND, source_id="manual:x", repo_hash=canonical_identity(self.ws), title="manual",
             next_action=si.SELF_CHANGE_NEXT_ACTION, wake_condition={"kind": "evidence", "key": "manual"}, evidence_refs=(),
@@ -231,8 +233,8 @@ class SelfImprovement(_Store):
                                    evidence_paths=["aria-kernel/aria_kernel/data/runtime_profiles.json"], problem="p", proposed_change="widen")
         self.assertIn(si.SELF_CHANGE_REFUSED_EVENT, self.governance())
         result = si.propose_self_change(mission_id=mission_id, base_dir=self.tools, workspace_root=self.ws,
-                                        evidence_paths=["aria-kernel/aria_kernel/search.py"], problem="search misses journal rows",
-                                        proposed_change="index files_touched")
+                                        evidence_paths=["aria-kernel/aria_kernel/cycle_rhythm.py"], problem="the rhythm misses a late cron",
+                                        proposed_change="measure the cron's lateness")
         self.assertEqual(result["proposal"]["kind"], "self_change")
         self.assertEqual(result["human_required"]["reason"], "self_change_adjudication")
         self.assertIn(si.SELF_CHANGE_PROPOSED_EVENT, self.governance())

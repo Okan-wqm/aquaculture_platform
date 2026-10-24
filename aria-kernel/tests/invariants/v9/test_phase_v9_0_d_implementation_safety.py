@@ -241,7 +241,7 @@ class TestV9Immutable(unittest.TestCase):
     """I-V9-IMMUTABLE-01 — READONLY_PATHS non-empty + canonical."""
 
     def test_i_v9_immutable_01_readonly_paths_non_empty(self):
-        self.assertGreater(len(_is.READONLY_PATHS), 0)
+        self.assertGreater(len(_is.readonly_paths()), 0)
 
     def test_i_v9_immutable_01_canonical_paths_present(self):
         required = {
@@ -257,7 +257,7 @@ class TestV9Immutable(unittest.TestCase):
             "docs/aria/policy/", "docs/recommendations/", "packs/", "tools/aria-labels/",
             "tools/runtime-truth/", "libs/journey-pins/", "docs/reviews/_registry/",
         }
-        actual = set(_is.READONLY_PATHS)
+        actual = set(_is.readonly_paths())
         missing = required - actual
         self.assertEqual(
             missing, set(),
@@ -274,7 +274,7 @@ class TestV9Immutable(unittest.TestCase):
 
         for relative in (genesis_policy.OVERRIDE_RELPATH,):
             self.assertTrue(
-                any(relative.startswith(prefix) for prefix in _is.READONLY_PATHS),
+                any(relative.startswith(prefix) for prefix in _is.readonly_paths()),
                 f"{relative} is read as policy and is not read-only for the agent",
             )
 
@@ -1130,7 +1130,7 @@ class TestV9PublicApi(unittest.TestCase):
     def test_i_v9_safety_public_api_complete(self):
         """__all__ pin (prevent accidental sibling-symbol creep)."""
         canonical = {
-            "READONLY_PATHS", "ALLOWED_BASH_COMMANDS", "DENIED_BASH_COMMANDS",
+            "readonly_paths", "readonly_entry_for", "readonly_mount_prefix", "ALLOWED_BASH_COMMANDS", "DENIED_BASH_COMMANDS",
             "FORBIDDEN_GH_API_PATHS", "MAX_VALIDATION_RESULT_BYTES",
             "IMMUTABLE_AGENT_FILE_HASH_REGISTRY", "SECRET_SCAN_PATTERNS",
             "SecretLeakDetected", "PathEscape", "BashAllowlistMiss",

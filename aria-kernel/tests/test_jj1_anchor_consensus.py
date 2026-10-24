@@ -22,6 +22,7 @@ Deliberate-breakage pins:
 """
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -29,6 +30,7 @@ from pathlib import Path
 from aria_kernel.feedback_store import (
     ANCHOR_MIN_JUDGE_COUNT,
     ANCHOR_PROMOTION_MIN_JUDGMENTS,
+    CONSENSUS_UNCERTAINTY_REASONS,
     _confirmed_false_positive_fingerprints,
     anchor_group_keys,
     consensus_judge_count,
@@ -243,6 +245,7 @@ class _LedgerCase(unittest.TestCase):
         confidence: float = 0.95,
         tool_id: str = "tool-a",
         model: str | None = None,
+        target_sha: str | None = None,
     ) -> None:
         record_operator_feedback(
             tool_id=tool_id,
@@ -267,6 +270,7 @@ class _LedgerCase(unittest.TestCase):
             evidence_refs=[f"src/{finding.lower()}.ts:10"],
             judgment_group_id=f"judge:{tool_id}:{finding}",
             finding_fingerprint=f"fp-{finding}",
+            target_sha=target_sha,
             base_dir=self.tools,
         )
 
@@ -540,6 +544,65 @@ class WeightedLaneAnchorTests(_LedgerCase):
         self.assertEqual(
             list(_confirmed_false_positive_fingerprints(self.tools)), ["fp-F-1"],
         )
+
+
+
+class MixedTargetShaAnchorTests(_LedgerCase):
+    """J5 (SEPT-HARVEST §2) — a mixed-SHA consensus can neither anchor nor
+    suppress.
+
+    ARIA-HIGH-004 already refuses to NAME a commit for a closing set judged
+    at different trees (``_common_target_sha`` -> None), yet the row still
+    mints at anchor grade: ground truth about no single tree, and — for a
+    false_positive — a suppression of the finding class that no later code
+    can contradict. The realistic path is the anchor upgrade itself: the
+    pair settles at sha A, the arbiter is minted (and answers) after the
+    tree moved to sha B.
+
+    Law pinned: an anchor-grade closing set without one common target_sha
+    records the uncertainty ``target_sha_mixed`` (a member of the closed
+    CONSENSUS_UNCERTAINTY_REASONS vocabulary). The sub-anchor precision row
+    may still mint; nothing it writes is ground truth or suppresses.
+    """
+
+    _SHA_A = "a" * 40
+    _SHA_B = "b" * 40
+
+    def _three_agreeing_seats_across_two_shas(self) -> dict:
+        self._judge("aria-evidence-judge", verdict="false_positive", target_sha=self._SHA_A)
+        self._judge("aria-adversarial-judge", verdict="false_positive", target_sha=self._SHA_A)
+        generate_ai_consensus(tool_id="tool-a", base_dir=self.tools)
+        self._judge("aria-consensus-arbiter", verdict="false_positive", target_sha=self._SHA_B)
+        return generate_ai_consensus(tool_id="tool-a", base_dir=self.tools)
+
+    def test_three_agreeing_seats_at_two_shas_are_not_ground_truth(self) -> None:
+        self._three_agreeing_seats_across_two_shas()
+        consensus = [
+            row for row in load_feedback(tool_id="tool-a", base_dir=self.tools)
+            if row.get("source_type") == "ai_consensus"
+        ]
+        self.assertEqual(
+            [row for row in consensus if is_ground_truth_row(row)], [],
+            "a consensus folded from judgments of two trees is about no single "
+            "tree and must not become repository truth",
+        )
+        self.assertEqual(anchor_group_keys(tool_id="tool-a", base_dir=self.tools), set())
+
+    def test_a_mixed_sha_false_positive_does_not_suppress(self) -> None:
+        self._three_agreeing_seats_across_two_shas()
+        self.assertNotIn(
+            "fp-F-1", _confirmed_false_positive_fingerprints(self.tools),
+            "suppression is the most irreversible consequence; a mixed-SHA "
+            "consensus must never buy it",
+        )
+
+    def test_the_group_records_target_sha_mixed(self) -> None:
+        result = self._three_agreeing_seats_across_two_shas()
+        self.assertIn(
+            "target_sha_mixed", [u["reason"] for u in result["uncertainties"]],
+            json.dumps(result, default=str)[:800],
+        )
+        self.assertIn("target_sha_mixed", CONSENSUS_UNCERTAINTY_REASONS)
 
 
 if __name__ == "__main__":

@@ -43,7 +43,9 @@ tools store to a real git checkout and keeps it at ``<checkout>/aria-tools``
 """
 from __future__ import annotations
 
+import base64
 import json
+import re
 import subprocess
 import tempfile
 import unittest
@@ -326,11 +328,14 @@ class P1NextReviewerSeesPriorRisksAndClaims(_PlanFixture):
 
     @staticmethod
     def _prior_block(prompt: str) -> str:
-        start = prompt.find("<untrusted_prior_risks")
-        end = prompt.find("</untrusted_prior_risks>")
-        if start < 0 or end < start:
+        """The block's decoded body (PV R18: base64 through the text_safety owner)."""
+        match = re.search(
+            r'<untrusted_prior_risks before_round="\d+" encoding="base64">\n([A-Za-z0-9+/=]*)\n</untrusted_prior_risks>',
+            prompt,
+        )
+        if match is None:
             raise AssertionError("the round-2 cross-review prompt carries no <untrusted_prior_risks> block")
-        return prompt[start:end]
+        return base64.b64decode(match.group(1)).decode("utf-8")
 
     def test_the_round_two_reviewer_is_handed_the_prior_risks_as_untrusted_data(self) -> None:
         prompt = self._round_two_prompt("plan-1", claims=["CR-R1-CR-001"])

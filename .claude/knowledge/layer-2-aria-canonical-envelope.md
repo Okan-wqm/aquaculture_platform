@@ -230,7 +230,8 @@ two-task state machine flow from a single agent submission.
 ```
 
 `prior_risk_dispositions[]` (PV P1, ARIA-HIGH-779) answers the earlier
-rounds' reviewer risks the request lists inside `<untrusted_prior_risks>`.
+rounds' reviewer risks the request lists inside `<untrusted_prior_risks>`
+(`encoding="base64"`: a base64 JSON array, decoded before it is read).
 The kernel round-scopes every reviewer risk id when it records it
 (`CR-001` raised in round 1 is `CR-R1-CR-001` from then on), and the plan
 author's `details.revision.addresses_review_risk_ids` is a stored claim

@@ -160,3 +160,22 @@ concurrent run therefore re-ingests the same findings.
   `event_id`.
 - Plan item: the DESIGN D9 miss feed.
 - Slot: Wave E (D9 recall block plus the DEV miss feed).
+
+## ARIA-MEDIUM-813
+
+The cross-review and primary-revision prompts embed plan bodies and reviewer risks as raw
+`json.dumps` inside `<untrusted_primary_plan>`, `<untrusted_challenger_plan>` and
+`<untrusted_cross_review_risks>`. `json.dumps` does not escape `<`, so a closing tag inside an
+LLM-authored plan or risk ends its block and the rest reads as prompt text.
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-20. Source: the PV round-3 appellate (R18).
+- Evidence:
+  - `aria-kernel/aria_kernel/cross_review_bridge.py:188-194`: the cross-review plan blocks.
+  - `aria-kernel/aria_kernel/cross_review_bridge.py:225`: the revision prompt's risk text.
+  - `aria-kernel/aria_kernel/cross_review_bridge.py:242-252`: the revision prompt's blocks.
+  - `aria-kernel/aria_kernel/text_safety.py:87`: the base64 owner the blocks bypass.
+- Rule violated: untrusted text crosses the prompt boundary only through the `text_safety`
+  delimited-payload owner, whose alphabet cannot spell a closing tag. The `<untrusted_prior_risks>`
+  block beside them already does (PV R18).
+- Plan item: with P1, the cross-review prompt the round N+1 reviewer reads.
+- Slot: Wave B with P1.

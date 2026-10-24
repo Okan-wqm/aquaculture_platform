@@ -61,9 +61,9 @@ Your steps:
    risk (`risk_category: contract_break`) — the kernel refuses such a body
    at submit and at `plan_contract_complete`; letting it through only
    delays the refusal to a dead plan.
-4. **Verify prior risks** (round 2+). `<untrusted_prior_risks>` lists the
-   earlier rounds' uncleared risks (ids `CR-R{N}-…`) with the author's
-   CLAIMS (`author_claimed_in_revisions`) — a claim is not evidence.
+4. **Verify prior risks** (round 2+). Decode `<untrusted_prior_risks before_round="N" encoding="base64">`
+   (base64 JSON): the earlier rounds' uncleared risks (ids `CR-R{N}-…`) with
+   the author's CLAIMS (`author_claimed_in_revisions`) — a claim is not evidence.
    Answer every row in `prior_risk_dispositions[]`: `"resolved"` (the fix
    is in the plan; cite it), `"open"` (still stands; a material one
    blocks) or `"withdrawn"` (the objection was wrong; cite why). An

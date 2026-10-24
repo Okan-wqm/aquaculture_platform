@@ -1007,3 +1007,109 @@ their names can disagree with the one service key
   PLAN-v2 F0.9b; \_asset_of is the per-path twin of \_detect_services and goes with it.
 - Failure scenario: security assessment files a finding on `apps/<dir>` as `service:<dir>` while
   the finding dimension names the same project by its project.json name, so the two never join.
+
+## ARIA-MEDIUM-803
+
+The B0 runner-identity leak probe is a point-in-time measurement: a runner-uid process that moves a
+key or hosts.yml aside, or races the probe, during the run makes it read green
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: the program lead's B0 round-6 scope decision (2026-10-24), registered by the B0-R5
+  implementer; the B0-R4 round-3 appellate named the limit (dissent, non-blocking).
+- Evidence:
+  - `tools/aria-board/runner_vault_leak_probe.py:13` (SCOPE: the probe is evidence of the vault
+    control, not the control)
+  - `tools/aria-board/runner_vault_leak_probe.py:144` (operator step: evidence only with no runner
+    job in flight)
+- Rule: the vault's control is its deploy key existing only in the GitHub-hosted `aria-board`
+  environment; a passive, persistent lever that makes the probe read green is a blocker (R6-1..R6-3
+  closed three), active evasion is this finding.
+- Failure scenario: a job running beside the operator's probe renames `~/.config/gh/hosts.yml` or an
+  ssh key for the probe's few seconds and restores it; the probe reports green.
+- Close: evidence independent of the uid's cooperation, e.g. the run under a stopped runner service
+  with the uid's home and env files hashed before and after, or a root-run inventory of every
+  credential file and socket the uid can open.
+
+## ARIA-LOW-804
+
+The leak probe spells git's credential and config variables outside the git_containment single
+owner, whose invariant does not scan tools/aria-board
+
+- Severity: LOW; owner: Okan-wqm; deadline: 2026-12-21.
+- Raised by: B0-R4 round-3 appellate dissent (ssot N1, not made a root); owner decision recorded here
+  by the B0-R5 implementer.
+- Evidence:
+  - `tools/aria-board/runner_vault_leak_probe.py:459` (JOB_GIT_CREDENTIALS)
+  - `tools/aria-board/runner_vault_leak_probe.py:462-463` (\_GIT_ENV_CONFIG, \_GIT_ENV_CONFIG_SET_BY)
+  - `aria-kernel/tests/invariants/test_git_config_env_single_owner.py:39` (\_SCANNED omits
+    tools/aria-board)
+- Rule: one owner per concept. The purposes differ (git_containment strips ambient config from
+  kernel seams; the probe asks each job credential alone) and the probe imports no aria_kernel by
+  design. Close: pin the probe's list against the owner's `_NAMES` through a named exemption in the
+  invariant, or have the probe read the vocabulary as data by path.
+
+## ARIA-MEDIUM-806
+
+The Board job guard accepts any runs-on that starts with 'ubuntu-', so a self-hosted runner carrying
+a custom 'ubuntu-\*' label would run a Board job, and its secrets, on ARIA's runner
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: B0-R4 evidence review round 1 (non-blocking, carried through round 3), registered by the
+  B0-R5 implementer.
+- Evidence:
+  - `aria-kernel/tests/invariants/test_board_job_guard.py:185-189` (\_runner_violations)
+  - `.github/workflows/examination-board.yml:56` (runs-on: ubuntu-latest)
+- Rule: PLAN-v2 §1.9 / B0: a Board job runs on a GitHub-hosted runner, never on ARIA's self-hosted
+  runner. Not a one-line fix: no string test on runs-on alone proves a hosted runner; it needs an
+  exact hosted-label allow-list plus an operator check that no self-hosted runner carries an
+  `ubuntu-*` label (board/SETUP.md), or a runner-group restriction.
+
+## ARIA-MEDIUM-808
+
+The Board job guard reads only the Board workflow's own triggers: a workflow_call Board workflow
+called from a pull_request_target workflow passes
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: B0-R4 security review round 1 (security 3), appellate round 1 non-blocking, carried;
+  registered by the B0-R5 implementer.
+- Evidence:
+  - `aria-kernel/tests/invariants/test_board_job_guard.py:124` (\_PR_TRIGGERS)
+  - `aria-kernel/tests/invariants/test_board_job_guard.py:386-389` (\_trigger_violations reads the
+    workflow's own `on:` only)
+- Rule: the workflow holding a Board job runs no pull-request code, and no event or input decides
+  what the Board runs. No live case: examination-board.yml has only workflow_dispatch. Close (B1/B2,
+  with the signed-totals writer's caller decided): refuse workflow_call and workflow_run in a Board
+  workflow, with a mutation test.
+
+## ARIA-LOW-810
+
+board*secret_leaks decides "another job names a Board secret" with an 'aria_board*' substring, a
+second reading beside board_secrets_reached
+
+- Severity: LOW; owner: Okan-wqm; deadline: 2026-12-21.
+- Raised by: B0-R4 ssot review round 1 (N1), carried through round 3; registered by the B0-R5
+  implementer.
+- Evidence:
+  - `aria-kernel/tests/invariants/test_board_job_guard.py:738-750` (board_secret_leaks)
+- Rule: one reader of which Board secrets an expression reaches (round 3, R3-2). It fails closed and
+  no leak is reachable (a non-Board job gets no environment secrets). Close: read each non-Board
+  job's expressions through board_secrets_reached and keep only the environment-name substring.
+
+## ARIA-MEDIUM-812
+
+The leak probe asks the credentials in git's config files together: a revoked /etc/gitconfig helper
+answers before the passwd home's helper in git_https:stored, and a passwd-home core.sshCommand is
+asked only through git_ssh:job, where an env GIT_SSH_COMMAND overrides it
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: B0-R4 round-3 appellate (its own observation, not reproduced) with ssot N4, recorded for
+  the next round's lens; registered by the B0-R5 implementer.
+- Evidence:
+  - `tools/aria-board/runner_vault_leak_probe.py:659` (git_https:stored reads system and global
+    config in one call)
+  - `tools/aria-board/runner_vault_leak_probe.py:666` (git_ssh:job: the job env)
+- Rule: the R3-4 / R6-1 rule, each credential asked alone. Under the program lead's B0 scope this
+  class is passive and persistent, so the next round's lens judges whether it blocks.
+- Close: list the credential entries of the system and global files as git does and ask each alone
+  with CONFIG_FILES_OFF and GIT_CONFIG_COUNT=1, as R6-1 does for env-borne entries, keeping
+  git_https:stored as the composite.

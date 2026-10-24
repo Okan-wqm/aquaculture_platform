@@ -351,7 +351,7 @@ class R14TheClearingEvidenceIsInThePathSet(_PlanFixture):
                 self.setUp()
                 self._cleared(disposition)
                 state = fold_plan_state(plan_id="plan-1", base_dir=self.tools)
-                self.assertIn(GUARD, plan_verdict_paths(state))
+                self.assertIn(GUARD, plan_verdict_paths(state).paths)
 
     def test_a_commit_to_the_cited_evidence_makes_the_verdict_stale(self) -> None:
         for disposition in ("withdrawn", "resolved"):
@@ -370,7 +370,7 @@ class R14AnOpenAnswersEvidenceClearsNothing(_PlanFixture):
         self.cross_review([], verdict="agreed",
                           dispositions=[_disposition("CR-R1-CR-001", "open", [f"{GUARD}:1"])])
         state = fold_plan_state(plan_id="plan-1", base_dir=self.tools)
-        self.assertNotIn(GUARD, plan_verdict_paths(state))
+        self.assertNotIn(GUARD, plan_verdict_paths(state).paths)
 
 
 if __name__ == "__main__":

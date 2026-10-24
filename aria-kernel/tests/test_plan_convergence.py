@@ -203,11 +203,14 @@ class PlanConvergenceTests(unittest.TestCase):
         self.structured_revision("rev-1", addresses_review_risk_ids=["CR-001"], summary="addresses CR-001")
         self.submit_challenger(challenger_revision_id="challenger-rev-1")
         new_risk = {**self.cross_risk("CR-001", "material"), "summary": "a new round-two objection"}
+        # This store is bound to no checkout, so the reviewed tree is the
+        # empty tree: a clearing answer can cite no file of it (PV R16), and
+        # the reviewer's evidence here is the finding the fix lands under.
         self.submit_v8(
             [new_risk], verdict="material_risks_present",
             prior_risk_dispositions=[{
                 "risk_id": "CR-R1-CR-001", "disposition": "resolved",
-                "evidence_refs": ["aria-kernel/aria_kernel/plan_convergence.py:1"],
+                "evidence_refs": ["ARIA-HIGH-779"],
             }],
         )
         with mock.patch("aria_kernel.round_independence.verify_independence", return_value=(True, [])):

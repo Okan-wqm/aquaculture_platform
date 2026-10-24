@@ -205,6 +205,11 @@ PRIOR_REVIEW_RISKS_OPEN_REASON = "prior_review_risks_open"
 PLAN_VERDICT_STALE = "plan_verdict_stale"
 PLAN_VERDICT_UNBOUND = "plan_verdict_unbound"
 PLAN_VERDICT_UNVERIFIABLE = "plan_verdict_unverifiable"
+# PV R16 — the record law's refusal of a path text a plan, a risk or a prior-risk
+# answer names (`_plan_path_reading`, `_plan_ref_reading`); and of a cleared
+# answer whose cited path names no file of the commit its reviewer reviewed.
+PLAN_PATH_REFUSED = "plan_path_refused"
+PRIOR_RISK_EVIDENCE_NOT_IN_REVIEWED_TREE = "prior_risk_evidence_not_in_reviewed_tree"
 # PV P3 (R10, R11) — the refusals of a review whose reviewed commit has no
 # kernel source: the answered request row names no anchor, or names null while
 # the store's checkout holds a commit (`cross_review_request_unanchored`); a
@@ -382,7 +387,9 @@ def record_cross_review(
         event_type="cross_review_recorded",
         payload=payload,
         base_dir=root,
-        validator=lambda state, normalized: _validate_cross_review_record(state, normalized, workspace_root),
+        validator=lambda state, normalized: _validate_cross_review_record(
+            state, normalized, workspace_root, base_dir=root,
+        ),
     )
 
 
@@ -487,6 +494,12 @@ def submit_cross_review_v8(
     if not isinstance(risks, list):
         raise GovernanceError("V8 cross-review risks must be a list")
     _require_unique_risk_ids(risks)
+    # PV R16 — every risk is judged by the record law BEFORE the round's task
+    # request is appended, as the prior-risk answer is below: a refused risk
+    # leaves the plan in CHALLENGER_DRAFTED, never requested with an answer
+    # no record will take (the record validator judges it again).
+    for risk in risks:
+        _validate_cross_review_risk(risk)
 
     # Z3-K2 (ORPHAN-HIGH-629) — direction attribution. The V8 agent submits
     # ONE envelope for both directions, and this function used to copy the
@@ -528,13 +541,16 @@ def submit_cross_review_v8(
     # risks is judged BEFORE the round's task request is appended, so a
     # refused answer leaves the plan in CHALLENGER_DRAFTED (the record
     # validator judges it again as the event's own law).
-    prior_risk_dispositions = review.get("prior_risk_dispositions", [])
-    _validate_prior_risk_dispositions(state, prior_risk_dispositions, round_number)
     # PV P3 (R10, R11) — the binding is the kernel's argument, judged before
     # the round's task request is appended: a refused anchor leaves the plan
-    # in CHALLENGER_DRAFTED, never requested with no answer recordable.
+    # in CHALLENGER_DRAFTED, never requested with no answer recordable. It is
+    # judged first, because a clearing answer's evidence is judged against it.
     _refuse_payload_reviewed_commit(review, "V8 cross-review")
     require_review_anchor(reviewed_commit_sha, base_dir=root)
+    prior_risk_dispositions = review.get("prior_risk_dispositions", [])
+    _validate_prior_risk_dispositions(
+        state, prior_risk_dispositions, round_number, reviewed_commit_sha=reviewed_commit_sha, base_dir=root,
+    )
 
     # Z3-K2 — deterministic PER-DIRECTION content hash over the risks that
     # apply to that direction. One hash for both directions was half of the
@@ -1627,36 +1643,55 @@ def request_implementation(
     )
 
 
-def plan_verdict_paths(state: dict[str, Any]) -> list[str]:
+@dataclass(frozen=True)
+class PlanVerdictPaths:
+    """What a CONVERGED verdict judged, read through the plan-path record law (PV R16).
+
+    ``paths``: the repository paths and globs, in their resolved form, sorted
+    and unique. ``refused``: the recorded values the law refuses, in record
+    order — only a row recorded under an earlier law can be one, and it makes
+    the verdict unverifiable rather than silently dropping out of the set.
+    """
+
+    paths: tuple[str, ...]
+    refused: tuple[str, ...]
+
+
+def plan_verdict_paths(state: dict[str, Any]) -> PlanVerdictPaths:
     """PV P3 — the repository paths a CONVERGED verdict judged.
 
     Every path the converged body names (``plan_origin.body_paths``: its
     ``affected_surfaces`` and its ``key_changes`` paths, the files the
     implementer writes), the body's ``evidence_refs``, every cross-review
     risk's ``evidence_refs``, and the ``evidence_refs`` of every standing
-    ``resolved``/``withdrawn`` answer (line suffix dropped; finding ids name
-    no file). A key-change path need not lie inside a surface, so a reader of
-    the surfaces alone let the edited file change unseen (PV R5); and since
-    P1 a cited answer is the only door that clears a material risk, so the
-    evidence it cites is part of what the verdict judged (PV R14).
+    ``resolved``/``withdrawn`` answer. A key-change path need not lie inside a
+    surface, so a reader of the surfaces alone let the edited file change
+    unseen (PV R5); and since P1 a cited answer is the only door that clears a
+    material risk, so the evidence it cites is part of what the verdict judged
+    (PV R14).
+
+    PV R16 — each value is read through the record law it was admitted by
+    (:func:`_plan_path_reading`, :func:`_plan_ref_reading`), in its resolved
+    form, so the freshness set names the file git reports and the implementer
+    writes (``a//b`` and ``a/./b`` are ``a/b``). A finding id or a ledger
+    pointer names no file. A value the law refuses is never read as some
+    other path: it is ``refused``.
     """
-    from .evidence_trust import parse_evidence_ref
     from .plan_origin import body_paths
 
     body = plan_body_from_state(state)["plan_content"]
-    refs = [str(ref) for ref in body.get("evidence_refs", [])]
+    readings = [(path, _plan_path_reading(path)) for path in body_paths(body)]
+    refs = list(body.get("evidence_refs", []))
     for risks in state.get("cross_review_risks_by_round", {}).values():
-        refs.extend(str(ref) for risk in risks for ref in risk.get("evidence_refs", []))
+        refs.extend(ref for risk in risks for ref in risk.get("evidence_refs", []))
     for answer in state.get("review_risk_dispositions", {}).values():
         if answer["disposition"] in CITED_PRIOR_RISK_DISPOSITIONS:
-            refs.extend(str(ref) for ref in answer["evidence_refs"])
-    paths = [str(path).strip() for path in body_paths(body)]
-    for ref in refs:
-        if FINDING_ID_RE.match(ref.strip()):
-            continue
-        parsed = parse_evidence_ref(ref)
-        paths.append(parsed[0] if parsed is not None else ref.strip())
-    return sorted({path for path in paths if _valid_repo_path(path)})
+            refs.extend(answer["evidence_refs"])
+    readings.extend((ref, _plan_ref_reading(ref)) for ref in refs)
+    return PlanVerdictPaths(
+        paths=tuple(sorted({reading.path for _value, reading in readings if reading.path is not None})),
+        refused=tuple(str(value) for value, reading in readings if reading.refusal is not None),
+    )
 
 
 def plan_verdict_staleness(state: dict[str, Any], *, base_dir: str | Path | None = None) -> str | None:
@@ -1693,7 +1728,12 @@ def plan_verdict_staleness(state: dict[str, Any], *, base_dir: str | Path | None
         # No commit today: none was made after a verdict reached on the empty
         # tree, and a reviewed commit that vanished cannot be compared.
         return None if reviewed is None else f"{PLAN_VERDICT_UNVERIFIABLE}:{reviewed}"
-    plan_paths = plan_verdict_paths(state)
+    judged = plan_verdict_paths(state)
+    if judged.refused:
+        # A recorded value the record law refuses names no file the gate can
+        # watch; reading it as one would drop what it cited (PV R16).
+        return f"{PLAN_VERDICT_UNVERIFIABLE}:{judged.refused[0][:80]}"
+    plan_paths = judged.paths
     if not plan_paths:
         # A plan that names no path judged none, so no commit can stale it.
         return None
@@ -1729,14 +1769,15 @@ def plan_path_covers(plan_path: str, changed_path: str) -> bool:
     It does when the two are equal, when the plan path is a directory the
     changed path lies under, or when the plan path is a glob the kernel's
     one repo-glob matcher (``canonical_path.matches_repo_glob``: brace
-    alternation, ``**``) matches.
+    alternation, ``**``) matches. ``plan_path`` is a resolved path the record
+    law admitted (:func:`plan_verdict_paths`), so it has no ``''``/``.``
+    segment and every glob in it compiles (PV R16).
     """
     from .canonical_path import matches_repo_glob
 
-    directory = plan_path.rstrip("/")
     return (
         changed_path == plan_path
-        or changed_path.startswith(f"{directory}/")
+        or changed_path.startswith(f"{plan_path}/")
         or matches_repo_glob(changed_path, plan_path)
     )
 
@@ -3329,7 +3370,9 @@ def _validate_critique(state: dict[str, Any], payload: dict[str, Any], workspace
         _validate_risk(risk)
 
 
-def _validate_cross_review_record(state: dict[str, Any], payload: dict[str, Any], workspace_root: str | Path) -> None:
+def _validate_cross_review_record(
+    state: dict[str, Any], payload: dict[str, Any], workspace_root: str | Path, *, base_dir: str | Path | None,
+) -> None:
     _require_state(state, {"CROSS_REVIEW_REQUESTED"}, "record cross-review")
     packet_hash = _require_hash(payload.get("task_packet_hash"), "task_packet_hash")
     target_revision_id = _require_non_empty(payload.get("target_revision_id"), "target_revision_id")
@@ -3374,7 +3417,10 @@ def _validate_cross_review_record(state: dict[str, Any], payload: dict[str, Any]
                 f"cross-review risk {row['risk_id']} is already recorded in round "
                 f"{state['current_round']} with different content; one id names one risk"
             )
-    _validate_prior_risk_dispositions(state, payload.get("prior_risk_dispositions"), state["current_round"])
+    _validate_prior_risk_dispositions(
+        state, payload.get("prior_risk_dispositions"), state["current_round"],
+        reviewed_commit_sha=payload["reviewed_commit_sha"], base_dir=base_dir,
+    )
     # The dispositions answer the PLAN's prior risks, not one direction's:
     # every direction record of a round carries the same whole answer, so no
     # direction recorded later can overwrite the other's.
@@ -3386,7 +3432,10 @@ def _validate_cross_review_record(state: dict[str, Any], payload: dict[str, Any]
             )
 
 
-def _validate_prior_risk_dispositions(state: dict[str, Any], dispositions: Any, round_number: int) -> None:
+def _validate_prior_risk_dispositions(
+    state: dict[str, Any], dispositions: Any, round_number: int, *,
+    reviewed_commit_sha: str | None, base_dir: str | Path | None,
+) -> None:
     """PV P1 (ARIA-HIGH-779) — the round's reviewer answer on prior risks.
 
     Each row names a reviewer risk an EARLIER round of this plan raised
@@ -3394,6 +3443,14 @@ def _validate_prior_risk_dispositions(state: dict[str, Any], dispositions: Any, 
     ``PRIOR_RISK_DISPOSITIONS``; ``resolved`` and ``withdrawn`` clear a
     blocking risk, so they must cite evidence. A prior risk the reviewer
     does not answer stays open.
+
+    PV R16 — every ref passes the plan-path record law
+    (:func:`_plan_ref_reading`), and a clearing answer's cited path must name
+    a file of the commit its reviewer reviewed (``reviewed_commit_sha``, the
+    kernel's argument, read in the store's checkout through
+    ``workspace_view.commit_names_blob``): ``f.ts#L1`` is a legal file name
+    the grammar admits, and the evidence that clears a risk is a verdict path
+    the freshness gate watches, so it must be a file that exists.
     """
     if not isinstance(dispositions, list):
         raise GovernanceError("prior_risk_dispositions must be an array")
@@ -3417,12 +3474,30 @@ def _validate_prior_risk_dispositions(state: dict[str, Any], dispositions: Any, 
                 f"expected one of {', '.join(PRIOR_RISK_DISPOSITIONS)}"
             )
         evidence_refs = row.get("evidence_refs", [])
-        if not isinstance(evidence_refs, list) or not all(_valid_evidence_ref(ref) for ref in evidence_refs):
-            raise GovernanceError(f"prior_risk_disposition for {risk_id} carries an invalid evidence_refs entry")
+        field = f"prior_risk_disposition {risk_id} evidence_refs"
+        _require_plan_refs(evidence_refs, field)
         if disposition in CITED_PRIOR_RISK_DISPOSITIONS and not evidence_refs:
             raise GovernanceError(
                 f"prior_risk_disposition {disposition} for {risk_id} requires evidence_refs: "
                 "a risk is cleared on cited evidence, never on a bare word"
+            )
+        if disposition in CITED_PRIOR_RISK_DISPOSITIONS:
+            _require_cited_files_in_reviewed_tree(evidence_refs, field, reviewed_commit_sha, base_dir=base_dir)
+
+
+def _require_cited_files_in_reviewed_tree(
+    refs: list[Any], field: str, reviewed_commit_sha: str | None, *, base_dir: str | Path | None,
+) -> None:
+    """PV R16 — each path a clearing answer cites names a blob of the reviewed commit."""
+    from .workspace_view import commit_names_blob
+
+    workspace = bound_workspace_root(base_dir)
+    for ref in refs:
+        path = _plan_ref_reading(ref).path
+        if path is not None and not commit_names_blob(workspace, reviewed_commit_sha, path):
+            raise GovernanceError(
+                f"{PRIOR_RISK_EVIDENCE_NOT_IN_REVIEWED_TREE}: {field} {str(ref)[:200]!r} names no file of the "
+                f"reviewed commit {reviewed_commit_sha}"
             )
 
 
@@ -3468,8 +3543,8 @@ def _validate_coverage_record(state: dict[str, Any], payload: dict[str, Any]) ->
     verdict = payload.get("verdict")
     if verdict not in COVERAGE_VERDICTS:
         raise GovernanceError(f"coverage verdict must be one of {sorted(COVERAGE_VERDICTS)}")
-    if not _valid_repo_path(payload.get("closure_manifest_path")):
-        raise GovernanceError("closure_manifest_path must be a repo-relative POSIX path")
+    closure_manifest_path = payload.get("closure_manifest_path")
+    _require_admitted(_plan_path_reading(closure_manifest_path), "closure_manifest_path", closure_manifest_path)
     _require_hash(payload.get("closure_manifest_hash"), "closure_manifest_hash")
     if not isinstance(payload.get("closure_summary"), dict):
         raise GovernanceError("closure_summary must be a JSON object")
@@ -3560,12 +3635,8 @@ def _validate_risk(risk: dict[str, Any]) -> None:
         raise GovernanceError("risk must be a JSON object")
     for field in ("risk_category", "severity", "invariant", "recommendation"):
         _require_non_empty(risk.get(field), field)
-    affected_files = risk.get("affected_files")
-    if not isinstance(affected_files, list) or not all(_valid_repo_path(item) for item in affected_files):
-        raise GovernanceError("affected_files must be repo-relative POSIX paths")
-    evidence_refs = risk.get("evidence_refs")
-    if not isinstance(evidence_refs, list) or not all(_valid_evidence_ref(item) for item in evidence_refs):
-        raise GovernanceError("evidence_refs contains invalid reference")
+    _require_plan_paths(risk.get("affected_files"), "risk affected_files")
+    _require_plan_refs(risk.get("evidence_refs"), "risk evidence_refs")
 
 
 def _validate_cross_review_risk(risk: dict[str, Any]) -> None:
@@ -3582,15 +3653,34 @@ def _validate_cross_review_risk(risk: dict[str, Any]) -> None:
         _require_non_empty(risk.get(field), field)
     if str(risk.get("severity")) not in {*RISK_SEVERITY_VALUES, *KNOWN_SEVERITIES}:
         raise GovernanceError("cross-review risk severity is invalid")
-    affected_files = risk.get("affected_files")
-    if not isinstance(affected_files, list) or not all(_valid_repo_path(item) for item in affected_files):
-        raise GovernanceError("affected_files must be repo-relative POSIX paths")
-    evidence_refs = risk.get("evidence_refs")
-    if not isinstance(evidence_refs, list) or not all(_valid_evidence_ref(item) for item in evidence_refs):
-        raise GovernanceError("evidence_refs contains invalid reference")
+    _require_plan_paths(risk.get("affected_files"), "risk affected_files")
+    _require_plan_refs(risk.get("evidence_refs"), "risk evidence_refs")
 
 
 def _validate_plan_content(plan: dict[str, Any]) -> None:
+    """The record law of a plan body: its shape, and every path text it names (PV R16).
+
+    Every path the body names (``plan_origin.body_paths``: surfaces and
+    key-change paths) passes :func:`_plan_path_reading`, and every
+    ``evidence_refs`` entry passes :func:`_plan_ref_reading` — the law the
+    freshness reader reads them back through.
+    """
+    from .plan_origin import body_paths
+
+    _validate_plan_shape(plan)
+    _require_plan_paths(body_paths(plan), "plan path")
+    _require_plan_refs(plan["evidence_refs"], "plan evidence_refs")
+
+
+def _validate_plan_shape(plan: dict[str, Any]) -> None:
+    """The shape of a plan body, the law a FOLD re-applies to every recorded body.
+
+    The path grammar is the record law's (:func:`_validate_plan_content`), not
+    the fold's: a body recorded under an earlier law (an August 2026 body's
+    ``path:line:excerpt`` refs) must still fold, and the freshness reader
+    turns any such value into ``plan_verdict_unverifiable`` instead
+    (:func:`plan_verdict_paths`).
+    """
     if not isinstance(plan, dict):
         raise GovernanceError("plan content must be a JSON object")
     if len(_canonical_json(plan).encode("utf-8")) > MAX_PLAN_BYTES:
@@ -3606,14 +3696,16 @@ def _validate_plan_content(plan: dict[str, Any]) -> None:
     affected_paths = affected_surface_paths(plan["affected_surfaces"])
     if len(affected_paths) > MAX_AFFECTED_PATHS:
         raise GovernanceError("affected_surfaces.paths limit exceeded")
-    if not all(_valid_repo_path(path) for path in affected_paths):
-        raise GovernanceError("affected_surfaces paths must be repo-relative POSIX paths")
+    if not all(isinstance(path, str) and path.strip() for path in affected_paths):
+        raise GovernanceError("affected_surfaces paths must be non-empty strings")
     if not isinstance(plan["validation_commands"], list):
         raise GovernanceError("validation_commands must be an array")
     for command in plan["validation_commands"]:
         _validate_validation_command(command)
-    if not isinstance(plan["evidence_refs"], list) or not all(_valid_evidence_ref(ref) for ref in plan["evidence_refs"]):
-        raise GovernanceError("evidence_refs contains invalid reference")
+    if not isinstance(plan["evidence_refs"], list) or not all(
+        isinstance(ref, str) and ref.strip() for ref in plan["evidence_refs"]
+    ):
+        raise GovernanceError("evidence_refs must be an array of non-empty strings")
     # Optional coverage block (schema_version >= 2 plans). NOT added to
     # PLAN_CONTENT_REQUIRED — fold_plan_state re-validates every historical
     # plan_started payload on every fold, so a new required field would break
@@ -3682,7 +3774,7 @@ def _validate_event(event: dict[str, Any]) -> None:
     payload = event["payload"]
     event_type = event["event_type"]
     if event_type == "plan_started":
-        _validate_plan_content(payload.get("plan_content"))
+        _validate_plan_shape(payload.get("plan_content"))
         _require_hash(payload.get("content_hash"), "content_hash")
         _require_non_empty(payload.get("initial_revision_id"), "initial_revision_id")
         if "plan_contract_version" in payload and (type(payload["plan_contract_version"]) is not int
@@ -3693,7 +3785,7 @@ def _validate_event(event: dict[str, Any]) -> None:
 
             validate_admission_scope(payload["admission_scope"], payload.get("plan_content"))
     elif event_type == "challenger_plan_drafted":
-        _validate_plan_content(payload.get("plan_content"))
+        _validate_plan_shape(payload.get("plan_content"))
         _require_hash(payload.get("content_hash"), "content_hash")
         _require_non_empty(payload.get("challenger_revision_id"), "challenger_revision_id")
         _require_non_empty(payload.get("source_revision_id"), "source_revision_id")
@@ -4401,8 +4493,12 @@ def key_change_violation(change: Any) -> str | None:
     if "id" in change and (not isinstance(change["id"], str) or not change["id"].strip()):
         return "id must be a non-empty string when present"
     paths = change.get("paths")
-    if paths is not None and (not isinstance(paths, list) or not all(_valid_repo_path(path) for path in paths)):
+    if paths is not None and not isinstance(paths, list):
         return "paths must be a list of repo-relative POSIX paths"
+    for path in paths or []:
+        refusal = _plan_path_reading(path).refusal
+        if refusal is not None:
+            return f"{PLAN_PATH_REFUSED}: paths {str(path)[:200]!r}: {refusal}"
     return _key_change_imports_violation(change.get("imports"), key_change_paths(change))
 
 
@@ -4554,7 +4650,7 @@ def resolve_converged_plan_observation(
             if observation is not None:
                 raise GovernanceError("converged_observation_ambiguous")
             body = plan_body_from_state(state)
-            _validate_plan_content(body["plan_content"])
+            _validate_plan_shape(body["plan_content"])
             observation = copy.deepcopy({
                 **body,
                 "convergence_event_id": event["event_id"],
@@ -4719,18 +4815,96 @@ def _coerce_plan_body(candidate: Any) -> dict[str, Any] | None:
     return None
 
 
-def _valid_repo_path(value: Any) -> bool:
-    if not isinstance(value, str) or not value.strip():
-        return False
-    path = value.strip()
-    return not (path.startswith("/") or "\\" in path or path.startswith("../") or "/../" in path or path == "..")
+@dataclass(frozen=True)
+class PlanPathReading:
+    """One path text a plan records, read through the plan-path record law (PV R16).
+
+    ``path`` is the repository path or glob the text names, in its resolved
+    form (``canonical_path.resolve_repo_relpath``: the spelling git reports a
+    changed file in and the implementer's writable set is normalized to), or
+    None when it names no file (a finding id, a kernel ledger pointer) or is
+    refused. ``refusal`` says why the law refuses it, None when admitted.
+    """
+
+    path: str | None
+    refusal: str | None
 
 
-def _valid_evidence_ref(value: Any) -> bool:
+def _plan_path_reading(value: Any) -> PlanPathReading:
+    """THE record law for a path or glob a plan names (PV R16).
+
+    Surfaces, key-change paths, risk files and the coverage manifest, at
+    record time; and the freshness reader (:func:`plan_verdict_paths`) reads
+    every recorded value through the same law. A text is admitted when it
+    resolves inside the repository (``canonical_path.resolve_repo_relpath``:
+    no absolute path, no backslash; ``''`` and ``.`` segments drop, as the
+    implementer's ``_normalize_declared_path`` drops them) and every brace
+    alternative compiles in the kernel's one glob owner
+    (``canonical_path.require_repo_glob``). A ``..`` segment is refused: the
+    implementer refuses a traversal surface (``classify_declared_surface``),
+    so a plan naming one could never be implemented, and resolving it would
+    turn a traversal into a clean-looking path. The owners' typed refusals are
+    the reasons; nothing here is a second grammar.
+    """
+    from .canonical_path import require_repo_glob, resolve_repo_relpath
+
     if not isinstance(value, str) or not value.strip():
-        return False
+        return PlanPathReading(None, "a path is a non-empty string")
+    text = value.strip()
+    if ".." in text.split("/"):
+        return PlanPathReading(None, "repo_relpath_traversal")
+    try:
+        path = resolve_repo_relpath(text)
+        require_repo_glob(path)
+    except GovernanceError as exc:
+        return PlanPathReading(None, str(exc))
+    return PlanPathReading(path, None)
+
+
+def _plan_ref_reading(value: Any) -> PlanPathReading:
+    """THE record law for an evidence ref a plan, a risk or a prior-risk answer cites (PV R16).
+
+    A finding id or a kernel ledger pointer (``evidence_validator``'s one
+    definition, ``_is_ledger_pointer_ref``) names no repository file. Any
+    other ref is in the agent evidence grammar
+    (``evidence_trust.parse_evidence_ref``: ``path`` or ``path:line``), and
+    its path meets :func:`_plan_path_reading`. A range (``f.ts:1-3``) or a
+    comment (``f.ts:1 (the guard)``) is outside that grammar and refused: read
+    as a whole-string path it named no file, so the cited file dropped out of
+    the freshness set.
+    """
+    from .evidence_trust import parse_evidence_ref
+    from .evidence_validator import _is_ledger_pointer_ref
+
+    if not isinstance(value, str) or not value.strip():
+        return PlanPathReading(None, "an evidence ref is a non-empty string")
     ref = value.strip()
-    return bool(FINDING_ID_RE.match(ref)) or _valid_repo_path(ref)
+    if FINDING_ID_RE.match(ref) or _is_ledger_pointer_ref(ref):
+        return PlanPathReading(None, None)
+    parsed = parse_evidence_ref(ref)
+    if parsed is None:
+        return PlanPathReading(None, "outside the evidence ref grammar (path or path:line)")
+    return _plan_path_reading(parsed[0])
+
+
+def _require_admitted(reading: PlanPathReading, field: str, value: Any) -> None:
+    """Raise ``plan_path_refused`` naming the field and the value the law refused."""
+    if reading.refusal is not None:
+        raise GovernanceError(f"{PLAN_PATH_REFUSED}: {field} {str(value)[:200]!r}: {reading.refusal}")
+
+
+def _require_plan_paths(values: Any, field: str) -> None:
+    if not isinstance(values, list):
+        raise GovernanceError(f"{field} must be an array")
+    for value in values:
+        _require_admitted(_plan_path_reading(value), field, value)
+
+
+def _require_plan_refs(values: Any, field: str) -> None:
+    if not isinstance(values, list):
+        raise GovernanceError(f"{field} must be an array")
+    for value in values:
+        _require_admitted(_plan_ref_reading(value), field, value)
 
 
 def _parse_iso_datetime(value: str) -> datetime | None:

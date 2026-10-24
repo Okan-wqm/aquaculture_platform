@@ -124,6 +124,22 @@ def workspace_head_sha(workspace_root: str | os.PathLike[str]) -> str | None:
     raise WorkspaceViewRefused(f"{WORKSPACE_HEAD_UNREADABLE}:git_exit_{completed.returncode}")
 
 
+def commit_names_blob(workspace_root: str | os.PathLike[str], commit: str | None, path: str) -> bool:
+    """Whether ``path`` names a file (a blob) in ``commit`` of the checkout at ``workspace_root``.
+
+    ``commit`` None is the empty tree, which names no file. ``<commit>:<path>``
+    is git's literal tree lookup: no pathspec magic, no glob, so ``f.ts#L1``
+    asks for a file of that exact name. Anything git cannot show as a blob
+    (no such path, a directory, a commit the checkout does not hold) is False:
+    the caller refuses what this cannot prove. A timeout or no git at all
+    raises :class:`WorkspaceViewRefused` (``_head_git``).
+    """
+    if commit is None:
+        return False
+    completed = _head_git(workspace_root, "cat-file", "-t", f"{commit}:{path}")
+    return completed.returncode == 0 and completed.stdout.strip() == "blob"
+
+
 def index_flagged_paths(workspace_root: str | os.PathLike[str]) -> tuple[str, ...]:
     """Tracked paths whose index entry stops ``git status`` from comparing them with the disk.
 

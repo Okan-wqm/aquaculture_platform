@@ -203,6 +203,9 @@ def matches_repo_glob(path: str, pattern: str) -> bool:
       ``b`` and ``a/x/b``; ``a/**`` matches ``a`` and ``a/x/y``.
     * ``*`` matches zero or more characters that are not ``/``.
     * ``?`` matches exactly one character that is not ``/``.
+    * ``[...]`` is a character class and ``[!...]`` its negation; a class
+      that cannot compile raises ``GovernanceError`` (``repo_glob_invalid``),
+      so the answer is a bool or that typed refusal, never ``re.error``.
     * Other characters are matched literally.
     * Every wildcard reads a newline as a name character, and the match ends
       at the end of the path (ARIA-CRITICAL-215 fix round; ``fnmatch``'s
@@ -314,6 +317,8 @@ def _glob_match(path: str, pattern: str) -> bool:
 
 
 _GLOB_REGEX_CACHE: dict[str, re.Pattern[str]] = {}
+# The refusal of a glob this owner cannot compile (``_glob_to_regex``).
+REPO_GLOB_INVALID = "repo_glob_invalid"
 
 
 def _glob_to_regex(pattern: str) -> re.Pattern[str]:
@@ -370,14 +375,17 @@ def _glob_to_regex(pattern: str) -> re.Pattern[str]:
             index += 1
             continue
         if char == "[":
-            # Character class — copy through to closing `]`, escaping nothing
+            # Character class — copied through to its closing `]`. fnmatch's
+            # negation `[!x]` is regex `[^x]`: copied raw it was a class that
+            # MATCHES `!` and `x`, a pattern other than the one written.
             close = pattern.find("]", index + 1)
             if close == -1:
                 # Unterminated class — treat literally
                 parts.append(re.escape(char))
                 index += 1
                 continue
-            parts.append(pattern[index : close + 1])
+            body = pattern[index + 1 : close]
+            parts.append(f"[^{body[1:]}]" if body.startswith("!") else f"[{body}]")
             index = close + 1
             continue
         # Literal character
@@ -386,16 +394,39 @@ def _glob_to_regex(pattern: str) -> re.Pattern[str]:
     # `\Z`, not `$`: `$` also matches before a trailing newline. DOTALL: the
     # `.` that `**` compiles to must read a newline as `*` (`[^/]*`) does.
     parts.append(r"\Z")
-    compiled = re.compile("".join(parts), re.DOTALL)
+    # A class the translation copied may still not compile (`[z-a]`, `[]x`):
+    # that pattern is refused by name, never rewritten into one that does,
+    # and ``re.error`` never reaches a caller (PV R16 — one reviewer string
+    # raised it through the plan freshness gate and the delivery drain).
+    try:
+        compiled = re.compile("".join(parts), re.DOTALL)
+    except re.error as exc:
+        from .tool_registry import GovernanceError as _GE
+
+        raise _GE(f"{REPO_GLOB_INVALID}: {pattern!r}: {exc}") from exc
     _GLOB_REGEX_CACHE[pattern] = compiled
     return compiled
 
+
+def require_repo_glob(pattern: str) -> None:
+    """Refuse ``pattern`` unless every brace alternative compiles in this owner.
+
+    The admission half of :func:`matches_repo_glob`: a recorder that will
+    hand a text to the matcher later asks here first, so the refusal
+    (``repo_glob_invalid``) is raised when the text is written, by name,
+    instead of when some later reader matches against it.
+    """
+    for alternative in expand_repo_glob(pattern):
+        _glob_to_regex(alternative)
+
 __all__ = [
+    "REPO_GLOB_INVALID",
     "_canonical_evidence_path",
     "expand_repo_glob",
     "lexical_repo_path",
     "matches_repo_glob",
     "normalize_repo_relpath",
+    "require_repo_glob",
     "resolve_repo_relpath",
     "typed_alternatives",
 ]

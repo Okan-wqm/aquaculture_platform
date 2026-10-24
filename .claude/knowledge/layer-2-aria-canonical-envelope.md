@@ -238,8 +238,10 @@ only. A prior risk is cleared only by a reviewer's `resolved` or
 `withdrawn`, each with non-empty `evidence_refs`; `open`, or no answer,
 keeps it open, and an open material one blocks convergence.
 `plan_convergence._validate_prior_risk_dispositions` refuses an unknown or
-repeated `risk_id`, a disposition outside the three, and a clearing
-disposition without evidence. `verdict` (and every `verdicts` value) is
+repeated `risk_id`, a disposition outside the three, a clearing
+disposition without evidence, a ref outside the evidence grammar (`path` or
+`path:line`, or a finding id; `f.ts:1-3` is refused) and a clearing ref whose
+file is not in the reviewed commit (`f.ts#L1` names no file). `verdict` (and every `verdicts` value) is
 REQUIRED and one of `agreed` / `material_risks_present` /
 `partial_coverage`; anything else, or none, is refused at submit
 (`plan_convergence.CROSS_REVIEW_VERDICTS`). Any verdict other than `agreed`

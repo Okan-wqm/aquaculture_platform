@@ -285,6 +285,40 @@ class ArbiterNonVerdictIsTerminalTest(_Case):
                          {"not_arbitrated": 0, "arbiter": 0, "terminal": 1})
 
 
+class LegacyConsensusEscalationHasOneOwnerTest(_Case):
+    def test_an_open_legacy_record_is_routed_to_the_arbiter_and_no_panel_opens(self) -> None:
+        # Corrective B1 (ssot) — a consensus_escalation record minted before
+        # F0.7 and the arbiter lane must not both hold the group.
+        from aria_kernel.agent_invocations import create_agent_invocation_request
+        from aria_kernel.human_required import RESOLVED_BY_KERNEL, record_human_required
+        from aria_kernel.human_required_adjudication import sweep_human_required_adjudications
+        from aria_kernel.judge_fanout import _arbiter_admission
+
+        self._split()
+        [uncertainty] = generate_ai_consensus(tool_id=TOOL, base_dir=self.tools)["uncertainties"]
+        create_agent_invocation_request(
+            target_agent=CONSENSUS_ARBITER_AGENT, role=CONSENSUS_ARBITRATION_ROLE,
+            suggested_prompt="pre-F0.7 arbiter", must_satisfy=[{"id": "consensus", "description": "x"}],
+            allowed_scope=["**"], finding_id="F-1", tool_id=TOOL, run_id="run-1", judgment_group_id=GROUP,
+            base_dir=self.tools, admission=_arbiter_admission(self.tools, None))
+        legacy = record_human_required(
+            request_id=uncertainty["escalation_id"], severity="HIGH", reason="pre-F0.7 consensus escalation",
+            context={"kind": "consensus_escalation", "uncertainty_reason": "judge_disagreement",
+                     "tool_id": TOOL, "run_id": "run-1", "finding_id": "F-1", "judgment_group_id": GROUP},
+            base_dir=self.tools)
+
+        sweep_consensus_uncertainties_for_human_required(base_dir=self.tools)
+        dispatch_arbiter_for_split_verdicts(tool_id=TOOL, base_dir=self.tools)
+        panel = sweep_human_required_adjudications(base_dir=self.tools)
+
+        self.assertEqual(panel["opened"], [])
+        self.assertEqual(len([row for row in _arbiters(self.tools) if row.get("arbiter_inputs")]), 1)
+        record = json.loads((self.tools / "human-required" / f"{legacy['request_id']}.json")
+                            .read_text(encoding="utf-8"))
+        self.assertEqual((record["status"], record["resolved_by"]), ("resolved", RESOLVED_BY_KERNEL))
+        self.assertEqual(self._human_required(), [])
+
+
 class ArbiterBoundToItsInputsTest(_Case):
     def test_a_rebuttal_revote_after_the_mint_makes_the_answer_stale(self) -> None:
         self._split()

@@ -5,7 +5,8 @@ operator's adjudication into the ground-truth feedback ledger, where Plan 024 §
 judge calibration scores the judges that disagreed.
 
 F0.7 (ARIA-MEDIUM-730) — no new consensus escalation is minted; these pin the
-resolution of the records minted before it, which stay open in live stores.
+operator's resolution of a record minted before it, until the consensus sweep
+routes the record to the arbiter by kernel disposition.
 """
 from __future__ import annotations
 

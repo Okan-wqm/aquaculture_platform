@@ -528,7 +528,7 @@ def resolve_human_required(
         if verdict not in FEEDBACK_VERDICTS:
             raise GovernanceError(f"verdict must be one of {FEEDBACK_VERDICTS}")
         ctx = record.get("context") or {}
-        if ctx.get("kind") == "consensus_escalation" and all(
+        if ctx.get("kind") == CONSENSUS_ESCALATION_KIND and all(
             ctx.get(k) for k in ("tool_id", "run_id", "finding_id")
         ):
             record_operator_feedback(
@@ -646,7 +646,11 @@ def write_kernel_disposition(
     base_dir: str | Path | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any] | None:
-    """Write what the kernel decided, by rule, about one expired request; None when already resolved.
+    """Write what the kernel decided, by rule, about one record; None when already resolved.
+
+    Callers: the anchor-stale disposition of an expired request (below) and
+    F0.7's routing of a pre-F0.7 ``consensus_escalation`` record to the
+    arbiter (``sweep_consensus_uncertainties_for_human_required``).
 
     ARIA-HIGH-360. A request that expired unclaimed is a fact about the
     queue, and the kernel decides what happens to it
@@ -792,6 +796,13 @@ def sweep_lease_lifecycle_for_human_required(
     return {"created": created, "skipped": skipped, "anchor_stale": anchor_stale}
 
 
+# The context kind Plan 023's consensus sweep minted until F0.7. No producer
+# writes it any more; the sweep below routes every open record of it to the
+# arbiter lane by kernel disposition, so the group has one owner.
+CONSENSUS_ESCALATION_KIND: str = "consensus_escalation"
+CONSENSUS_ROUTED_TO_ARBITER: str = "routed_to_arbiter"
+
+
 def sweep_consensus_uncertainties_for_human_required(
     *,
     base_dir: str | Path | None = None,
@@ -811,6 +822,12 @@ def sweep_consensus_uncertainties_for_human_required(
     ceiling — the two numbers F0.7's exit criterion reads. A tool over the
     ceiling is listed under ``UNVERIFIABLE_RATE_CEILING_BREACH`` and disclosed
     by that name on the governance ledger (once per distinct count).
+
+    A ``consensus_escalation`` record minted before F0.7 and still open asks
+    a question the arbiter lane now owns for the same group; left open, a
+    panel (whose seats include the arbiter) and the arbiter would both
+    answer it. Each one is resolved by kernel disposition
+    (``CONSENSUS_ROUTED_TO_ARBITER``, no verdict) and listed under ``routed_records``.
     """
     from .feedback_store import (
         ARBITRATED_UNCERTAINTY_REASONS,
@@ -834,6 +851,26 @@ def sweep_consensus_uncertainties_for_human_required(
         group_lane[key] = max(group_lane.get(key, 0), lane)
     routed = {name: sum(1 for lane in group_lane.values() if lanes[lane] == name) for name in lanes}
     tools = {key[0] for key in group_lane}
+    routed_records: list[str] = []
+    for record in list_human_required(base_dir=root).rows:
+        context = record.get("context") or {}
+        if context.get("kind") != CONSENSUS_ESCALATION_KIND:
+            continue
+        written = write_kernel_disposition(item={
+            "request_id": record["request_id"], "severity": record.get("severity"),
+            "reason": record.get("reason"), "context": context, "status": "resolved",
+            "disposition": {
+                "disposition": CONSENSUS_ROUTED_TO_ARBITER,
+                "reason": "F0.7: consensus uncertainty is the arbiter's "
+                          "(judge_fanout.dispatch_arbiter_for_split_verdicts), never a panel's or a human's",
+                "judgment_group_id": context.get("judgment_group_id"),
+            },
+        }, base_dir=root)
+        if written is not None:
+            routed_records.append(str(record["request_id"]))
+    if routed_records:
+        append_tools_governance(root, "consensus_escalation_routed_to_arbiter",
+                                {"count": len(routed_records), "request_ids": routed_records})
     rates = [unverifiable_rate(tool_id=tool, base_dir=root) for tool in sorted(tools) if tool]
     breaches = [rate for rate in rates if rate["over_ceiling"]]
     for breach in breaches:
@@ -842,6 +879,7 @@ def sweep_consensus_uncertainties_for_human_required(
     return {
         "created": [],
         "routed": routed,
+        "routed_records": routed_records,
         "unverifiable_rate": rates,
         UNVERIFIABLE_RATE_CEILING_BREACH: breaches,
     }

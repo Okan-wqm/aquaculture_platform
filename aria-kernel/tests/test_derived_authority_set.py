@@ -91,6 +91,11 @@ READS_LIVE_CHECKOUT = (
     "which the derived authority set must cover"
 )
 
+# The seam this file proves by a real process (tests/invariants/seam_registry.py):
+# invariants_only_grow runs the suite's collector inside the validation sandbox
+# on real base/head git trees.
+REAL_PROCESS_SEAMS = ("aria-kernel/aria_kernel/self_improvement.py",)
+
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _KERNEL = "aria-kernel/aria_kernel/"
 

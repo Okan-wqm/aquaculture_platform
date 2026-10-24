@@ -9,8 +9,10 @@ appellate-final.json), one class per property:
   ``path[:line]`` whose path meets the same rule; a ``resolved``/``withdrawn``
   answer clears only on a file of the reviewed commit; the freshness reader
   reads every recorded value in its resolved form, and a recorded value the
-  law refuses (a legacy row) makes the verdict unverifiable; the glob owner
-  never leaks ``re.error``;
+  law refuses (a legacy row) refuses the verdict (``plan_verdict_path_refused``,
+  the ledger-fact token PV-R4 R20 put in place of the checkout-state
+  ``plan_verdict_unverifiable`` R16 first prescribed); the glob owner never
+  leaks ``re.error``;
 * R17 the operator's ``plan advance-rounds`` lane renders its cross-review
   prompt through the one renderer the drainer uses, so its reviewer is shown
   the plans and the prior risks it must answer;
@@ -182,10 +184,10 @@ class R16TheBodyAndRiskRecordLawIsTheSameGrammar(_PlanFixture):
         self.assertEqual(reading.refused, ())
 
 
-class R16ALegacyValueTheLawRefusesIsUnverifiable(_PlanFixture):
+class R16ALegacyValueTheLawRefusesRefusesTheVerdict(_PlanFixture):
     LEGACY = f"{RISK_EVIDENCE_FILE}:1-3"
 
-    def test_a_folded_legacy_risk_ref_makes_the_verdict_unverifiable(self) -> None:
+    def test_a_folded_legacy_risk_ref_refuses_the_verdict(self) -> None:
         self.start()
         self.challenger("challenger-rev-0")
         # The row as the pre-R16 law recorded it: that law admitted any relative string.
@@ -195,8 +197,8 @@ class R16ALegacyValueTheLawRefusesIsUnverifiable(_PlanFixture):
         self.assertEqual(_terminal(self.evaluate(1)), "CONVERGED")
         state = fold_plan_state(plan_id="plan-1", base_dir=self.tools)
         self.assertEqual(plan_verdict_paths(state).refused, (self.LEGACY,))
-        self.assertEqual(plan_verdict_staleness(state, base_dir=self.tools), f"plan_verdict_unverifiable:{self.LEGACY}")
-        with self.assertRaisesRegex(GovernanceError, re.escape(f"plan_verdict_unverifiable:{self.LEGACY}")):
+        self.assertEqual(plan_verdict_staleness(state, base_dir=self.tools), f"plan_verdict_path_refused:{self.LEGACY}")
+        with self.assertRaisesRegex(GovernanceError, re.escape(f"plan_verdict_path_refused:{self.LEGACY}")):
             self.request_implementation_of_plan()
 
 

@@ -202,9 +202,14 @@ PRIOR_REVIEW_RISKS_OPEN_REASON = "prior_review_risks_open"
 # names (`plan_verdict_stale:<path>`), the verdict predates the binding and
 # names no reviewed tree (`plan_verdict_unbound`), or its commit cannot be
 # compared with HEAD (`plan_verdict_unverifiable:<sha>`).
+# PV-R4 R20 — a recorded value the record law refuses is a fact of the
+# ledger, the same on every offer (`plan_verdict_path_refused:<value>`); it is
+# never the checkout-state token, whose remedy is to wait for a checkout that
+# can answer.
 PLAN_VERDICT_STALE = "plan_verdict_stale"
 PLAN_VERDICT_UNBOUND = "plan_verdict_unbound"
 PLAN_VERDICT_UNVERIFIABLE = "plan_verdict_unverifiable"
+PLAN_VERDICT_PATH_REFUSED = "plan_verdict_path_refused"
 # PV R16 — the record law's refusal of a path text a plan, a risk or a prior-risk
 # answer names (`_plan_path_reading`, `_plan_ref_reading`); and of a cleared
 # answer whose cited path names no file of the commit its reviewer reviewed.
@@ -1649,8 +1654,9 @@ class PlanVerdictPaths:
 
     ``paths``: the repository paths and globs, in their resolved form, sorted
     and unique. ``refused``: the recorded values the law refuses, in record
-    order — only a row recorded under an earlier law can be one, and it makes
-    the verdict unverifiable rather than silently dropping out of the set.
+    order — only a row recorded under an earlier law can be one, and it
+    refuses the verdict (``plan_verdict_path_refused``) rather than silently
+    dropping out of the set.
     """
 
     paths: tuple[str, ...]
@@ -1707,9 +1713,13 @@ def plan_verdict_staleness(state: dict[str, Any], *, base_dir: str | Path | None
     judged by :func:`plan_path_covers`) makes it stale:
     ``plan_verdict_stale:<changed path>``. A verdict recorded
     before the binding existed names no reviewed tree at all
-    (``plan_verdict_unbound``). A HEAD git cannot read, or a reviewed commit
-    the checkout cannot compare with HEAD, proves nothing about today's bytes
-    (``plan_verdict_unverifiable:<why>``). All three are refused the same way.
+    (``plan_verdict_unbound``). A recorded value the record law refuses is a
+    fact of the ledger: ``plan_verdict_path_refused:<value>`` (PV-R4 R20). A
+    HEAD git cannot read, or a reviewed commit the checkout cannot compare
+    with HEAD, proves nothing about today's bytes
+    (``plan_verdict_unverifiable:<why>``). The request door refuses all four
+    the same way; delivery parks every one but the last, a fact of the
+    checkout it withholds (``converged_delivery._withhold_stale_verdict``).
 
     Every git read goes through the kernel's one hermetic owner
     (``workspace_view``): no inherited ``GIT_DIR`` answers for another
@@ -1731,8 +1741,9 @@ def plan_verdict_staleness(state: dict[str, Any], *, base_dir: str | Path | None
     judged = plan_verdict_paths(state)
     if judged.refused:
         # A recorded value the record law refuses names no file the gate can
-        # watch; reading it as one would drop what it cited (PV R16).
-        return f"{PLAN_VERDICT_UNVERIFIABLE}:{judged.refused[0][:80]}"
+        # watch; reading it as one would drop what it cited (PV R16). It is
+        # the same on every offer, so it is the ledger's token (PV-R4 R20).
+        return f"{PLAN_VERDICT_PATH_REFUSED}:{judged.refused[0][:80]}"
     plan_paths = judged.paths
     if not plan_paths:
         # A plan that names no path judged none, so no commit can stale it.

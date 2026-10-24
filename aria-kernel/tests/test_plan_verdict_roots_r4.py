@@ -5,7 +5,11 @@ one class per property:
 * R19 the glob owner reads how many alternatives a brace pattern expands to
   before it builds one, and refuses a pattern over its named bound
   (``repo_glob_too_many_alternatives``): a 24-group reviewer ref once cost
-  minutes and hundreds of MB on every record and every freshness read.
+  minutes and hundreds of MB on every record and every freshness read;
+* R20 a recorded value the record law refuses is a fact of the ledger, so the
+  freshness owner names it by its own token (``plan_verdict_path_refused``)
+  and delivery parks it on the first offer; only the checkout's own failure
+  to answer is ``plan_verdict_unverifiable``, withheld uncounted.
 
 Source: SPEC.md (PV P1, P3); findings ARIA-HIGH-779 and ARIA-LOW-785.
 """
@@ -63,6 +67,42 @@ WITHHELD = "plan_verdict_stale"
 BRACES_24 = "{a,b}" * 24
 
 
+class _DeliveryReading(_PlanFixture):
+    """What one offer of the delivery remedy left behind."""
+
+    def state(self) -> dict:
+        return fold_plan_state(plan_id="plan-1", base_dir=self.tools)
+
+    def offer(self) -> str | None:
+        """One offer through the delivery remedy the door and the sweep ask."""
+        return converged_delivery._withhold_stale_verdict("plan-1", state=self.state(), base_dir=self.tools)
+
+    def governance(self) -> list[dict]:
+        path = self.tools / "governance.jsonl"
+        return [row["details"] for row in load_jsonl(path) if row.get("kind") == KIND] if path.exists() else []
+
+    def operator_items(self) -> list[str]:
+        return sorted(row["request_id"] for row in list_human_required(base_dir=self.tools).rows)
+
+    def forced_reasons(self) -> list[list[str]]:
+        return [event["payload"]["reason_codes"] for event in self.state()["events"]
+                if event["event_type"] == "plan_evaluated"
+                and event["payload"].get("terminal_state") == "HUMAN_REQUIRED"]
+
+    def assert_parked(self, refusal: str) -> None:
+        self.assertEqual(self.offer(), WITHHELD)
+        self.assertEqual(self.state()["state"], "HUMAN_REQUIRED")
+        self.assertEqual(self.forced_reasons(), [[PATH_REFUSED]])
+        self.assertEqual([row["refusal"] for row in self.governance()], [refusal])
+        self.assertEqual(self.operator_items(), [parked_plan_request_id("plan-1")])
+
+    def assert_withheld_uncounted(self) -> None:
+        for _ in range(2):
+            self.assertEqual(self.offer(), converged_delivery.WITHHELD_VERDICT_UNVERIFIABLE)
+        self.assertEqual(self.state()["state"], "CONVERGED")
+        self.assertEqual((self.governance(), self.operator_items(), self.forced_reasons()), ([], [], []))
+
+
 class R19TheGlobOwnerBoundsTheAlternativesBeforeBuildingAny(_PlanFixture):
     """SEC-R4-B1: 12/16/18/20 groups cost 3.6/12/41/174 s and 3/47/194/792 MB."""
 
@@ -106,6 +146,43 @@ class R19TheGlobOwnerBoundsTheAlternativesBeforeBuildingAny(_PlanFixture):
         # Every member the running kernel derives is admitted by the bound.
         for member in kernel_authority_set():
             require_repo_glob(member)
+
+
+class R20ARefusedRecordedValueIsTheLedgersToken(_DeliveryReading):
+    """SSOT-R4-001: the refused legacy ref was withheld as checkout state on every offer."""
+
+    LEGACY = f"{RISK_EVIDENCE_FILE}:1-3"
+
+    def _legacy_converged(self) -> None:
+        self.start()
+        self.challenger("challenger-rev-0")
+        # The row as the pre-R16 law recorded it: that law admitted any relative string.
+        admitted = plan_convergence.PlanPathReading(path=None, refusal=None)
+        with mock.patch.object(plan_convergence, "_plan_ref_reading", return_value=admitted):
+            self.cross_review([_risk("CR-001", "nice_to_have", evidence_refs=[self.LEGACY])], verdict="agreed")
+        self.assertEqual(_terminal(self.evaluate(1)), "CONVERGED")
+
+    def test_the_first_offer_parks_it_with_one_row_and_one_operator_item(self) -> None:
+        self._legacy_converged()
+        self.assertEqual(plan_verdict_staleness(self.state(), base_dir=self.tools), f"{PATH_REFUSED}:{self.LEGACY}")
+        with self.assertRaisesRegex(GovernanceError, re.escape(f"{PATH_REFUSED}:{self.LEGACY}")):
+            self.request_implementation_of_plan()
+        self.assert_parked(f"{PATH_REFUSED}:{self.LEGACY}")
+        # Parked: a later offer finds no CONVERGED plan and writes nothing more.
+        self.assertEqual(self.offer(), converged_delivery.WITHHELD_NOT_CONVERGED)
+        self.assertEqual(len(self.governance()), 1)
+
+    def test_the_token_is_a_kernel_forced_code(self) -> None:
+        self.assertEqual(plan_convergence.PLAN_VERDICT_PATH_REFUSED, PATH_REFUSED)
+        self.assertIn(PATH_REFUSED, KERNEL_FORCED_CODES)
+
+    def test_an_unreadable_head_is_still_withheld_uncounted(self) -> None:
+        self.converged_at_a()
+        refused = WorkspaceViewRefused("workspace_head_unreadable:git_exit_128")
+        with mock.patch.object(plan_convergence, "workspace_head_sha", side_effect=refused):
+            self.assertEqual(plan_verdict_staleness(self.state(), base_dir=self.tools),
+                             f"{UNVERIFIABLE}:workspace_head_unreadable:git_exit_128")
+            self.assert_withheld_uncounted()
 
 
 if __name__ == "__main__":

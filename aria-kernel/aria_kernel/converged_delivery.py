@@ -140,12 +140,16 @@ BODY_UNPROVABLE_REASON: str = "implementation_envelope_body_unprovable"
 BODY_UNPROVABLE_KIND: str = "converged_delivery_body_unprovable"
 # PV P3 — a CONVERGED plan whose verdict no longer describes the repository
 # (``plan_convergence.plan_verdict_staleness``): a commit after the reviewed
-# one changed a path the plan names, or the verdict predates the binding.
-# Both are facts of the ledger and the history, the same on every offer, and
-# the mint refuses both, so the plan is moved to HUMAN_REQUIRED before
-# staging (reason: the refusal's own token). A reviewed commit this checkout
-# cannot compare with HEAD is the checkout's state, not the plan's: that offer
-# is withheld uncounted and the plan stays CONVERGED.
+# one changed a path the plan names (``plan_verdict_stale``), the verdict
+# predates the binding (``plan_verdict_unbound``), or a recorded value the
+# record law refuses (``plan_verdict_path_refused``, PV-R4 R20). All are facts
+# of the ledger and the history, the same on every offer, and the mint refuses
+# each, so the plan is moved to HUMAN_REQUIRED before staging (reason: the
+# refusal's own token). Only ``plan_verdict_unverifiable`` is the checkout's
+# state, not the plan's — a HEAD git cannot read, a reviewed commit this
+# checkout does not hold or cannot compare with HEAD: that offer is withheld
+# uncounted and the plan stays CONVERGED. The owner decides the cause by its
+# token; this module reads the token only.
 WITHHELD_STALE_VERDICT: str = "plan_verdict_stale"
 STALE_VERDICT_KIND: str = "converged_delivery_plan_verdict_stale"
 WITHHELD_VERDICT_UNVERIFIABLE: str = "plan_verdict_unverifiable"
@@ -401,9 +405,10 @@ def _withhold_stale_verdict(plan_id: str, *, state: dict[str, Any], base_dir: Pa
     """Why ``plan_id`` is not offered when its CONVERGED verdict is stale, else None (PV P3).
 
     Asked through the mint's own gate (``plan_convergence.plan_verdict_
-    staleness``), so the door and the mint cannot disagree. A stale or
-    unbound verdict is parked (:func:`_park_unmintable`); an unverifiable one
-    is withheld and offered again from a checkout that holds the commit.
+    staleness``), so the door and the mint cannot disagree. A stale, unbound
+    or path-refused verdict is parked (:func:`_park_unmintable`); an
+    unverifiable one is withheld and offered again from a checkout that can
+    answer for the commit.
     """
     from .plan_convergence import PLAN_VERDICT_UNVERIFIABLE, plan_verdict_staleness
 

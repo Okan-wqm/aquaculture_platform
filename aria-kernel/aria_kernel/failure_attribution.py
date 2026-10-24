@@ -98,6 +98,8 @@ KERNEL_FORCED_CODES: frozenset[str] = frozenset({
     "implementation_envelope_unbound_plan", "implementation_envelope_body_unprovable",
     # PV P3 — converged_delivery parks a verdict the mint refuses as stale.
     "plan_verdict_stale", "plan_verdict_unbound",
+    # PV-R4 R20 — and one whose recorded path the record law refuses.
+    "plan_verdict_path_refused",
 })
 #: Result rejection codes that are the kernel's own judgement of its own
 #: artefacts, never the agent's work.

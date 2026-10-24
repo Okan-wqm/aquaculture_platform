@@ -54,7 +54,9 @@ services:
       - '--storage.tsdb.path=/prometheus'
       - '--storage.tsdb.retention.time=15d'
       - '--storage.tsdb.retention.size=4GB'
-      - '--web.enable-lifecycle'
+      # RW-1 — the loopback port below is ARIA's read-only metrics source: no
+      # --web.enable-lifecycle (POST /-/quit, /-/reload) and no admin API on
+      # it. Reload with `docker kill --signal=HUP aqua-prometheus` (root).
     volumes:
       - ./infrastructure/monitoring/droplet/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./infrastructure/monitoring/droplet/rules:/etc/prometheus/rules:ro

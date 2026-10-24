@@ -29,6 +29,13 @@ class WatchdogSweepJsonSerializable(unittest.TestCase):
         tools.mkdir()
         (tools / "governance.jsonl").write_text(governance_lines, encoding="utf-8")
         (tools / "autonomy_state.jsonl").write_text("", encoding="utf-8")
+        # RW-1 corrective R7: no runtime source, so the sweep never reads
+        # whatever listens on the tracked default (the host's loopback
+        # Prometheus).
+        (tmp / "aria-config").mkdir()
+        (tmp / "aria-config" / "genesis_policy.json").write_text(
+            json.dumps({"watchdog_pull": {"observability_base_url": None}}), encoding="utf-8",
+        )
         # `since` is pinned: the sweep's default window is the last 24 hours,
         # so a fixture timestamp would otherwise age out of the test.
         return run_watchdog_sweep(

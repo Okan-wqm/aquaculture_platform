@@ -110,6 +110,23 @@ def select_expert_reviewers(
     return experts
 
 
+# ARIA-LOW-858 — the pre-merge checks an implementation must pass before its
+# review panel is requested. The four implementation checks bind the head the
+# panel judges. readonly_paths_untouched_at_merge is here because the panel is
+# chosen from the routing table in the PR-head workspace: only when no changed
+# path is read-only (the routing inputs are members of the derived authority
+# set, ADR-049) is that table the base's, so a head cannot pick its own
+# reviewers. Every name is a GATE_PRE_MERGE check, the gate whose report this
+# function receives (merge_authority._evaluate_pre_merge_perimeter); a
+# pre-PR-open check such as forbidden_scope_normalized never appears in that
+# report and would refuse every request.
+REVIEW_PANEL_REQUIRED_CHECKS = frozenset({
+    "branch_tip_lock_and_recheck", "content_hash_recheck",
+    "per_file_mutual_exclusion", "plan_coverage_witness_verified",
+    "readonly_paths_untouched_at_merge",
+})
+
+
 def request_implementation_expert_reviews(
     context: _HardFailContext,
     report: _HardFailReport,
@@ -131,10 +148,6 @@ def request_implementation_expert_reviews(
     from .request_admission import admit_request
     import json
 
-    required = {
-        "branch_tip_lock_and_recheck", "content_hash_recheck",
-        "per_file_mutual_exclusion", "plan_coverage_witness_verified",
-    }
     evidence = context.pre_merge_evidence
     if (
         not _native_implementation_is_bound(context)
@@ -144,7 +157,7 @@ def request_implementation_expert_reviews(
     ):
         return ()
     passed = {result.name for result in report.results if result.passed}
-    if not required.issubset(passed):
+    if not REVIEW_PANEL_REQUIRED_CHECKS.issubset(passed):
         return ()
 
     binding = {
@@ -165,9 +178,10 @@ def request_implementation_expert_reviews(
     }
     paths = list(context.affected_paths)
     request_ids = []
-    # The reviewers are chosen by the routing table of the checkout under
-    # review; the table is an authority input (derived set + CODEOWNERS), so
-    # the change being reviewed cannot have edited it.
+    # The reviewers are chosen by the routing table of the PR-head checkout.
+    # The table is a routing input, a member of the derived authority set
+    # (ADR-049), and readonly_paths_untouched_at_merge holds above, so this
+    # head changed no routing input and the table read here is the base's.
     routing = load_routing_table(context.workspace_root)
     for expert in select_expert_reviewers(affected_files=paths, routing=routing):
         request = create_agent_invocation_request(
@@ -364,6 +378,7 @@ def enforce_expert_consensus_gate(
 
 __all__ = [
     "DEFAULT_MIN_REVIEWERS",
+    "REVIEW_PANEL_REQUIRED_CHECKS",
     "select_expert_reviewers",
     "evaluate_expert_consensus",
     "enforce_expert_consensus_gate",

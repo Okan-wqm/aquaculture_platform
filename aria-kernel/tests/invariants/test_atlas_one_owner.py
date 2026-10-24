@@ -41,6 +41,8 @@ SINGLE_OWNER = {
     "verbatim_quote_law": f"{_KERNEL}evidence_trust.py",
     "judge_response_contract": f"{_KERNEL}judgment_bridge.py",
     "dispatch_failure_classification": "tools/aria-poc/dispatch_failure.py",
+    # The one Python-source parse the import graph and the atlas share (PLAN-v2 F0.9: no fourth engine).
+    "python_source_facts": f"{_KERNEL}source_facts.py",
 }
 
 # One planted second owner per family: a second writer of the family's ledger
@@ -61,6 +63,10 @@ _PLANTED = {
     "verbatim_quote_law": ("def quote_matches_at(quote, *, excerpt_content):\n    return quote in excerpt_content\n",),
     "judge_response_contract": ("def validate_judge_response(response):\n    return response\n",),
     "dispatch_failure_classification": ("def classify_dispatch_failure(result):\n    return 'unknown'\n",),
+    "python_source_facts": (
+        "def module_name(path):\n    return path.removesuffix('.py').replace('/', '.')\n",
+        "def chain_runs(operands):\n    return []\n",
+    ),
 }
 
 

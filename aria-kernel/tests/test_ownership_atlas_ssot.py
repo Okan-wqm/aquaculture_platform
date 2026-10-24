@@ -5,7 +5,7 @@ dormant, at d42f5488b) was written by hand from four evidence-first readers and
 one skeptic. A hand atlas is stale at the first merge after it: nothing
 recomputes "who owns this concept, who writes its ledger, who calls it, is it
 reachable". PLAN-v2 F0.9b moves it into a deterministic generator that extends
-the existing graph tooling (twin / aria-import-graph; no fourth engine) and
+the existing graph tooling (aria-import-graph's parse; no fourth engine) and
 commits its render under docs/aria/generated/, the JUDGE-DIGEST pattern.
 
 THE API THIS PINS (new in F0.9b; at the branch base the module does not exist,
@@ -26,6 +26,7 @@ The registry check reads docs/reviews/_registry/, outside the kernel surface.
 """
 from __future__ import annotations
 
+import ast
 import importlib
 import importlib.util
 import json
@@ -40,6 +41,14 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 GENERATOR = "aria_kernel.ownership_atlas"
 REGISTRY = REPO_ROOT / "docs" / "reviews" / "_registry" / "findings.jsonl"
 KERNEL = "aria-kernel/aria_kernel/"
+FACTS_OWNER = "aria_kernel.source_facts"
+IMPORT_GRAPH = "scripts/ci/aria-import-graph.py"
+# What each consumer of the parse uses from its owner, by the consumer's module name.
+SHARED_PRIMITIVES = {
+    "aria_import_graph": ("SOURCE_ROOTS", "KERNEL_ROOT", "KERNEL_PACKAGE", "module_name", "iter_modules",
+                          "path_parts", "extract", "deepest_module"),
+    GENERATOR: ("module_name", "iter_modules", "path_parts", "extract", "deepest_module"),
+}
 
 # The copy families PLAN-v2 F0.9b names with the package that folds each one;
 # F0.9b registers them, it does not fold them.
@@ -95,15 +104,39 @@ class TheCommittedAtlasIsTheRender(AtlasCase):
         self.assertIn(gen.REGEN_COMMAND, footer)
 
 
-class TheGeneratorExtendsTheExistingGraphEngine(unittest.TestCase):
-    def test_the_generator_does_not_parse_python_itself(self) -> None:
-        # PLAN-v2 F0.9: aria-import-graph, twin and impact_graph stay ARIA's
-        # graph engines; the atlas reads them and is not a fourth parser.
-        source = Path(generator().__file__).read_text(encoding="utf-8")
-        self.assertNotIn("import ast", source)
-        self.assertNotIn("from ast import", source)
-        self.assertTrue("twin" in source or "aria-import-graph" in source,
-                        "the generator reads neither twin nor aria-import-graph")
+class OneParserFeedsTheImportGraphAndTheAtlas(unittest.TestCase):
+    """PLAN-v2 F0.9: aria-import-graph, twin and impact_graph stay ARIA's graph
+    engines and no fourth is added. The atlas's symbol facts come from the same
+    parse as the import graph's edges: ``aria_kernel.source_facts`` owns the
+    parse and its primitives, and both consumers hold its function objects."""
+
+    @staticmethod
+    def owner() -> ModuleType:
+        if importlib.util.find_spec(FACTS_OWNER) is None:
+            raise AssertionError(f"F0.9b: {FACTS_OWNER} (the one Python-source parse) does not exist")
+        return importlib.import_module(FACTS_OWNER)
+
+    @staticmethod
+    def import_graph() -> ModuleType:
+        spec = importlib.util.spec_from_file_location("aria_import_graph", REPO_ROOT / IMPORT_GRAPH)
+        assert spec is not None and spec.loader is not None, IMPORT_GRAPH
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_both_consumers_hold_the_owners_primitives(self) -> None:
+        owner = self.owner()
+        for consumer in (self.import_graph(), generator()):
+            for name in SHARED_PRIMITIVES[consumer.__name__]:
+                with self.subTest(consumer=consumer.__name__, name=name):
+                    self.assertIs(getattr(consumer, name, None), getattr(owner, name),
+                                  f"{consumer.__name__}.{name} is a copy, not {FACTS_OWNER}.{name}")
+
+    def test_neither_consumer_parses_python_itself(self) -> None:
+        for consumer in (self.import_graph(), generator()):
+            with self.subTest(consumer=consumer.__name__):
+                self.assertFalse(any(value is ast for value in vars(consumer).values()),
+                                 f"{consumer.__name__} binds the ast module: a second parser")
 
 
 class TheAtlasFindsTheKnownFacts(AtlasCase):

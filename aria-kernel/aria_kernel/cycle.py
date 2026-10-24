@@ -2248,26 +2248,30 @@ def _phase_outcome_calibration(context: PhaseContext) -> dict[str, Any]:
     ``record_and_continue``: an outcome lane that crashed produced no row,
     which must not fail a night whose judging succeeded.
     """
-    from .convergence_drainer import _resolve_workspace_head_sha
     from .mutation_canary import mint_canary_judgments
     from .outcome_truth import mint_outcome_truth
     from .stability_reask import (
         collect_stability_flips,
         mint_stability_reasks_for_all_tools,
     )
+    from .workspace_view import workspace_head_sha
 
+    # PV R12 — the kernel's one HEAD owner, read once and before any write: a
+    # checkout it refuses stops the phase here, before outcome truth lands a
+    # row, and both mints below anchor at the same commit.
+    target_sha = workspace_head_sha(context.workspace_root)
     outcome = mint_outcome_truth(
         repo_root=context.workspace_root, base_dir=context.base_dir,
     )
     stability = mint_stability_reasks_for_all_tools(
         base_dir=context.base_dir,
         cycle_id=context.cycle_id,
-        target_sha=_resolve_workspace_head_sha(context.workspace_root),
+        target_sha=target_sha,
     )
     flips = collect_stability_flips(base_dir=context.base_dir)
     canary = mint_canary_judgments(
         base_dir=context.base_dir, cycle_id=context.cycle_id,
-        target_sha=_resolve_workspace_head_sha(context.workspace_root),
+        target_sha=target_sha,
     )
     return {
         "status": "completed",

@@ -197,6 +197,16 @@ def _cited_code_hash(
     return cited_blobs_code_hash(Path(repo_root), _item_cited_refs(item), target_sha)
 
 
+def _rule_contract_hash(root: Path, item: dict[str, Any]) -> str:
+    """J2 — the version of the rule contract this item is routed under: the
+    cache lookup's key half and the routing row's stamp (one derivation)."""
+    from .rule_contract import resolve_rule_contract, rule_contract_digest
+
+    return rule_contract_digest(resolve_rule_contract(
+        tool_id=str(item.get("tool_id") or ""), rule=str(item.get("rule") or ""), base_dir=root,
+    ))
+
+
 def _tier0_verdict(
     item: dict[str, Any],
     repo_root: str | Path | None,
@@ -324,9 +334,14 @@ def route_judgment_sample(
     base_dir: str | Path | None,
     repo_root: str | Path | None,
     target_sha: str | None,
+    calibration_gate: str,
     policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Decide what the fan-out mints for this sample — the ONE router.
+
+    ``calibration_gate`` is the gate this cycle's consensus runs under
+    (``genesis_policy.effective_calibration_gate``): a cached verdict that
+    closed under another gate is a miss (J2).
 
     Returns a dispatch plan the phase walks:
 
@@ -459,6 +474,13 @@ def route_judgment_sample(
                 hold_reason = admission.refusal
                 break
     if hold_reason is None:
+        # J2 — the judge seats' contract identity at this call's target_sha,
+        # once per call: the cache key's judge half for every item below.
+        from .judgment_cache import judge_seats_code_hash
+
+        judges_hash_now = (
+            judge_seats_code_hash(repo_root, target_sha) if repo_root is not None and planned else None
+        )
         for item, tier, calibration in planned:
             # TIER-0 FIRST, FREE (the operator's funnel law, step 2): the
             # mechanical gate — slice A's tier0_gate, one law — runs before
@@ -488,12 +510,16 @@ def route_judgment_sample(
             # THE VERDICT CACHE (slice C-2): a settled verdict pinned to
             # byte-identical cited code is reused, never re-paid. A hit
             # mints nothing; unknown blob state is a miss (tri-state law).
+            # J2 — and only while the judge seats' contracts, the rule
+            # contract and the calibration gate are the ones it settled under.
             from .judgment_cache import cache_lookup
 
-            code_hash = _cited_code_hash(item, repo_root, target_sha)
             hit = cache_lookup(
                 root, finding_fingerprint=str(item.get("finding_fingerprint") or ""),
-                code_hash=code_hash,
+                code_hash=_cited_code_hash(item, repo_root, target_sha),
+                judges_hash=judges_hash_now,
+                rule_contract_hash=_rule_contract_hash(root, item),
+                calibration_gate=calibration_gate,
             )
             if hit is not None:
                 cache_hits.append({"item": item, "verdict": hit.get("verdict"),
@@ -635,6 +661,9 @@ def _append_routing_rows(
             # against outcome-truth rows first (crit2-06 selection bias).
             "tier1": shadow,
             "cited_refs": _item_cited_refs(item) if hold is None else None,
+            # J2 — the rule contract the seats are asked under; the verdict
+            # cache keys the settled verdict by it.
+            "rule_contract_hash": _rule_contract_hash(root, item) if hold is None else None,
             "cache_hit": True if hold == "cache_hit" else None,
             "target_sha": target_sha,
             "held": hold,

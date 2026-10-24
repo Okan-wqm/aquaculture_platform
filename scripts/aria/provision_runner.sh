@@ -221,17 +221,10 @@ else
   note "labels unverifiable here (gh missing/unauthenticated) — check Settings > Actions > Runners"
 fi
 
-section "Runner .env secret key PRESENCE (names only — values are never read or printed)"
+section "Runner .env retired keys ABSENT (names only — values are never read or printed)"
 env_file="${RUNNER_ROOT}/.env"
-for key in ARIA_OBSERVABILITY_API_KEY; do
-  if [ -f "$env_file" ] && grep -q "^${key}=" "$env_file" 2>/dev/null; then
-    ok "$key present in ${env_file}"
-  else
-    # No apply action on purpose: minting/copying secret values is an operator
-    # act (runbook step 3), and the service must be restarted after the edit.
-    bad "$key missing from ${env_file} (mint per runbook step 3, then restart ${SERVICE_NAME})"
-  fi
-done
+# No apply action below on purpose: editing the runner's secret file is an
+# operator act (runbook step 3), and the service must be restarted after it.
 # ARIA-CRITICAL-246 — the runner holds no user credential. ARIA_GH_TOKEN was
 # the operator's PAT: every step inherits the runner .env, so a write made with
 # it was authored as the operator, and an operator's act is what an
@@ -239,6 +232,17 @@ done
 for key in ARIA_GH_TOKEN; do
   if [ -f "$env_file" ] && grep -q "^${key}=" "$env_file" 2>/dev/null; then
     bad "$key still in ${env_file}: remove it, restart ${SERVICE_NAME}, and revoke the PAT (runbook: ARIA_GH_TOKEN)"
+  else
+    ok "$key absent from ${env_file}"
+  fi
+done
+# RW-1 — the runner holds no shared internal API key. ARIA_OBSERVABILITY_API_KEY
+# was a copy of the platform's INTERNAL_API_KEY, sent to whatever host the
+# watchdog policy named. The runtime watchdog now reads the droplet
+# Prometheus's read-only API on 127.0.0.1, which needs no credential.
+for key in ARIA_OBSERVABILITY_API_KEY; do
+  if [ -f "$env_file" ] && grep -q "^${key}=" "$env_file" 2>/dev/null; then
+    bad "$key still in ${env_file}: remove it and restart ${SERVICE_NAME} (runbook: ARIA_OBSERVABILITY_API_KEY)"
   else
     ok "$key absent from ${env_file}"
   fi

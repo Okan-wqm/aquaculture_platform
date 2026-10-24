@@ -93,6 +93,51 @@ VALIDATION_RUN_SCHEMA_VERSION = 2
 # an infrastructure stall read as a code defect.
 VALIDATION_RUN_STATUSES: tuple[str, ...] = ("ok", "failed", "timeout")
 
+# D5 / PLAN-v2 F3.2 — WHY a run that is not ``ok`` is red, closed. A red run
+# proves a claim only when the test body ran and its check failed
+# (``assertion``); a test that never loaded (``import``, ``collection``), a
+# run the runner killed (``timeout``) or a test that needed a service the
+# sandbox does not have (``infra_required``) is red for a reason that says
+# nothing about the code under test. ``None`` on a failed row is "no class
+# recognised" — never guessed into one of these.
+VALIDATION_FAILURE_REASONS: tuple[str, ...] = ("assertion", "collection", "import", "timeout", "infra_required")
+
+# The output lines each class is read from, checked in this order: a run in
+# which any test module failed to load is not an assertion run whatever else
+# it printed, and a refused connection outranks the assertion it caused.
+# Anchored at a line start (leading whitespace allowed) so the log's own
+# ``command:``/``argv:`` header never matches. Python's unittest and the
+# jest/cargo runners ``validation.parse_allowed_command`` admits.
+_FAILURE_REASON_MARKERS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("import", re.compile(
+        r"^\s*(?:ModuleNotFoundError|ImportError): (?!Failed to import test module)|^\s*Cannot find module ", re.M)),
+    ("collection", re.compile(
+        r"^\s*(?:SyntaxError|IndentationError|TabError):|^\s*ImportError: Failed to import test module:"
+        r"|^\s*● Test suite failed to run|^error: could not compile", re.M)),
+    ("infra_required", re.compile(
+        r"^\s*(?:ConnectionRefusedError|socket\.gaierror)\b|\bECONNREFUSED\b|\bEAI_AGAIN\b"
+        r"|Temporary failure in name resolution", re.M)),
+    ("assertion", re.compile(
+        r"^\s*AssertionError\b|^FAIL: |^\s*expect\(received\)|^\s*thread '[^']*' panicked at", re.M)),
+)
+
+
+def derive_validation_failure_reason(*, status: str, output: str) -> str | None:
+    """The ONE failure-reason rule for the ``validation_runs`` surface.
+
+    Stamped by ``record_validation_run`` from the hash-bound log it is
+    recording, the way ``status`` is derived from the exit code: a writer
+    cannot claim a class its log does not show.
+    """
+    if status == "ok":
+        return None
+    if status == "timeout":
+        return "timeout"
+    for reason, marker in _FAILURE_REASON_MARKERS:
+        if marker.search(output):
+            return reason
+    return None
+
 
 
 def derive_validation_run_status(
@@ -224,7 +269,8 @@ def record_validation_run(
 
     ``status`` is NOT a parameter: it is derived from
     ``exit_code``/``timed_out`` so the write side cannot disagree with
-    the numbers it is stamping.
+    the numbers it is stamping. ``failure_reason`` (D5) is derived the same
+    way, from the log being bound (``derive_validation_failure_reason``).
 
     ``spawn_environment`` (ARIA-MEDIUM-066) is the names-only report of the
     environment the runner BUILT for the child —
@@ -305,6 +351,7 @@ def record_validation_run(
     binding = _validated_input_binding(input_binding) if input_binding is not None else None
     environment = _validated_spawn_environment(spawn_environment) if spawn_environment is not None else None
     log_hash = _hash_log_file(log)
+    status = derive_validation_run_status(exit_code=exit_code, timed_out=timed_out)
     row = {
         "$schema": VALIDATION_RUN_SCHEMA,
         "schema_version": VALIDATION_RUN_SCHEMA_VERSION,
@@ -313,8 +360,9 @@ def record_validation_run(
         "cmd": cmd,
         "exit_code": exit_code,
         "timed_out": timed_out,
-        "status": derive_validation_run_status(
-            exit_code=exit_code, timed_out=timed_out,
+        "status": status,
+        "failure_reason": derive_validation_failure_reason(
+            status=status, output=log.read_text(encoding="utf-8", errors="replace"),
         ),
         "duration_ms": duration_ms,
         "log_path": log.as_posix(),
@@ -647,8 +695,10 @@ __all__ = [
     "VALIDATION_RUNS_FILENAME",
     "VALIDATION_RUN_SCHEMA",
     "VALIDATION_RUN_SCHEMA_VERSION",
+    "VALIDATION_FAILURE_REASONS",
     "VALIDATION_RUN_STATUSES",
     "classify_validation_run_status",
+    "derive_validation_failure_reason",
     "derive_validation_run_status",
     "find_validation_run_by_id",
     "list_validation_runs",

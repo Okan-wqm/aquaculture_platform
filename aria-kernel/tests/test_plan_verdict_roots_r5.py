@@ -10,6 +10,16 @@
   ``plan_verdict_path_refused`` at freshness and refused as
   ``evidence_ref_not_in_reviewed_tree`` at record.
 
+and the blocker the PV-R5 security review raised against it
+(/root/aria-handover/2026-10-21/build/PV-R5/review-r1-security.md):
+
+* SEC-R5R1-B1 a C0 control character or DEL in a plan path text is refused
+  by the plan path record law, under canonical_path's one rule
+  (``refuse_repo_relpath_control_char``). Admitted, a NUL in an evidence ref
+  reached ``commit_blob_paths``' git argv, where ``subprocess`` raises
+  ``ValueError``: the delivery door raised on every offer and the plan stayed
+  CONVERGED.
+
 Source: SPEC.md (PV P1, P3); finding ARIA-HIGH-779.
 """
 from __future__ import annotations
@@ -17,10 +27,18 @@ from __future__ import annotations
 import unittest
 from unittest import mock
 
-from aria_kernel import workspace_view
-from aria_kernel.plan_convergence import fold_plan_state, plan_verdict_staleness, start_plan
+from aria_kernel import canonical_path, workspace_view
+from aria_kernel.plan_convergence import (
+    PLAN_PATH_REFUSED,
+    _plan_path_reading,
+    fold_plan_state,
+    plan_verdict_staleness,
+    start_plan,
+)
 from aria_kernel.tool_registry import GovernanceError
 from aria_kernel.workspace_view import WorkspaceViewRefused
+from tests._helpers.production_shaped import production_converged_plan
+from tests.test_converged_delivery_scope_precheck import FARM, FORCER, _ScopeCase
 from tests.test_plan_verdict_integrity import (
     PLAN_EVIDENCE,
     RISK_EVIDENCE_FILE,
@@ -32,12 +50,16 @@ from tests.test_plan_verdict_integrity import (
     _terminal,
 )
 from tests.test_plan_verdict_roots_r2 import _event_count
-from tests.test_plan_verdict_roots_r4 import UNVERIFIABLE, _DeliveryReading
+from tests.test_plan_verdict_roots_r4 import KIND, PATH_REFUSED, UNVERIFIABLE, WITHHELD, _DeliveryReading
 
 COMMIT_UNREADABLE = "workspace_commit_unreadable"
 FEED = "apps/farm-service/src/feed"
 LITERAL_ID = f"{FEED}/[id].ts"
 MANY = 1000
+CONTROL_CHAR = "repo_relpath_control_char"
+# Every C0 control character and DEL, inside a name where `strip()` cannot reach it.
+CONTROL_CHARACTERS = [chr(code) for code in range(0x20)] + ["\x7f"]
+NUL_BODY_REF = f"{PLAN_EVIDENCE}\x00:1"
 
 
 def _drop_root_tree(case: _PlanFixture, commit: str) -> None:
@@ -50,6 +72,15 @@ def _drop_root_tree(case: _PlanFixture, commit: str) -> None:
 
 def _ls_tree_calls(calls: mock.MagicMock) -> int:
     return sum(1 for call in calls.call_args_list if "ls-tree" in call.args)
+
+
+def _pre_fix_law() -> mock._patch:
+    """The record law as the R21-R23 rounds ran it: no control-character refusal."""
+    return mock.patch.object(canonical_path, "refuse_repo_relpath_control_char", create=True)
+
+
+def _git_paths_asked(calls: mock.MagicMock) -> list[str]:
+    return [path for call in calls.call_args_list for path in call.args[2]]
 
 
 class R23AnUnreadableTreeIsTheCheckoutsFault(_DeliveryReading):
@@ -149,6 +180,78 @@ class R23OneGitProcessAnswersTheWholeSet(_PlanFixture):
         # event's own law: three passes, one process each, whatever the count
         # of refs across the four risks.
         self.assertEqual(_ls_tree_calls(calls), 3)
+
+
+class SecR5B1AControlCharacterIsRefusedByThePlanPathLaw(_PlanFixture):
+    """SEC-R5R1-B1: `a\\x00b` was admitted as a path and reached git's argv."""
+
+    def test_the_law_refuses_every_control_character_under_canonical_paths_rule(self) -> None:
+        for char in CONTROL_CHARACTERS:
+            with self.subTest(char=char):
+                text = f"{FEED}/a{char}b.ts"
+                with self.assertRaisesRegex(GovernanceError, CONTROL_CHAR):
+                    canonical_path.normalize_repo_relpath(text)
+                reading = _plan_path_reading(text)
+                self.assertIsNone(reading.path)
+                self.assertTrue(reading.refusal.startswith(f"{CONTROL_CHAR}: "), reading.refusal)
+
+    def test_start_plan_refuses_a_body_ref_holding_nul(self) -> None:
+        with self.assertRaisesRegex(GovernanceError, f"{PLAN_PATH_REFUSED}.*{CONTROL_CHAR}"):
+            start_plan(plan_id="plan-1", initial_revision_id="rev-0",
+                       plan_content=self.plan(evidence_refs=[PLAN_EVIDENCE, NUL_BODY_REF]), base_dir=self.tools)
+        self.assertEqual(fold_plan_state(plan_id="plan-1", base_dir=self.tools)["events"], [])
+
+    def test_a_risk_ref_holding_nul_is_refused_at_record_with_the_count_unchanged(self) -> None:
+        self.start()
+        self.challenger("challenger-rev-0")
+        before = _event_count(self)
+        with mock.patch.object(workspace_view, "hermetic_git", wraps=workspace_view.hermetic_git) as calls:
+            with self.assertRaisesRegex(GovernanceError, f"{PLAN_PATH_REFUSED}.*{CONTROL_CHAR}"):
+                self.cross_review([_risk("CR-001", "nice_to_have", evidence_refs=[f"{RISK_EVIDENCE_FILE}\x00:1"])],
+                                  verdict="agreed")
+        self.assertEqual(_ls_tree_calls(calls), 0)
+        self.assertEqual(_event_count(self), before)
+        self.assertEqual(fold_plan_state(plan_id="plan-1", base_dir=self.tools)["state"], "CHALLENGER_DRAFTED")
+
+
+class SecR5B1ALegacyNulRefIsTheLedgersToken(_DeliveryReading):
+    """A ref the earlier law admitted is read as refused, parked, and never handed to git."""
+
+    def test_the_first_offer_parks_it_and_git_never_sees_it(self) -> None:
+        with _pre_fix_law():
+            start_plan(plan_id="plan-1", initial_revision_id="rev-0",
+                       plan_content=self.plan(evidence_refs=[PLAN_EVIDENCE, NUL_BODY_REF]), base_dir=self.tools)
+            self.challenger("challenger-rev-0")
+            self.cross_review([], verdict="agreed")
+            self.assertEqual(_terminal(self.evaluate(1)), "CONVERGED")
+        with mock.patch("aria_kernel.plan_convergence.commit_blob_paths",
+                        wraps=workspace_view.commit_blob_paths) as asked:
+            self.assertEqual(plan_verdict_staleness(self.state(), base_dir=self.tools),
+                             f"{PATH_REFUSED}:{NUL_BODY_REF}")
+            self.assert_parked(f"{PATH_REFUSED}:{NUL_BODY_REF}")
+        self.assertNotIn(NUL_BODY_REF.partition(":")[0], _git_paths_asked(asked))
+
+
+class SecR5B1TheDoorParksALegacyNulRef(_ScopeCase):
+    """Through the real delivery door: parked before staging on the first offer, no ValueError."""
+
+    def test_the_first_offer_parks_it_before_staging(self) -> None:
+        ref = f"{FARM}\x00:1"
+        with _pre_fix_law():
+            plan = production_converged_plan(tools_dir=self.tools, workspace_root=self.repo, plan_id="plan-nul-ref",
+                                             affected_paths=[FARM], evidence_refs=[ref])
+        self.commit_reviewer()
+        with mock.patch("aria_kernel.plan_convergence.commit_blob_paths",
+                        wraps=workspace_view.commit_blob_paths) as asked:
+            summary = self.deliver(plan.plan_id, cycle_id="cyc-1")
+        self.assertEqual(summary["delivery"]["withheld"], WITHHELD)
+        self.assertEqual(self.state(plan.plan_id)["state"], "HUMAN_REQUIRED")
+        self.assert_nothing_staged()
+        [row] = self.human_required_evaluations(plan.plan_id)
+        self.assertEqual((row["reason_codes"], row["forced_by"]), ([PATH_REFUSED], FORCER))
+        [governance] = self.governance(KIND)
+        self.assertEqual(governance["refusal"], f"{PATH_REFUSED}:{ref}")
+        self.assertFalse([path for path in _git_paths_asked(asked) if "\x00" in path])
 
 
 if __name__ == "__main__":

@@ -102,6 +102,25 @@ def _refuse_non_repo_spelling(text: str, raw_path: object) -> None:
         raise _GE(f"repo_relpath_backslash: {raw_path!r}")
 
 
+def refuse_repo_relpath_control_char(raw_path: object) -> None:
+    """Refuse a repo path text holding a C0 control character or DEL.
+
+    The one rule for it (ARIA-CRITICAL-215): :func:`normalize_repo_relpath`
+    applies it, and so does every reader of :func:`resolve_repo_relpath` that
+    hands the path on (the plan path record law,
+    ``plan_convergence._plan_path_reading``). Such a name is legal in git, but
+    no repository glob is written for it, and a NUL in it cannot even reach
+    git: ``subprocess`` refuses the argv with ``ValueError`` (PV-R5
+    SEC-R5R1-B1).
+
+    Raises ``tool_registry.GovernanceError`` ``repo_relpath_control_char``.
+    """
+    from .tool_registry import GovernanceError as _GE
+
+    if _CONTROL_CHARACTER.search(str(raw_path)):
+        raise _GE(f"repo_relpath_control_char: {raw_path!r}")
+
+
 def normalize_repo_relpath(raw_path: object) -> str:
     """The canonical spelling of a path that must stay inside the repository.
 
@@ -119,9 +138,11 @@ def normalize_repo_relpath(raw_path: object) -> str:
     ...) or DEL is refused too. It is legal in a git name and ``git diff -z``
     returns it verbatim, but no repository glob is written for such a name:
     the lane classifier once placed ``.../__tests__/a\\nb.test.ts`` under the
-    blocked billing tree in L1. ``resolve_repo_relpath`` keeps it, because
-    its readers (agent evidence refs) refuse control and bidi characters
-    under their own code (``agent_evidence_path_unresolvable``).
+    blocked billing tree in L1 (:func:`refuse_repo_relpath_control_char`).
+    ``resolve_repo_relpath`` keeps it, because each of its readers refuses it
+    first: agent evidence refs under their own code
+    (``agent_evidence_path_unresolvable``), the plan path record law through
+    :func:`refuse_repo_relpath_control_char`.
 
     Raises ``tool_registry.GovernanceError`` with ``repo_relpath_absolute``,
     ``repo_relpath_backslash``, ``repo_relpath_control_char``,
@@ -132,8 +153,7 @@ def normalize_repo_relpath(raw_path: object) -> str:
 
     text = str(raw_path)
     _refuse_non_repo_spelling(text, raw_path)
-    if _CONTROL_CHARACTER.search(text):
-        raise _GE(f"repo_relpath_control_char: {raw_path!r}")
+    refuse_repo_relpath_control_char(raw_path)
     path = lexical_repo_path(text)
     segments = path.split("/")
     if ".." in segments:

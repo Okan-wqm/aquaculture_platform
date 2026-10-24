@@ -4903,13 +4903,20 @@ def _plan_path_reading(value: Any) -> PlanPathReading:
     no absolute path, no backslash; ``''`` and ``.`` segments drop, as the
     implementer's ``_normalize_declared_path`` drops them) and every brace
     alternative compiles in the kernel's one glob owner
-    (``canonical_path.require_repo_glob``). A ``..`` segment is refused: the
-    implementer refuses a traversal surface (``classify_declared_surface``),
-    so a plan naming one could never be implemented, and resolving it would
-    turn a traversal into a clean-looking path. The owners' typed refusals are
+    (``canonical_path.require_repo_glob``). A C0 control character or DEL is
+    refused under canonical_path's one rule
+    (``canonical_path.refuse_repo_relpath_control_char``), which
+    ``resolve_repo_relpath`` leaves to its readers: admitted, a NUL in an
+    evidence ref reached the reviewed-commit lookup's git argv, where
+    ``subprocess`` raises ``ValueError``, so neither the record door nor the
+    delivery door could refuse it (PV-R5 SEC-R5R1-B1). A ``..`` segment is
+    refused: the implementer refuses a traversal surface
+    (``classify_declared_surface``), so a plan naming one could never be
+    implemented, and resolving it would turn a traversal into a clean-looking
+    path. The owners' typed refusals are
     the reasons; nothing here is a second grammar.
     """
-    from .canonical_path import require_repo_glob, resolve_repo_relpath
+    from .canonical_path import refuse_repo_relpath_control_char, require_repo_glob, resolve_repo_relpath
 
     if not isinstance(value, str) or not value.strip():
         return PlanPathReading(None, "a path is a non-empty string")
@@ -4918,6 +4925,7 @@ def _plan_path_reading(value: Any) -> PlanPathReading:
         return PlanPathReading(None, "repo_relpath_traversal")
     try:
         path = resolve_repo_relpath(text)
+        refuse_repo_relpath_control_char(path)
         require_repo_glob(path)
     except GovernanceError as exc:
         return PlanPathReading(None, str(exc))

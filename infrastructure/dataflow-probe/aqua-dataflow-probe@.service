@@ -1,0 +1,37 @@
+# RW-2 — one run of the dataflow watchdog's privileged probe per connection to
+# aqua-dataflow-probe.socket (Accept=yes). Installed by the program lead after
+# review (docs/runbooks/monitoring/dataflow-integrity.md, "Privileged probe
+# install"); the repository copy is the source of truth.
+#
+# WHY THESE PROPERTIES.
+# * ExecStart names the root-owned install path and no argument: the probe
+#   refuses any argument, and systemd passes none, so nothing the client
+#   selects reaches the command line.
+# * StandardInput=null: nothing the client writes reaches the probe.
+#   StandardOutput=socket returns the one JSON document on the connection;
+#   StandardError=journal keeps docker/psql diagnostics on the host (journalctl
+#   -u 'aqua-dataflow-probe@*'), out of the runner's evidence.
+# * Environment=PATH is the probe's whole environment for command lookup;
+#   socket activation carries no environment from the client.
+# * RuntimeMaxSec=60 bounds a run whose daemon or database hangs; the client
+#   (tools/watchdog/privileged-evidence.mjs) waits 75 s, so it sees the close.
+# * Runs as root because the docker socket is root's; the read-only session is
+#   the probe's own (default_transaction_read_only=on on every psql session).
+#   NoNewPrivileges, PrivateTmp and ProtectSystem=full take what root does not
+#   need for these reads; /run stays reachable for the docker socket.
+[Unit]
+Description=Dataflow watchdog privileged probe (RW-2, one connection)
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/aqua-dataflow-probe
+StandardInput=null
+StandardOutput=socket
+StandardError=journal
+Environment=PATH=/usr/sbin:/usr/bin:/sbin:/bin
+RuntimeMaxSec=60
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+MemoryMax=128M
+TasksMax=32

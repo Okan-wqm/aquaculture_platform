@@ -355,6 +355,80 @@ void test('a touched consumer project produces no event-consumer node', () => {
   assert.equal(consumerNodes.length, 0);
 });
 
+// --- SE-4 (service-expertise PLAN §2 'Service impact closure', §8 SE-4 (iv)) ---------------------
+//
+// The closure has one owner, aria_kernel/impact_graph.py: plan_coverage hands the witness the
+// closure's node set as `closure_nodes` ({node_id, kind, why}; the key is the test writer's) and
+// the witness reports gaps against it. It computes no `project:` or `event-consumer:` node of its
+// own; it keeps `migration:` nodes, `event-consumer-unresolved:` sites, waivers and the coverage
+// diff. Each case carries node:test's `todo` option until SE-4 lands (the gate suites' convention
+// for red tests ahead of their implementation, as SE-3 did); the implementer removes it.
+const SE4_PENDING =
+  'SE-4 (service-expertise PLAN §8): the witness still computes its own project: / event-consumer: nodes';
+
+/** Closure node ids the witness owns no more: everything but migration and unresolved sites. */
+function closureNodeIds(run: WitnessRun): string[] {
+  return run.report.uncovered
+    .map((n) => n.node_id)
+    .filter((id) => !id.startsWith('migration:') && !id.startsWith('event-consumer-unresolved:'))
+    .sort();
+}
+
+const GATEWAY_NODE = {
+  node_id: 'project:gateway-api',
+  kind: 'nx_project',
+  why: 'contract:gateway_subgraph at infrastructure/apollo-router/subgraphs.json:14',
+};
+
+void test(
+  'SE-4 (iv): given a node set, the witness reports gaps against it and adds no nx reverse dependent',
+  { todo: SE4_PENDING },
+  () => {
+    const run = runWitness({
+      schema_version: 1,
+      affected_paths: ['libs/farm-shared/src/index.ts'],
+      waivers: [],
+      closure_nodes: [GATEWAY_NODE],
+    });
+    assert.equal(run.exitCode, 1, run.stdout);
+    // The fixture nx graph makes farm-service and notification-service reverse dependents of
+    // farm-shared; neither is in the given set, so neither is a node.
+    assert.deepEqual(closureNodeIds(run), ['project:gateway-api']);
+  },
+);
+
+void test(
+  'SE-4 (iv): given a node set, a touched event contract adds no event-consumer node of its own',
+  { todo: SE4_PENDING },
+  () => {
+    const run = runWitness({
+      schema_version: 1,
+      affected_paths: ['libs/event-contracts/src/farm-events.ts'],
+      waivers: [],
+      closure_nodes: [],
+    });
+    // The fixture services.yaml grants notification-service BatchHarvested: today that grant makes
+    // event-consumer:notification-service:BatchHarvested, and the graph makes project: nodes.
+    assert.deepEqual(closureNodeIds(run), [], JSON.stringify(run.report.uncovered));
+    assert.equal(run.exitCode, 0, run.stdout);
+  },
+);
+
+void test('SE-4 (iv): a waiver still covers a node of the given set', { todo: SE4_PENDING }, () => {
+  const run = runWitness({
+    schema_version: 1,
+    affected_paths: ['libs/farm-shared/src/index.ts'],
+    waivers: [{ node: 'project:gateway-api', reason: 'schema unchanged, verified' }],
+    closure_nodes: [GATEWAY_NODE],
+  });
+  assert.equal(run.exitCode, 0, run.stdout);
+  assert.equal(run.report.verdict, 'covered_with_waivers');
+  assert.deepEqual(
+    run.report.waived.map((n) => n.node_id),
+    ['project:gateway-api'],
+  );
+});
+
 void test('quoted and unquoted services.yaml items both parse, and the ledger counts them', () => {
   const run = runWitness({
     schema_version: 1,

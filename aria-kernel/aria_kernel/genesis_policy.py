@@ -6,6 +6,7 @@ from dataclasses import dataclass as _dataclass
 from pathlib import Path
 from typing import Any
 from .digest import sha256_digest, sha256_digest_text
+from . import preregistered_policy as _prereg
 
 
 POLICY_KEYS = {
@@ -93,6 +94,13 @@ POLICY_KEYS = {
     # the per-24h plan-start cap and the subject cool-off. Validated and
     # consumed by finding_grounding.f_finding_loop_policy.
     "f_finding_loop_guards",
+    # SE-13 (service-expertise PLAN §7, §8; decision-test PREREG Amendment
+    # 4) — the pre-registered decision values (keep levels, margin, look
+    # budget, genesis gate, final A1-vs-A3 rule, retirement share) and the
+    # change-review caps and seat envelopes. Parsed strictly — never filled
+    # from defaults — by service_expertise_policy / change_review_policy.
+    "service_expertise",
+    "change_review",
 }
 
 JUDGMENT_PIPELINE_DEFAULTS: dict[str, Any] = {
@@ -926,3 +934,109 @@ def merge_with_override(defaults: dict[str, Any], override: dict[str, Any]) -> d
         if key in POLICY_KEYS:
             merged[key] = value
     return merged
+
+
+
+# SE-13 (service-expertise PLAN §3.7, §4.3, §6.1, §6.6, §7.2, §7.3; DECISIONS
+# Q1, Q6, Q7, Q13; decision-test PREREG Amendment 4) — the pre-registered
+# blocks. They have NO defaults dict here: the shipped JSON is the one place
+# each value is written, and preregistered_policy.parse_block refuses a missing,
+# unknown or out-of-range key by its dotted path (why: preregistered_policy).
+# The bounds below refuse nonsense (a share outside (0, 1], a look budget no
+# build could spend, a bool for a count); they are not the decision.
+_PROBABILITY = _prereg.real(0.0, 1.0, open_low=True, open_high=True)
+# What a failed final rule removes (Q1). Contract edges are NOT in this
+# vocabulary: they are routing input, not the pack (PLAN §7.2, SK-08), so no
+# override can register their removal.
+PREREG_FINAL_REMOVABLE: frozenset[str] = frozenset(
+    {"service_knowledge_field", "established_knowledge_service_root_widening"}
+)
+SERVICE_EXPERTISE_SCHEMA: dict[str, Any] = {
+    "keep": {
+        "keep_level_dev": _PROBABILITY,
+        "keep_level_final": _PROBABILITY,
+        "clean_report_margin": _prereg.real(0.0, 10.0),
+        "delta_context_recall": _prereg.real(0.0, 1.0, open_low=True),
+    },
+    "dev_check": {
+        "look_budget": _prereg.whole(1, 20),
+        "pack_keep_looks": _prereg.whole(1, 20),
+        "section_ablation_looks": _prereg.whole(0, 20),
+        "section_ablation_pick": _prereg.one_of("largest_median_tokens_dev_train"),
+    },
+    "final": {
+        "a3_service_knowledge_mode": _prereg.one_of("off"),
+        "per_service_agents": {
+            "a1": _prereg.one_of("active_before_freeze"),
+            "a3": _prereg.one_of("none"),
+        },
+        "removed_on_fail": _prereg.names(PREREG_FINAL_REMOVABLE),
+    },
+    "genesis": {
+        "k_min": _prereg.whole(1, 100),
+        "posterior_quantile": _PROBABILITY,
+        "alpha": _PROBABILITY,
+    },
+    "retirement": {
+        "counterfactual_share": _prereg.real(0.0, 1.0, open_low=True),
+    },
+}
+CHANGE_REVIEW_SCHEMA: dict[str, Any] = {
+    "seats": {
+        "service_seats_per_change": _prereg.whole(1, 10),
+        "lens_seats_per_change": _prereg.whole(0, 4),
+        "handoff_seats_per_change": _prereg.whole(0, 10),
+        "arbiter_seats_per_handoff": _prereg.whole(0, 1),
+        "seats_per_cycle": _prereg.whole(1, 1000),
+        "seats_per_dev_look": _prereg.whole(1, 10_000),
+    },
+    "knowledge": {
+        "touched_service_tokens": _prereg.whole(1, 100_000),
+        "impacted_contract_tokens": _prereg.whole(1, 100_000),
+        "impacted_entries_per_seat": _prereg.whole(0, 100),
+        "sections_in_render_order": _prereg.names(),
+    },
+}
+
+
+def _parsed_change_review(merged: dict[str, Any]) -> dict[str, Any]:
+    return _prereg.parse_block("change_review", merged.get("change_review"), CHANGE_REVIEW_SCHEMA)
+
+
+def change_review_policy(repo_root: str | Path | None = None) -> dict[str, Any]:
+    """SE-13 — the change-review caps and seat envelopes (PLAN §3.7, §4.3), parsed strictly.
+
+    Every cap is a hold for its reader (admit_request, the renderer), never a
+    raise. A missing, unknown or out-of-range key is refused by its dotted path.
+    """
+    return _parsed_change_review(load_policy(repo_root) if repo_root is not None else default_policy())
+
+
+def service_expertise_policy(repo_root: str | Path | None = None) -> dict[str, Any]:
+    """SE-13 — the pre-registered service-expertise decision values, parsed strictly.
+
+    Besides the per-key checks, two relations are refused when broken: the
+    pack-keep looks plus the section-ablation looks must fit the look budget
+    (the remainder is the genesis EVAL_WINDOW allowance, PLAN §7.3), and no
+    more sections can be ablated than the renderer has
+    (``change_review.knowledge.sections_in_render_order``, the one section
+    list), so a broken change_review block refuses this read too.
+    """
+    merged = load_policy(repo_root) if repo_root is not None else default_policy()
+    block = _prereg.parse_block("service_expertise", merged.get("service_expertise"), SERVICE_EXPERTISE_SCHEMA)
+    dev_check = block["dev_check"]
+    spent = dev_check["pack_keep_looks"] + dev_check["section_ablation_looks"]
+    if spent > dev_check["look_budget"]:
+        _prereg.refuse(
+            "looks_over_budget", "service_expertise.dev_check",
+            f"spends {spent} looks (pack_keep_looks + section_ablation_looks) over "
+            f"look_budget={dev_check['look_budget']}",
+        )
+    sections = _parsed_change_review(merged)["knowledge"]["sections_in_render_order"]
+    if dev_check["section_ablation_looks"] > len(sections):
+        _prereg.refuse(
+            "value_out_of_range", "service_expertise.dev_check.section_ablation_looks",
+            f"= {dev_check['section_ablation_looks']} exceeds the {len(sections)} sections in "
+            "change_review.knowledge.sections_in_render_order",
+        )
+    return block

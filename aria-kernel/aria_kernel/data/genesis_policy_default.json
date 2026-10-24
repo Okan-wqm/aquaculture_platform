@@ -13,6 +13,33 @@
       "autonomous"
     ]
   },
+  "change_review": {
+    "_doc": "SE-13 (service-expertise PLAN \u00a73.7, \u00a74.3; DECISIONS Q7) \u2014 change-review caps and seat envelopes, parsed strictly by genesis_policy.change_review_policy: every key required, an unknown or out-of-range key refused by its dotted path, no default fill (an override replaces the block whole). Every cap is a HOLD for its reader, never a raise.",
+    "knowledge": {
+      "_doc": "PLAN \u00a73.7. Token caps per seat prompt: touched_service_tokens for the touched service's knowledge, impacted_contract_tokens per impacted facing contract, at most impacted_entries_per_seat impacted entries (contract edges first). sections_in_render_order is the one section list: sections render in this order, rows newest first inside a section, and a cap cuts from the END, so anti_patterns are dropped first and missed last; the drop count is rendered. A section ablation (service_expertise.dev_check) and a tombstoned section name sections from this list.",
+      "impacted_contract_tokens": 300,
+      "impacted_entries_per_seat": 6,
+      "sections_in_render_order": [
+        "missed",
+        "invariants",
+        "contracts",
+        "found",
+        "conventions",
+        "beliefs",
+        "anti_patterns"
+      ],
+      "touched_service_tokens": 2000
+    },
+    "seats": {
+      "_doc": "PLAN \u00a74.3 and \u00a73.7(c). A change-review seat is a discovery seat (touched service or lens); hand-off and arbiter seats are judge seats, capped per change here and counted against the WP-J funnel envelope (\u00a73.7(b)), not against seats_per_cycle. Per change: up to service_seats_per_change touched services in closure order (each further service gets a change_review_budget_held row) plus lens_seats_per_change cross-cutting lens; handoff_seats_per_change hand-offs (Q7; excess held by name, the claims stay hypotheses); at most arbiter_seats_per_handoff arbiter per hand-off. seats_per_cycle: change-review seats admit_request admits in one production cycle, two changes at full discovery width (a retirement counterfactual seat counts here); beyond it request_admission_throttled:change_review_envelope. seats_per_dev_look: the DEV build envelope, change-review seats one DEV-check look may mint: at most 50 change subjects x 2 arms x 4 discovery seats. A look whose plan needs more is not started (recorded in RUNS.md), never run partially.",
+      "arbiter_seats_per_handoff": 1,
+      "handoff_seats_per_change": 2,
+      "lens_seats_per_change": 1,
+      "seats_per_cycle": 8,
+      "seats_per_dev_look": 400,
+      "service_seats_per_change": 3
+    }
+  },
   "circuit_breaker": {
     "_doc": "ORPHAN-MEDIUM-483 / RC-4 \u2014 failure_window_hours is DELIBERATELY ABSENT. It is derived as minimum_window_hours(failure_threshold) = threshold x cadence + cadence, so for threshold 3 on the nightly's 24h cadence the window is 96. This file used to ship the literal 72, which is exactly the boundary the derivation exists to forbid: failures land at t=0/24/48 and the gate reads at t=72, so a 72h window puts the oldest failure on the edge and \u00b130min of cron jitter flips the verdict. Worse, the loader silently widened 72 to 96, so this file documented a number the code refused to honour and an operator reading it learned the wrong thing about their own breaker. Setting the key here again, or below the floor in an override, is now REFUSED with both numbers named rather than silently corrected.",
     "auto_downgrade_to": "strict",
@@ -102,6 +129,45 @@
   },
   "schema_version": 1,
   "service_auditor_threshold": 25,
+  "service_expertise": {
+    "_doc": "SE-13 (service-expertise PLAN \u00a76.1, \u00a76.5, \u00a76.6, \u00a77.2, \u00a77.3; DECISIONS Q1, Q6, Q13; decision-test PREREG Amendment 4, which PLAN and DECISIONS Q13 call 'Amendment 3' because that number went to the 2026-10-23 case-supply amendment) \u2014 the decision values for service knowledge and per-service agents, registered BEFORE the first DEV-check look. genesis_policy.service_expertise_policy parses this block strictly: every key is required, an unknown key or an out-of-range value is refused by its dotted path, and no shipped value stands in for one an override leaves out (merge_with_override replaces the block whole). theta = the share of discordant pairs that favour the measured side; every posterior is calibrated_intelligence.beta_posterior(1 + b, 1 + c).",
+    "dev_check": {
+      "_doc": "PLAN \u00a77.3, Q6: look_budget DEV-check looks per frozen ARIA SHA for the whole build, every consumer counted: pack_keep_looks for the pack keep decision, section_ablation_looks leave-one-section-out arms, and the remainder (here 3) for genesis EVAL_WINDOW runs. Each look is logged in RUNS.md (SHA, arm, purpose) BEFORE it runs; no second look on one SHA for one decision. Which sections are ablated is fixed by section_ablation_pick before any look: largest_median_tokens_dev_train = the section_ablation_looks sections of change_review.knowledge.sections_in_render_order with the largest median rendered tokens per seat on DEV-train renders (deterministic, spends no DEV-check look; a tie goes to the section later in the render order). The question is which sections earn their tokens, so the costliest are tested; a section not ablated rides on the pack verdict.",
+      "look_budget": 6,
+      "pack_keep_looks": 1,
+      "section_ablation_looks": 2,
+      "section_ablation_pick": "largest_median_tokens_dev_train"
+    },
+    "final": {
+      "_doc": "PREREG Amendment 4 (A3 pin, Q13). A3 = A1 with service_knowledge_mode = a3_service_knowledge_mode and no per-service agent seats (the generic seat serves in their place); same frozen store, routing, contract edges, hand-off and seat caps. A1 carries the per-service agents that reached ACTIVE through the pre-registered DEV-check rule before the freeze (DRAFT/EVAL ones are in neither arm). removed_on_fail lists what a failed final rule removes (Q1); contract edges cannot be listed, they are routing input, not the pack (SK-08).",
+      "a3_service_knowledge_mode": "off",
+      "per_service_agents": {
+        "a1": "active_before_freeze",
+        "a3": "none"
+      },
+      "removed_on_fail": [
+        "service_knowledge_field",
+        "established_knowledge_service_root_widening"
+      ]
+    },
+    "genesis": {
+      "_doc": "PLAN \u00a76.1 and \u00a76.5. A service-keyed REPETITION pressure becomes an agent_gap only if x_S >= k_min, the posterior_quantile (5%) quantile of S's miss-rate posterior exceeds the pooled rate, and a DEV-train re-run after the cheaper D10 rungs still misses >= k_min. EVAL_WINDOW -> ACTIVE in the room: F1.7 paired exact one-sided McNemar at p < alpha (PREREG's own level) and no rise in clean-commit reports; every run is a counted look.",
+      "alpha": 0.05,
+      "k_min": 3,
+      "posterior_quantile": 0.05
+    },
+    "keep": {
+      "_doc": "PLAN \u00a77.2, the burden is on the pack. DEV-check pack keep: P(theta > 0.5) >= keep_level_dev AND reports per clean commit (on) <= (off) + clean_report_margin, else the service_knowledge field and the established_knowledge service-root widening are tombstoned for the build. Each ablated section and each per-service slice needs its own P(theta > 0.5) >= keep_level_dev (gain, not absence of harm). Retirement (PLAN \u00a76.6) quarantines an agent whose P(gain > 0) falls below keep_level_dev. Final (Q1, binding, HELD-OUT once, A1 vs A3): P(theta > 0.5) >= keep_level_final AND reports per clean commit A1 <= A3 + clean_report_margin, else final.removed_on_fail. clean_report_margin is an absolute difference in reports per clean commit; 0.0 is PREREG rule 2's own bar ('not higher'). delta_context_recall (SE-4 exit) is an absolute share: context recall WITH contract edges must exceed recall without them by at least 5 points, reported with n and Wilson intervals; it is deterministic (no LLM), measured on DEV-train cases, and spends no DEV-check look.",
+      "clean_report_margin": 0.0,
+      "delta_context_recall": 0.05,
+      "keep_level_dev": 0.9,
+      "keep_level_final": 0.95
+    },
+    "retirement": {
+      "_doc": "PLAN \u00a76.6. On this share of an ACTIVE per-service agent's changes a counterfactual generic seat carrying the same service knowledge runs beside it, inside change_review.seats.seats_per_cycle; over the F0.9 window the paired comparison decides QUARANTINED (keep.keep_level_dev). One in four keeps the extra seats inside the per-cycle envelope while a service changed in most of the 30 window cycles still yields several pairs.",
+      "counterfactual_share": 0.25
+    }
+  },
   "skill_genesis_drainer": {
     "_doc": "Plan ARIA-V7 \u00a72h v2 \u2014 V7.4 skill_genesis_drainer per-cycle config. Default enabled (drainer fires every cycle to consume convergent=True requests); operator sets enabled=false to disable drainer entirely.",
     "enabled": true,

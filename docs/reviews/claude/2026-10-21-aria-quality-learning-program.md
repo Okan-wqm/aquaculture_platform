@@ -1217,3 +1217,55 @@ their names can disagree with the one service key
   PLAN-v2 F0.9b; \_asset_of is the per-path twin of \_detect_services and goes with it.
 - Failure scenario: security assessment files a finding on `apps/<dir>` as `service:<dir>` while
   the finding dimension names the same project by its project.json name, so the two never join.
+
+## ARIA-HIGH-795
+
+ARIA's production metric detectors never ran (watchdog_pull.observability_base_url null), and the
+one puller would send the platform's shared INTERNAL_API_KEY to whatever host the policy names, with
+no named hold when the source is unread and runtime candidates rejected as one-evidence findings
+
+- Severity: HIGH; owner: Okan-wqm; deadline: 2026-11-06.
+- Plan item(s): RW-1 (SEQUENCE.md "Runtime watch"), registered by its implementer.
+- Evidence (at befe16159):
+  - `aria-kernel/aria_kernel/genesis_policy.py:548` (observability_base_url None by default) and
+    `:551` (api_key_env names the runner's copy of the shared key)
+  - `aria-kernel/aria_kernel/aria_watchdog.py:110-112` (x-internal-api-key header to the
+    policy-named host)
+  - `aria-kernel/aria_kernel/aria_watchdog.py:740-751` (skips land only in the sweep payload) and
+    `aria-kernel/aria_kernel/cycle.py:2952-2961` (the digest copies candidates/emitted/suppressed)
+  - `aria-kernel/aria_kernel/aria_watchdog.py:575-596` (runtime candidates emitted as one-evidence
+    operational_anomaly, rejected and counted suppressed)
+  - `scripts/aria/provision_runner.sh:226` (the runner `.env` is required to hold
+    ARIA_OBSERVABILITY_API_KEY)
+- Rule: RW-1 decisions: no shared internal API key for ARIA; a read-only loopback source read by
+  the ONE puller; a missing or unreachable source is a named hold, never silence; runtime claims go
+  through the existing proof gate.
+- Failure scenario: the watchdog_sweep phase runs every night and reports nothing about production;
+  an operator who sets the URL to the observability-service hands ARIA's runner the platform's
+  internal key, and a 5xx storm still becomes no finding and no lead.
+
+## ARIA-MEDIUM-796
+
+The runtime watchdog's security-critical detector can never fire: security_events_total carries
+only a type label (no severity), and Prometheus's observability-service scrape is refused 401
+because that /metrics is INTERNAL_API_KEY-gated
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-06.
+- Raised by: the RW-1 implementer (read-only queries on the droplet Prometheus, 2026-10-23:
+  `up{app="observability-service"}` = 0 with lastError "server returned HTTP status 401
+  Unauthorized"; `count(security_events_total)` = 0).
+- Evidence:
+  - `apps/observability-service/src/security-events/security-metrics.service.ts:35` (labelNames
+    `['type']`, no severity)
+  - `aria-kernel/aria_kernel/aria_watchdog.py:343` (the detector requires `severity=critical`)
+  - `apps/observability-service/src/prometheus/prometheus.controller.ts:8-10` (/metrics behind the
+    global InternalApiGuard)
+  - `infrastructure/monitoring/droplet/file_sd/aqua-services.json:134` (the target Prometheus
+    scrapes) and `docker-compose.droplet.yml:2152` (a comment that says the scrape is not enabled)
+- Rule: a detector that names a signal the source never carries is a silent dead eye; every runtime
+  detector reads a series the droplet Prometheus holds.
+- Failure scenario: an auth-bypass storm is counted by the observability-service and never reaches
+  Prometheus, so the watchdog's security detector reports nothing. Not fixed in RW-1: it needs the
+  observability-service metrics surface (a public metrics-only endpoint like the other backends got
+  in OBS-HIGH-001, or a scrape credential held by Prometheus, never ARIA) and a severity source for
+  security event types.

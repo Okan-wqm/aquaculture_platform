@@ -68,6 +68,14 @@
       "readers": "aria_kernel/plan_coverage.py runs it; suite: test_plan_coverage, test_merge_authority_pre_merge_perimeter copy its import closure (tests/_helpers/witness_sources.py)"
     },
     {
+      "glob": "**/docker-compose*.yml",
+      "readers": "suite: test_rw1_prometheus_source_read_only, test_rw1_runtime_watchdog_feed (RW-1: every compose-published Prometheus port binds 127.0.0.1, the watchdog's loopback source)"
+    },
+    {
+      "glob": "docs/runbooks/aria-runner-rebuild.md",
+      "readers": "suite: test_rw1_runtime_watchdog_feed (RW-1: the runner rebuild runbook copies no shared internal API key into the runner .env)"
+    },
+    {
       "glob": "tools/gates/nats-services.ts",
       "readers": "imported by the plan-coverage witness; same suite tests"
     },

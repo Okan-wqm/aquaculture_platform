@@ -3,7 +3,8 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { eventFacts, scanEventDefinitions } from '../gates/event-consumer-index';
-import { indexFixtureTree, makeFixtureTree } from '../gates/fixture-tree';
+import { indexFixtureTree } from '../gates/fixture-git-index';
+import { makeFixtureTree } from '../gates/fixture-tree';
 
 import { analyzeEventContracts } from './event-contracts-adapter';
 

@@ -1,10 +1,15 @@
 # Data-Flow Integrity Watchdog — hourly T1 probes (W-B slice 1).
 #
 # Shape follows scheduled-workflow-watchdog.yml (hourly cron, incident-on-
-# failure). Runs on the droplet runner because the probes need docker truth
-# and the local repo; every probe is read-only and credential-free by design
-# (plan §F5 — write probes are staging-only until the canary-account
-# decision). On a CRITICAL: dispatch an ARIA cycle that ingests the standing
+# failure). Runs on the droplet runner because the probes need the host's
+# container and database truth and the local repo; every probe is read-only
+# and credential-free by design (plan §F5 — write probes are staging-only
+# until the canary-account decision). RW-2: the runner account has no docker
+# and no privilege gain (ADR-0023), so container and tenant truth come from
+# the root-owned, read-only privileged probe over its socket
+# (tools/watchdog/privileged-evidence.mjs); nothing this job runs starts
+# docker or psql, pinned by
+# tests/invariants/dataflow-watchdog-privileged-probe.spec.ts. On a CRITICAL: dispatch an ARIA cycle that ingests the standing
 # runtime signal `dataflow_integrity_critical` (stable text, kernel-owned) into
 # its own store, so investigation starts NOW, not at the next nightly.
 name: dataflow-integrity-watchdog

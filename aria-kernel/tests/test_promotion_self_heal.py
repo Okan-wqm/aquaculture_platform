@@ -38,11 +38,16 @@ def _verdict(
         finding_id="finding-heal",
         verdict="true_positive",
         severity="high",
-        note="heal fixture",
+        # WP-J fix round — independent seats write independent prose: the
+        # settle path's diversity leg refuses a panel that echoes.
+        note=f"{judge_id} independent reading of the healed group",
         source_type="ai_judge",
         judge_id=judge_id,
         model="test",
         confidence=confidence,
+        # WP-J review — the healed third verdict is anchor-grade evidence;
+        # it cites the code it judged like every anchor must.
+        evidence_refs=["src/heal.ts:7"],
         judgment_group_id=_GROUP,
         finding_fingerprint=fingerprint,
         base_dir=tools,

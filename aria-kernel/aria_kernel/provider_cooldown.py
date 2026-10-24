@@ -321,10 +321,35 @@ def _append_cooldown(root: Path, transaction: Any, *, provider: str, model: str,
     }, transaction=transaction)
 
 
-def _malformed(row: dict[str, Any], field: str) -> GovernanceError:
-    return GovernanceError(
+class ProviderCooldownRowMalformed(GovernanceError):
+    """A ``provider_quota_cooldown`` row that breaks the row contract: the
+    store holds a cooldown nobody can read, so which providers are cooled is
+    unknown. Its own class (a ``GovernanceError``, so every caller that
+    already refuses on the kernel's governance refusals keeps refusing) so a
+    reader can name THIS store fault in ``cooldown_reader_faults`` without
+    absorbing every other governance refusal."""
+
+
+def _malformed(row: dict[str, Any], field: str) -> ProviderCooldownRowMalformed:
+    return ProviderCooldownRowMalformed(
         f"provider_cooldown_row_malformed:{field} (ledger_hash={row.get('ledger_hash')!r})"
     )
+
+
+def cooldown_reader_faults() -> tuple[type[BaseException], ...]:
+    """The closed set a caller of the cooldown readers (``active_provider_cooldowns``,
+    ``latest_provider_cooldowns``, ``provider_cooldown_for_claim`` and
+    ``provider_outage.cooled_providers`` above them) may treat as an
+    UNREADABLE cooldown ledger (ARIA-HIGH-788 class): the ledger primitives'
+    own (``ledger.ledger_read_faults`` — the rows come from one ``load_jsonl``
+    of ``governance.jsonl``) and a row that breaks the cooldown contract
+    (``ProviderCooldownRowMalformed``). A caller that catches these does not
+    know which providers are cooled and must decide as if it cannot tell;
+    anything else (``TypeError``, ``KeyError`` ...) is a defect in the reader
+    and raises."""
+    from .ledger import ledger_read_faults
+
+    return (*ledger_read_faults(), ProviderCooldownRowMalformed)
 
 
 def _validated_cooldown(row: dict[str, Any]) -> dict[str, Any]:
@@ -419,7 +444,9 @@ __all__ = [
     "PROVIDER_COOLDOWN_REASON",
     "PROVIDER_COOLDOWN_SCHEMA_VERSION",
     "QUOTA_WINDOW_EXHAUSTED_UTILIZATION",
+    "ProviderCooldownRowMalformed",
     "active_provider_cooldowns",
+    "cooldown_reader_faults",
     "detection_reset",
     "latest_provider_cooldowns",
     "provider_cooldown_for_claim",

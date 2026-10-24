@@ -43,26 +43,24 @@ if str(_POC_DIR) not in sys.path:
 import ci_executor_drain  # noqa: E402
 from dispatch_failure import DispatchRoute  # noqa: E402
 
-from aria_kernel.agent_surface import JUDGE_ROLES, PLANNER_BRIDGE_ROLES  # noqa: E402
+from aria_kernel.agent_surface import JUDGE_ROLES, PLANNER_BRIDGE_ROLES, ROLE_TARGET_PAIRING  # noqa: E402
 from aria_kernel.cross_review_bridge import COMPLETENESS_CRITIC_ROLE  # noqa: E402
 from aria_kernel.genesis_policy import EXECUTOR_DEFAULTS, executor_policy  # noqa: E402
 from aria_kernel.tool_registry import GovernanceError  # noqa: E402
 
-_TARGET_BY_ROLE = {
-    "implementation": "aria-implementer",
+# A role's target is read from its owner (`agent_surface.ROLE_TARGET_PAIRING`,
+# the first paired seat), never kept here as a second copy: a hand-kept map
+# fell behind the moment WP-J B-2 added four paired seats to the arc. Only the
+# roles the pairing leaves unpaired (routed by role alone) name a target here.
+_UNPAIRED_TARGETS = {
     "cross_review": "aria-cross-reviewer",
     "challenger_plan": "aria-challenger-planner",
     "primary_plan": "aria-primary-planner",
-    "completeness_critique": "aria-completeness-critic",
-    "evidence_judgment": "aria-evidence-judge",
-    "adversarial_judgment": "aria-adversarial-judge",
-    "consensus_arbitration": "aria-consensus-arbiter",
-    "human_required_adjudication": "aria-consensus-arbiter",
-    "verification": "aria-adversarial-judge",
-    "change_intelligence": "aria-change-intelligence",
-    "goldset_curation": "aria-goldset-curator",
     "specialist_domain_review": "architectural-arbiter",
-    "maintenance_utility": "aria-autonomy-planner",
+}
+_TARGET_BY_ROLE = {
+    **{role: targets[0] for role, targets in ROLE_TARGET_PAIRING.items()},
+    **_UNPAIRED_TARGETS,
 }
 
 

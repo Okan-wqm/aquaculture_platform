@@ -22,7 +22,7 @@ Phase 1 maps every changed file to one or more agents via these globs. `git diff
 | `apps/messaging-service/**` | messaging-expert | |
 | `apps/ai-service/**` | ai-safety-auditor | messaging-expert (chat persistence) |
 | `apps/auth-service/**` | auth-security-expert | security-reviewer |
-| `apps/gateway-api/**` | auth-security-expert | security-reviewer |
+| `apps/gateway-api/**` | auth-security-expert | security-reviewer, performance-expert |
 | `libs/backend-common/src/auth/**` | auth-security-expert | security-reviewer |
 | `libs/backend-common/src/guards/**` | auth-security-expert | security-reviewer |
 | `libs/backend-common/src/security/**` | auth-security-expert | security-reviewer |
@@ -36,6 +36,7 @@ Phase 1 maps every changed file to one or more agents via these globs. `git diff
 | `apps/*/src/**/entities/*.entity.ts` | {respective domain expert} | database-reviewer |
 | `sens-api-gateway/**` | edge-expert | security-reviewer |
 | `sensorprotocols/**` | edge-expert | sensor-expert |
+| `web/**` | {respective domain expert} | accessibility-auditor |
 | `web/shell/**` | frontend-expert | |
 | `web/shared-ui/**` | frontend-expert | *all frontend modules* |
 | `web/modules/dashboard/**` | frontend-expert | |
@@ -53,6 +54,7 @@ Phase 1 maps every changed file to one or more agents via these globs. `git diff
 | `platform/libs/event-bus/**` | platform-kernel-expert | data-expert, security-reviewer |
 | `infra/**` | infra-expert | security-reviewer |
 | `infrastructure/**` | infra-expert | security-reviewer |
+| `infrastructure/nats/**` | infra-expert | platform-kernel-expert |
 | `deploy/**` | infra-expert | security-reviewer |
 | `.github/actions/**` | infra-expert | test-runner, security-reviewer |
 | `.github/workflows/**` | infra-expert | security-reviewer |
@@ -75,7 +77,7 @@ Phase 1 maps every changed file to one or more agents via these globs. `git diff
 | `libs/shared/**` | data-expert | |
 | `database/scripts/**` | data-expert | database-reviewer, security-reviewer |
 | `libs/backend-common/src/redis/**` | auth-security-expert | multi-tenant-saas-expert |
-| `libs/backend-common/src/nats/**` | data-expert | |
+| `libs/backend-common/src/nats/**` | data-expert | platform-kernel-expert |
 | `platform/libs/outbox/**` | data-expert | messaging-expert |
 | `apps/db-migrate/**` | data-expert | infra-expert |
 | `libs/shared-contracts/**` | data-expert | *all consumers* |

@@ -15,8 +15,10 @@ const E2E_SECURITY_FLOORS = {
   // and GHSA-q2hr-2g5m-vwhr (1.1.21) on the 1.x line jest's minimatch uses.
   'brace-expansion': '1.1.21',
   // 3.1.8 clears GHSA-qw65-cvwx-89v3 and GHSA-58mr-gqgx-xq4g (fixed in 3.1.7)
-  // plus GHSA-hrr3-gc8f-f4qj (fixed in 3.1.8, SUPPLY-HIGH-014).
-  'fast-uri': '3.1.8',
+  // plus GHSA-hrr3-gc8f-f4qj (fixed in 3.1.8, SUPPLY-HIGH-014); 3.1.9 clears
+  // GHSA-w74x-v6f9-j3xg, GHSA-xhq7-xmqj-769h, GHSA-wjr9-j795-jxcr and
+  // GHSA-333x-w4r6-6crp (SUPPLY-MEDIUM-032).
+  'fast-uri': '3.1.9',
 } as const;
 
 /**
@@ -56,8 +58,10 @@ const ROOT_SECURITY_FLOORS = {
   // `~6.6.0`, itself pinned exactly by @nestjs/platform-socket.io, so the lock
   // is the only place this floor lives.
   'engine.io': '6.6.10',
-  // GHSA-qw65-cvwx-89v3, GHSA-58mr-gqgx-xq4g (3.1.7) + GHSA-hrr3-gc8f-f4qj (3.1.8).
-  'fast-uri': '3.1.8',
+  // GHSA-qw65-cvwx-89v3, GHSA-58mr-gqgx-xq4g (3.1.7) + GHSA-hrr3-gc8f-f4qj (3.1.8)
+  // + GHSA-w74x-v6f9-j3xg, GHSA-xhq7-xmqj-769h, GHSA-wjr9-j795-jxcr,
+  // GHSA-333x-w4r6-6crp (3.1.9, SUPPLY-MEDIUM-032).
+  'fast-uri': '3.1.9',
   // GHSA-m9gg-hp2v-232j, GHSA-f596-whhp-79r4 (1.14.x line fixed in 1.14.5).
   '@grpc/grpc-js': '1.14.5',
   // GHSA-xjh9-v7x6-24jw, GHSA-x8mw-p69m-v3mx (fixed in 3.2.1; SUPPLY-HIGH-016).
@@ -71,8 +75,10 @@ const ROOT_SECURITY_FLOORS = {
   // (10.7.4: Address6 zone-id match is quadratic ahead of its length limit;
   // SUPPLY-MEDIUM-028).
   'ip-address': '10.7.4',
-  // GHSA-3pph-fpjx-jg34.
-  multer: '2.4.0',
+  // GHSA-3pph-fpjx-jg34 (2.4.0) + GHSA-q7qp-rjg7-q26m (2.5.0: a pending async
+  // fileFilter after request teardown; SUPPLY-HIGH-034). @nestjs/platform-express
+  // pins multer 2.4.0 exactly, so only the override can lift it.
+  multer: '2.5.0',
   // 13.4.5 globs type paths with tinyglobby instead of fast-glob, which takes
   // fast-glob -> micromatch -> braces (GHSA-vfj7-8cjw-p6xm, no patched braces
   // release exists) out of the production graph (SUPPLY-HIGH-016).
@@ -83,8 +89,9 @@ const ROOT_SECURITY_FLOORS = {
   '@nestjs/microservices': '11.2.5',
   // GHSA-6vj9-mwq6-2f5v is fixed in 10.0.2; 10.0.3-10.0.12 add the linear-time
   // address/reply parsing, bare-CR-to-CRLF and requireTLS fixes the review
-  // file cites, so the adopted release is the floor.
-  nodemailer: '10.0.12',
+  // file cites. 10.1.4 clears the addressparser advisories GHSA-8c8m-p3m8-cjg8,
+  // GHSA-m943-m63m-w62w and GHSA-85x2-q946-cp5h (SUPPLY-MEDIUM-033).
+  nodemailer: '10.1.4',
   // GHSA-67c8-pqhq-4rmx (critical, fixed in 5.3.2): ThreadPool options read
   // through the prototype chain, so a polluted Object.prototype reaches
   // execArgv and runs code in every worker.
@@ -94,7 +101,19 @@ const ROOT_SECURITY_FLOORS = {
   // GHSA-2jfj-6hjv-fm6j, GHSA-2gqq-gqf2-x968, GHSA-w293-vg96-wgc3,
   // GHSA-8436-99hf-9mmv, GHSA-rx4f-c7p8-82vq. @module-federation/dts-plugin
   // 2.8.2 pins undici exactly at 7.29.0, so only the override can lift it.
-  undici: '7.29.1',
+  // 7.30.1 adds GHSA-xjj6-f33q-929c, GHSA-4qv8-2p9j-2685 and
+  // GHSA-f72v-6w45-q472 (SUPPLY-HIGH-036).
+  undici: '7.30.1',
+  // GHSA-27r3-jxmh-p828 (fixed in 1.20.9 and 2.4.0): trailing bytes after a
+  // compressed body. 2.x parses every backend request body (express 5,
+  // @apollo/server); 1.x sits under the nx dev-server's express 4. Both
+  // parents' ranges admit the fix, so the lock is the only place this floor
+  // lives (SUPPLY-HIGH-031).
+  'body-parser': { '1': '1.20.9', '2': '2.4.0' },
+  // GHSA-mrhx-c7xc-m3w5 (fixed in 4.6.6): memory exhaustion on oversized
+  // constrained collections. No 3.x release is patched, so major 3 is
+  // unvetted (SUPPLY-HIGH-035).
+  zod: { '4': '4.6.6' },
   // GHSA-jqcg-44mw-7w3h (critical, fixed in 2.0.8): IP spoofing via an
   // IPv4-mapped IPv6 trust subnet, under express's `trust proxy`.
   'proxy-addr': '2.0.8',
@@ -216,6 +235,14 @@ const FEDERATION_CONSUMERS = [
 ] as const;
 
 const DTS_CONSUMERS = ['libs/node-components/package.json', 'web/shared-ui/package.json'] as const;
+
+/**
+ * WHY: GHSA-mrhx-c7xc-m3w5 has no patched 3.x release, so a workspace that
+ * declares zod ^3 nests a vulnerable copy the root floor table only notices
+ * after the lock is refreshed (SUPPLY-HIGH-035). WHAT: every tracked manifest
+ * that declares zod is listed here and starts at the patched 4.x floor.
+ */
+const ZOD_CONSUMERS = ['mcp/farm-management/package.json'] as const;
 
 interface PackageManifest {
   scripts?: Record<string, string>;
@@ -621,6 +648,21 @@ describe('JavaScript dependency security floor', () => {
     }
   });
 
+  test('enumerates every zod consumer at the patched 4.x floor', () => {
+    expect(trackedManifestsDeclaring('zod')).toEqual([...ZOD_CONSUMERS].sort());
+    const floor = ROOT_SECURITY_FLOORS.zod['4'];
+    for (const manifestPath of ZOD_CONSUMERS) {
+      const declared = rangeFloor(declaration(manifestPath, 'zod'));
+      expect({
+        manifestPath,
+        safe:
+          declared !== null &&
+          declared.split('.')[0] === '4' &&
+          comparable(declared) >= comparable(floor),
+      }).toEqual({ manifestPath, safe: true });
+    }
+  });
+
   test('enumerates federation and declaration-generation consumers at patched floors', () => {
     expect(trackedManifestsDeclaring('@module-federation/vite')).toEqual(
       [...FEDERATION_CONSUMERS].sort(),
@@ -698,8 +740,10 @@ describe('JavaScript dependency security floor', () => {
       // 3.1.6 cleared GHSA-5jgf-p345-68v8, GHSA-f65p-4m7j-42xc, GHSA-fph4-wmhf-6fwf
       // and GHSA-jqff-g426-hqxp, then became vulnerable itself: 3.1.8 clears
       // GHSA-qw65-cvwx-89v3, GHSA-58mr-gqgx-xq4g and GHSA-hrr3-gc8f-f4qj
-      // (SUPPLY-HIGH-014).
-      'fast-uri': '3.1.8',
+      // (SUPPLY-HIGH-014); 3.1.9 clears GHSA-w74x-v6f9-j3xg,
+      // GHSA-xhq7-xmqj-769h, GHSA-wjr9-j795-jxcr and GHSA-333x-w4r6-6crp
+      // (SUPPLY-MEDIUM-032).
+      'fast-uri': '3.1.9',
       // 4.28.9 clears the unbounded cache growth and the prototype write.
       browserslist: '4.28.9',
       nanoid: '3.3.18',
@@ -709,7 +753,7 @@ describe('JavaScript dependency security floor', () => {
     expect(resolvedVersions(lock, '@grpc/grpc-js')).toEqual(['1.14.5']);
     expect(resolvedVersions(lock, 'socket.io-parser')).toEqual(['4.2.7']);
     expect(resolvedVersions(lock, 'protobufjs')).toEqual(['7.6.5']);
-    expect(resolvedVersions(lock, 'fast-uri')).toEqual(['3.1.8']);
+    expect(resolvedVersions(lock, 'fast-uri')).toEqual(['3.1.9']);
     expect(resolvedVersions(lock, 'browserslist')).toEqual(['4.28.9']);
     expect(resolvedVersions(lock, 'nanoid')).toEqual(['3.3.18']);
     const esbuildVersions = resolvedVersions(lock, 'esbuild');

@@ -36,8 +36,9 @@
  *   orphan-findings.md (depends on filesystem state;
  *   live-fire coverage exists via Batch #342's commit-
  *   landing test).
- * - `loadRegistryIds()` integration (same — depends on
- *   findings.jsonl).
+ * - The registry's trailer targets (`findingTrailerTargets`, the
+ *   projection's — pinned by tests/invariants/finding-registry-projection.spec.ts
+ *   and, through the gate CLI, by finding-alias-wiring.spec.ts).
  * - Git integration (commitsInRange, lastCommit) — these
  *   require a temp git repo; live-fire coverage from
  *   Batch #342's commit-landing test is the relevant

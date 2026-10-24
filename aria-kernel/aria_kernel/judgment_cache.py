@@ -22,8 +22,20 @@ boundary). The WRITE side refuses nothing: a settled consensus whose cited
 refs cannot be hashed today is simply not cached.
 
 The verdict a hit carries is the FEEDBACK row's verdict — the cache stores
-only the join (fingerprint, code_hash) → (judgment_group_id, verdict); the
-ground-truth ledger stays the one owner of what was decided.
+only the join (key) → (judgment_group_id, verdict); the ground-truth ledger
+stays the one owner of what was decided.
+
+J2 (SEPT-HARVEST §2) — WHO judged and under which law is part of the key.
+Besides the cited code, an entry is keyed by ``judges_hash`` (the judge
+bench as the executor DELIVERS it — ``agent_contract_delivery.
+judge_seats_contract_hash``, the digest of each seat's ``agent_contract_hash``
+rendered from the kernel checkout, the identity calibration scopes on;
+stamped on the routing row), ``rule_contract_hash`` (the rule's claim as
+routed, stamped on the routing row) and ``calibration_gate`` (the gate the
+consensus closed under). An edited judge prompt, a rewritten rule
+contract or a gate switched to ``enforce`` is a miss: no cached verdict
+outlives the judge, claim or law that produced it. Each half is tri-state
+like the code half — unknown is a miss.
 """
 from __future__ import annotations
 
@@ -49,19 +61,42 @@ def _rows(root: Path) -> list[dict[str, Any]]:
     return load_declared_jsonl(path, expected_surface=CACHE_SURFACE)
 
 
-def cache_lookup(
-    root: Path, *, finding_fingerprint: str, code_hash: str | None,
-) -> dict[str, Any] | None:
-    """The newest cache row for this (fingerprint, code_hash), or None.
+CACHE_KEY_FIELDS: tuple[str, ...] = (
+    "finding_fingerprint", "code_hash", "judges_hash", "rule_contract_hash", "calibration_gate",
+)
 
-    ``code_hash=None`` (unknown blob state) is a miss by law, never a hit.
+
+def _key_of(row: dict[str, Any]) -> tuple[Any, ...]:
+    return tuple(row.get(name) for name in CACHE_KEY_FIELDS)
+
+
+def _consensus_gate(row: dict[str, Any]) -> str:
+    """The calibration gate a consensus row closed under. A row without a
+    ``calibration_basis`` was folded with no calibration map, which
+    ``generate_ai_consensus`` runs as ``measure_only`` by construction."""
+    basis = row.get("calibration_basis")
+    return str(basis["gate"]) if isinstance(basis, dict) else "measure_only"
+
+
+def cache_lookup(
+    root: Path,
+    *,
+    finding_fingerprint: str,
+    code_hash: str | None,
+    judges_hash: str | None,
+    rule_contract_hash: str | None,
+    calibration_gate: str,
+) -> dict[str, Any] | None:
+    """The newest cache row for this key, or None.
+
+    Any unknown half (``None``) is a miss by law, never a hit.
     """
-    if not finding_fingerprint or code_hash is None:
+    key = (finding_fingerprint, code_hash, judges_hash, rule_contract_hash, calibration_gate)
+    if any(part is None or part == "" for part in key):
         return None
     newest: dict[str, Any] | None = None
     for row in _rows(root):
-        if (row.get("finding_fingerprint") == finding_fingerprint
-                and row.get("code_hash") == code_hash):
+        if _key_of(row) == key:
             if newest is None or str(row.get("recorded_at") or "") >= str(newest.get("recorded_at") or ""):
                 newest = row
     return newest
@@ -75,10 +110,12 @@ def record_settled_verdicts(
     repo_root: str | Path | None,
 ) -> int:
     """Learn the settled verdicts: route rows whose group settled get a
-    cache entry keyed by the FINDING's cited blobs at the route's anchor.
+    cache entry keyed by the FINDING's cited blobs at the route's anchor,
+    the judge bench and rule contract the route stamped and the gate the
+    consensus closed under.
 
-    Idempotent by key: an entry for ``(fingerprint, code_hash)`` is written
-    once. Returns how many entries were added.
+    Idempotent by key: an entry is written once per key. A route whose key
+    has an unknown half is not cached. Returns how many entries were added.
     """
     from .evidence_trust import cited_blobs_code_hash
     from .ledger import append_declared_jsonl
@@ -92,33 +129,44 @@ def record_settled_verdicts(
             settled[group] = row
     if not settled or repo_root is None:
         return 0
-    known = {(row.get("finding_fingerprint"), row.get("code_hash")) for row in _rows(root)}
+    known = {_key_of(row) for row in _rows(root)}
     added = 0
     for route in routing_rows:
         group = str(route.get("judgment_group_id") or "")
         fingerprint = str(route.get("finding_fingerprint") or "")
         refs = route.get("cited_refs") or []
         target_sha = route.get("target_sha")
-        if group not in settled or not fingerprint or not refs:
+        rule_contract_hash = route.get("rule_contract_hash")
+        judges_hash = route.get("judges_hash")
+        if (group not in settled or not fingerprint or not refs
+                or not rule_contract_hash or not judges_hash):
             continue
         code_hash = cited_blobs_code_hash(Path(repo_root), list(refs), target_sha)
-        if code_hash is None or (fingerprint, code_hash) in known:
+        if code_hash is None:
+            continue
+        entry = {
+            "finding_fingerprint": fingerprint,
+            "code_hash": code_hash,
+            "judges_hash": str(judges_hash),
+            "rule_contract_hash": str(rule_contract_hash),
+            "calibration_gate": _consensus_gate(settled[group]),
+        }
+        if _key_of(entry) in known:
             continue
         append_declared_jsonl(
             cache_path(root),
             {
-                "schema_version": 1,
+                "schema_version": 2,
                 "row_type": "verdict_cache",
                 "recorded_at": _now_iso(),
-                "finding_fingerprint": fingerprint,
-                "code_hash": code_hash,
+                **entry,
                 "verdict": str(settled[group].get("verdict") or ""),
                 "judgment_group_id": group,
                 "target_sha": target_sha,
             },
             expected_surface=CACHE_SURFACE,
         )
-        known.add((fingerprint, code_hash))
+        known.add(_key_of(entry))
         added += 1
     return added
 
@@ -130,6 +178,7 @@ def _now_iso() -> str:
 
 
 __all__ = [
+    "CACHE_KEY_FIELDS",
     "CACHE_RELPATH",
     "CACHE_SURFACE",
     "cache_lookup",

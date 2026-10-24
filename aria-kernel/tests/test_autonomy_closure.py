@@ -8,8 +8,9 @@ only the report documents and carries a payload bound to the target. These
 tests build that history in a real Git repository. The autonomy evidence
 status (its derivation is pinned by test_autonomy_evidence_status.py) and
 the registry owner's verdict are the collaborators answered here; the
-registry owner (``finding-registry.ts verify --stdin --closures-at``) runs
-for real against this repository's own history in RegistrySnapshotOwnerTests.
+registry owner (``finding-registry.ts verify --stdin`` and ``project --stdin
+--format=closures``) runs for real against this repository's own history in
+RegistrySnapshotOwnerTests.
 """
 from __future__ import annotations
 
@@ -170,8 +171,13 @@ class ClosureVerdictTests(unittest.TestCase):
 
         def owner(repo: Path, raw: bytes, *, at: str, finding_ids: tuple[str, ...]) -> RegistrySnapshotVerdict:
             self.owner_calls.append({"raw": raw, "at": at, "finding_ids": finding_ids})
+            # The closers the owner names are the ones the snapshot records:
+            # every fixture closure is a recorded one.
+            recorded = {row["id"]: tuple(row["closing_commits"])
+                        for row in map(json.loads, raw.decode("utf-8").splitlines()) if row["id"] in finding_ids}
             return RegistrySnapshotVerdict(
                 True, None, {finding_id: self.owner_refusals.get(finding_id, ()) for finding_id in finding_ids},
+                recorded,
             )
 
         registry_owner = mock.patch.object(closure_module, "verify_registry_snapshot", side_effect=owner)
@@ -433,6 +439,26 @@ class RegistrySnapshotOwnerTests(unittest.TestCase):
         before = _git(_REPO, "rev-parse", f"{self._CLOSER}~1")
         verdict = verify_registry_snapshot(_REPO, self.raw, at=before, finding_ids=("ARIA-HIGH-017",))
         self.assertEqual(verdict.closures, {"ARIA-HIGH-017": (f"closing_commit_unreachable:{self._CLOSER}",)})
+
+    def test_a_closure_merged_before_the_registry_recorded_it_is_derived(self) -> None:
+        """MF-1 (PROC-HIGH-039): closure is derived at the evidence commit.
+
+        a62b291c3 is the merge of #2067, whose 78d38a761 carries
+        ``Closes: …#ARIA-HIGH-012``. The registry at that merge still records
+        ARIA-HIGH-012 as STALE: the closure-reconcile PR #2075 wrote RESOLVED
+        later. Judged at the merge, the finding is closed by the trailer the
+        merge brought in; a verdict that waits for a second commit is the drift
+        window MF-1 removes.
+        """
+        merge = _git(_REPO, "rev-parse", "--verify", "a62b291c3a7ea6650c60002d75ac51f53fad08cc^{commit}")
+        raw = subprocess.run(
+            ["git", "-C", str(_REPO), "show", f"{merge}:{_REGISTRY}"], check=True, capture_output=True,
+        ).stdout
+        recorded = next(json.loads(line) for line in raw.decode("utf-8").splitlines()
+                        if line.strip() and json.loads(line)["id"] == "ARIA-HIGH-012")
+        self.assertEqual(recorded["state"], "STALE")
+        verdict = verify_registry_snapshot(_REPO, raw, at=merge, finding_ids=("ARIA-HIGH-012",))
+        self.assertEqual(verdict, RegistrySnapshotVerdict(True, None, {"ARIA-HIGH-012": ()}))
 
     def test_a_broken_chain_is_named(self) -> None:
         rows = [json.loads(line) for line in self.raw.decode("utf-8").splitlines()[:3]]

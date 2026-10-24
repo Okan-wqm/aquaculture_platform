@@ -41,7 +41,6 @@ import {
   currentStateAnchors,
 } from '../../tools/gates/aria-authority-hash';
 import {
-  REGISTRY_PATH,
   TRUTH_TABLE_PATH,
   checkDebtPlanTruth,
   deriveRegistrySnapshot,
@@ -56,6 +55,10 @@ import {
   verify,
 } from '../../tools/gates/finding-registry-chain';
 import { mergeRegistryText } from '../../tools/gates/finding-registry-merge';
+import {
+  projectRegistry,
+  REGISTRY_RELATIVE_PATH,
+} from '../../tools/gates/finding-registry-projection';
 import { hermeticGitEnv } from '../../tools/gates/hermetic-git';
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
@@ -123,7 +126,7 @@ function copyFromRepo(fixture: string, rel: string): void {
 
 /** The real files: the formerly pinned four, the registry, and every anchor target. */
 function seedPaths(): string[] {
-  const targets = new Set<string>([...FORMERLY_PINNED, REGISTRY_PATH]);
+  const targets = new Set<string>([...FORMERLY_PINNED, REGISTRY_RELATIVE_PATH]);
   for (const anchor of [...REAL_ANCHORS.paths, ...REAL_ANCHORS.symbols]) {
     if (anchor.path.endsWith('/')) {
       for (const rel of git(REPO_ROOT, ['ls-files', '--', anchor.path])
@@ -139,7 +142,7 @@ function seedPaths(): string[] {
 }
 
 function appendFinding(fixture: string, row: Pick<Finding, 'id' | 'severity' | 'title'>): void {
-  const path = join(fixture, REGISTRY_PATH);
+  const path = join(fixture, REGISTRY_RELATIVE_PATH);
   const entries = parseRegistryJsonl(readFileSync(path, 'utf8'));
   entries.push({
     ...row,
@@ -171,7 +174,8 @@ function commitAll(fixture: string, message: string): void {
 
 function debtPlanVerdict(fixture: string): ReturnType<typeof checkDebtPlanTruth> {
   return checkDebtPlanTruth(
-    deriveRegistrySnapshot(readFileSync(join(fixture, REGISTRY_PATH), 'utf8')),
+    // The registry as readers see it (MF-1): the fixture's history closes nothing.
+    deriveRegistrySnapshot(projectRegistry(fixture)),
     truthTableActiveRows(readFileSync(join(fixture, TRUTH_TABLE_PATH), 'utf8')),
   );
 }
@@ -215,7 +219,7 @@ describe('PROC-HIGH-046 — concurrent ARIA and registry PRs merge without a pin
     });
     appendLine(fixture, kernelModule, '# branch A kernel change');
     commitAll(fixture, 'feat: branch A');
-    expect(changedSince(fixture, base)).toEqual([kernelModule, REGISTRY_PATH].sort());
+    expect(changedSince(fixture, base)).toEqual([kernelModule, REGISTRY_RELATIVE_PATH].sort());
     expect(checkCurrentState(fixture).valid).toBe(true);
     expect(debtPlanVerdict(fixture).valid).toBe(true);
 
@@ -227,7 +231,7 @@ describe('PROC-HIGH-046 — concurrent ARIA and registry PRs merge without a pin
     });
     appendLine(fixture, executor, '# branch B executor change');
     commitAll(fixture, 'feat: branch B');
-    expect(changedSince(fixture, base)).toEqual([REGISTRY_PATH, executor].sort());
+    expect(changedSince(fixture, base)).toEqual([REGISTRY_RELATIVE_PATH, executor].sort());
     expect(checkCurrentState(fixture).valid).toBe(true);
     expect(debtPlanVerdict(fixture).valid).toBe(true);
 
@@ -242,36 +246,36 @@ describe('PROC-HIGH-046 — concurrent ARIA and registry PRs merge without a pin
       .filter(Boolean);
     // The only conflict is the registry's own tail append; no formerly pinned
     // file is among them, which is the point.
-    expect(conflicted).toEqual([REGISTRY_PATH]);
+    expect(conflicted).toEqual([REGISTRY_RELATIVE_PATH]);
     expect(merge.status).not.toBe(0);
     for (const rel of FORMERLY_PINNED) expect(conflicted).not.toContain(rel);
 
     // Resolve the registry exactly as the findings-registry driver does.
     const merged = mergeRegistryText(
-      git(fixture, ['show', `:1:${REGISTRY_PATH}`]),
-      git(fixture, ['show', `:2:${REGISTRY_PATH}`]),
-      git(fixture, ['show', `:3:${REGISTRY_PATH}`]),
+      git(fixture, ['show', `:1:${REGISTRY_RELATIVE_PATH}`]),
+      git(fixture, ['show', `:2:${REGISTRY_RELATIVE_PATH}`]),
+      git(fixture, ['show', `:3:${REGISTRY_RELATIVE_PATH}`]),
     );
     if (!merged.ok) throw new Error(`registry merge refused: ${merged.reason}`);
-    writeFileSync(join(fixture, REGISTRY_PATH), merged.text, 'utf8');
-    git(fixture, ['add', REGISTRY_PATH]);
+    writeFileSync(join(fixture, REGISTRY_RELATIVE_PATH), merged.text, 'utf8');
+    git(fixture, ['add', REGISTRY_RELATIVE_PATH]);
     git(fixture, ['commit', '-q', '--no-edit']);
 
     // The merged tree is green as it stands: nothing was re-stamped or repinned.
     expect(git(fixture, ['diff', '--name-only', base, 'HEAD', '--', ...FORMERLY_PINNED])).toBe('');
     expect(checkCurrentState(fixture).defects).toEqual([]);
     expect(debtPlanVerdict(fixture).valid).toBe(true);
-    const registryAfter = readFileSync(join(fixture, REGISTRY_PATH), 'utf8');
+    const registryAfter = readFileSync(join(fixture, REGISTRY_RELATIVE_PATH), 'utf8');
     const entries = parseRegistryJsonl(registryAfter);
     expect(verify(entries).ok).toBe(true);
     expect(entries.slice(-2).map((entry) => entry.id)).toEqual([
       'ZZFIX-HIGH-902',
       'ZZFIX-MEDIUM-901',
     ]);
-    const baseEntries = deriveRegistrySnapshot(
-      git(fixture, ['show', `${base}:${REGISTRY_PATH}`]),
-    ).entries;
-    expect(deriveRegistrySnapshot(registryAfter).entries).toBe(baseEntries + 2);
+    const baseEntries = parseRegistryJsonl(
+      git(fixture, ['show', `${base}:${REGISTRY_RELATIVE_PATH}`]),
+    ).length;
+    expect(entries.length).toBe(baseEntries + 2);
   });
 
   it('still refuses an active CRITICAL that no truth-table row covers', () => {

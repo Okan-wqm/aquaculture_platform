@@ -173,6 +173,12 @@ class GenesisPolicyTests(unittest.TestCase):
                 # guards on the aging F_FINDING source, consumed via
                 # finding_grounding.f_finding_loop_policy.
                 "f_finding_loop_guards",
+                # SE-13 — the pre-registered service-expertise decision
+                # values and the change-review caps, parsed strictly (no
+                # default fill) by service_expertise_policy /
+                # change_review_policy.
+                "service_expertise",
+                "change_review",
             },
         )
 

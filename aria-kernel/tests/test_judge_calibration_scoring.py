@@ -133,7 +133,8 @@ class ScoringAgainstTheLedger(unittest.TestCase):
         judge = {j["judge_id"]: j for j in result["judges"]}["judge-cal"]
         self.assertEqual(judge["calibration_status"], "calibrated", json.dumps(judge)[:600])
         self.assertEqual(judge["ground_truth_strata"],
-                         {"n_human": 120, "n_human_escalated": 0, "n_anchor_external": 0, "n_anchor_self_excluded": 0})
+                         {"n_human": 120, "n_human_escalated": 0, "n_outcome": 0,
+                         "n_anchor_external": 0, "n_anchor_self_excluded": 0})
         self.assertLessEqual(judge["ece_upper_90"], 0.10)
         self.assertEqual(judge["by_source"][0]["confidence_source"], "self_reported")
         self.assertEqual(judge["by_source"][0]["samples"], 120)
@@ -160,14 +161,17 @@ class ScoringAgainstTheLedger(unittest.TestCase):
             confidence=0.9, judgment_group_id="g1", judge_count=3, judges_voted=3,
             observers=[{"judge_id": "judge-a", "model": "opus"}, {"judge_id": "judge-b", "model": "glm-5.3"},
                        {"judge_id": "judge-c", "model": "opus"}],
+            evidence_refs=["apps/hr-service/x.ts:10"],
             base_dir=self.tools,
         )
         by_id = {j["judge_id"]: j for j in score_judges(base_dir=self.tools)["judges"]}
         self.assertEqual(by_id["judge-a"]["ground_truth_strata"],
-                         {"n_human": 0, "n_human_escalated": 0, "n_anchor_external": 0, "n_anchor_self_excluded": 1})
+                         {"n_human": 0, "n_human_escalated": 0, "n_outcome": 0,
+                         "n_anchor_external": 0, "n_anchor_self_excluded": 1})
         self.assertEqual(by_id["judge-a"]["samples"], 0)
         self.assertEqual(by_id["judge-x"]["ground_truth_strata"],
-                         {"n_human": 0, "n_human_escalated": 0, "n_anchor_external": 1, "n_anchor_self_excluded": 0})
+                         {"n_human": 0, "n_human_escalated": 0, "n_outcome": 0,
+                         "n_anchor_external": 1, "n_anchor_self_excluded": 0})
         self.assertEqual(by_id["judge-x"]["samples"], 1)
 
     def test_weights_keep_the_prior_for_an_uncalibrated_judge_and_the_posterior_for_a_schema_one_row(self) -> None:

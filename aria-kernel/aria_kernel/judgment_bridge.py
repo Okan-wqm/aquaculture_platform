@@ -28,7 +28,12 @@ from pathlib import Path
 from typing import Any
 
 from .agent_invocations import request_anchor_sha
-from .agent_surface import JUDGE_ROLES, SUPPORTING_ROLES
+from .agent_surface import (
+    EXPERT_METHODS,
+    JUDGE_ROLES,
+    METHOD_REQUIRED_EVIDENCE,
+    SUPPORTING_ROLES,
+)
 from .confidence import confidence_in_unit_interval
 from .feedback_store import (
     CONFIDENCE_SOURCES,
@@ -176,6 +181,31 @@ def parse_typed_verdict(
     return question, parse_single_answer(question, payload)
 
 
+def folded_judge_method(
+    request: dict[str, Any], details: dict[str, Any], verdict_block: dict[str, Any],
+) -> str | None:
+    """WP-J B-1 — the METHOD the seat practiced, mint-first.
+
+    Same precedence ladder as the model (ORPHAN-HIGH-781): the MINT's
+    ``agent_method`` (what the kernel asked the seat to practice, stamped
+    from ``agent_surface.EXPERT_METHODS``) outranks the executor's dispatch
+    stamp (``details.agent_dispatch_method``), which outranks the judge's
+    own ``verdict.method`` self-report. ``None`` on legacy envelopes that
+    predate the stamp — those receipts keep the model leg of the hybrid
+    anchor rule; a method is never re-derived for them.
+
+    An unknown spelling is NOT silently dropped: it is refused by name in
+    ``validate_judge_response`` (a garbage method string is a producer
+    regression, and quietly reading it as "no method" would hide it while
+    still writing a receipt the diversity legs cannot place).
+    """
+    return (
+        request.get("agent_method")
+        or details.get("agent_dispatch_method")
+        or verdict_block.get("method")
+    )
+
+
 def stamped_confidence_source(details: dict[str, Any]) -> tuple[str, str | None]:
     """The route's stamp for where the confidence came from, and why it is refused.
 
@@ -222,6 +252,23 @@ def validate_judge_response(
     verdict_block = _verdict_field(details)
     if not verdict_block:
         return ["judge_verdict:absent"]
+    # WP-J B-1 — the folded method must be a member of the one registry or
+    # the response is refused by name; see folded_judge_method for why this
+    # is a refusal and not a silent drop.
+    method = folded_judge_method(request, details, verdict_block)
+    if method is not None and str(method) not in EXPERT_METHODS.values():
+        errors.append(f"judge_verdict.method:invalid:{method!r}")
+    # WP-J B-2 — a seat whose method names a required artifact must carry
+    # it: the method's whole point is that its answer is checkable as the
+    # product of that method (a bug hunt that names no failing input, a
+    # reproduction that names no recipe). Without the artifact the verdict
+    # is an opinion wearing a method's badge, and the arbiter's evidence
+    # ranking would have nothing to rank.
+    required = METHOD_REQUIRED_EVIDENCE.get(str(method)) if method is not None else None
+    if required is not None:
+        artifact = verdict_block.get(required)
+        if artifact is None or (isinstance(artifact, str) and not artifact.strip()):
+            errors.append(f"judge_verdict.method_evidence_missing:{required}")
     _source, source_error = stamped_confidence_source(details)
     if source_error:
         errors.append(source_error)
@@ -299,6 +346,27 @@ def _unmet_true_positive_premises(request: dict[str, Any], response: dict[str, A
         for obligation in required
         if answered.get(obligation) != "satisfied"
     ]
+
+
+def _evidence_selection_of(typed_answer) -> str:
+    """WP-J review — the stamp states only verifications the kernel performed.
+
+    ``index`` means the typed parse verified EVERY citation's quote against
+    the request's pinned excerpt bytes. A typed answer whose citations were
+    unpinned (nothing was pinned at the mint, or every excerpt was skipped —
+    ``typed_judgment`` carries those citations with ``verified=False``: the
+    quote is the judge's word) and an untyped legacy block are both ``ref``:
+    the ledger the arbiter's evidence rank reads must never advertise a
+    mechanical verification that did not happen.
+    """
+    if typed_answer is None:
+        return "ref"
+    return (
+        "index"
+        if typed_answer.evidence
+        and all(citation.verified for citation in typed_answer.evidence)
+        else "ref"
+    )
 
 
 def record_judge_verdict_from_response(
@@ -453,6 +521,11 @@ def record_judge_verdict_from_response(
         # survives only as the fallback for mock/legacy envelopes that
         # predate the stamp.
         model=details.get("agent_dispatch_model") or verdict_block.get("model"),
+        # WP-J B-1 — the METHOD beside the model, same doctrine, one ladder
+        # (folded_judge_method): mint stamp, then dispatch stamp, then the
+        # self-report. None on legacy envelopes keeps the hybrid anchor
+        # rule's model leg for those receipts.
+        method=folded_judge_method(request, details, verdict_block),
         prompt_hash=verdict_block.get("prompt_hash"),
         confidence=float(confidence) if confidence is not None else None,
         rationale=str(note),
@@ -471,7 +544,7 @@ def record_judge_verdict_from_response(
         # key — and promote_consensus_findings silently skipped it forever.
         finding_fingerprint=request.get("finding_fingerprint") or verdict_block.get("finding_fingerprint"),
         confidence_source=confidence_source if confidence is not None else None,
-        evidence_selection="index" if typed_answer is not None else "ref",
+        evidence_selection=_evidence_selection_of(typed_answer),
         # ARIA-HIGH-004 — the learning funnel joins a judgment to the request
         # it answers and to the commit that request was minted at, both from
         # the MINT (the same D1 doctrine as the group id and fingerprint

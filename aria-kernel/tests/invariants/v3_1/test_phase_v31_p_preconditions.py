@@ -90,7 +90,7 @@ class ReadonlyPathsExtensionTests(unittest.TestCase):
     """Plan ARIA-V3.1-P-1 — READONLY_PATHS trust boundary."""
 
     def test_i_v31_p_01_readonly_paths_contains_v31_additions(self) -> None:
-        from aria_kernel.implementation_safety import READONLY_PATHS
+        from aria_kernel.implementation_safety import readonly_paths
         required = {
             "tools/aria-poc/",
             "tools/aria-adapters/",
@@ -98,7 +98,7 @@ class ReadonlyPathsExtensionTests(unittest.TestCase):
             "aria-debts/",
             "aria-kernel/tests/",
         }
-        missing = required - set(READONLY_PATHS)
+        missing = required - set(readonly_paths())
         self.assertEqual(
             missing, set(),
             f"READONLY_PATHS missing V3.1-P-1 additions: {sorted(missing)}",

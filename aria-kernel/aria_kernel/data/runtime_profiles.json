@@ -1,7 +1,7 @@
 {
   "$schema": "aria/runtime-profiles/v1",
   "schema_version": 1,
-  "_doc": "Plan 032 Faz 032b — kernel-owned runtime profiles. This file is the AUTHORITY for what an ARIA agent may run as: model tier, effort, Claude tools, write scope, environment passthrough, external-write permission, per-run budget and concurrency. Agent markdown under .claude/agents/ REFERENCES a profile by id (`runtime_profile:`) and MIRRORS model/effort/tools for the Claude Code loader; a mirror that disagrees with this file fails validation, and this file lives under READONLY_PATHS + the authority hash, so an agent cannot widen its own envelope by editing prose it can reach. Operator decision 2026-09-12: the fable tier is not selected by any profile — decision nodes run on opus; MODEL_TIER_ORDER keeps the name so the tier-protection ordering stays defined; no ladder selects it (every tier is a credit leaf — an exhausted provider is requeued under its cooldown, never downgraded). ARIA-HIGH-290 (operator decision 2026-10-02): which VENDOR a role runs on is `provider_routing` below, not a profile's `model`; a profile's `model` is the tier its seat runs at on the vendor that serves that model, and on any other vendor the seat runs that vendor's model (model_fleet.route_model).",
+  "_doc": "Plan 032 Faz 032b \u2014 kernel-owned runtime profiles. This file is the AUTHORITY for what an ARIA agent may run as: model tier, effort, Claude tools, write scope, environment passthrough, external-write permission, per-run budget and concurrency. Agent markdown under .claude/agents/ REFERENCES a profile by id (`runtime_profile:`) and MIRRORS model/effort/tools for the Claude Code loader; a mirror that disagrees with this file fails validation, and this file lives under READONLY_PATHS + the authority hash, so an agent cannot widen its own envelope by editing prose it can reach. Operator decision 2026-09-12: the fable tier is not selected by any profile \u2014 decision nodes run on opus; MODEL_TIER_ORDER keeps the name so the tier-protection ordering stays defined; no ladder selects it (every tier is a credit leaf \u2014 an exhausted provider is requeued under its cooldown, never downgraded). ARIA-HIGH-290 (operator decision 2026-10-02): which VENDOR a role runs on is `provider_routing` below, not a profile's `model`; a profile's `model` is the tier its seat runs at on the vendor that serves that model, and on any other vendor the seat runs that vendor's model (model_fleet.route_model).",
   "profiles": {
     "planner": {
       "description": "Read-only planning and drafting on the most capable tier.",
@@ -64,7 +64,7 @@
       "mcp_servers": []
     },
     "implementer": {
-      "description": "Write-capable implementer. Workspace-wide write scope minus READONLY_PATHS; the ONLY profile with external_writes — which means the EXECUTOR holds a scoped delivery credential for this agent's request (delivery_credentials.hold_delivery_credentials) and pushes the published aria-impl-* branch and opens the PR itself after the spawn (ARIA-HIGH-124); inside the sandbox every push and every kernel CLI command is refused by name by CommandPolicy + hooks, and no token is present.",
+      "description": "Write-capable implementer. Workspace-wide write scope minus READONLY_PATHS; the ONLY profile with external_writes \u2014 which means the EXECUTOR holds a scoped delivery credential for this agent's request (delivery_credentials.hold_delivery_credentials) and pushes the published aria-impl-* branch and opens the PR itself after the spawn (ARIA-HIGH-124); inside the sandbox every push and every kernel CLI command is refused by name by CommandPolicy + hooks, and no token is present.",
       "model": "opus",
       "effort": "max",
       "tools": ["Read", "Grep", "Glob", "Edit", "Write", "Bash"],
@@ -98,10 +98,46 @@
       "budget_usd_per_run": 0.5,
       "max_concurrent": 1,
       "mcp_servers": ["aria"]
+    },
+    "panel_bug_hunter": {
+      "description": "WP-J B-2 read-only bug-hunt seat of the method panel (opus tier).",
+      "model": "opus",
+      "effort": "max",
+      "tools": ["Read", "Grep", "Glob"],
+      "write_scope": [],
+      "env_passthrough": [],
+      "external_writes": false,
+      "budget_usd_per_run": 0.5,
+      "max_concurrent": 3,
+      "mcp_servers": []
+    },
+    "panel_test_writer": {
+      "description": "WP-J B-2 reproduction seat: writes and runs the red test inside its sandbox worktree only; no external writes, no push.",
+      "model": "opus",
+      "effort": "max",
+      "tools": ["Read", "Grep", "Glob", "Edit", "Write", "Bash"],
+      "write_scope": ["**"],
+      "env_passthrough": ["ARIA_TOOLS_DIR", "ARIA_WORKSPACE_ROOT"],
+      "external_writes": false,
+      "budget_usd_per_run": 0.5,
+      "max_concurrent": 1,
+      "mcp_servers": []
+    },
+    "panel_impact_assessor": {
+      "description": "WP-J B-2 read-only QA-impact seat of the method panel (glm tier).",
+      "model": "glm-5.3",
+      "effort": "high",
+      "tools": ["Read", "Grep", "Glob"],
+      "write_scope": [],
+      "env_passthrough": [],
+      "external_writes": false,
+      "budget_usd_per_run": 0.5,
+      "max_concurrent": 3,
+      "mcp_servers": []
     }
   },
   "provider_routing": {
-    "_doc": "ARIA-HIGH-290 - THE provider routing table (operator decision 2026-10-02). Each dispatchable role names a ladder (human_required_adjudication names one per panel seat); a ladder lists fleet providers in the order the native admission tries them: the first eligible one runs, and a cooled (quota or auth), logged-out or refused provider is passed by name, so a ladder's second rung is its automatic failover. Z.ai glm-5.3 leads the high-volume roles and the adversarial judge; Claude leads the primary planner, the implementer, the evidence judge and the arbiter. ARIA-HIGH-434 (operator decision 2026-10-10/11): the writer ladder is anthropic then zai — Claude first by default, Z.ai's kernel-owned tool loop (tools/aria-poc/zai_tool_loop.py, the Claude writer's gate and room) when Anthropic is cooled, logged out or suspended; the worker lane rides the same ladder (runtime_profiles.worker_ladder). suspended_providers removes a provider from every ladder: [\"anthropic\"] routes every role, the writers included, to Z.ai in one edit; Codex has no write-capable runtime. Validated at load by runtime_profiles._validate_routing: every dispatchable role routed exactly once, ladders of distinct fleet providers, write-scope roles on write-admitting providers only, and each independence pair (primary and challenger planner, primary and challenger drafter, evidence and adversarial judge) led by different vendors, so the pair runs on two vendors whenever both lead vendors are available and on the one left when either is out.",
+    "_doc": "ARIA-HIGH-290 - THE provider routing table (operator decision 2026-10-02). Each dispatchable role names a ladder (human_required_adjudication names one per panel seat); a ladder lists fleet providers in the order the native admission tries them: the first eligible one runs, and a cooled (quota or auth), logged-out or refused provider is passed by name, so a ladder's second rung is its automatic failover. Z.ai glm-5.3 leads the high-volume roles and the adversarial judge; Claude leads the primary planner, the implementer, the evidence judge and the arbiter. ARIA-HIGH-434 (operator decision 2026-10-10/11): the writer ladder is anthropic then zai \u2014 Claude first by default, Z.ai's kernel-owned tool loop (tools/aria-poc/zai_tool_loop.py, the Claude writer's gate and room) when Anthropic is cooled, logged out or suspended; the worker lane rides the same ladder (runtime_profiles.worker_ladder). suspended_providers removes a provider from every ladder: [\"anthropic\"] routes every role, the writers included, to Z.ai in one edit; Codex has no write-capable runtime. Validated at load by runtime_profiles._validate_routing: every dispatchable role routed exactly once, ladders of distinct fleet providers, write-scope roles on write-admitting providers only, and each independence pair (primary and challenger planner, primary and challenger drafter, evidence and adversarial judge) led by different vendors, so the pair runs on two vendors whenever both lead vendors are available and on the one left when either is out.",
     "schema_version": 1,
     "suspended_providers": [],
     "ladders": {
@@ -129,7 +165,11 @@
         "aria-evidence-judge": "claude_first",
         "aria-adversarial-judge": "glm_first",
         "aria-consensus-arbiter": "claude_first"
-      }
+      },
+      "bug_hunt": "claude_first",
+      "reproduction_test": "claude_writer",
+      "impact_assessment": "glm_first",
+      "architecture": "glm_first"
     }
   }
 }

@@ -883,11 +883,15 @@ def read_cost_attribution(
     *,
     since_iso: str | None = None,
     base_dir: str | Path | None = None,
+    plan_id: str | None = None,
 ) -> list[dict[str, Any]]:
     """Plan ARIA-V10.4 — read cost-attribution rows from monthly shards.
 
     `since_iso` filters rows by `recorded_at >= since_iso`. None →
-    return all rows from all shards.
+    return all rows from all shards. `plan_id` (WP-J slice C) narrows to
+    one attribution identity — a judgment decision's group — so a reader
+    joins a decision's cost from the ONE ledger without a second cost
+    store; None keeps every row.
 
     Reads only the shards whose filename month is >= since's month
     (perf MED-010 — bounds scan time even after 5+ years of history).
@@ -910,6 +914,8 @@ def read_cost_attribution(
             expected_surface="cost_attribution",
         ):
             if since_iso and _before_instant(str(row.get("recorded_at", "")), since_iso):
+                continue
+            if plan_id is not None and row.get("plan_id") != plan_id:
                 continue
             rows.append(row)
     return rows

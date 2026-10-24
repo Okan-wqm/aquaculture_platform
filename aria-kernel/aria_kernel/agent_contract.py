@@ -36,6 +36,7 @@ from typing import Any, Iterable
 
 from .agent_surface import (
     DEFAULT_TARGET_AGENT_WHITELIST,
+    EXPERT_METHODS,
     INVOCATION_ROLES,
     REQUEST_ROLES,
     ROLE_TARGET_PAIRING,
@@ -74,6 +75,33 @@ RESPONSE_REQUIRED_FIELDS = (
 RESPONSE_STATUSES = ("submitted", "accepted", "rejected", "partial")
 
 SATISFACTION_VERDICTS = ("satisfied", "blocked", "contradicted")
+
+# WP-J (operator protocol steps 4-7) — the evidence class of one assertion
+# row: how the assertion's verdict is backed, ranked for the arbiter so it
+# weighs evidence instead of counting votes. Executable reproduction ranks
+# above a mechanically verified trace, which ranks above a cited (quote-
+# verified) observation, which ranks above argument; R0 is the class of an
+# assertion nothing can verify — carried, ranked last, never coerced.
+#
+#   R4  executable reproduction (a kernel-run recipe: reproduction only as
+#       {recipe_id, expected}, bound to finding.record_finding_reproduction
+#       for expected='red' and record_finding_fix_verification for 'green')
+#   R3  verified trace (each hop a cited ref + verbatim quote, re-graded at
+#       submit by the quote law)
+#   R2  cited observation (refs + verbatim quotes of the bytes read)
+#   R1  argument (prose; the default when a legacy row states no class)
+#   R0  unverifiable (no mechanically checkable content)
+EVIDENCE_CLASSES: tuple[str, ...] = ("R0", "R1", "R2", "R3", "R4")
+REPRODUCTION_EVIDENCE_CLASS = "R4"
+# The classes whose verdict is LOAD-BEARING: the row leans on cited bytes, so
+# every cited ref must carry a verbatim quote (agent_contract checks the
+# alignment here; evidence_validator re-grades the quotes at submit).
+LOAD_BEARING_EVIDENCE_CLASSES: tuple[str, ...] = ("R2", "R3")
+# What a reproduction expects the bound recipe to do. 'red' maps onto the
+# failed run that CONFIRMS a defect (finding.py record_finding_reproduction:
+# only run_status 'failed' demonstrates it); 'green' onto the SAME recipe
+# re-run clean that verifies the fix (record_finding_fix_verification).
+REPRODUCTION_EXPECTATIONS: tuple[str, ...] = ("red", "green")
 
 REASON_CLASSES = ("law", "scope", "evidence", "safety")
 
@@ -232,6 +260,15 @@ def validate_request(
     subject_ref = envelope.get("subject_ref")
     if subject_ref is not None and (not isinstance(subject_ref, str) or not subject_ref.strip()):
         raise GovernanceError("agent-request.subject_ref must be a non-empty string")
+    # WP-J B-1 — the seat's method, when the mint stamped one, is a member
+    # of the one registry (agent_surface.EXPERT_METHODS). The mint refuses
+    # an unknown method at write time; this is the contract stating the same
+    # law for the row the strict claim path re-reads.
+    agent_method = envelope.get("agent_method")
+    if agent_method is not None and (
+        not isinstance(agent_method, str) or agent_method not in EXPERT_METHODS.values()
+    ):
+        raise GovernanceError(f"agent-request.agent_method unknown: {agent_method!r}")
     if "context_source_paths" in envelope:
         from .plan_convergence import MAX_AFFECTED_PATHS
         from .snapshot import _scoped_input_path
@@ -329,6 +366,84 @@ def _validate_agreement_with_named_plan_revision(
             )
 
 
+def _validate_assertion_row(entry: dict[str, Any], *, idx: int, item_id: str) -> None:
+    """WP-J — the assertion row's evidence-class law (shape only; the submit
+    re-grade checks the bytes).
+
+    * ``evidence_class`` is optional and closed (R0..R4); absent means R1,
+      argument, the lowest ranked class, so legacy rows stay valid.
+    * ``quotes``, when present, must align by INDEX with the row's
+      ``evidence_refs`` — one verbatim, non-empty quote of at most
+      ``QUOTE_MAX_CHARS`` characters per cited ref.
+    * load-bearing rows (R2/R3) must cite refs AND quote every one of them:
+      an assertion that leans on cited bytes may not lean on bytes it did not
+      quote.
+    * ``reproduction`` exists ONLY as ``{recipe_id, expected}`` with
+      ``expected`` in ``{'red', 'green'}``; required on R4 (the reproduction
+      IS the R4 evidence) and refused on every other class, so a prose row
+      cannot borrow recipe authority.
+    """
+    from .typed_judgment import QUOTE_MAX_CHARS
+
+    where = f"satisfaction_matrix[{idx}]"
+    evidence_class = entry.get("evidence_class")
+    if evidence_class is not None and evidence_class not in EVIDENCE_CLASSES:
+        raise GovernanceError(
+            f"{where}.evidence_class_unknown: {evidence_class!r} not in {EVIDENCE_CLASSES}"
+        )
+    refs = entry.get("evidence_refs")
+    refs_list = refs if isinstance(refs, list) else []
+    quotes = entry.get("quotes")
+    if evidence_class in LOAD_BEARING_EVIDENCE_CLASSES:
+        # Root cause first: a load-bearing row that cites nothing violates the
+        # class law; its quotes cannot align with refs it never declared.
+        load_bearing = bool(refs_list) and bool(quotes)
+        if not load_bearing:
+            raise GovernanceError(
+                f"{where}[{item_id}].quote_required_on_load_bearing: evidence_class "
+                f"{evidence_class} must cite evidence_refs and quote every one of them"
+            )
+    if quotes is not None:
+        aligned = (
+            isinstance(quotes, list)
+            and len(quotes) == len(refs_list)
+            and all(
+                isinstance(quote, str) and quote.strip() and len(quote) <= QUOTE_MAX_CHARS
+                for quote in quotes
+            )
+        )
+        if not aligned:
+            raise GovernanceError(
+                f"{where}[{item_id}].quotes_must_align: quotes must be a list of non-empty "
+                f"strings of at most {QUOTE_MAX_CHARS} characters, one per evidence_ref"
+            )
+    reproduction = entry.get("reproduction")
+    if reproduction is not None:
+        shape_ok = (
+            isinstance(reproduction, dict)
+            and set(reproduction) == {"recipe_id", "expected"}
+            and isinstance(reproduction.get("recipe_id"), str)
+            and bool(reproduction.get("recipe_id", "").strip())
+            and reproduction.get("expected") in REPRODUCTION_EXPECTATIONS
+        )
+        if not shape_ok:
+            raise GovernanceError(
+                f"{where}[{item_id}].reproduction_invalid: must be exactly "
+                f"{{'recipe_id': <non-empty string>, 'expected': 'red'|'green'}}"
+            )
+        if evidence_class != REPRODUCTION_EVIDENCE_CLASS:
+            raise GovernanceError(
+                f"{where}[{item_id}].reproduction_requires_r4: a reproduction claim "
+                f"declares its class; evidence_class must be "
+                f"{REPRODUCTION_EVIDENCE_CLASS!r}, not {evidence_class!r}"
+            )
+    elif evidence_class == REPRODUCTION_EVIDENCE_CLASS:
+        raise GovernanceError(
+            f"{where}[{item_id}].reproduction_required_on_r4: evidence_class R4 is an "
+            f"executable reproduction and must bind one as {{'recipe_id', 'expected'}}"
+        )
+
+
 def _validate_commit_contract(envelope: dict[str, Any]) -> None:
     """ARIA-HIGH-104 (4) — an implementation envelope states its commit contract."""
     from .plan_origin import validate_commit_contract
@@ -415,6 +530,7 @@ def validate_response(
                 field=f"satisfaction_matrix[{item_id}].evidence_refs",
                 allow_empty=False,
             )
+        _validate_assertion_row(entry, idx=idx, item_id=item_id)
         matrix_entries.append(entry)
 
     rationale = envelope.get("rationale")
@@ -517,6 +633,14 @@ def render_response_validator_contract() -> str:
         "- `verdict` = `blocked` or `contradicted` REQUIRES a non-empty `note` (the reason, prose) AND",
         "  a non-empty `evidence_refs` list. `evidence` is not read; put the reason in `note`.",
         f"- Banned phrases anywhere in `note` or `rationale` reject the envelope: {banned}.",
+        "- Assertion rows (WP-J): optional `evidence_class` ∈ "
+        f"{{{', '.join(EVIDENCE_CLASSES)}}} ranks how the verdict is backed — R4 executable",
+        "  reproduction > R3 verified trace > R2 cited observation > R1 argument (the default when",
+        "  absent) > R0 unverifiable. Load-bearing rows (R2, R3) MUST carry `quotes`: one verbatim",
+        "  non-empty string per `evidence_ref`, copied from the bytes the request pinned (the",
+        "  kernel re-checks every quote at submit). A reproduction claim exists ONLY as",
+        f" `{{'recipe_id': <id>, 'expected': {'|'.join(REPRODUCTION_EXPECTATIONS)}}}`, required on R4 and refused",
+        "  elsewhere; the kernel runs the recipe itself and never takes a red or green from prose.",
         f"- A refusal is a separate `{REFUSAL_SCHEMA}` envelope with `reason_class` ∈ {{{reasons}}}.",
         "  An implementation refusal may add `enabling_surfaces` (repo paths it needed outside its scope).",
         "- `output_path`, when present, must equal the request's `expected_output_path`.",

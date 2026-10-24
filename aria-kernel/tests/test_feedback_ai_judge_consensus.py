@@ -116,6 +116,9 @@ class ConsensusGateFilterTests(unittest.TestCase):
             judge_id="aria-consensus-arbiter",
             model=None,
             confidence=0.85,
+            # WP-J review — an anchor stands on code evidence: the rows that
+            # must suppress cite the code they judged.
+            evidence_refs=["src/app.ts:10"],
             finding_fingerprint=fingerprint,
             judge_count=judges,
             judges_voted=judges if voted is None else voted,
@@ -205,6 +208,7 @@ class ConsensusGateFilterTests(unittest.TestCase):
             source_type="ai_consensus", judge_id="aria-consensus-arbiter",
             model=None, confidence=0.85,
             note="consensus from 3 judges",
+            evidence_refs=["src/app.ts:10"],
             finding_fingerprint="fp-consensus",
             judge_count=ANCHOR_MIN_JUDGE_COUNT,
             judges_voted=ANCHOR_MIN_JUDGE_COUNT,

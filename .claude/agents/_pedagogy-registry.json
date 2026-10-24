@@ -91,6 +91,11 @@
       "pedagogy_tier": 1,
       "rationale": "Queue-projection utility; machine-parsed envelope contract; bare imperatives only."
     },
+    "aria-bug-hunter": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 3,
+      "rationale": "WP-J B-2 read-only method seat of the judging panel (method bug_hunt, runtime profile panel_bug_hunter). Shares the evidence and adversarial judges' JUDGE-DIGEST preamble; its prohibitions are about method and evidence quality (a concrete failing input or trace, never an argument alone), which benefit from narrative extrapolation. No safety or self-modification rules."
+    },
     "aria-challenger-drafter": {
       "consequence_leak_protections": [],
       "pedagogy_tier": 2,
@@ -139,6 +144,11 @@
       "pedagogy_tier": 3,
       "rationale": "Read-only fixture curator. Style prohibitions about TP/FP threshold + operator-review-only-write-path benefit from narrative."
     },
+    "aria-impact-assessor": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 3,
+      "rationale": "WP-J B-2 read-only method seat of the judging panel (method impact_assessment, runtime profile panel_impact_assessor). Shares the judges' JUDGE-DIGEST preamble; its prohibitions are about naming a user- or system-visible consequence rather than a code smell, which benefit from narrative extrapolation. No safety or self-modification rules."
+    },
     "aria-implementer": {
       "consequence_leak_protections": [],
       "pedagogy_tier": 3,
@@ -158,6 +168,11 @@
       "consequence_leak_protections": [],
       "pedagogy_tier": 3,
       "rationale": "Maintenance-bound prompt renderer. The agent that AUTHORS narrative pedagogy must itself BE narrative (recursive coherence). No safety or self-modification rules in scope; renders other agents' prompts but does not execute them."
+    },
+    "aria-test-writer": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 3,
+      "rationale": "WP-J B-2 reproduction seat of the judging panel (method reproduction_test, runtime profile panel_test_writer): the one judge seat with Write+Edit+Bash, confined to its sandbox worktree with no external writes. Tier-3 narrative like the other writer (aria-implementer): each prohibition (write only inside the sandbox, no network, never commit) carries its reason in-context; the kernel-side anchors are the runtime profile's write scope and WRITE_TIER_AGENTS."
     },
     "aria-worker": {
       "consequence_leak_protections": [],

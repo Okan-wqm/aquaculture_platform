@@ -17,6 +17,7 @@ exactly the pattern below.
 """
 from __future__ import annotations
 
+import functools
 import re
 from pathlib import Path
 
@@ -214,6 +215,7 @@ def matches_repo_glob(path: str, pattern: str) -> bool:
     return any(_glob_match(path, candidate) for candidate in expand_repo_glob(pattern))
 
 
+@functools.lru_cache(maxsize=8192)
 def expand_repo_glob(pattern: str) -> tuple[str, ...]:
     """THE brace expansion of a repo glob: the brace-free alternatives
     ``matches_repo_glob`` matches ``pattern`` as, in its lexical repo form.
@@ -226,8 +228,31 @@ def expand_repo_glob(pattern: str) -> tuple[str, ...]:
     ``_expand_braces``): a nested group and an unbalanced brace stay in the
     alternative literally, so a caller that requires brace-free alternatives
     refuses them instead of guessing.
+
+    Cached by pattern (the expansion is a pure function of the text): the
+    authority set's judge matches each path against every member, and a
+    member is one brace glob over the standard library's module names
+    (B1 round 4), so expanding per match would dominate every check.
     """
     return tuple(_expand_braces(lexical_repo_path(pattern)))
+
+
+def repo_glob_directory(pattern: str) -> str | None:
+    """The directory every path ``pattern`` can match lies under: the text
+    before its first wildcard (``*``, ``?``, ``[``, ``{``), cut back to its
+    last ``/`` — ``aria-kernel/**/conftest.py`` lies under ``aria-kernel``.
+    ``""`` when the pattern can match at the repository root (``*.py``,
+    ``*/__init__.*``); None when it has no wildcard and names one path.
+
+    PLAN-v2 B1 — two readers need the same answer: the implementer room
+    projects an authority member to a read-only mount over this directory,
+    and the authority set's derivation reads a checkout's Python files only
+    under it.
+    """
+    cut = min((pattern.index(ch) for ch in "*?[{" if ch in pattern), default=None)
+    if cut is None:
+        return None
+    return pattern[:cut].rpartition("/")[0]
 
 
 def typed_alternatives(glob: str) -> tuple[str, ...]:
@@ -396,6 +421,7 @@ __all__ = [
     "lexical_repo_path",
     "matches_repo_glob",
     "normalize_repo_relpath",
+    "repo_glob_directory",
     "resolve_repo_relpath",
     "typed_alternatives",
 ]

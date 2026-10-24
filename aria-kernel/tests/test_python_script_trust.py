@@ -23,9 +23,9 @@ from pathlib import Path
 from aria_kernel import implementation_safety as impl
 from aria_kernel.hooks import decide_pre_tool
 from aria_kernel.implementation_safety import (
-    READONLY_PATHS,
     TRUSTED_PYTHON_SCRIPT_PREFIXES,
     BashAllowlistMiss,
+    readonly_paths,
     verify_bash_command_allowed,
 )
 
@@ -126,7 +126,7 @@ class TrustedPrefixesAreReadOnlyTests(unittest.TestCase):
         ).stdout.splitlines()
         for prefix in TRUSTED_PYTHON_SCRIPT_PREFIXES:
             with self.subTest(prefix=prefix):
-                self.assertTrue(any(ro.endswith("/") and prefix.startswith(ro) for ro in READONLY_PATHS), prefix)
+                self.assertTrue(any(ro.endswith("/") and prefix.startswith(ro) for ro in readonly_paths()), prefix)
                 self.assertTrue(any(path.startswith(prefix) for path in tracked), prefix)
 
 

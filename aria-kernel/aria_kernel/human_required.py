@@ -830,7 +830,8 @@ CONSENSUS_UNCERTAINTY_SEVERITY = {
     # Emitted since Plan 024 and dropped as benign until it was named here.
     "observer_identity_missing": "HIGH",
     # Typed-judgment plan Phase 6 — the agreeing judges did not include two
-    # calibrated judges of distinct models. Labelling work, not adjudication:
+    # distinct calibrated judge seats (PLAN-v2 F0.8: the ONE seat law,
+    # feedback_store.distinct_judge_seats). Labelling work, not adjudication:
     # the label queue reads it first; the sweep records at most
     # `max_uncalibrated_escalations_per_cycle` of them per sweep so the day
     # `enforce` switches on cannot flood the escalation ledger.

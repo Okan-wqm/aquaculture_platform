@@ -728,9 +728,12 @@ class StoredLoginUnderThePasswdHomeTests(unittest.TestCase):
             *self.probe.GhCliSource.every_credential(env=env, tools=tools),
             *self.probe.GitRemoteSource.every_credential(env=env, tools=tools)]}
         self.assertEqual(sorted(sources), sorted([*expected, "git_https:job"]))
+        # R6-2: the probe's own ssh sources also carry the one config-file pin.
+        pinned = ("git_ssh", "git_ssh:SSH_AUTH_SOCK")
         for name, variable in expected.items():
             with self.subTest(source=name):
-                self.assertEqual(sources[name], {**base, **({variable: env[variable]} if variable else {})})
+                self.assertEqual(sources[name], {**base, **({variable: env[variable]} if variable else {}),
+                                                 **(self.probe.CONFIG_FILES_OFF if name in pinned else {})})
         self.assertEqual(sources["git_https:job"], env, "the job source runs under the job's env as a job sees it")
 
     def _shadowing_tools(self) -> Path:
@@ -832,6 +835,7 @@ class GitSshUnderEnvBorneConfigTests(unittest.TestCase):
         self.addCleanup(scratch.cleanup)
         self.root = Path(scratch.name)
         home, bin_dir = self.root / "passwd-home", self.root / "bin"
+        self.home = home
         home.mkdir()
         bin_dir.mkdir()
 
@@ -908,6 +912,36 @@ class GitSshUnderEnvBorneConfigTests(unittest.TestCase):
                 for value in variables.values():
                     if len(value) > 1:
                         self.assertNotIn(value, out.getvalue())
+
+    def test_a_passwd_home_insteadof_does_not_move_git_ssh_off_ssh(self) -> None:
+        # B0 corrective round 6, R6-2 (ssot SSOT-R4R3-1, p04 E): git_ssh read
+        # the passwd home's .gitconfig and /etc/gitconfig, so a common
+        # insteadOf for git@github.com: there moved it off ssh with no env
+        # file at all, while a job bypassing that config reached the vault.
+        import contextlib
+        import io
+
+        (self.home / ".gitconfig").write_text(self.config.read_text(encoding="utf-8"), encoding="utf-8")
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            status = self.probe.main(["--app-id", "1", "--installation-id", "2", "--app-private-key",
+                                      str(self.root / "unused.pem")])
+        report = json.loads(out.getvalue())
+        self.assertEqual((status, report["verdict"]), (1, "red"), report)
+        self.assertEqual({r["source"]: r["status"] for r in report["sources"]}["git_ssh"],
+                         self.probe.REACHABLE, report["sources"])
+
+    def test_the_probes_own_ssh_sources_read_no_git_config_file(self) -> None:
+        # R6-2: beside the probe's GIT_SSH_COMMAND, its ssh sources pin both
+        # config files off: neither holds an ssh credential for them (ssh
+        # reads ~/.ssh itself), so a file's only effect was the rewrite.
+        sources = {source.name: source.env for source in self.probe.GitRemoteSource.every_credential(
+            env={"PATH": "/usr/bin", "SSH_AUTH_SOCK": str(self.root / "agent")}, tools=_tools(self.probe))}
+        for name in ("git_ssh", "git_ssh:SSH_AUTH_SOCK"):
+            with self.subTest(source=name):
+                self.assertEqual({k: sources[name].get(k) for k in ("GIT_CONFIG_GLOBAL", "GIT_CONFIG_NOSYSTEM")},
+                                 {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"})
+        self.assertNotIn("GIT_CONFIG_GLOBAL", sources["git_https:stored"], "the stored helper's place is asked")
 
 
 if __name__ == "__main__":

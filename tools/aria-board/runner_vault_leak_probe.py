@@ -73,6 +73,18 @@ handed an askpass of the probe's: each runs with ``GIT_TERMINAL_PROMPT=0``
 (a job has no terminal either), so an askpass git finds is asked, and none
 found reads as no credential.
 
+NO CONFIG FILE MOVES THE PROBE'S SSH (B0 corrective round 6, R6-2). The
+allow-list keeps the environment from moving ``git_ssh``, but git also reads
+its config FILES — ``/etc/gitconfig`` and the passwd home's ``.gitconfig`` —
+and a common ``url.<x>.insteadOf = git@github.com:`` there rewrote the
+probe's ssh URL with no env file at all, while a job bypassing that config
+reached the vault with the uid's key. Those files hold no ssh credential for
+these sources (ssh reads ``~/.ssh`` itself; the probe's ``GIT_SSH_COMMAND``
+overrides ``core.sshCommand``), so ``git_ssh`` and ``git_ssh:SSH_AUTH_SOCK``
+carry :data:`CONFIG_FILES_OFF` (``GIT_CONFIG_GLOBAL=/dev/null``,
+``GIT_CONFIG_NOSYSTEM=1``) beside their ``GIT_SSH_COMMAND`` pin.
+``git_https:stored*`` never carries it: its config file is the place it asks.
+
 THE PROBE'S OWN TOOLS (B0 corrective round 6, R6-3). The runner's ``.env``
 is the runner uid's to write, so a ``PATH`` in it could put a directory of
 its own first and replace every bare ``gh``, ``git`` or ``ssh`` the probe ran
@@ -393,6 +405,14 @@ def credential_environment(env: dict[str, str], *, variable: str | None = None) 
     return asked
 
 
+# THE pin that keeps git's configuration FILES — the system file and the
+# global one at the default place — from deciding a git source that asks a
+# credential of its own (B0 corrective round 6, R6-2): the probe's ssh
+# sources, whose URL an ``insteadOf`` there would rewrite. Never applied to
+# the ``:job`` composites, nor to ``git_https:stored*``, whose config file is
+# the place they ask.
+CONFIG_FILES_OFF = {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+
 # The tokens gh would use for github.com, each asked on its own (gh prefers
 # GH_TOKEN, then GITHUB_TOKEN, over its hosts.yml login).
 _GH_TOKEN_CREDENTIALS = ("GH_TOKEN", "GITHUB_TOKEN")
@@ -482,7 +502,9 @@ class GitRemoteSource:
     no job variable can reset a helper or move ssh to another URL by
     ``insteadOf``. ``git_ssh`` reads the passwd home's keys (ssh reads them
     whatever HOME says) and ``git_ssh:SSH_AUTH_SOCK`` the agent the job's
-    environment names. ``git_https:job`` is the one source under the job's
+    environment names. Round 6, R6-2: a config FILE at the default place
+    could still rewrite their URL, so both also carry
+    :data:`CONFIG_FILES_OFF`. ``git_https:job`` is the one source under the job's
     environment exactly as a job sees it: its ``GIT_ASKPASS``,
     ``GIT_CONFIG_*`` and ``GIT_CONFIG_PARAMETERS`` are credentials or
     configuration a job's git uses, so they are asked, never overwritten.
@@ -500,7 +522,7 @@ class GitRemoteSource:
             self.name = "git_https:job"
         elif transport == "ssh" and credential == GIT_STORED_LOGIN and (
                 location is None or location in _SSH_LOGIN_LOCATIONS):
-            self.env = credential_environment(env, variable=location)
+            self.env = {**credential_environment(env, variable=location), **CONFIG_FILES_OFF}
             self.name = "git_ssh" + (f":{location}" if location is not None else "")
         else:
             raise ValueError(f"{transport}:{credential}:{location}")

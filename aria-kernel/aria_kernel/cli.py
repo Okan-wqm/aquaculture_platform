@@ -19,7 +19,7 @@ def _full_git_sha(value: str) -> str:
         raise argparse.ArgumentTypeError("target SHA must be a full lowercase git object id (40 or 64 hex digits)")
     return value
 
-from aria_kernel.cycle import run_cycle
+from aria_kernel.cycle import CYCLE_MODES, run_cycle
 from aria_kernel.agent_invocations import (
     DEFAULT_HEARTBEAT_EXTEND_SECONDS,
     DEFAULT_LEASE_SECONDS,
@@ -900,6 +900,13 @@ def build_parser() -> argparse.ArgumentParser:
     cycle_run.add_argument("--cycle-id", required=True)
     cycle_run.add_argument("--discovery-only", action="store_true")
     cycle_run.add_argument("--shadow-only", action="store_true")
+    # WP-D1 — `--mode change_review` reviews one change (base, head) named by
+    # the caller; the default stays `standard`, the nightly's invocation.
+    cycle_run.add_argument("--mode", choices=CYCLE_MODES, default="standard")
+    cycle_run.add_argument("--change-base", default=None,
+                           help="change_review: the commit the change starts from")
+    cycle_run.add_argument("--change-head", default=None,
+                           help="change_review: the commit the change ends at")
     cycle_run.add_argument(
         "--progress",
         action="store_true",
@@ -3881,6 +3888,9 @@ def _main(argv: list[str] | None = None) -> int:
                         base_dir=args.tools_dir,
                         discovery_only=args.discovery_only,
                         shadow_only=args.shadow_only,
+                        mode=args.mode,
+                        change_base=args.change_base,
+                        change_head=args.change_head,
                     ),
                     indent=2,
                     sort_keys=True,
@@ -6779,19 +6789,21 @@ def _main(argv: list[str] | None = None) -> int:
 
     if args.command == "specialist-review":
         if args.specialist_review_command == "dry-run":
+            from .agent_routing import load_routing_table
             from .specialist_review_runner import (
                 _CROSS_CUTTING_SPECIALISTS,
-                _DOMAIN_TOUCH_MAP,
                 _TIER_1_SPECIALISTS,
             )
             from .agent_invocations import ROLES
             agents_dir = Path(args.agents_dir).resolve()
             inventory_findings: list[dict[str, Any]] = []
-            # Verify every specialist named in the touch-map exists as
-            # an agent .md file under .claude/agents.
+            # Verify every specialist the routing table routes to (the one
+            # path -> agent map, SE-2; it sits at <repo>/.claude/shared/
+            # beside <repo>/.claude/agents/) exists as an agent .md file.
             all_specialists: set[str] = set(_CROSS_CUTTING_SPECIALISTS)
-            for agents in _DOMAIN_TOUCH_MAP.values():
-                all_specialists.update(agents)
+            for row in load_routing_table(agents_dir.parents[1]):
+                all_specialists.update(row["primary"])
+                all_specialists.update(row["also_notify"])
             all_specialists.update(_TIER_1_SPECIALISTS)
             for agent_name in sorted(all_specialists):
                 if ":" in agent_name:

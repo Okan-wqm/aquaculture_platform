@@ -70,6 +70,12 @@
       "tools/aria-adapters/lint-rules-adapter.ts"
     ],
     "cwd": ".",
+    "repo_local_dependencies": [
+      "node_modules/eslint/package.json",
+      "node_modules/@typescript-eslint/parser/package.json",
+      "node_modules/eslint-plugin-security/package.json",
+      "node_modules/eslint-plugin-sonarjs/package.json"
+    ],
     "timeout_ms": 1500000,
     "stdin_json": true,
     "node_max_old_space_mb": 4096

@@ -21,6 +21,7 @@ from aria_kernel.feedback_store import record_operator_feedback
 from aria_kernel.ledger import append_jsonl as _append_jsonl
 from aria_kernel.tool_health import runs_path
 from aria_kernel.tool_registry import ensure_tools_binding, register_tool
+from tests._helpers.routing_fixture import write_routing_table
 
 
 def append_jsonl(path, record):
@@ -48,6 +49,9 @@ class AgentGenesisFoundationTests(unittest.TestCase):
             ),
             encoding="utf-8",
         )
+        # The workspace's routing table, the one path -> agent map (SE-2):
+        # a gap's related agents come from it, not from frontmatter scopes.
+        write_routing_table(self.root, {"apps/auth-service/**": ("auth-security-expert", "")})
         # A draft's scope is the root of every project its evidence lies in,
         # over the store's map (SE-1 round 2): the store declares its workspace.
         ensure_tools_binding(self.tools_dir, workspace_root=self.root)

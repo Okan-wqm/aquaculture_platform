@@ -7,6 +7,7 @@ from typing import Any
 
 from .burn_in import burn_in_report_schema
 from .contract_digest import render_judge_digest
+from .ownership_atlas import build_atlas, render_atlas
 from .state_manifest import iter_surfaces
 from .workflow_contracts import WORKFLOW_CONTRACTS, generated_workflow_inventory
 
@@ -60,7 +61,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Render generated ARIA docs SSoT artifacts.")
     parser.add_argument(
         "artifact",
-        choices=("burn-in-schema", "runtime-inventory", "workflow-inventory", "judge-digest"),
+        choices=("burn-in-schema", "runtime-inventory", "workflow-inventory", "judge-digest", "ownership-atlas"),
     )
     parser.add_argument("--workspace-root", default=".")
     args = parser.parse_args(argv)
@@ -71,6 +72,9 @@ def main(argv: list[str] | None = None) -> int:
     elif args.artifact == "judge-digest":
         # E17-a — judge contract digest (İ1: one generated-docs CLI family).
         print(render_judge_digest(args.workspace_root), end="")
+    elif args.artifact == "ownership-atlas":
+        # F0.9b — the ownership atlas, one more render of the same CLI family.
+        print(render_atlas(build_atlas(Path(args.workspace_root))), end="")
     else:
         print(generated_workflow_inventory(args.workspace_root), end="")
     return 0

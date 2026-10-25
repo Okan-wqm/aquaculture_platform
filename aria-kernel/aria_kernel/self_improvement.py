@@ -38,6 +38,7 @@ from pathlib import Path
 from collections.abc import Iterable
 from typing import Any, Literal, NoReturn
 
+from .agent_routing import ROUTING_INPUT_DIR
 from .artifact_safety import scrub_text
 from .authority_closure import BOARD_TOOLS_RELPATH, ExecutionClosure, import_closure
 from .canonical_path import matches_repo_glob, repo_glob_directory
@@ -83,8 +84,9 @@ SIGNAL_REMEDIES: dict[str, str] = {
     # ARIA-LOW-550 — a doctor organ failing on a fact of the HOST the kernel
     # runs on (`HOST_ORGANS`): no `claude` binary or one below the floor, no
     # provider credential, no write-capable sandbox backend, too little disk,
-    # a gateway daemon that stopped beating. The answer is an operator's on
-    # that host (install, provision, restart), never a change under
+    # a gateway daemon that stopped beating, a workspace without a package an
+    # adapter's runner declares. The answer is an operator's on that host
+    # (install, provision, restart), never a change under
     # `SELF_CHANGE_ALLOWED_PREFIXES`, so it is announced (the organ's FAIL,
     # `doctor_unhealthy`, the CI step's `::error`) and never minted.
     "host_fault": ANNOUNCE_REMEDY,
@@ -110,8 +112,12 @@ SELF_CHANGE_SIGNAL_KINDS: tuple[str, ...] = tuple(kind for kind, remedy in SIGNA
 # ARIA-LOW-550 — the organs that read the host rather than ARIA's code or
 # store. The first four are `run_doctor`'s `host_checks`, run whether or not a
 # store is bound; `gateway_heartbeat_fresh` reads the store but judges the
-# daemon process.
-HOST_ORGANS: tuple[str, ...] = ("providers", "sandbox_backend", "claude_cli", "habitat", "gateway_heartbeat_fresh")
+# daemon process; `adapter_dependencies` (ARIA-MEDIUM-735) reads the store's
+# runners but judges the workspace's installed node_modules, which `npm ci`
+# on that host provides.
+HOST_ORGANS: tuple[str, ...] = (
+    "providers", "sandbox_backend", "claude_cli", "habitat", "gateway_heartbeat_fresh", "adapter_dependencies",
+)
 DOCTOR_ORGAN_SIGNAL_KINDS: dict[str, str] = {
     "notifications": "config_missing",
     "deadlines": "deadline_due",
@@ -444,6 +450,15 @@ TEST_COLLECTION_MEMBERS: tuple[str, ...] = (
 TRUST_BOUNDARY_RENDERERS: tuple[str, ...] = tuple(f"{_KERNEL}{name}.py" for name in (
     "agent_invocations", "untrusted_tree", "text_safety",
 ))
+# Routing inputs (service-expertise SE-2, SK-01): the orchestrator routing
+# table is the ONE path -> agent map, and it picks the merge-time experts of
+# ARIA's own implementation PRs (Gate C, expert_review_gate). A change that
+# could edit it could choose its own reviewers, so the directory its owner
+# reads (`agent_routing.ROUTING_INPUT_DIR`) is a member: every file there,
+# including one a change ADDS. Named by its owner's constant, never copied.
+ROUTING_INPUT_MEMBERS: tuple[str, ...] = (f"{ROUTING_INPUT_DIR}**",)
+
+
 def _module_name_members(path: str) -> tuple[str, ...]:
     """A Python module member as every file the importer can load under its
     NAME. Python resolves `aria_kernel.self_revert` by name: a package
@@ -497,7 +512,8 @@ def declared_authority_members() -> tuple[str, ...]:
     boundary modules ∪ test collection (the pytest ini candidates, every
     conftest.py, the collection plugins, validation*.py, the start-up hooks,
     the waiver manifests, the closure baseline, aria-kernel/tests/) ∪ the
-    trust-boundary renderers, each module by its name."""
+    trust-boundary renderers, each module by its name ∪ the routing inputs
+    (SE-2)."""
     named = (
         *(_authority_surface_glob(surface) for surface in AUTHORITY_SURFACES),
         f"{BOARD_TOOLS_RELPATH}/**",
@@ -508,6 +524,7 @@ def declared_authority_members() -> tuple[str, ...]:
         *("/".join(manifest.relpath) for manifest in WAIVER_MANIFESTS),
         "/".join(CLOSURE_BASELINE_RELPATH),
         *TRUST_BOUNDARY_RENDERERS,
+        *ROUTING_INPUT_MEMBERS,
     )
     return tuple(dict.fromkeys(glob for member in named for glob in _member_globs(member)))
 
@@ -1111,7 +1128,7 @@ def propose_self_change(*, mission_id: str, base_dir: str | Path | None, workspa
 
 __all__ = ["ADAPTATION_DUE", "ADAPTATION_KINDS", "ADAPTATION_SIGNAL_KINDS", "ANNOUNCE_REMEDY", "AUTHORITY_SURFACES", "OPERATOR_CONDITION",
            "BOARD_PLANNED_MODULES", "BOARD_SEAT_PROMPTS", "KERNEL_PACKAGE_RELPATH", "KERNEL_SUITE_ROOT",
-           "IMPORT_ROOT_MEMBERS", "KERNEL_TESTS_GLOB", "RAIL_MODULES", "SUITE_COLLECT_ARGV", "SUITE_COLLECTOR", "SUITE_RUNNER",
+           "IMPORT_ROOT_MEMBERS", "KERNEL_TESTS_GLOB", "RAIL_MODULES", "ROUTING_INPUT_MEMBERS", "SUITE_COLLECT_ARGV", "SUITE_COLLECTOR", "SUITE_RUNNER",
            "TEST_COLLECTION_MEMBERS", "TEST_COLLECTION_TIMEOUT_SECONDS", "TRUST_BOUNDARY_RENDERERS",
            "declared_authority_members", "derived_authority_set", "in_authority_set", "invariants_only_grow",
            "kernel_authority_set",

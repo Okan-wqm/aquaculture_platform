@@ -20,8 +20,8 @@ calls, in the cycle's order, and nothing else:
 the identities the producers stamped (request ids, run ids, fingerprint, tool
 version, fixture run, calibration report ids, target commit) and name a stall
 where work stops. The negative cases are the four the closure plan names:
-a consensus without a fingerprint, a two-judge (non-anchor) consensus, a
-stale fixture corpus, and an upstream stage of ten with nothing downstream.
+a consensus without a fingerprint, a two-judge (non-anchor) consensus (which
+the promoter refuses too: F2.3, one acceptance bar), a stale fixture corpus, and an upstream stage of ten with nothing downstream.
 
 Only the judges' answers and the operator's GitHub act are stand-ins (no
 model, no network): the answers enter through the production bridge, the act
@@ -294,17 +294,27 @@ class LearningFunnelEndToEndTests(_FunnelCase):
         exercised on the way, while the tool is still SHADOW."""
         funnel = _Funnel(self.parent)
         funnel.run_adapter(5)
-        # The cycle's order: the pair's consensus is promoted in the tick it
-        # settles; the arbiter that makes it an ANCHOR answers on a later one.
+        # The cycle's order: the promoter runs in the tick the pair settles;
+        # the arbiter that makes it an ANCHOR answers on a later one.
         funnel.judge_pair()
         first = funnel.promote_findings()
-        self.assertEqual(first["promoted_count"], 5, first["skipped"])
-        # Negative: a two-judge agreement is not ground truth. Promotion is
-        # deliberately not anchor-gated (a promoted finding is a work item);
-        # the LEARNING funnel is, so nothing advances past the requests yet.
+        # F2.3 — one acceptance bar: a two-judge agreement is not ground
+        # truth, so the promoter refuses it by name, and funnel_health and
+        # the promoter agree that nothing advances past the requests yet.
+        self.assertEqual(first["promoted_count"], 0, first["promoted"])
+        self.assertEqual({skip["reason"] for skip in first["skipped"]}, {"not_ground_truth"})
         pair = funnel.health().counts
         self.assertEqual((pair["judge_request"], pair["consensus"], pair["promoted"]), (5, 0, 0))
         funnel.judge_anchor()
+        # The anchor re-settles at three seats: the promoter promotes exactly
+        # what the funnel counts as an accepted consensus, at the target.
+        second = funnel.promote_findings()
+        anchored = funnel.health().counts
+        self.assertEqual(second["promoted_count"], 5, second["skipped"])
+        self.assertEqual(
+            (anchored["consensus"], anchored["promoted"]),
+            (second["promoted_count"], second["promoted_count"]),
+        )
         funnel.refresh_fixtures()
         calibration = funnel.label_and_calibrate()
         self._active_refuses_missing_stale_and_mismatched_evidence(funnel)

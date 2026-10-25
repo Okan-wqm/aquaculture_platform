@@ -11,8 +11,13 @@ plan-candidate via scan_f_findings) and never re-judged again.
 Contract discipline (verified against finding.emit_finding):
 * claim text is CONSTRUCTED from structured fields only — judge free text
   never reaches the banned-phrase gate;
-* evidence refs are repo-file paths only, pre-checked for existence so a
-  ledger/self-output ref can never poison the emission;
+* F2.3 (PLAN-v2 §2 'Bulgu kabul çıtası') — ONE acceptance bar: a consensus
+  row promotes only when it is ground truth (``feedback_store.is_ground_truth_row``,
+  the anchor) AND every ref it stands on is repo_verified by
+  ``evidence_trust.classify_evidence_ref`` at the row's own ``target_sha``
+  (the commit the judges judged). Fail-closed per row: a row that fails the
+  bar is refused by name and the emission (verifying at that same commit)
+  never raises over evidence, so one bad ref cannot stop a later row;
 * claim type and severity come from the rule's manifest contract
   (ARIA-MEDIUM-326): the contract's claim_type, and the consensus severity
   bounded by the contract's severity_cap and the claim type's floor;
@@ -26,9 +31,11 @@ from pathlib import Path
 from typing import Any
 
 from .adapter_findings import adapter_findings_by_fingerprint
-from .evidence_trust import tool_evidence_refusal
+from .evidence_probe import GitProbeSession
+from .evidence_trust import classify_evidence_ref, tool_evidence_refusal
 from .feedback_store import (
     append_jsonl,
+    is_ground_truth_row,
     load_feedback,
     load_jsonl,
     promotions_path,
@@ -77,22 +84,21 @@ def promotion_row(
     }
 
 
-def _repo_file_refs(row: dict[str, Any], repo_root: Path) -> list[str]:
-    """Evidence refs that resolve to real repo files (path[:line])."""
-    refs: list[str] = []
-    for ref in row.get("evidence_refs") or []:
-        if not isinstance(ref, str) or not ref.strip():
-            continue
-        path_part = ref.split(":", 1)[0]
-        candidate = (repo_root / path_part)
-        try:
-            resolved = candidate.resolve()
-            resolved.relative_to(repo_root.resolve())
-        except (OSError, ValueError):
-            continue
-        if resolved.is_file():
-            refs.append(ref)
-    return refs
+def _unverified_at_target(refs: list[str], *, repo_root: Path, target_sha: str | None) -> dict[str, str]:
+    """``{ref: trust_grade}`` for every ref ``evidence_trust`` does not grade
+    repo_verified at ``target_sha`` — one probe session for the row's
+    decision. A row naming no target grades ``baseline_unavailable`` or
+    ``missing``: nothing was verified, so it is refused (unknown is never
+    green)."""
+    session = GitProbeSession()
+    grades = {
+        ref: classify_evidence_ref(
+            ref, workspace_root=repo_root, source_hint="repo_source",
+            context="finding_promotion", target_sha=target_sha, probe_session=session,
+        ).trust_grade
+        for ref in refs
+    }
+    return {ref: grade for ref, grade in grades.items() if grade != "repo_verified"}
 
 
 def _subject_ref(finding: dict[str, Any]) -> str:
@@ -155,10 +161,17 @@ def promote_consensus_findings(
     promoted: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
 
-    pending = [
-        row for row in load_feedback(base_dir=root)
-        if row.get("source_type") == "ai_consensus" and row.get("verdict") == "true_positive"
-    ]
+    # The rows this lane reads: consensus true_positives. Which of them is
+    # ACCEPTED is the bar below (is_ground_truth_row), never this selection.
+    # Ground-truth rows go first, so an anchor that promotes settles its
+    # fingerprint before the pair row it superseded is read.
+    pending = sorted(
+        (
+            row for row in load_feedback(base_dir=root)
+            if row.get("source_type") == "ai_consensus" and row.get("verdict") == "true_positive"
+        ),
+        key=lambda row: not is_ground_truth_row(row),
+    )
     wanted = {str(row.get("finding_fingerprint") or "") for row in pending} - already - {""}
     # ARIA-HIGH-325 — the subject is the finding the judges were asked
     # about, not whichever cited file sorts first: F-011 read "at
@@ -183,7 +196,15 @@ def promote_consensus_findings(
             continue
         if fingerprint in already:
             continue
-        # WP-J D-1 — the promotion bar. An ANCHOR whose verdict FLIPPED
+        # F2.3 — the anchor leg of the one bar: a pair, or a majority over a
+        # dissenter, settles adapter precision and never a finding.
+        if not is_ground_truth_row(row):
+            skipped.append({
+                "finding_fingerprint": fingerprint, "reason": "not_ground_truth",
+                "judgment_group_id": row.get("judgment_group_id"),
+            })
+            continue
+        # WP-J D-1 — anchor stability. An ANCHOR whose verdict FLIPPED
         # under the stability lane's blind re-ask (stability_reask, the ONE
         # flip table) is recorded as anchor instability, and a finding that
         # stood on that anchor promotes never — not until the flip record
@@ -222,11 +243,15 @@ def promote_consensus_findings(
         if refused:
             skipped.append({"finding_fingerprint": fingerprint, "reason": "inadmissible_evidence", "refused": refused})
             continue
-        refs = _repo_file_refs({"evidence_refs": list(dict.fromkeys([subject_ref, *cited]))}, repo_path)
-        if not refs or refs[0] != subject_ref:
+        # F2.3 — the evidence leg of the one bar: the subject and every
+        # cited ref hold at the commit the judges judged.
+        refs = list(dict.fromkeys([subject_ref, *cited]))
+        target_sha = row.get("target_sha") or None
+        unverified = _unverified_at_target(refs, repo_root=repo_path, target_sha=target_sha)
+        if unverified:
             skipped.append({
-                "finding_fingerprint": fingerprint,
-                "reason": "no_repo_verified_evidence",
+                "finding_fingerprint": fingerprint, "reason": "evidence_not_verified_at_target_sha",
+                "target_sha": target_sha, "refused": unverified,
             })
             continue
         min_evidence = int(CLAIM_TYPES[contract.claim_type]["min_evidence"])
@@ -265,6 +290,7 @@ def promote_consensus_findings(
             scope_files=scope_files,
             originating_skill="ai_consensus:judgment_pipeline",
             originating_run_id=str(row.get("run_id") or "") or None,
+            target_sha=target_sha,
         )
         already.add(fingerprint)
         append_jsonl(
@@ -276,7 +302,7 @@ def promote_consensus_findings(
                 judgment_group_id=row.get("judgment_group_id"),
                 consensus_run_id=row.get("run_id"),
                 request_ids=[str(item) for item in row.get("request_ids") or []],
-                target_sha=row.get("target_sha") or None,
+                target_sha=target_sha,
             ),
         )
         promoted.append({

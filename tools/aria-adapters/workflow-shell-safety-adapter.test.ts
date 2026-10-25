@@ -537,4 +537,106 @@ assert.deepEqual(
   'the injection invariant is green on this tree, so the projection is too',
 );
 
+// ------------------------------------- command_substitution_in_message (R03)
+// ARIA-LOW-736 (PLAN-v2 F2.1). Inside double quotes bash runs a backtick as a
+// command substitution, so a message that names a command in backticks runs
+// it: ea2aa5002 (ARIA-MEDIUM-563) removed `echo "::error::… (`claude
+// setup-token` …)"` from the API-key refusal path of aria-agent-executor.yml,
+// where the runner would have started the interactive token mint in a CI step.
+// The kernel's hygiene invariant (test_phase_b1_argv_proven_workflow_hygiene)
+// refuses the shape in workflows, but the adapter modelled substitution only
+// as a downloaded script, so ARIA's discovery read that step and saw nothing.
+// New API pinned here: the rule id `command_substitution_in_message`, a
+// finding at the echo/printf whose double-quoted argument holds a backtick
+// substitution, read through the one shell reader (./shell-script.ts).
+const messages = makeFixtureTree('aria-workflow-shell-message-');
+function writeMessage(path: string, body: string, executable = false): void {
+  mkdirSync(dirname(join(messages, path)), { recursive: true });
+  writeFileSync(join(messages, path), body, 'utf8');
+  chmodSync(join(messages, path), executable ? 0o755 : 0o644);
+}
+writeMessage(
+  '.github/workflows/r03.yml',
+  workflow([
+    '  preflight:',
+    '    runs-on: ubuntu-latest',
+    '    permissions:',
+    '      contents: read',
+    '    steps:',
+    '      - name: Refuse API-key mode (the R03 step, ea2aa5002^ aria-agent-executor.yml:524)',
+    '        run: |',
+    '          if [ "${EFFECTIVE_MOCK}" = "false" ]; then',
+    "            if env | grep -E '^(ANTHROPIC_API_KEY|CLAUDE_API_KEY|ANTHROPIC_AUTH_TOKEN)=' >/dev/null; then",
+    '              echo "::error::API-key Claude mode is disallowed for ARIA; use the kernel\'s Claude token (`claude setup-token` into the 0600 file ARIA_CLAUDE_OAUTH_TOKEN_FILE names) on the trusted runner." >&2',
+    '              exit 1',
+    '            fi',
+    '          fi',
+    '      - name: A printf message',
+    '        run: printf "%s\\n" "next, run `make deploy` by hand"',
+    '      - name: Text, and substitutions that are meant',
+    '        run: |',
+    "          echo 'single-quoted `claude setup-token` is text'",
+    '          echo "escaped \\`claude setup-token\\` is text"',
+    '          echo "named in plain quotes (\'claude setup-token\')"',
+    '          echo "sha=$(git rev-parse HEAD)"',
+    '          STAMP="`date -u`"',
+    '          # echo "a comment naming `claude setup-token`"',
+    "          cat <<'EOF' > NOTES.md",
+    '          echo "a heredoc body naming `claude setup-token`"',
+    '          EOF',
+  ]),
+);
+writeMessage(
+  'scripts/message.sh',
+  [
+    '#!/usr/bin/env bash',
+    'set -euo pipefail',
+    'echo "Run `make migrate` before deploying."',
+    'printf \'%s\\n\' "done"',
+    '',
+  ].join('\n'),
+  true,
+);
+const messageOutput = analyzeWorkflowShellSafety({ roots: ['.github', 'scripts'] }, messages);
+assert.equal(
+  (
+    messageOutput.observations.find((o) => o.id === 'workflow-shell-safety-adapter:summary')
+      ?.details ?? {}
+  ).parse_failures,
+  0,
+  'the fixture parses, so a missing finding is the rule, not the reader',
+);
+assert.deepEqual(
+  messageOutput.findings
+    .filter((finding) => finding.rule === 'command_substitution_in_message')
+    .map((finding) => [finding.path, finding.line])
+    .sort(),
+  [
+    ['.github/workflows/r03.yml', 13],
+    ['.github/workflows/r03.yml', 18],
+    ['scripts/message.sh', 3],
+  ],
+  'the R03 echo, the printf and the script message; not single quotes, an escaped backtick, plain quotes, $(…), an assignment, a comment or a heredoc body',
+);
+for (const finding of messageOutput.findings) {
+  assert.ok(messageOutput.read_paths.includes(finding.path), `${finding.id} cites a read path`);
+  assert.deepEqual(finding.evidence, [{ path: finding.path, line: finding.line }]);
+}
+const messageRule = (
+  JSON.parse(readFileSync(join(__dirname, 'workflow-shell-safety-adapter.tool.json'), 'utf8')) as {
+    rules: Record<string, { claim_type?: string; premises?: unknown[] }>;
+  }
+).rules.command_substitution_in_message;
+assert.ok(messageRule !== undefined, 'the manifest declares the rule its findings carry');
+assert.equal(messageRule.claim_type, 'wrong_code');
+assert.ok((messageRule.premises ?? []).length > 0, 'the rule states the premises a judge checks');
+assert.deepEqual(
+  real.findings.filter(
+    (finding) =>
+      finding.rule === 'command_substitution_in_message' && finding.path.startsWith('.github/'),
+  ),
+  [],
+  'the hygiene invariant is green on this tree, so the projection is too',
+);
+
 process.stdout.write('workflow-shell-safety-adapter.test.ts OK\n');

@@ -616,6 +616,11 @@ const STORED_STATE_DECIDERS: ReadonlyMap<string, string> = new Map([
     "the projection's own check: it holds the projection over this repository, read through " +
       'the CLI, to the rows as recorded',
   ],
+  [
+    'tests/invariants/finding-id-grammar.spec.ts',
+    'store level: it reads the recorded rows only for the ORDER of their ids (1000 after 999); ' +
+      'every state it asserts is read from the projection CLI',
+  ],
 ]);
 
 /** A literal that names the registry rows file (not its schema). */

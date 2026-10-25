@@ -467,6 +467,28 @@ class EventInterfaceHunkTests(_ClosureFixture):
         for project in ("c-service", "d-service"):
             self.assertFalse(self.entry(project, closure)["reason"].startswith("contract:"), closure["impacted"])
 
+    def test_a_touched_contract_file_without_hunks_is_whole_file_changed(self) -> None:
+        """A touched event-contract file with no hunks counts every type it defines as changed.
+
+        Plan time knows the touched paths and no hunks: the producers and consumers of each such
+        type carry the contract reason and site, not the import one."""
+        for label, hunks in (("no hunk map", None), ("a hunk map that omits the file", {"libs/shared/src/index.ts": [(1, 1)]})):
+            with self.subTest(label):
+                closure = self.closure([CONTRACT_FILE], changed_hunks=hunks)
+                reasons = {item["project"]: (item["reason"], item["evidence"]) for item in closure["impacted"]}
+                self.assertEqual(
+                    reasons,
+                    {
+                        "a-service": ("contract:event:FixtureShipped", A_PRODUCES),
+                        "b-service": ("contract:event:FixtureShipped", B_CONSUMES),
+                        "d-service": ("contract:event:FixtureArchived", D_PRODUCES),
+                        "c-service": ("import", None),
+                    },
+                    closure["impacted"],
+                )
+                # Contract edges rank before the import-only dependent.
+                self.assertEqual(closure["impacted"][-1]["project"], "c-service", closure["impacted"])
+
 
 class DepthParameterTests(_ClosureFixture):
     """Depth is a parameter of the one function (plan-time policy value 1)."""
@@ -576,6 +598,28 @@ class PlanCoveragePassesTheNodeSetTests(_ClosureFixture):
         runner = _CoverageRunner()
         self.compute(runner, ["libs/shared/src/index.ts"])
         self.assertEqual(self.closure_node_ids(runner), {"project:token-lib"})
+
+    def test_a_plan_touching_an_event_contract_file_hands_over_its_event_edges(self) -> None:
+        """The witness's node set names each producer and consumer of a touched contract file's types.
+
+        Plan time calls the closure with paths and no hunks; every one is still named by its
+        ``contract:event:<T>`` edge and site, not as a project that merely imports the library."""
+        runner = _CoverageRunner()
+        self.compute(runner, [CONTRACT_FILE])
+        self.assertEqual(
+            self.closure_node_ids(runner),
+            {"project:a-service", "project:b-service", "project:c-service", "project:d-service"},
+        )
+        why = {node["node_id"]: node["why"] for node in runner.witness_inputs[0]["closure_nodes"]}
+        self.assertEqual(
+            why,
+            {
+                "project:a-service": f"contract:event:FixtureShipped from event-contracts at {A_PRODUCES}",
+                "project:b-service": f"contract:event:FixtureShipped from event-contracts at {B_CONSUMES}",
+                "project:c-service": "import from event-contracts",
+                "project:d-service": f"contract:event:FixtureArchived from event-contracts at {D_PRODUCES}",
+            },
+        )
 
     def test_facts_that_cannot_run_hold_the_plan_by_name_without_running_the_witness(self) -> None:
         runner = _CoverageRunner(facts_error=FileNotFoundError("ts-node"))

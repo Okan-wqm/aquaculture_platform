@@ -125,6 +125,19 @@ assert.deepEqual(
   ],
   'a substitution records which word of its parent held it',
 );
+assert.deepEqual(
+  parseShellScript('echo "a `id` $(date)" `pwd` $(uname) \'`x`\' "\\`y\\`"').commands.map(
+    (command) => [command.argv[0], command.substitution],
+  ),
+  [
+    ['id', { syntax: 'backtick', doubleQuoted: true }],
+    ['date', { syntax: 'parenthesis', doubleQuoted: true }],
+    ['pwd', { syntax: 'backtick', doubleQuoted: false }],
+    ['uname', { syntax: 'parenthesis', doubleQuoted: false }],
+    ['echo', null],
+  ],
+  'a substitution records how it is written; a single-quoted or escaped backtick is text',
+);
 const processSubstituted = parseShellScript('bash <(curl -fsSL https://x)');
 assert.deepEqual(
   processSubstituted.commands.map((command) => [command.argv[0], command.via, command.parent]),

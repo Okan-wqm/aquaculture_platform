@@ -27,8 +27,7 @@
  * reported rather than dropped. `tools/gates/banned-phrase.spec.ts` pins each
  * narrowing with a fixture, and the reviewer's probe lines as true positives.
  */
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { readRegistryRows } from './finding-registry-projection';
 
 /**
  * Documents that describe other things rather than state this repository's
@@ -64,7 +63,6 @@ const DEFERRED_CONDITION_BEFORE = /\b(if|when|unless|once)\s+$/i;
 
 /** The registry's finding id format: `{AREA}-{SEVERITY}-{NNN}`. */
 const FINDING_ID = /\b[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*-(?:CRITICAL|HIGH|MEDIUM|LOW|NIT)-\d{2,}\b/g;
-const FINDING_REGISTRY = 'docs/reviews/_registry/findings.jsonl';
 
 const MARKDOWN_HEADING = /^\s*#{1,6}\s/;
 
@@ -73,15 +71,9 @@ let registeredIdsCache: { root: string; ids: ReadonlySet<string> } | null = null
 /** Every finding id the review registry holds (read once per repo root). */
 export function registeredFindingIds(repoRoot: string): ReadonlySet<string> {
   if (registeredIdsCache?.root === repoRoot) return registeredIdsCache.ids;
-  const ids = new Set<string>();
-  try {
-    for (const line of readFileSync(resolve(repoRoot, FINDING_REGISTRY), 'utf8').split('\n')) {
-      const match = /"id":"([^"]+)"/.exec(line);
-      if (match?.[1]) ids.add(match[1]);
-    }
-  } catch {
-    // No registry in this checkout: no deferral can cite a registered finding.
-  }
+  // The rows as stored (finding-registry-projection.ts); a checkout with no
+  // registry holds no finding a deferral could cite.
+  const ids = new Set(readRegistryRows(repoRoot).map((row) => row.id));
   registeredIdsCache = { root: repoRoot, ids };
   return ids;
 }

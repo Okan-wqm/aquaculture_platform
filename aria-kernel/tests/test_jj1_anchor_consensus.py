@@ -22,6 +22,7 @@ Deliberate-breakage pins:
 """
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -29,6 +30,7 @@ from pathlib import Path
 from aria_kernel.feedback_store import (
     ANCHOR_MIN_JUDGE_COUNT,
     ANCHOR_PROMOTION_MIN_JUDGMENTS,
+    CONSENSUS_UNCERTAINTY_REASONS,
     _confirmed_false_positive_fingerprints,
     anchor_group_keys,
     consensus_judge_count,
@@ -231,8 +233,6 @@ class _LedgerCase(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory(prefix="aria-jj1-")
         self.tools = Path(self._tmp.name) / "aria-tools"
         ensure_tools_dir(self.tools)
-        # J1 — the commit the judges judged; None unless a case binds a repo.
-        self.target_sha: str | None = None
 
     def tearDown(self) -> None:
         self._tmp.cleanup()
@@ -246,6 +246,7 @@ class _LedgerCase(unittest.TestCase):
         confidence: float = 0.95,
         tool_id: str = "tool-a",
         model: str | None = None,
+        target_sha: str | None = None,
     ) -> None:
         record_operator_feedback(
             tool_id=tool_id,
@@ -270,7 +271,7 @@ class _LedgerCase(unittest.TestCase):
             evidence_refs=[f"src/{finding.lower()}.ts:10"],
             judgment_group_id=f"judge:{tool_id}:{finding}",
             finding_fingerprint=f"fp-{finding}",
-            target_sha=self.target_sha,
+            target_sha=target_sha,
             base_dir=self.tools,
         )
 
@@ -489,10 +490,11 @@ class WeightedLaneAnchorTests(_LedgerCase):
         super().setUp()
         # J1 (ARIA-MEDIUM-783) — an anchor suppresses only while the code it
         # judged is still at HEAD of the store's declared workspace: these
-        # cases assert suppression, so the judges judge a real commit of a
-        # bound repository that carries the cited file.
+        # cases assert suppression, so every seat judges this real commit of
+        # a bound repository that carries the cited file (passed per call
+        # through _judge's one target_sha parameter, J5).
         repo = make_local_git_repo(Path(self._tmp.name), name="repo")
-        self.target_sha = commit_files(repo, {"src/f-1.ts": "export const f = 1;\n" * 12})
+        self.judged_sha = commit_files(repo, {"src/f-1.ts": "export const f = 1;\n" * 12})
         ensure_tools_binding(self.tools, workspace_root=repo)
 
     def _settle(self) -> dict:
@@ -501,10 +503,10 @@ class WeightedLaneAnchorTests(_LedgerCase):
         )
 
     def test_the_refuting_arbiter_never_becomes_the_third_credential(self) -> None:
-        self._judge("aria-evidence-judge", verdict="false_positive")
-        self._judge("aria-adversarial-judge", verdict="false_positive")
+        self._judge("aria-evidence-judge", verdict="false_positive", target_sha=self.judged_sha)
+        self._judge("aria-adversarial-judge", verdict="false_positive", target_sha=self.judged_sha)
         self._settle()
-        self._judge("aria-consensus-arbiter", verdict="true_positive")
+        self._judge("aria-consensus-arbiter", verdict="true_positive", target_sha=self.judged_sha)
         result = self._settle()
         row = result["consensus"][0]
         self.assertEqual(row["judge_count"], 2, "only the agreeing judges back it")
@@ -519,10 +521,10 @@ class WeightedLaneAnchorTests(_LedgerCase):
     def test_a_weighted_majority_still_settles_the_precision_lane(self) -> None:
         """Not a regression of Z2a: the row exists and carries the winning
         verdict — it simply is not ground truth."""
-        self._judge("aria-evidence-judge", verdict="false_positive")
-        self._judge("aria-adversarial-judge", verdict="false_positive")
+        self._judge("aria-evidence-judge", verdict="false_positive", target_sha=self.judged_sha)
+        self._judge("aria-adversarial-judge", verdict="false_positive", target_sha=self.judged_sha)
         self._settle()
-        self._judge("aria-consensus-arbiter", verdict="true_positive")
+        self._judge("aria-consensus-arbiter", verdict="true_positive", target_sha=self.judged_sha)
         row = self._settle()["consensus"][0]
         self.assertEqual(row["verdict"], "false_positive")
         self.assertIn("dissenting", row["note"])
@@ -531,10 +533,10 @@ class WeightedLaneAnchorTests(_LedgerCase):
         """The dedup key is ATTENDANCE, so the 2-1 group settles once. Keyed
         on agreement it would re-settle forever and grow the ledger without
         bound."""
-        self._judge("aria-evidence-judge", verdict="false_positive")
-        self._judge("aria-adversarial-judge", verdict="false_positive")
+        self._judge("aria-evidence-judge", verdict="false_positive", target_sha=self.judged_sha)
+        self._judge("aria-adversarial-judge", verdict="false_positive", target_sha=self.judged_sha)
         self._settle()
-        self._judge("aria-consensus-arbiter", verdict="true_positive")
+        self._judge("aria-consensus-arbiter", verdict="true_positive", target_sha=self.judged_sha)
         self._settle()
         before = len(load_feedback(tool_id="tool-a", base_dir=self.tools))
         for _ in range(3):
@@ -544,16 +546,75 @@ class WeightedLaneAnchorTests(_LedgerCase):
         )
 
     def test_a_unanimous_third_judge_still_anchors_under_weights(self) -> None:
-        self._judge("aria-evidence-judge", verdict="false_positive")
-        self._judge("aria-adversarial-judge", verdict="false_positive")
+        self._judge("aria-evidence-judge", verdict="false_positive", target_sha=self.judged_sha)
+        self._judge("aria-adversarial-judge", verdict="false_positive", target_sha=self.judged_sha)
         self._settle()
-        self._judge("aria-consensus-arbiter", verdict="false_positive")
+        self._judge("aria-consensus-arbiter", verdict="false_positive", target_sha=self.judged_sha)
         row = self._settle()["consensus"][0]
         self.assertEqual((row["judge_count"], row["judges_voted"]), (3, 3))
         self.assertTrue(is_ground_truth_row(row))
         self.assertEqual(
             list(_confirmed_false_positive_fingerprints(self.tools)), ["fp-F-1"],
         )
+
+
+
+class MixedTargetShaAnchorTests(_LedgerCase):
+    """J5 (SEPT-HARVEST §2) — a mixed-SHA consensus can neither anchor nor
+    suppress.
+
+    ARIA-HIGH-004 already refuses to NAME a commit for a closing set judged
+    at different trees (``_common_target_sha`` -> None), yet the row still
+    mints at anchor grade: ground truth about no single tree, and — for a
+    false_positive — a suppression of the finding class that no later code
+    can contradict. The realistic path is the anchor upgrade itself: the
+    pair settles at sha A, the arbiter is minted (and answers) after the
+    tree moved to sha B.
+
+    Law pinned: an anchor-grade closing set without one common target_sha
+    records the uncertainty ``target_sha_mixed`` (a member of the closed
+    CONSENSUS_UNCERTAINTY_REASONS vocabulary). The sub-anchor precision row
+    may still mint; nothing it writes is ground truth or suppresses.
+    """
+
+    _SHA_A = "a" * 40
+    _SHA_B = "b" * 40
+
+    def _three_agreeing_seats_across_two_shas(self) -> dict:
+        self._judge("aria-evidence-judge", verdict="false_positive", target_sha=self._SHA_A)
+        self._judge("aria-adversarial-judge", verdict="false_positive", target_sha=self._SHA_A)
+        generate_ai_consensus(tool_id="tool-a", base_dir=self.tools)
+        self._judge("aria-consensus-arbiter", verdict="false_positive", target_sha=self._SHA_B)
+        return generate_ai_consensus(tool_id="tool-a", base_dir=self.tools)
+
+    def test_three_agreeing_seats_at_two_shas_are_not_ground_truth(self) -> None:
+        self._three_agreeing_seats_across_two_shas()
+        consensus = [
+            row for row in load_feedback(tool_id="tool-a", base_dir=self.tools)
+            if row.get("source_type") == "ai_consensus"
+        ]
+        self.assertEqual(
+            [row for row in consensus if is_ground_truth_row(row)], [],
+            "a consensus folded from judgments of two trees is about no single "
+            "tree and must not become repository truth",
+        )
+        self.assertEqual(anchor_group_keys(tool_id="tool-a", base_dir=self.tools), set())
+
+    def test_a_mixed_sha_false_positive_does_not_suppress(self) -> None:
+        self._three_agreeing_seats_across_two_shas()
+        self.assertNotIn(
+            "fp-F-1", _confirmed_false_positive_fingerprints(self.tools),
+            "suppression is the most irreversible consequence; a mixed-SHA "
+            "consensus must never buy it",
+        )
+
+    def test_the_group_records_target_sha_mixed(self) -> None:
+        result = self._three_agreeing_seats_across_two_shas()
+        self.assertIn(
+            "target_sha_mixed", [u["reason"] for u in result["uncertainties"]],
+            json.dumps(result, default=str)[:800],
+        )
+        self.assertIn("target_sha_mixed", CONSENSUS_UNCERTAINTY_REASONS)
 
 
 if __name__ == "__main__":

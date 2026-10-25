@@ -20,10 +20,13 @@
  * asserting that no maintenance agent and no auxiliary tool appears in the
  * runtime-dispatch surface (the orchestrator.md Runtime Review Roster table).
  *
- * Routing table primary cells are a different story — maintenance agents
- * legitimately own maintenance surfaces (prompt-writer owns agent-file
- * globs; gdpr-erasure-executor owns the GDPR cascade glob as a WRITER
- * dispatch target from compliance-expert). The invariant exempts those.
+ * The routing table is the same rule's other surface: no routing row names
+ * a maintenance agent or a writer agent as primary or also-notify (a writer
+ * such as gdpr-erasure-executor is dispatched by an `implement:` token,
+ * never as a reviewer). Its one owner is the kernel's routing reader:
+ * `surface_manifest_validator.validate_maintenance_agent_isolation`
+ * (Layer 6), pinned by
+ * aria-kernel/tests/invariants/test_path_agent_map_single_owner.py.
  *
  * # When this spec fails
  *

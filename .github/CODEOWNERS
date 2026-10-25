@@ -15,6 +15,11 @@
 .claude/test-agents/             @Okan-wqm
 .claude/knowledge/               @Okan-wqm
 .claude/skills/                  @Okan-wqm
+# SE-2 — the routing inputs: .claude/shared/orchestrator-routing-table.md is
+# the one path -> agent map and picks the merge-time reviewers of ARIA's own
+# PRs, so the directory is a member of the derived authority set
+# (aria-kernel/aria_kernel/self_improvement.py ROUTING_INPUT_MEMBERS).
+.claude/shared/                  @Okan-wqm
 
 # ── ARIA autonomy control plane ───────────────────────────────────────
 # Kernel/runtime contracts, live ARIA docs, and Codex executor surfaces

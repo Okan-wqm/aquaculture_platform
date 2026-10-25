@@ -9,8 +9,8 @@ from collections.abc import Callable, Iterable, Mapping
 from typing import Any
 
 from .confidence import confidence_in_unit_interval
-from .agent_surface import EXPERT_METHODS
 from .digest import is_sha256_digest
+from .agent_surface import EXPERT_METHODS
 from .evidence_probe import GitProbeSession
 from .evidence_trust import cited_blobs_code_hash
 from .git_object_id import ANY_OBJECT_FORMAT, is_object_id
@@ -65,6 +65,11 @@ CONSENSUS_UNCERTAINTY_REASONS = (
     # answering in the same words settled as N observations. One law, two
     # callers (independence_check): the settle path asks it too.
     "panel_echo",
+    # J5 (SEPT-HARVEST §2) — an anchor-grade closing set whose seats judged
+    # different trees (no ``_common_target_sha``): agreement about no single
+    # tree, so it neither becomes ground truth nor suppresses. The group's
+    # sub-anchor precision row (the pair settled at one tree) stands.
+    "target_sha_mixed",
     "conformal_abstain",
     # ARIA-HIGH-325 — a true_positive whose agreeing judges cite evidence the
     # producing tool's scope does not admit (ARIA's detector source outside
@@ -784,6 +789,10 @@ def record_operator_feedback(
     # judgment_bridge (``folded_judge_method``). None on legacy rows.
     method: str | None = None,
     prompt_hash: str | None = None,
+    # J2 (SEPT-HARVEST §2) — the hash of the contract (agent file + inlined
+    # knowledge) the judge model was shown, stamped by ci_executor and kept
+    # by judgment_bridge: calibration is scoped to the version that earned it.
+    agent_contract_hash: str | None = None,
     confidence: float | None = None,
     rationale: str | None = None,
     evidence_refs: list[str] | None = None,
@@ -849,6 +858,8 @@ def record_operator_feedback(
         raise GovernanceError("agents must be an array of non-empty strings")
     if target_sha is not None and not is_object_id(target_sha, formats=ANY_OBJECT_FORMAT):
         raise GovernanceError("target_sha must be a full git object id")
+    if agent_contract_hash is not None and not is_sha256_digest(agent_contract_hash):
+        raise GovernanceError("agent_contract_hash must be a sha256 digest")
     # J1 — a code identity is a fact about named blobs at a named commit; a
     # stamp without both, or in any spelling but the blob law's, is refused
     # at mint instead of being compared (and never matching) at every read.
@@ -952,6 +963,8 @@ def record_operator_feedback(
         "model": model,
         "method": method,
         "prompt_hash": prompt_hash,
+        # J2 — additive: absent on rows written before it (unknown version).
+        "agent_contract_hash": agent_contract_hash,
         "confidence": confidence,
         "rationale": rationale,
         "evidence_refs": evidence_refs or [],
@@ -1467,6 +1480,26 @@ def generate_ai_consensus(
         # one law the plan side asks (same similarity, same ceiling,
         # fail-closed on unreadable answers): an anchor-grade closing set
         # whose seats echo each other is one observation wearing N receipts.
+        # J5 (SEPT-HARVEST §2) — the anchor's TREE leg. ARIA-HIGH-004 already
+        # refuses to NAME a commit for a closing set judged at different
+        # trees; an anchor minted from it would still be ground truth (and,
+        # for a false_positive, a suppression) about no single tree. The
+        # realistic path is the anchor upgrade itself: the pair settles at
+        # sha A, the arbiter answers after the tree moved to sha B. The
+        # group escalates instead; the pair's sub-anchor row already minted
+        # for the precision lane and stays.
+        if (
+            len(closing) >= ANCHOR_MIN_JUDGE_COUNT
+            and dissenting == 0
+            and len(_target_shas(closing)) > 1
+        ):
+            uncertainties.append(
+                _consensus_uncertainty(
+                    tool_id, run_id, finding_id, group_id,
+                    "target_sha_mixed",
+                ),
+            )
+            continue
         if len(closing) >= ANCHOR_MIN_JUDGE_COUNT:
             from .independence_check import verify_panel_diversity
 
@@ -1648,9 +1681,15 @@ def _store_cited_code_hash(
     return cited_blobs_code_hash(repo_root, refs, at_sha, session=session)
 
 
+def _target_shas(rows: list[dict[str, Any]]) -> set[str]:
+    """The commits the rows were judged at; ``""`` stands for a row that
+    names none. More than one member is a mixed-tree set (ARIA-HIGH-004, J5)."""
+    return {str(row.get("target_sha") or "") for row in rows}
+
+
 def _common_target_sha(rows: list[dict[str, Any]]) -> str | None:
     """The one commit every row was judged at, or None (ARIA-HIGH-004)."""
-    shas = {str(row.get("target_sha") or "") for row in rows}
+    shas = _target_shas(rows)
     if len(shas) != 1:
         return None
     sha = shas.pop()

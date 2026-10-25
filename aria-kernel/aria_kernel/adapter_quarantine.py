@@ -20,17 +20,16 @@ one audited way out, and the block only ever drives the way in.
 """
 from __future__ import annotations
 
-import json
 import re
 from pathlib import Path
 from typing import Any
 
+from .report_ingestion import read_registry_view
 from .tool_registry import GovernanceError, get_tool
 
 QUARANTINE_FIELDS: tuple[str, ...] = ("finding", "reason")
 _FINDING_ID_RE = re.compile(r"^[A-Z]+(?:-[A-Z]+)*-(?:CRITICAL|HIGH|MEDIUM|LOW)-\d+$")
 MANIFEST_QUARANTINE_PREFIX = "manifest_quarantine"
-FINDING_REGISTRY_RELPATH = "docs/reviews/_registry/findings.jsonl"
 # A quarantine stands on a finding that is still unresolved.
 UNRESOLVED_FINDING_STATES = frozenset({"OPEN", "IN-PROGRESS"})
 
@@ -59,10 +58,11 @@ def quarantine_finding_refusal(
     names a closed finding, or another tool's, would hold an adapter out of
     the cycle on a reason that no longer, or never did, apply.
     """
-    registry = Path(repo_root) / FINDING_REGISTRY_RELPATH
+    # The registry's projection (MF-1): a finding a merged trailer closed is
+    # RESOLVED here, so a quarantine cannot stand on it from the merge on.
     try:
-        rows = [json.loads(line) for line in registry.read_text(encoding="utf-8").splitlines() if line.strip()]
-    except (OSError, json.JSONDecodeError) as exc:
+        rows = read_registry_view(repo_root).rows
+    except (FileNotFoundError, GovernanceError) as exc:
         return f"finding_registry_unreadable: {exc}"
     row = next((item for item in rows if item.get("id") == block["finding"]), None)
     if row is None:

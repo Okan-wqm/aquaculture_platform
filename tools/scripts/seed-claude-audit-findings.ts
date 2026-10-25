@@ -9,8 +9,8 @@
  * hash chaining, and atomic replacement under the common Git-dir lock.
  *
  * One-shot seed per Phase 0 of /root/.claude/plans/synthetic-dazzling-hippo.md.
- * Subsequent state transitions (e.g. OPEN → RESOLVED on each fix commit) go
- * through tools/gates/finding-registry.ts close.
+ * RESOLVED is never written: each fix commit's merged `Closes:` trailer
+ * closes its finding at read time (tools/gates/finding-registry-projection.ts).
  *
  * Usage:
  *   npx ts-node --project tools/gates/tsconfig.json tools/scripts/seed-claude-audit-findings.ts [--dry-run]

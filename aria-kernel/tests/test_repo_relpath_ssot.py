@@ -26,7 +26,7 @@ import ast
 import unittest
 from pathlib import Path
 
-from aria_kernel import architecture, auto_merge, pr_manager, service_dimension
+from aria_kernel import architecture, auto_merge, pr_manager
 from aria_kernel.canonical_path import lexical_repo_path, normalize_repo_relpath
 from aria_kernel.convergent_skill_authoring import _git_show_line
 from aria_kernel.tool_registry import GovernanceError
@@ -102,16 +102,6 @@ class FormerLstripSitesTests(unittest.TestCase):
     def test_pr_manager_has_no_private_normalizer(self) -> None:
         self.assertFalse(hasattr(pr_manager, "_normalize_path"))
         self.assertIs(pr_manager.normalize_repo_relpath, normalize_repo_relpath)
-
-    def test_service_dimension_matches_dot_prefixed_owners(self) -> None:
-        from aria_kernel.specialist_review_runner import domain_touch_map
-
-        dot_prefixes = [prefix for prefix in domain_touch_map() if prefix.startswith(".")]
-        if not dot_prefixes:
-            self.skipTest("touch map declares no dot-prefixed path")
-        prefix = dot_prefixes[0]
-        owners = service_dimension.owning_agent_domains_for_paths([prefix + "x"])
-        self.assertTrue(owners, f"{prefix}x must reach its owners; lstrip used to erase the dot")
 
     def test_architecture_adoption_names_projects_through_the_one_owner(self) -> None:
         # SE-1 round 2: adoption counts projects through

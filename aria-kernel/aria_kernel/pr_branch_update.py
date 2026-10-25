@@ -25,7 +25,7 @@ opened (``own_pr_delivery.aria_opened_prs``) on an ``aria-impl-*`` branch:
   ``docs/reviews/_registry/findings.jsonl merge=findings-registry``) is not
   needed for these branches: that registry is in
   ``implementation_safety.READONLY_PATHS``, so no ARIA implementation diff
-  carries it (the reconcile PR that makes other PRs ``DIRTY`` on GitHub
+  carries it (the registry appends that make other PRs ``DIRTY`` on GitHub
   cannot conflict with an ARIA branch), and a genuine code conflict is
   ``DIRTY``, which this step never touches;
 * on the delivery's own credential path (``hold_delivery_credentials``,

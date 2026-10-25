@@ -141,16 +141,79 @@ docker compose -f docker-compose.droplet.yml run --rm \
 
 ## Results
 
-> Replace **TBD** with measured values once each run completes. Commit per
-> tier (one commit = one tier) so the bisect history records progress.
+> Measured 2026-10-25 on the legacy NestJS data plane (`SENSOR_SERVICE_PROFILE=legacy`).
+> The 1K / 5K / 10K / 15K tiers were **not run**: the service tops out near
+> 56 msg/s (see "Finding"), so higher offered rates only measure broker overflow.
+> The Rust sidecar (`sensor-ingestion`) was not exercised.
 
-| Tier | Run-id | Sustained achieved | p50 ms | p95 ms | p99 ms | Drops | RSS peak | CPU peak | GC pause max | Notes |
-|---|---|---|---|---|---|---|---|---|---|---|
-| 1K msg/s | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | |
-| 5K msg/s | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | |
-| 10K msg/s | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | |
-| 15K msg/s | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | |
-| 5K + 30 s 2× burst | TBD | TBD (burst) | — | — | TBD | TBD | TBD | TBD | TBD | recovery time after burst |
+Fixture: 68 tenants × 20 sensors × 7 channels (6 readings + `producer_ts_ms`), provisioned
+through the stock `request_tenant_schema_provisioning` → `db-migrate tenant-schema-provisioner`
+path. One MQTT message = one sensor reading = 7 `sensor_metrics` rows. Latency is
+publish → service receive (`row.time − producer_ts_ms`). "Persisted" is messages
+with rows in `sensor_metrics` ÷ messages published. Caps: sensor-service 0.5 vCPU / 512 MiB,
+Postgres 1 vCPU / 1.5 GiB, Mosquitto 0.15 vCPU / 128 MiB (`max_inflight 20`, `max_queued 1000`).
+
+| Run | Offered msg/s | Load | Persisted | p50 ms | p95 ms | p99 ms | sensor CPU avg/max % | PG CPU avg/max % | Notes |
+|---|---|---|---|---|---|---|---|---|---|
+| mt-50 | 50 | 120 s | 100 % | 58 | 2,730 | 2,971 | 43 / 52 (cap 50) | 56 / 80 | below the ceiling |
+| mt-100 | 100 | 300 s | 63.4 % (19,025 / 30,001) | 16,801 | 18,606 | 19,744 | 47 / 53 (cap 50) | 58 / 101 | broker dropped the rest |
+| solo-100 | 100 | 120 s | 65.9 % | 16,689 | 18,320 | 18,693 | 47 / 53 | 65 / 87 | 1 tenant, 1,000 sensors |
+| mt-100-cpu2 | 100 | 120 s | 66.5 % | 16,914 | 18,396 | 18,624 | 49 / 83 (cap 200) | 72 / 102 | sensor-service at 2 vCPU |
+| mt-100-idx | 100 | 120 s | 63.1 % | 17,689 | 20,265 | 21,239 | 47 / 53 | 39 / 61 | outbox pending-count index added |
+| idx-cpu1-100 | 100 | 120 s | 69.9 % | 15,961 | 16,873 | 17,388 | 48 / 69 (cap 100) | 40 / 81 | index + 1 vCPU |
+| idx-cpu2-200 | 200 | 120 s | 29.3 % | 15,352 | 51,629 | 57,688 | 46 / 77 (cap 200) | 41 / 77 | index + 2 vCPU |
+
+### Finding: the ceiling is a serial ack gate, not a resource
+
+- Sustained throughput is ≈ 56 msg/s = 1 / 17.7 ms. In-service timing (temporary
+  instrumentation of the compiled `dist`, not committed): `dispatch → PUBACK` p50 17.7 ms
+  (`findSensorByTopic` p50 6.3 ms + `saveReading` p50 10.7 ms), and handlers in flight at
+  dispatch was **1 in every 5 s window** (max = 1).
+- Cause: `MqttClientService` holds PUBACK until the durable write commits
+  (SENSOR-CRITICAL-086) on a single MQTT connection, and mqtt.js 5.15.1 processes
+  incoming packets one at a time (`client.js` `work()` → next packet only after the
+  previous packet's callback). Every tenant's messages share that one queue.
+- It is not CPU, Postgres, Redis or the broker: the rate is identical at 0.5 / 1 / 2 vCPU
+  (throttling 0.4 % at 2 vCPU), `pg_stat_activity` showed ~95 % of backend time `idle`,
+  Redis served 1 GET per message at 12 µs, and Mosquitto delivered 100 / 500 / 2,000 msg/s
+  with the same limits to an instant-ack subscriber.
+- Tenant count is irrelevant at this load: 1 tenant (solo-100) and 68 tenants (mt-100)
+  give the same rate.
+- Above the ceiling Mosquitto's per-client queue (`max_queued_messages 1000`) overflows and
+  drops QoS 1 messages silently (`Outgoing messages are being dropped for client …`); queue
+  wait ≈ 1000 / 56 ≈ 17.5 s explains the p50.
+
+### Secondary finding: outbox pending-count is a Seq Scan
+
+`OutboxWorkerService.pollAndPublish` (woken by every outbox NOTIFY) counts
+`publishedAt IS NULL AND retryCount < 5`. `idx_sensor_outbox_poll` is partial on
+`… AND isDeadLettered = false`, so the planner cannot use it: 27 ms / 6,559 buffers on
+62,844 rows versus 0.019 ms / 1 buffer for the index-eligible form. It was 52 % of
+Postgres statement time in a 40 s window and grows linearly with the table (published rows
+are kept 7 days). It is not the throughput ceiling (mt-100-idx).
+
+### Stock-provisioning gaps hit while measuring
+
+Applied manually to the benchmark database only; not changed in the repo.
+
+- `platform.list_active_tenant_schema_mappings()` is granted only to `farm_service`;
+  sensor-service's topic cache calls it (`permission denied`).
+- `sensor_schema_owner` has no USAGE on provisioned tenant schemas, so FK checks on
+  `sensor_metrics` inserts fail (`permission denied for schema tenant_…`) on every tenant.
+
+### Provisioning cost (schema-per-tenant)
+
+68 tenants in 24 min with a single worker (~21 s each; two parallel workers deadlocked):
+14,144 tables, 77,316 indexes, 1.17 GB empty database. Topic-cache warm-up for 68 tenants /
+1,360 sensors: 2.6 s.
+
+### Deviations from production
+
+Sandbox VM (4 vCPU, fsync 0.3 ms); `NODE_ENV=production` for log levels; Mosquitto
+anonymous (no go-auth HTTP ACL calls, which production makes with the cache disabled);
+NATS token auth instead of mTLS; Postgres stock `shared_buffers` (128 MB), no WAL archive,
+no TLS. `tools/scripts/perf-baseline.ts` was not used: it publishes `{value, channelId}`
+but the listener reads each channel by `channel_key`, so it would persist no metrics.
 
 ### Profiling artefacts
 
@@ -171,8 +234,10 @@ doc can cite the exact hotspots:
 | 10–15K msg/s sustained | Faz 2 proceeds. Performance still wins, but the gap is smaller; allocate extra time for benchmarking the sidecar against the same load profile to prove the 5–10× claim. |
 | ≥ 15K msg/s sustained AND p99 < 50 ms across all tiers | Faz 2 priority drops. Saha + güvenlik kazanımları (`protocol-codec` SSoT, memory-safe binary parsers) still justify the migration but the order of operations changes — Faz 1 ships first, Faz 2 reordered after another roadmap item. Open a follow-up plan PR. |
 
-Recorded verdict: **TBD** (write here once the runs complete and Okan has
-signed off).
+Recorded verdict: legacy path sustains ≈ 56 msg/s (≤ 10K row). The limit is the
+serial PUBACK gate on one MQTT connection, not CPU or language. The sidecar was not
+measured here, so its capacity relative to this baseline is still open. Sign-off by Okan
+pending.
 
 ---
 

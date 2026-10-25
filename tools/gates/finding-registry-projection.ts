@@ -274,6 +274,25 @@ function present(value: unknown): boolean {
 }
 
 /**
+ * `row` after its closers `shas` are rejected (a CLOSURE_REJECTED event):
+ * the rejected commits leave closing_commits, and a RESOLVED row no
+ * remaining commit closes reopens. A rejection never refuses, so a writer
+ * deciding what follows a rejection reads the row it leaves from here.
+ */
+export function rowAfterClosureRejection(row: Finding, shas: readonly string[]): Finding {
+  const rejected = [...(row.rejected_closing_commits ?? []), ...shas];
+  const target = { id: row.id, rejected_closing_commits: rejected };
+  const closing = row.closing_commits.filter((sha) => !findingRejectsClosure(target, sha));
+  const reopened = row.state === 'RESOLVED' && closing.length === 0;
+  return {
+    ...row,
+    rejected_closing_commits: rejected,
+    closing_commits: closing,
+    ...(reopened ? { state: 'OPEN' as const, closed_at: null } : {}),
+  };
+}
+
+/**
  * One finding's row after `event`. The fold refuses an event its row cannot
  * take (a transition from a state the row is not in, an assignment that would
  * change a value, a second CREATED): the store is append-only and its writer
@@ -300,18 +319,11 @@ export function applyFindingEvent(row: Finding, event: FindingEventLine): Findin
       }
       return { ...next, state: to, closed_at: null };
     }
-    case 'CLOSURE_REJECTED': {
-      const rejected = [...(row.rejected_closing_commits ?? []), ...event.payload.shas];
-      const target = { id: row.id, rejected_closing_commits: rejected };
-      const closing = row.closing_commits.filter((sha) => !findingRejectsClosure(target, sha));
-      const reopened = row.state === 'RESOLVED' && closing.length === 0;
+    case 'CLOSURE_REJECTED':
       return {
-        ...next,
-        rejected_closing_commits: rejected,
-        closing_commits: closing,
-        ...(reopened ? { state: 'OPEN' as const, closed_at: null } : {}),
+        ...rowAfterClosureRejection(row, event.payload.shas),
+        content_hash: event.content_hash,
       };
-    }
     case 'OWNER_ASSIGNED': {
       const filled: Partial<Finding> = {};
       for (const field of ['owner_user', 'deadline'] as const) {

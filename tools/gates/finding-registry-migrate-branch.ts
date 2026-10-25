@@ -65,6 +65,7 @@ import {
   registryDir,
   registryLayout,
   type RegistryStore,
+  rowAfterClosureRejection,
 } from './finding-registry-projection';
 import { RegistryWriteRefused } from './finding-registry-rows';
 import {
@@ -141,6 +142,12 @@ function newFindingEvents(row: Finding): Draft[] {
  * The events that take `current` (the frozen row with its recorded events)
  * to what the branch made of `forked` (the row it started from). Refuses a
  * change no event can express.
+ *
+ * A state change is decided against the row the rejection leaves: rejecting
+ * a recorded closure already reopens a RESOLVED row (the pre-freeze
+ * `reopen --reject-closure` wrote state OPEN beside the rejected closer), so
+ * the branch's OPEN is then no transition, and any other target transitions
+ * from the state the rejection left, not from the one the frozen row recorded.
  */
 function changedFindingEvents(current: Finding, forked: Finding, branch: Finding): Draft[] {
   const changed = new Set(
@@ -163,18 +170,22 @@ function changedFindingEvents(current: Finding, forked: Finding, branch: Finding
     ]);
   }
 
+  let reached = current;
   if (changed.has('rejected_closing_commits')) {
     const before = forked.rejected_closing_commits ?? [];
     const shas = (branch.rejected_closing_commits ?? []).filter((sha) => !before.includes(sha));
-    if (shas.length > 0) drafts.push({ event_type: 'CLOSURE_REJECTED', payload: { shas } });
+    if (shas.length > 0) {
+      drafts.push({ event_type: 'CLOSURE_REJECTED', payload: { shas } });
+      reached = rowAfterClosureRejection(current, shas);
+    }
   }
 
   // A state the branch wrote is kept unless it is RESOLVED: a closure is the
   // branch's merged trailer, which the projection derives.
-  if (changed.has('state') && isGitStateTarget(branch.state)) {
+  if (changed.has('state') && isGitStateTarget(branch.state) && reached.state !== branch.state) {
     drafts.push({
       event_type: 'STATE_TRANSITIONED',
-      payload: { from_state: current.state, to_state: branch.state },
+      payload: { from_state: reached.state, to_state: branch.state },
     });
   }
 

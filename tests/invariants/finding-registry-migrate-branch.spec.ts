@@ -18,12 +18,17 @@
  *
  * ## The fixture (a throwaway repository running the real CLIs)
  *
- *   - main: six legacy rows, then a commit whose trailer closes ARIA-HIGH-905;
+ *   - main: a commit whose trailer closes ARIA-HIGH-910, seven legacy rows
+ *     (910 recorded RESOLVED by that commit, as legacy closures were), then a
+ *     commit whose trailer closes ARIA-HIGH-905;
  *   - branch `in-flight`, forked there: a fix whose trailer closes
  *     ARIA-HIGH-904, then one registry commit that appends ARIA-HIGH-907
  *     (OPEN) and ARIA-MEDIUM-908 (IN-PROGRESS) and edits 901 (title), 902
  *     (owner and deadline filled), 903 (OPEN → IN-PROGRESS), 904 (recorded
- *     RESOLVED by hand) and 905 (main's closer rejected); 906 is untouched;
+ *     RESOLVED by hand), 905 (main's closer rejected) and 910 (reopened the
+ *     way the pre-freeze `reopen --reject-closure` wrote it: closer moved to
+ *     rejected_closing_commits, state OPEN, closed_at cleared, notes stamped);
+ *     906 is untouched;
  *   - main freezes (`finding-registry genesis`), and the branch merges main —
  *     cleanly, since main changed genesis.json and the branch findings.jsonl.
  *
@@ -34,7 +39,9 @@
  *     event files, each a valid chain anchored on genesis;
  *   - it is deterministic: a second run on the same tree writes the same bytes;
  *   - the projection after it holds every change the branch meant, with 904
- *     closed by its trailer, 905 reopened by the rejection, and no new id;
+ *     closed by its trailer, 905 and 910 reopened by their rejections (910
+ *     with no STATE_TRANSITIONED: the rejection is what reopens it), and no
+ *     new id;
  *   - the converted branch then merges into main with findings.jsonl untouched.
  */
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
@@ -101,19 +108,33 @@ const LEGACY_IDS = [
   'ARIA-HIGH-904',
   'ARIA-HIGH-905',
   'ARIA-HIGH-906',
+  'ARIA-HIGH-910',
 ] as const;
 
-function legacyRows(): Finding[] {
-  return LEGACY_IDS.map((id) =>
-    id === 'ARIA-HIGH-902'
-      ? fixtureFinding(id, { owner_user: null, deadline: null })
-      : fixtureFinding(id, { deadline: '2099-12-31' }),
-  );
+function legacyRows(closer910: string): Finding[] {
+  return LEGACY_IDS.map((id) => {
+    switch (id) {
+      case 'ARIA-HIGH-902':
+        return fixtureFinding(id, { owner_user: null, deadline: null });
+      case 'ARIA-HIGH-910':
+        return fixtureFinding(id, {
+          deadline: '2099-12-31',
+          state: 'RESOLVED',
+          closing_commits: [closer910],
+          closed_at: '2026-09-30T10:00:00.000Z',
+        });
+      default:
+        return fixtureFinding(id, { deadline: '2099-12-31' });
+    }
+  });
 }
+
+/** The notes the pre-freeze `reopen --reject-closure` stamped on 910. */
+const REOPEN_910_NOTES = ' [override reopen 2026-10-04: closer rejected — it did not fix 910]';
 
 describe('MF-2 — finding-registry-migrate-branch converts an in-flight branch to events', () => {
   const repo = RegistryFixtureRepo.create('mf2-migrate-branch-');
-  const shas = { closer905: '', fix904: '', freeze: '', merged: '' };
+  const shas = { closer905: '', closer910: '', fix904: '', freeze: '', merged: '' };
   let frozen = '';
   let verifyBefore: CliRun | undefined;
   let firstRun: CliRun | undefined;
@@ -121,7 +142,11 @@ describe('MF-2 — finding-registry-migrate-branch converts an in-flight branch 
   let firstRegistry = '';
 
   beforeAll(() => {
-    repo.writeRegistry(legacyRows());
+    shas.closer910 = repo.commit(
+      `fix(fixture): close 910\n\n${closesTrailer('ARIA-HIGH-910')}`,
+      '2026-09-30T10:00:00Z',
+    );
+    repo.writeRegistry(legacyRows(shas.closer910));
     repo.commit('chore(registry): seed the legacy registry', '2026-10-01T10:00:00Z');
     shas.closer905 = repo.commit(
       `fix(fixture): a first attempt at 905\n\n${closesTrailer('ARIA-HIGH-905')}`,
@@ -133,7 +158,7 @@ describe('MF-2 — finding-registry-migrate-branch converts an in-flight branch 
       `fix(fixture): close 904\n\n${closesTrailer('ARIA-HIGH-904')}`,
       '2026-10-03T10:00:00Z',
     );
-    const edited = legacyRows().map((row): Finding => {
+    const edited = legacyRows(shas.closer910).map((row): Finding => {
       switch (row.id) {
         case 'ARIA-HIGH-901':
           return { ...row, title: 'the title names the defect, not its symptom' };
@@ -150,6 +175,15 @@ describe('MF-2 — finding-registry-migrate-branch converts an in-flight branch 
           };
         case 'ARIA-HIGH-905':
           return { ...row, rejected_closing_commits: [shas.closer905] };
+        case 'ARIA-HIGH-910':
+          return {
+            ...row,
+            state: 'OPEN',
+            closing_commits: [],
+            closed_at: null,
+            rejected_closing_commits: [shas.closer910],
+            notes: REOPEN_910_NOTES,
+          };
         default:
           return row;
       }
@@ -196,6 +230,7 @@ describe('MF-2 — finding-registry-migrate-branch converts an in-flight branch 
         'ARIA-HIGH-905',
         'ARIA-HIGH-907',
         'ARIA-MEDIUM-908',
+        'ARIA-HIGH-910',
       ]
         .map(eventFilePath)
         .sort(),
@@ -221,6 +256,17 @@ describe('MF-2 — finding-registry-migrate-branch converts an in-flight branch 
       event_type: 'CLOSURE_REJECTED',
       payload: { shas: [shas.closer905] },
     });
+    // The rejection reopens 910 in the fold; a transition after it would be
+    // from a state the row is no longer in.
+    expect(
+      parseEvents(firstStore[eventFilePath('ARIA-HIGH-910')] ?? '').map((event) => ({
+        event_type: event.event_type,
+        payload: event.payload,
+      })),
+    ).toEqual([
+      { event_type: 'CLOSURE_REJECTED', payload: { shas: [shas.closer910] } },
+      { event_type: 'AMENDED', payload: { fields: { notes: REOPEN_910_NOTES } } },
+    ]);
     expect(only('ARIA-HIGH-907')).toMatchObject({
       event_type: 'CREATED',
       reason: null,
@@ -306,6 +352,13 @@ describe('MF-2 — finding-registry-migrate-branch converts an in-flight branch 
         rejected_closing_commits: [shas.closer905],
       });
       expect(rows.get('ARIA-HIGH-906')?.state).toBe('OPEN');
+      expect(rows.get('ARIA-HIGH-910')).toMatchObject({
+        state: 'OPEN',
+        closing_commits: [],
+        closed_at: null,
+        rejected_closing_commits: [shas.closer910],
+        notes: REOPEN_910_NOTES,
+      });
       expect(rows.get('ARIA-HIGH-907')?.state).toBe('OPEN');
       expect(rows.get('ARIA-MEDIUM-908')?.state).toBe('IN-PROGRESS');
     },

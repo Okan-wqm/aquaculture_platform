@@ -911,29 +911,17 @@ AUTO_PROMOTE_DEFAULTS: dict[str, Any] = {
 }
 
 
-# Z3d — EVAL_WINDOW → ACTIVE superiority gate knobs (genesis_superiority).
-# `min_duel_matches`: decided duels required before the Bradley-Terry
-# component is evaluated at all; below it, the measured eval-window verdict
-# alone decides (a thin duel ledger must not block the lane that feeds it).
-SUPERIORITY_DEFAULTS: dict[str, Any] = {
-    "min_duel_matches": 3,
-    "window_days": 30,
-}
-
-
 def superiority_policy(repo_root: str | Path | None = None) -> dict[str, Any]:
-    """Resolve the Z3d superiority block with defaults (auto_promote pattern)."""
-    if repo_root is not None:
-        merged = load_policy(repo_root)
-    else:
-        merged = {}
-    block = dict(SUPERIORITY_DEFAULTS)
-    raw_block = merged.get("superiority")
-    if isinstance(raw_block, dict):
-        for key in SUPERIORITY_DEFAULTS:
-            if key in raw_block:
-                block[key] = raw_block[key]
-    return block
+    """Z3d + F1.7 — the EVAL_WINDOW → ACTIVE promotion proof's values, parsed strictly.
+
+    ``alpha`` and ``min_discordant_pairs`` are the pre-registered decision of the
+    paired gain test (ARIA-HIGH-734); a defaults dict here filled a key an override
+    left out with the shipped number, which forges a pre-registration, so the block
+    goes through ``preregistered_policy.parse_block`` (SUPERIORITY_SCHEMA, below)
+    like every SE-13 block: the shipped JSON is the one place each value is written.
+    """
+    merged = load_policy(repo_root) if repo_root is not None else default_policy()
+    return _prereg.parse_block("superiority", merged.get("superiority"), SUPERIORITY_SCHEMA)
 
 
 def auto_promote_policy(repo_root: str | Path | None = None) -> dict[str, Any]:
@@ -1053,6 +1041,17 @@ SERVICE_EXPERTISE_SCHEMA: dict[str, Any] = {
     "retirement": {
         "counterfactual_share": _prereg.real(0.0, 1.0, open_low=True),
     },
+}
+# Z3d + F1.7 — the promotion proof (genesis_superiority). min_duel_matches: decided
+# duels below which the Bradley-Terry component is not evaluated (a thin duel
+# ledger must not block the lane that feeds it); window_days: which eval runs each
+# side of the paired test reads; alpha / min_discordant_pairs: the paired test's
+# pre-registered decision (agent_eval.compare_eval_windows paired mode).
+SUPERIORITY_SCHEMA: dict[str, Any] = {
+    "min_duel_matches": _prereg.whole(0, 10_000),
+    "window_days": _prereg.whole(1, 3650),
+    "alpha": _PROBABILITY,
+    "min_discordant_pairs": _prereg.whole(1, 100_000),
 }
 CHANGE_REVIEW_SCHEMA: dict[str, Any] = {
     "seats": {

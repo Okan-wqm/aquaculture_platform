@@ -390,7 +390,9 @@ const PRE_PHASE6_SHAS: ReadonlySet<string> = new Set([
   // (derivation applies the same binding) and cannot be amended without a
   // force-push. The root cause is the allocator's per-clone reservation
   // ledger: two clones can mint the same sequence with no knowledge of each
-  // other, and only the merge driver's duplicate-id refusal caught it.
+  // other. Since MF-2 two clones that mint one id write the same event-log
+  // path, an add/add conflict git raises at merge, and the integrity
+  // invariant refuses an id held twice.
   'ac780802', // fix(admin-panel): a price sheet that failed was offered anyway, at a guessed price (trailer names ADMIN-HIGH-135; finding is ADMIN-HIGH-159)
   // 2026-10-22 WP-J landing (PLAN-v2 F0.3, branch landing/aria-wp-j-l). Added
   // by PROGRAM-LEAD DECISION (WP-J landing item 5, under the operator's ARIA

@@ -28,8 +28,18 @@ Claude Code CLI runtime (ORPHAN-MEDIUM-253 — codex→claude migration):
 
 from __future__ import annotations
 
+# ARIA-HIGH-602 — the live partition: the R03 message check reads .github
+# through the workflow-shell-safety adapter, which imports tools/gates modules
+# outside the kernel surface, so this module runs in aria-kernel.yml's
+# always-run `workspace` job (aria_kernel.live_partition).
+READS_LIVE_CHECKOUT = (
+    "the .github workflows and actions, read through tools/aria-adapters/workflow-shell-safety-adapter.ts "
+    "and the tools/gates modules it imports"
+)
+
 import json
 import re
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -58,22 +68,17 @@ def _extract_yaml_block(text: str, block_marker: str) -> str:
     raise AssertionError(f"yaml block with marker {block_marker!r} not found")
 
 
-def _backtick_in_double_quotes(command: str) -> bool:
-    """Whether a shell line holds an unescaped backtick inside double quotes
-    (bash runs it as a command substitution)."""
-    double = single = escaped = False
-    for char in command:
-        if escaped:
-            escaped = False
-        elif char == "\\" and not single:
-            escaped = True
-        elif char == "'" and not double:
-            single = not single
-        elif char == '"' and not single:
-            double = not double
-        elif char == "`" and double:
-            return True
-    return False
+# ARIA-LOW-736 — the R03 shape (a backtick inside a double-quoted echo/printf)
+# has one scanner: the workflow-shell-safety adapter's rule, read through the
+# one shell reader (tools/aria-adapters/shell-script.ts). This gate asks it.
+_WORKFLOW_SHELL_ADAPTER_ARGV = (
+    "node",
+    "node_modules/ts-node/dist/bin.js",
+    "--project",
+    "tools/gates/tsconfig.json",
+    "tools/aria-adapters/workflow-shell-safety-adapter.ts",
+)
+_MESSAGE_RULE = "command_substitution_in_message"
 
 
 # The Claude Code CLI argv flags the proven doc declares for both executors.
@@ -226,21 +231,28 @@ class PhaseB1ArgvProvenWorkflowHygiene(unittest.TestCase):
         # command substitution in bash: the API-key refusal path would start
         # the interactive token mint inside a CI step and print its output to
         # the Actions log. A backtick inside a double-quoted echo/printf
-        # string runs a command; a message names one in plain quotes.
-        offenders = []
-        github = _REPO_ROOT / ".github"
-        for path in sorted([*github.glob("workflows/*.yml"), *github.glob("actions/*/action.yml")]):
-            for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-                stripped = line.strip()
-                found = re.search(r"\b(echo|printf)\b", stripped)
-                if stripped.startswith("#") or not found:
-                    continue
-                if _backtick_in_double_quotes(stripped[found.start():]):
-                    offenders.append(f"{path.relative_to(_REPO_ROOT)}:{number}")
+        # string runs a command; a message names one in plain quotes. The
+        # adapter decides (its own test pins the shapes it flags and the
+        # ones it does not); a file it could not parse is not clean.
+        completed = subprocess.run(
+            list(_WORKFLOW_SHELL_ADAPTER_ARGV),
+            cwd=_REPO_ROOT,
+            input=json.dumps({"roots": [".github"]}),
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=600,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr[-4000:])
+        output = json.loads(completed.stdout)
+        summary = next(o for o in output["observations"] if o["type"] == "workflow_shell_summary")
+        self.assertEqual(summary["details"]["parse_failures"], 0, "every .github file was read")
+        offenders = [
+            f"{finding['path']}:{finding['line']}"
+            for finding in output["findings"]
+            if finding["rule"] == _MESSAGE_RULE
+        ]
         self.assertEqual(offenders, [], "command substitution inside a double-quoted message")
-        self.assertTrue(_backtick_in_double_quotes('echo "x (`claude setup-token` y)"'))
-        self.assertFalse(_backtick_in_double_quotes("echo \"x ('claude setup-token') \\` y\""))
-        self.assertFalse(_backtick_in_double_quotes("echo 'x `y` z'"))
 
     # I-V3-22c — Claude Code binary preflight step.
     def test_i_v3_22c_claude_binary_preflight_step_present(self) -> None:

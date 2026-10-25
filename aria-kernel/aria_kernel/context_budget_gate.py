@@ -92,7 +92,7 @@ ROLE_CAP_MAP: dict[str, float] = {
     "implementation": 0.45,
     # Emergency (operator-driven escalations)
     "human_required_packet": 0.65,
-    # Specialist domain review (specialist_review_runner's touch-map) —
+    # Specialist domain review (the routing table's specialists, SE-2) —
     # E14 replaced the five per-domain role caps with the one cap of the role
     # that is actually minted. A cap keyed by a role no producer can mint is a
     # policy nobody is ever measured against.

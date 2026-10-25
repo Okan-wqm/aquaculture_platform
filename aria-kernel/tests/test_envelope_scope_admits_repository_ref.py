@@ -52,8 +52,9 @@ from aria_kernel.agent_invocations import (
 )
 from aria_kernel.evidence_validator import validate_agent_response_evidence
 from aria_kernel.request_admission import admit_request
-from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
+from aria_kernel.tool_registry import GovernanceError, bound_workspace_root, ensure_tools_dir
 from tests._helpers.git_fixtures import make_local_git_repo
+from tests._helpers.routing_fixture import write_routing_table
 from tests._helpers.hermetic_git import apply_hermetic_git_env
 from tests.test_decision_questioning import _QuestioningFixture
 
@@ -268,6 +269,8 @@ class TheSpecialistFallbackCarriesItsPlan(_WorkspaceFixture):
     def _run_specialists(self) -> None:
         from aria_kernel.specialist_review_runner import run_specialist_review_runner
 
+        # The store's workspace routes the touched service to its specialist (SE-2).
+        write_routing_table(bound_workspace_root(self.tools), {"apps/farm-service/**": ("farm-expert", "")})
         return run_specialist_review_runner(
             cycle_id="cyc-614",
             base_dir=self.tools,

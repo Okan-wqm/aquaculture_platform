@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import fnmatch
 import json
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -90,18 +91,127 @@ def change_intelligence_subject_ref(*, pr_number: Any, head_sha: Any) -> str:
     return f"merged-pr:{pr_number}:{head_sha}"
 
 
+@dataclass(frozen=True, slots=True)
+class ChangeSubject:
+    """WP-D1 — one change named by its caller: ``(base, head)`` as full commit
+    ids the workspace can read, and the paths the change touches.
+
+    The room (or a Board-named subject) reviews exactly this change; the merge
+    feed's subjects are ARIA's own merges. Built only by
+    ``resolve_change_subject``, so a subject that exists has both ends resolved.
+    """
+
+    base: str
+    head: str
+    changed_files: tuple[str, ...]
+
+    @property
+    def ref(self) -> str:
+        """The subject's stable name, the key of ``minted_subject_refs``."""
+        return f"change:{self.base}..{self.head}"
+
+
+def resolve_change_subject(
+    workspace_root: str | Path, *, change_base: str | None, change_head: str | None,
+) -> ChangeSubject:
+    """Resolve both ends of one change in the workspace, or refuse BY NAME.
+
+    A missing end and an end the workspace cannot read are different
+    refusals, and each names the end (``change_base`` / ``change_head``): the
+    caller fixes the argument it got wrong instead of reading a review of a
+    change that never existed. Local git only (``rev-parse`` and ``diff``),
+    so the entry never touches a remote.
+    """
+    from .evidence_probe import GitProbeSession
+
+    root = Path(workspace_root)
+    session = GitProbeSession()
+    resolved: dict[str, str] = {}
+    for name, value in (("change_base", change_base), ("change_head", change_head)):
+        requested = (value or "").strip()
+        if not requested:
+            raise GovernanceError(f"change_review_subject_missing:{name}")
+        resolution = session.resolve_baseline(root, requested)
+        if resolution.commit_sha is None:
+            raise GovernanceError(
+                f"change_review_subject_unresolvable:{name}:{requested} "
+                f"({resolution.unavailable_reason}: {resolution.detail})"
+            )
+        resolved[name] = resolution.commit_sha
+    diff = session.run(
+        ["git", "diff", "--name-only", "-z", "--no-renames", resolved["change_base"], resolved["change_head"]],
+        cwd=root,
+    )
+    if not diff.answered or diff.returncode != 0:
+        raise GovernanceError(
+            f"change_review_diff_unavailable:{resolved['change_base']}..{resolved['change_head']} "
+            f"({diff.unavailable_reason or diff.stderr.strip()[:200]})"
+        )
+    changed = tuple(path for path in diff.stdout.decode("utf-8", errors="replace").split("\0") if path)
+    return ChangeSubject(base=resolved["change_base"], head=resolved["change_head"], changed_files=changed)
+
+
+@dataclass(frozen=True, slots=True)
+class _ChangeOffer:
+    """One subject the dispatcher may ask about, whichever feed named it."""
+
+    subject_ref: str
+    head_sha: str
+    changed_files: list[str]
+    header: str
+    # The merge feed's PR number; None for an operator-named change.
+    pr_number: Any = None
+
+
+def _operator_offer(subject: ChangeSubject) -> _ChangeOffer:
+    return _ChangeOffer(
+        subject_ref=subject.ref,
+        head_sha=subject.head,
+        changed_files=list(subject.changed_files),
+        header=(
+            "Plan the revalidation impact of this change, named by the operator.\n"
+            f"change_base: {subject.base}\n"
+            f"change_head: {subject.head}\n"
+        ),
+    )
+
+
+def _merge_offer(merge: dict[str, Any]) -> _ChangeOffer:
+    pr_number = merge.get("pr_number")
+    head_sha = str(merge.get("head_sha"))
+    return _ChangeOffer(
+        subject_ref=change_intelligence_subject_ref(pr_number=pr_number, head_sha=head_sha),
+        head_sha=head_sha,
+        changed_files=_string_list(merge.get("changed_files")),
+        header=(
+            "Plan the revalidation impact of this merge. The kernel's glob "
+            "match over changed paths is already recorded in "
+            "evidence-impact.jsonl; your job is the coupling it cannot see.\n"
+            f"pr_number: {pr_number}\n"
+            f"head_sha: {head_sha}\n"
+        ),
+        pr_number=pr_number,
+    )
+
+
 def dispatch_change_intelligence(
     *,
     cycle_id: str | None = None,
     base_dir: str | Path | None = None,
-    target_sha: str | None = None,
+    subject: ChangeSubject | None = None,
     max_requests: int = DEFAULT_MAX_CHANGE_INTELLIGENCE_REQUESTS,
 ) -> dict[str, Any]:
-    """Mint ONE change-intelligence envelope per merged PR. Idempotent.
+    """Mint ONE change-intelligence envelope per subject. Idempotent.
 
-    Anchored to the merged head SHA rather than the workspace head: the
-    question is what THAT merge invalidated, and evidence grading must resolve
-    against the tree the agent is asked about.
+    Two feeds, one mint. With ``subject`` (WP-D1, mode ``change_review``) the
+    one change the operator named is the only subject, admitted as
+    ``change_review.operator_subject`` — critical path, so a room run on an
+    empty store is never held at the door. Without it, the merge feed: every
+    merged ARIA PR, admitted as ``change_review.merge_feed`` (discretionary).
+
+    Anchored to the subject's head SHA rather than the workspace head: the
+    question is what THAT change invalidated, and evidence grading must
+    resolve against the tree the agent is asked about.
 
     Newest merge first, and at most ``max_requests`` per run: the first run
     after this producer lands sees every merge ever recorded in
@@ -125,46 +235,55 @@ def dispatch_change_intelligence(
     )
     minted: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
-    # The subject is the merged row's own (PR, head): the same name a request
-    # minted from the retired merge-events copy carries, so a merge already
-    # asked about is never asked again (ARIA-LOW-424).
-    for merge in reversed(_merges(root)):
-        pr_number = merge.get("pr_number")
-        head_sha = merge.get("head_sha")
-        if pr_number is None or not head_sha:
-            skipped.append({"pr_number": pr_number, "reason": "merge_event_not_anchored"})
-            continue
-        subject = change_intelligence_subject_ref(pr_number=pr_number, head_sha=head_sha)
-        if subject in already_asked:
-            skipped.append({"pr_number": pr_number, "reason": "already_dispatched"})
+    offers: list[_ChangeOffer] = []
+    if subject is not None:
+        offers.append(_operator_offer(subject))
+    else:
+        # The subject is the merged row's own (PR, head): the same name a
+        # request minted from the retired merge-events copy carries, so a
+        # merge already asked about is never asked again (ARIA-LOW-424).
+        for merge in reversed(_merges(root)):
+            if merge.get("pr_number") is None or not merge.get("head_sha"):
+                skipped.append({"pr_number": merge.get("pr_number"), "reason": "merge_event_not_anchored"})
+                continue
+            offers.append(_merge_offer(merge))
+    for offer in offers:
+        if offer.subject_ref in already_asked:
+            skipped.append({"pr_number": offer.pr_number, "subject_ref": offer.subject_ref,
+                            "reason": "already_dispatched"})
             continue
         if len(minted) >= max_requests:
-            skipped.append({"pr_number": pr_number, "reason": "mint_budget_exhausted"})
+            skipped.append({"pr_number": offer.pr_number, "subject_ref": offer.subject_ref,
+                            "reason": "mint_budget_exhausted"})
             continue
         # ARIA-HIGH-364 — impact analysis of a merge starts new work:
         # discretionary. A refused merge stays unasked and is walked again
         # next cycle; the refusal holds for this cycle, so the walk stops.
-        admission = admit_request(
-            "pr_tracking.change_intelligence", CHANGE_INTELLIGENCE_ROLE, base_dir=root, cycle_id=cycle_id,
+        # The operator's named change is the work itself (critical path).
+        admission = (
+            admit_request(
+                "change_review.operator_subject", CHANGE_INTELLIGENCE_ROLE, base_dir=root, cycle_id=cycle_id,
+            )
+            if subject is not None
+            else admit_request(
+                "change_review.merge_feed", CHANGE_INTELLIGENCE_ROLE, base_dir=root, cycle_id=cycle_id,
+            )
         )
         if not admission.admitted:
-            skipped.append({"pr_number": pr_number, "reason": admission.refusal})
+            skipped.append({"pr_number": offer.pr_number, "subject_ref": offer.subject_ref,
+                            "reason": admission.refusal})
             break
-        already_asked.add(subject)
-        changed_files = _string_list(merge.get("changed_files"))
+        already_asked.add(offer.subject_ref)
+        changed_files = offer.changed_files
         prompt = (
-            "Plan the revalidation impact of this merge. The kernel's glob "
-            "match over changed paths is already recorded in "
-            "evidence-impact.jsonl; your job is the coupling it cannot see.\n"
-            f"pr_number: {pr_number}\n"
-            f"head_sha: {head_sha}\n"
-            f"changed_file_count: {len(changed_files)}\n"
+            offer.header
+            + f"changed_file_count: {len(changed_files)}\n"
             f"changed_files (first {_MAX_CHANGED_FILE_REFS}): "
             f"{', '.join(changed_files[:_MAX_CHANGED_FILE_REFS]) or '(none recorded)'}\n"
             "Return details.impact_map with beliefs_needs_revalidation, "
             "findings_needs_revalidation, fixtures_requires_rerun and "
-            "confirmed_unchanged. Ground every entry in the merge commit, not "
-            "in the PR description."
+            "confirmed_unchanged. Ground every entry in the change's commits, "
+            "not in its description."
         )
         request = create_agent_invocation_request(
             target_agent=CHANGE_INTELLIGENCE_AGENT,
@@ -174,21 +293,44 @@ def dispatch_change_intelligence(
                 "id": "impact-map",
                 "description": (
                     "details.impact_map classifies every impacted belief, "
-                    "finding and fixture with evidence from the merge commit"
+                    "finding and fixture with evidence from the change's commits"
                 ),
             }],
             allowed_scope=["**"],
-            # ARIA-MEDIUM-385 — the merge is the subject, never a citation;
+            # ARIA-MEDIUM-385 — the change is the subject, never a citation;
             # a changed path the agent law cannot admit stays in the prompt.
             evidence_refs=split_citable_refs(changed_files[:_MAX_CHANGED_FILE_REFS])[0] or None,
-            subject_ref=subject,
+            subject_ref=offer.subject_ref,
             cycle_id=cycle_id,
-            target_sha=str(head_sha) if head_sha else target_sha,
+            target_sha=offer.head_sha,
             base_dir=root,
             admission=admission,
         )
-        minted.append({"pr_number": pr_number, "request_id": request.get("request_id")})
+        minted.append({
+            "pr_number": offer.pr_number, "subject_ref": offer.subject_ref, "request_id": request.get("request_id"),
+        })
     return {"schema_version": 1, "minted": minted, "skipped": skipped}
+
+
+def subject_open_request_ids(subject: ChangeSubject, *, base_dir: str | Path | None = None) -> list[str]:
+    """The subject's change-intelligence requests that have not reached a
+    terminal state — what a settle loop waits on before it stops."""
+    from .agent_invocations import derive_request_states, list_agent_invocation_requests
+    from .agent_surface import TERMINAL_REQUEST_STATES
+
+    rows = [
+        row for row in list_agent_invocation_requests(
+            base_dir=base_dir, role=CHANGE_INTELLIGENCE_ROLE, target_agent=CHANGE_INTELLIGENCE_AGENT,
+        )
+        if row.get("subject_ref") == subject.ref
+    ]
+    if not rows:
+        return []
+    states = derive_request_states(base_dir=base_dir)
+    return [
+        str(row.get("request_id")) for row in rows
+        if states[str(row.get("request_id"))] not in TERMINAL_REQUEST_STATES
+    ]
 
 
 def plan_pr_impact(

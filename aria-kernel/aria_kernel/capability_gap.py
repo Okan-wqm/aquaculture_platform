@@ -5,9 +5,8 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .agent_priors import related_agents_for_paths
 from .agent_network import latest_agent_network_hash
-from .agent_routing import ROUTING_TABLE_REL, unowned_projects
+from .agent_routing import ROUTING_TABLE_REL, load_routing_table, reviewing_agents_for_paths, unowned_projects
 from .candidate_blocks import GENESIS_ADJUDICATION_REQUIRED
 from .fitness import list_fitness_reports
 from .ledger import append_declared_jsonl, load_jsonl
@@ -21,7 +20,7 @@ from .observation_coverage import (
 )
 from .pressure import effective_workspace_pressures
 from .tool_health import runs_path
-from .tool_registry import GovernanceError, ensure_tools_dir, list_tools, utc_now
+from .tool_registry import GovernanceError, bound_workspace_root, ensure_tools_dir, list_tools, utc_now
 
 
 # Plan 026R §E.9 — closed-enum of capability_gap types emitted by
@@ -70,16 +69,19 @@ def detect_capability_gaps(
     # blind" and must never be recorded as if it were — a night that proved
     # nothing cannot extend a claim that something has been blind for N.
     blind_tonight: list[str] | None = None
+    # A gap's related agents are the agents the one path -> agent map (the
+    # workspace's orchestrator routing table, SE-2) routes its evidence to.
+    routing = load_routing_table(paths.repo_root if paths is not None else bound_workspace_root(root))
     if paths is not None:
-        gaps.extend(_gaps_from_unowned_pressures(cycle_id, paths, root, index_hash))
-        gaps.extend(_gaps_from_coverage_gaps(cycle_id, paths, root, index_hash, base_dir))
+        gaps.extend(_gaps_from_unowned_pressures(cycle_id, paths, root, index_hash, routing))
+        gaps.extend(_gaps_from_coverage_gaps(cycle_id, paths, root, index_hash, base_dir, routing))
         unobserved_gaps, blind_tonight = _gaps_from_unobserved_surface(
             cycle_id, paths, root, index_hash,
         )
         gaps.extend(unobserved_gaps)
     gaps.extend(_gaps_from_adapter_registry(cycle_id, paths, root, index_hash))
-    gaps.extend(_gaps_from_shadow_runs(cycle_id, root, base_dir))
-    gaps.extend(_gaps_from_unknowns(cycle_id, base_dir))
+    gaps.extend(_gaps_from_shadow_runs(cycle_id, root, base_dir, routing))
+    gaps.extend(_gaps_from_unknowns(cycle_id, base_dir, routing))
     gaps.extend(_gaps_from_fitness(cycle_id, base_dir))
     unique: dict[str, dict[str, Any]] = {}
     for gap in gaps:
@@ -284,7 +286,9 @@ def _pressure_rows(root: Path) -> list[dict[str, Any]]:
     return rows
 
 
-def _gaps_from_unowned_pressures(cycle_id: str, paths: Any, root: Path, index_hash: str | None) -> list[dict[str, Any]]:
+def _gaps_from_unowned_pressures(
+    cycle_id: str, paths: Any, root: Path, index_hash: str | None, routing: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
     gaps = []
     for pressure in effective_workspace_pressures(paths):
         pressure_id = str(pressure.get("event_id") or pressure.get("pressure_id") or "")
@@ -293,7 +297,7 @@ def _gaps_from_unowned_pressures(cycle_id: str, paths: Any, root: Path, index_ha
         if pressure.get("target_agent"):
             continue
         refs = [str(ref) for ref in pressure.get("evidence_refs", []) if isinstance(ref, str)]
-        related = related_agents_for_paths(paths=refs, base_dir=root)
+        related = reviewing_agents_for_paths(refs, routing)
         gap_key = str(pressure.get("capability_gap_key") or f"pressure:{pressure_id}")
         # Plan 026R §E.9 — `skill_candidate` pressure marker routes
         # the gap to skill_gap (skill-shaped intervention) rather
@@ -328,7 +332,8 @@ def _gaps_from_unowned_pressures(cycle_id: str, paths: Any, root: Path, index_ha
 
 
 def _gaps_from_coverage_gaps(
-    cycle_id: str, paths: Any, root: Path, index_hash: str | None, base_dir: str | Path | None
+    cycle_id: str, paths: Any, root: Path, index_hash: str | None, base_dir: str | Path | None,
+    routing: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     """A service ARIA examined this cycle that NO domain agent owns (empty
     routing-table primary) AND that has an active pressure → an agent-genesis
@@ -368,7 +373,7 @@ def _gaps_from_coverage_gaps(
     gaps = []
     for service in sorted(active):
         proot = unowned[service]
-        related = related_agents_for_paths(paths=[proot], base_dir=root)
+        related = reviewing_agents_for_paths([proot], routing)
         evidence = [ROUTING_TABLE_REL, proot] + active[service]
         gaps.append(
             _gap(
@@ -527,7 +532,9 @@ def _emitted_count(run: dict, kind: str) -> int:
     if isinstance(legacy, int):
         return legacy
     return 0
-def _gaps_from_shadow_runs(cycle_id: str, root: Path, base_dir: str | Path | None) -> list[dict[str, Any]]:
+def _gaps_from_shadow_runs(
+    cycle_id: str, root: Path, base_dir: str | Path | None, routing: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
     gaps = []
     for run in list(read_runs_rows(runs_path(root), base_dir=root)):
         if run.get("cycle_id") != cycle_id or run.get("status") != "ok":
@@ -537,7 +544,7 @@ def _gaps_from_shadow_runs(cycle_id: str, root: Path, base_dir: str | Path | Non
         if raw_count < 3 or emitted:
             continue
         paths = run_path_citations(run, base_dir=root)
-        related = related_agents_for_paths(paths=paths, base_dir=base_dir)
+        related = reviewing_agents_for_paths(paths, routing)
         gap_type = "existing_agent_extension" if related else "agent_gap"
         gaps.append(
             _gap(
@@ -558,7 +565,9 @@ def _gaps_from_shadow_runs(cycle_id: str, root: Path, base_dir: str | Path | Non
     return gaps
 
 
-def _gaps_from_unknowns(cycle_id: str, base_dir: str | Path | None) -> list[dict[str, Any]]:
+def _gaps_from_unknowns(
+    cycle_id: str, base_dir: str | Path | None, routing: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
     rows = list_memory(kind="uncertainties", base_dir=base_dir)
     by_reason: dict[str, list[str]] = {}
     for row in rows:
@@ -570,7 +579,7 @@ def _gaps_from_unknowns(cycle_id: str, base_dir: str | Path | None) -> list[dict
         unique_refs = sorted(set(refs))
         if len(unique_refs) < 3:
             continue
-        related = related_agents_for_paths(paths=unique_refs, base_dir=base_dir)
+        related = reviewing_agents_for_paths(unique_refs, routing)
         gaps.append(
             _gap(
                 cycle_id=cycle_id,

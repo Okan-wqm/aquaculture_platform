@@ -53,7 +53,7 @@ from aria_kernel.evidence_trust import classify_evidence_ref  # noqa: E402
 # functions are the one place it does not walk, because the code they call
 # is what the Board judges, not part of the judge. A new function that runs
 # the candidate is named here; this file is itself an authority member.
-BOARD_CANDIDATE_ENTRIES = ("run_cycle_acceptance", "assert_reacts_to_scenarios")
+BOARD_CANDIDATE_ENTRIES = ("run_cycle_acceptance", "assert_reacts_to_scenarios", "review_change")
 
 _RESOLVABLE_GRADES = ("repo_verified", "worktree_candidate")
 # The grade that says the HARNESS could not ask, not that ARIA cited badly:
@@ -489,6 +489,89 @@ def assert_reacts_to_scenarios() -> dict[str, Any]:
             "scenarios": checks}
 
 
+# ── WP-D1: review one change in a room ──────────────────────────────────────
+def review_change(
+    *, change_base: str, change_head: str, store: Path, workspace_root: Path, rounds: int,
+) -> dict[str, Any]:
+    """Run the production loop for ONE change against an EXPLICIT store.
+
+    ``cycle run --mode change_review`` → ``ci_executor.py --drain`` → cycle
+    again, until the cycle reports nothing open for the subject or ``rounds``
+    drains have run. A cycle on a subject already asked about mints nothing
+    (the kernel's per-subject idempotency), so every later cycle only settles.
+    The cycle and the drain are the kernel's own entries, run as the tree's
+    own programs: nothing here imports a private kernel function (the
+    decision-test script's Stage J did, and re-implemented the judgment
+    pipeline beside the kernel).
+
+    The store binding is HARNESS §2.1: the four store roots from the kernel's
+    one definition, the session store, and HOME/XDG inside the store, so no
+    default can resolve to real ARIA state.
+    """
+    import time
+    from datetime import datetime, timezone
+
+    from aria_kernel.state_store import store_root_environment
+
+    store = store.resolve()
+    tree = workspace_root.resolve()
+    home = store / "home"
+    env = {
+        **os.environ,
+        **store_root_environment(store),
+        "ARIA_SESSION_STORE_DIR": str(store / "sessions"),
+        "ARIA_WORKSPACE_ROOT": str(tree),
+        "PYTHONPATH": str(tree / "aria-kernel"),
+        "HOME": str(home),
+        "XDG_CONFIG_HOME": str(home / "xdg" / "config"),
+        "XDG_CACHE_HOME": str(home / "xdg" / "cache"),
+        "XDG_DATA_HOME": str(home / "xdg" / "data"),
+        "XDG_STATE_HOME": str(home / "xdg" / "state"),
+    }
+    for directory in ("sessions", "logs", "home/xdg/config", "home/xdg/cache", "home/xdg/data", "home/xdg/state"):
+        (store / directory).mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    report: dict[str, Any] = {
+        "check": "review_change", "change_base": change_base, "change_head": change_head,
+        "store": str(store), "workspace_root": str(tree), "rounds": [],
+    }
+    started = time.monotonic()
+    for drain_round in range(rounds + 1):
+        cycle_id = f"review-change-{stamp}-c{drain_round + 1}"
+        cycle = subprocess.run(
+            [sys.executable, "-m", "aria_kernel", "cycle", "run", "--cycle-id", cycle_id,
+             "--workspace-root", str(tree), "--mode", "change_review",
+             "--change-base", change_base, "--change-head", change_head],
+            cwd=tree, env=env, capture_output=True, text=True, check=False,
+        )
+        (store / "logs" / f"{cycle_id}.stderr.log").write_text(cycle.stderr, encoding="utf-8")
+        if cycle.returncode != 0:
+            report["rounds"].append({"cycle_id": cycle_id, "exit_code": cycle.returncode,
+                                     "error": cycle.stderr.strip()[-500:]})
+            break
+        state = json.loads(cycle.stdout)
+        change = state.get("change_intelligence") or {}
+        open_requests = list(change.get("subject_open_requests") or [])
+        report["subject_ref"] = change.get("subject_ref")
+        report["rounds"].append({
+            "cycle_id": cycle_id, "exit_code": 0, "status": state.get("status"),
+            "minted": change.get("change_intelligence_requests_minted"), "open_requests": open_requests,
+        })
+        if state.get("status") != "completed" or not open_requests or drain_round == rounds:
+            break
+        drain = subprocess.run(
+            [sys.executable, str(tree / "tools" / "aria-poc" / "ci_executor.py"), "--drain"],
+            cwd=tree, env=env, capture_output=True, text=True, check=False,
+        )
+        (store / "logs" / f"{cycle_id}.drain.log").write_text(drain.stdout + drain.stderr, encoding="utf-8")
+        report["rounds"][-1]["drain_exit_code"] = drain.returncode
+    last = report["rounds"][-1]
+    report["settled"] = last.get("status") == "completed" and not last.get("open_requests")
+    report["passed"] = report["settled"]
+    report["wall_seconds"] = round(time.monotonic() - started, 3)
+    return report
+
+
 # ── orchestration ────────────────────────────────────────────────────────────
 def run_all(*, repo_root: Path | None = None, skip_poc: bool = False) -> dict[str, Any]:
     results = []
@@ -594,7 +677,33 @@ def main() -> int:
         action="store_true",
         help="skip the repo-wide drift scan; run only the fast synthetic checks",
     )
+    sub = parser.add_subparsers(dest="command")
+    review = sub.add_parser(
+        "review-change",
+        help="review ONE change in a room: cycle (mode change_review) -> drain -> cycle until settled",
+        description=(
+            "Run the production loop for one change (base, head) against an explicit store, "
+            "without GitHub. Prints the per-round report as JSON; exit 0 = the subject settled."
+        ),
+    )
+    review.add_argument("--change-base", required=True, help="commit the change starts from")
+    review.add_argument("--change-head", required=True, help="commit the change ends at")
+    review.add_argument("--store", required=True, type=Path,
+                        help="the room's store directory; every ARIA store root is bound inside it")
+    review.add_argument("--workspace-root", required=True, type=Path,
+                        help="the room's tree, holding the kernel and the change's history")
+    review.add_argument("--rounds", type=int, default=3,
+                        help="the most drains to run before the round cap stops the loop (default 3)")
     args = parser.parse_args()
+    if args.command == "review-change" and args.rounds < 0:
+        review.error("--rounds must be 0 or more")
+    if args.command == "review-change":
+        result = review_change(
+            change_base=args.change_base, change_head=args.change_head,
+            store=args.store, workspace_root=args.workspace_root, rounds=args.rounds,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0 if result["passed"] else 1
 
     report = run_all(skip_poc=args.skip_poc)
     _print_report(report)

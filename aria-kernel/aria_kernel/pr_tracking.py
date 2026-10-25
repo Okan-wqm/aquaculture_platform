@@ -228,17 +228,22 @@ def _change_hunks(workspace_root: Path, offer: _ChangeOffer) -> str:
     return diff.stdout.decode("utf-8", errors="replace")
 
 
-def _change_impact(workspace_root: Path, changed_files: list[str], *, root: Path, service_facts: Mapping[str, Any]) -> str:
+def _change_impact(
+    workspace_root: Path, changed_files: list[str], *, root: Path, service_facts: Mapping[str, Any],
+) -> tuple[str, list[str]]:
     """WP-D2 step 3 — the services the change reaches, upstream first, from
-    ``impact_graph.cycle_service_examination`` (the one closure owner); a held
-    closure is rendered as its named hold."""
-    from .impact_graph import cycle_service_examination
+    ``impact_graph.cycle_service_examination`` (the one closure owner): the
+    prose the agent reads (a held closure is its named hold) and, as data, the
+    services' roots in the same order, from ``impact_graph.project_map`` (the
+    one name-to-root accessor); a held closure reaches no root."""
+    from .impact_graph import cycle_service_examination, project_map
 
     examination = cycle_service_examination(
         workspace_root=workspace_root, changed_files=changed_files, service_facts=service_facts, base_dir=root,
     )
     if "hold" in examination:
-        return "impact closure held: " + json.dumps(examination["hold"], sort_keys=True, ensure_ascii=False)
+        return "impact closure held: " + json.dumps(examination["hold"], sort_keys=True, ensure_ascii=False), []
+    roots = project_map(base_dir=root, workspace_root=workspace_root)
     lines = ["Impacted services in dependency order (upstream first):"]
     for entry in examination["examination_order"]:
         detail = f"layer {entry['layer']}; {entry['reason']}"
@@ -247,7 +252,7 @@ def _change_impact(workspace_root: Path, changed_files: list[str], *, root: Path
         if entry["evidence"]:
             detail += "; edge evidence " + json.dumps(entry["evidence"], sort_keys=True, ensure_ascii=False)
         lines.append(f"- {entry['project']} ({detail})")
-    return "\n".join(lines)
+    return "\n".join(lines), [roots[entry["project"]] for entry in examination["examination_order"]]
 
 
 def dispatch_change_intelligence(
@@ -286,7 +291,10 @@ def dispatch_change_intelligence(
     a line outside its tag. The hunks and the impact are read from
     ``workspace``, whose tree the closure reads as the change's (the room's
     tree is cut at the head, HARNESS §3.1; the nightly's checkout holds the
-    merge); a dispatch without one says so inside the blocks.
+    merge); a dispatch without one says so inside the blocks. The same facts
+    ride on the row as data (``change_context``: the listed files and the
+    impacted services' roots), from which ``envelope_file_set`` derives the
+    context-recall file set.
     """
     from .agent_invocations import create_agent_invocation_request, minted_subject_refs
     from .pressure_evidence import split_citable_refs
@@ -347,6 +355,7 @@ def dispatch_change_intelligence(
             break
         already_asked.add(offer.subject_ref)
         changed_files = offer.changed_files
+        impacted_roots: list[str] = []
         if workspace is None:
             hunks = "hunks not attached: this dispatch was given no workspace to read the change from"
             impact = "impact not computed: this dispatch was given no workspace to read the change from"
@@ -356,8 +365,11 @@ def dispatch_change_intelligence(
 
                 service_facts = compute_service_facts_at_head(workspace_root=workspace.repo_root)
             hunks = _change_hunks(workspace.repo_root, offer)
-            impact = _change_impact(workspace.repo_root, changed_files, root=root, service_facts=service_facts)
-        listed = json.dumps(changed_files[:_MAX_CHANGED_FILE_REFS], ensure_ascii=False)
+            impact, impacted_roots = _change_impact(
+                workspace.repo_root, changed_files, root=root, service_facts=service_facts,
+            )
+        listed_files = changed_files[:_MAX_CHANGED_FILE_REFS]
+        listed = json.dumps(listed_files, ensure_ascii=False)
         prompt = (
             offer.header
             + f"changed_file_count: {len(changed_files)}\n\n"
@@ -386,13 +398,14 @@ def dispatch_change_intelligence(
             allowed_scope=["**"],
             # ARIA-MEDIUM-385 — the change is the subject, never a citation;
             # a changed path the agent law cannot admit stays in the prompt.
-            evidence_refs=split_citable_refs(changed_files[:_MAX_CHANGED_FILE_REFS])[0] or None,
+            evidence_refs=split_citable_refs(listed_files)[0] or None,
             subject_ref=offer.subject_ref,
             cycle_id=cycle_id,
             target_sha=offer.head_sha,
             base_dir=root,
             admission=admission,
             change_review_workspace=workspace,
+            change_context={"changed_files": listed_files, "impacted_roots": impacted_roots},
         )
         minted.append({
             "pr_number": offer.pr_number, "subject_ref": offer.subject_ref, "request_id": request.get("request_id"),
@@ -421,12 +434,36 @@ def subject_open_request_ids(subject: ChangeSubject, *, base_dir: str | Path | N
     ]
 
 
+def envelope_file_set(request: Mapping[str, Any]) -> list[str]:
+    """WP-D2 (conformance audit R16) — the file set of a minted change-review envelope: what
+    ``context_recall`` reads as a case's ``envelope_files``.
+
+    The change's files and the roots of the services it reaches, both from the
+    request's ``change_context`` (data the mint stored beside the prose), and
+    the twin slice the mint attached (``twin.twin_slice_files`` over
+    ``repository_map``; a request with no map holds none). Sorted, unique. A
+    request that was not minted by this dispatch has no ``change_context`` and
+    no file set: refused by name, not measured as an empty envelope.
+    """
+    from .twin import twin_slice_files
+
+    context = request.get("change_context")
+    if context is None:
+        raise GovernanceError(f"envelope_file_set_not_a_change_review_request: {request.get('request_id')!r}")
+    twin_slice = request.get("repository_map")
+    return sorted({
+        *context["changed_files"], *context["impacted_roots"],
+        *(twin_slice_files(twin_slice) if twin_slice is not None else ()),
+    })
+
+
 def context_recall(cases: Iterable[Mapping[str, Any]], *, repo_root: str | Path | None = None) -> dict[str, Any]:
     """WP-D2 exit metric (DESIGN-discovery row D2): did the envelope hold the fix's ground?
 
     Over bug cases ``{case_id, envelope_files, fix_files}`` — ``envelope_files``
     being the change-review envelope's file set (the change's files, the
-    impacted services' roots, the twin slice) — a case is a hit when a file
+    impacted services' roots, the twin slice; ``envelope_file_set`` derives it
+    from a minted request) — a case is a hit when a file
     the fix F changed is one of those entries or lies under one (directory
     boundary, ``knowledge_graph._paths_related``). Deterministic, no LLM, and
     independent of case order (``missed`` is sorted). The share is judged

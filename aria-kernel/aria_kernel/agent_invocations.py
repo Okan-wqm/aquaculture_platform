@@ -8,7 +8,7 @@ import stat
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Mapping, Sequence
+from typing import TYPE_CHECKING, Any, Callable, Mapping, Sequence, TypedDict
 
 from .agent_contract import CONTRACT_ENFORCED_ROLES, REQUEST_SCHEMA, validate_request
 from .agent_surface import (
@@ -997,6 +997,34 @@ def _render_repository_map(repository_map: Any) -> str:
 PROMPT_RENDER_VERSION = 7
 
 
+class ChangeContext(TypedDict):
+    """WP-D2 (conformance audit R16) — what a change-review minter read of the change, as DATA.
+
+    Stored on the request row beside the escaped prose of ``suggested_prompt``
+    and never rendered: the context-recall metric derives its envelope file
+    set from it (``pr_tracking.envelope_file_set``), so nobody recomputes the
+    closure or parses escaped text. ``changed_files`` are the paths the prompt
+    lists; ``impacted_roots`` the roots of the services the change reaches, in
+    dependency order (empty when no closure was read or it was held).
+    """
+
+    changed_files: list[str]
+    impacted_roots: list[str]
+
+
+def _validated_change_context(value: Mapping[str, Any]) -> ChangeContext:
+    """``value`` as a :class:`ChangeContext`, or a named refusal: both keys, each a list of strings."""
+    if set(value) != set(ChangeContext.__annotations__):
+        raise GovernanceError(
+            f"create_agent_invocation_request_change_context_keys: expected {sorted(ChangeContext.__annotations__)}, "
+            f"got {sorted(value)}"
+        )
+    for key in ChangeContext.__annotations__:
+        if not isinstance(value[key], list) or not all(isinstance(item, str) and item for item in value[key]):
+            raise GovernanceError(f"create_agent_invocation_request_change_context_{key}_must_be_list_of_strings")
+    return ChangeContext(changed_files=list(value["changed_files"]), impacted_roots=list(value["impacted_roots"]))
+
+
 def _render_obligation_data(item: dict[str, Any]) -> list[str]:
     """The DATA keys of one obligation, as the lines under its bullet (v6+).
 
@@ -1524,6 +1552,10 @@ def create_agent_invocation_request(
     # the workspace's missed signals (DESIGN-discovery step 4); every other
     # producer mints with None and its knowledge is unchanged.
     change_review_workspace: WorkspacePaths | None = None,
+    # WP-D2 (R16) — the change's files and the impacted roots the minter read,
+    # stored as data on the row (see ChangeContext); every other producer mints
+    # with None and its row is unchanged.
+    change_context: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     # Plan ARIA-V5 §3c v2 (B1 fix) — ``plan_revision_hash`` binds the
     # envelope to a specific plan revision so I-V5.1-03 can assert
@@ -1663,6 +1695,8 @@ def create_agent_invocation_request(
                 raise GovernanceError(
                     "create_agent_invocation_request_evidence_refs_must_be_list_of_strings"
                 )
+    if change_context is not None:
+        change_context = _validated_change_context(change_context)
     # Retrieval hints are distinct from evidence and authorization. Existing
     # callers omit this field and retain their original identity recipe.
     context_source_paths_status = None
@@ -1880,6 +1914,8 @@ def create_agent_invocation_request(
         row["context_source_paths"] = context_source_paths
     if context_source_paths_status is not None:
         row["context_source_paths_status"] = context_source_paths_status
+    if change_context is not None:
+        row["change_context"] = change_context
     if plan_contract is not None:
         if not isinstance(plan_contract, dict) or not plan_contract:
             raise GovernanceError("create_agent_invocation_request_plan_contract_must_be_object")

@@ -318,7 +318,7 @@ class TheAuthorityRecordsWhatHappenedTests(_Store):
         self.assertEqual(pending_enqueued_heads(self.tools), {(7, _HEAD)})
 
     def test_a_merged_result_is_recorded_merged(self) -> None:
-        result = self._merge({"merged": True, "enqueued": False})
+        result = self._merge({"merged": True, "enqueued": False, "merge_commit_sha": "c" * 40})
         self.assertEqual(result["decision"], "merged")
         self.assertIn("merged", [row["event"] for row in self._lifecycle()])
         self.assertIn("merge_finalized_no_incident", [row["incident_event"] for row in self._incidents()])

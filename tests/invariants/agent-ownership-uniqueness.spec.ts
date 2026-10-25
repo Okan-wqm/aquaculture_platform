@@ -206,19 +206,17 @@ describe('agent ownership uniqueness invariant', () => {
  * `.claude/agents/product-audit/orchestrator.md`).
  */
 
+// The Lane-A table is named on its own so the ADR-050 checks read it by name, not by array position.
+const LANE_A_ROUTING_TABLE = {
+  label: 'Lane-A orchestrator-routing-table.md',
+  path: path.join(REPO_ROOT, '.claude', 'shared', 'orchestrator-routing-table.md'),
+} as const;
+
 const ROUTING_TABLE_FILES: readonly { label: string; path: string }[] = [
-  {
-    label: 'Lane-A orchestrator-routing-table.md',
-    path: path.join(REPO_ROOT, '.claude', 'shared', 'orchestrator-routing-table.md'),
-  },
+  LANE_A_ROUTING_TABLE,
   {
     label: 'Lane-B product-audit-orchestrator-routing.md',
-    path: path.join(
-      REPO_ROOT,
-      '.claude',
-      'shared',
-      'product-audit-orchestrator-routing.md',
-    ),
+    path: path.join(REPO_ROOT, '.claude', 'shared', 'product-audit-orchestrator-routing.md'),
   },
 ];
 
@@ -269,7 +267,9 @@ describe('routing-table glob-uniqueness invariant (CLAUDE-HIGH-007)', () => {
 
   const byGlob = new Map<string, RoutingRow[]>();
   for (const row of allRows) {
-    const key = normalizeGlob(row.glob).replace(/\s*\(.*\)\s*$/, '').trim();
+    const key = normalizeGlob(row.glob)
+      .replace(/\s*\(.*\)\s*$/, '')
+      .trim();
     const existing = byGlob.get(key) ?? [];
     existing.push(row);
     byGlob.set(key, existing);
@@ -284,8 +284,7 @@ describe('routing-table glob-uniqueness invariant (CLAUDE-HIGH-007)', () => {
       // Tolerance: if any row contains "delegated from" / "secondary reviewer"
       // in the raw line, treat that row as a non-primary claim.
       const untagged = rows.filter(
-        (r) =>
-          !/\b(secondary reviewer|delegated from|delegated-from)\b/i.test(r.rawLine),
+        (r) => !/\b(secondary reviewer|delegated from|delegated-from)\b/i.test(r.rawLine),
       );
       const untaggedPrimaries = new Set(untagged.map((r) => r.primary));
       if (untaggedPrimaries.size >= 2) {
@@ -357,8 +356,8 @@ describe('ratified routing rows (ADR-050, ARIA-HIGH-874)', () => {
   const ratified = ratifiedRows(fs.readFileSync(RATIFIED_ROWS_ADR, 'utf8'));
   const table = new Map(
     extractRoutingRows(
-      'Lane-A orchestrator-routing-table.md',
-      fs.readFileSync(ROUTING_TABLE_FILES[0].path, 'utf8'),
+      LANE_A_ROUTING_TABLE.label,
+      fs.readFileSync(LANE_A_ROUTING_TABLE.path, 'utf8'),
     ).map((r) => [normalizeGlob(r.glob), r.primary]),
   );
 

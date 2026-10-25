@@ -54,15 +54,15 @@ def _ts_regex_literal(name: str) -> str:
 
 
 class MirrorsThePythonCannotDriftFrom(unittest.TestCase):
-    """The kernel mirrors two rules of the TypeScript gate; the mirror is
-    compared to the gate's source, byte for byte, so a gate edit is a red
-    test here rather than an envelope the gate refuses."""
+    """The kernel mirrors the gate's rule for which commit types need a
+    trailer; the mirror is compared to the gate's source, byte for byte, so a
+    gate edit is a red test here rather than an envelope the gate refuses.
+    The other rule, the trailer's registry id, is not a mirror: both sides
+    build it from their grammar's owner, and test_registry_finding_id_four_digits
+    holds the kernel's trailer to the gate's by one table of ids."""
 
     def test_require_closes_types_mirror(self) -> None:
         self.assertEqual(REQUIRE_CLOSES_SUBJECT_RE.pattern, _ts_regex_literal("REQUIRE_CLOSES_TYPES"))
-
-    def test_closes_trailer_regex_mirror(self) -> None:
-        self.assertEqual(CLOSES_TRAILER_RE.pattern, _ts_regex_literal("CLOSES_TRAILER_REGEX"))
 
     def test_trailerless_types_are_derived_from_the_gate_rule(self) -> None:
         self.assertEqual(TRAILERLESS_COMMIT_TYPES, ("refactor", "test", "chore"))

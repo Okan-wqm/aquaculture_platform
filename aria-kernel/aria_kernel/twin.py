@@ -37,6 +37,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from .finding_id_grammar import FINDING_ID_SOURCE
 from .git_object_id import ANY_OBJECT_FORMAT, is_object_id, is_object_id_prefix
 from .genesis_policy import source_qualification_policy
 from .git_probe import refuse_shallow_checkout
@@ -992,9 +993,7 @@ INTENT_MAX_FILES = 8
 
 # The reference shapes that carry intent in this repo's commit messages:
 # ADR ids, ADR/plan/review doc paths, and finding ids like FARM-HIGH-083.
-_INTENT_REF_RE = re.compile(
-    r"(ADR-\d{3}|docs/(?:adr|plans|reviews)/[\w./#-]+|[A-Z][A-Z0-9]+-(?:CRITICAL|HIGH|MEDIUM|LOW)-\d+)"
-)
+_INTENT_REF_RE = re.compile(rf"(ADR-\d{{3}}|docs/(?:adr|plans|reviews)/[\w./#-]+|{FINDING_ID_SOURCE})")
 
 
 def intent_context_for_files(

@@ -9,8 +9,8 @@ ARIA's runtime depends on multiple manifests staying in sync:
 - agent_contract.ROLE_TARGET_PAIRING entries reference whitelist agents.
 - aria-tools/registry.json runner.argv paths resolve on disk.
 - docs/aria/plans/*.md don't reference RESOLVED debts as 'in progress'.
-- _maintenance kernel agents don't sneak into domain reviewer or
-  product-audit roster.
+- _maintenance kernel agents and writer agents don't sneak into a domain
+  reviewer seat; _maintenance agents stay out of the product-audit roster.
 
 Pre-Plan-020 there was no closed-loop validator — drift surfaced as
 runtime errors only. Phase 11 implements 6 validators that fail-closed at
@@ -44,10 +44,10 @@ PR time via the CI invariant test (tests/invariants/aria-surface-manifest
    RESOLVED but the plan still describes it as IN_PROGRESS.
 
 6. validate_maintenance_agent_isolation
-   .claude/agents/_maintenance/**/*.md kernel-bound agents (aria-primary-
-   planner, aria-challenger-planner, aria-prompt-writer) are NOT the
-   target of domain-reviewer roles in ROLE_TARGET_PAIRING and do NOT
-   appear in product-audit-* prefix listings.
+   .claude/agents/_maintenance/**/*.md agents, and writer agents (tools
+   include Edit/Write), are NOT domain reviewers (a routing-table primary
+   or also-notify, a cross-cutting specialist, the independence top-up),
+   and _maintenance agents do NOT appear in product-audit-* listings.
 
 Plan 020 surface
 ----------------
@@ -305,33 +305,38 @@ def validate_plan_doc_freshness(*, repo_root: Path) -> list[dict[str, Any]]:
 
 
 def validate_maintenance_agent_isolation(*, repo_root: Path) -> list[dict[str, Any]]:
-    """Layer 6: _maintenance kernel agents don't appear as domain reviewers
-    or in the product-audit-* roster.
+    """Layer 6: _maintenance kernel agents and writer agents don't appear as
+    domain reviewers, and _maintenance agents not in the product-audit-* roster.
 
     E14 — this layer used to read the three per-domain roles
     (auth/access/tenant) out of ROLE_TARGET_PAIRING. Those roles had no
     producer and were removed, so the check is re-pointed at the surface that
-    DOES select domain reviewers: the specialist touch-map plus the
+    DOES select domain reviewers: the orchestrator routing table (the one
+    path -> agent map, SE-2), the cross-cutting specialists and the
     expert-review independence top-up. The invariant is unchanged — a kernel
     maintenance agent must never be dispatched as a domain reviewer — but it
     now watches the live roster instead of a dead one.
+
+    SE-2 (program-lead decision, Q4): a WRITER is never a reviewer either.
+    An agent whose ``tools:`` include a file-editing tool
+    (``runtime_profiles.FILE_WRITE_TOOLS``) writes the tree — e.g.
+    gdpr-erasure-executor writes the ``apps/*/src/gdpr/**`` handlers on an
+    ``implement:`` token — so naming it as a primary or also-notify reviewer
+    would let the author review its own work.
     """
+    from .agent_routing import ROUTING_TABLE_REL, load_routing_table
     from .expert_review_gate import _INDEPENDENCE_TOPUP
-    from .specialist_review_runner import (
-        _CROSS_CUTTING_SPECIALISTS,
-        domain_touch_map,
-    )
+    from .runtime_profiles import FILE_WRITE_TOOLS, frontmatter_tools
+    from .specialist_review_runner import _CROSS_CUTTING_SPECIALISTS
     maintenance_dir = repo_root / ".claude" / "agents" / "_maintenance"
-    if not maintenance_dir.exists():
-        return []
     maintenance_names: set[str] = {
         p.stem for p in maintenance_dir.glob("*.md")
     }
     failures: list[dict[str, Any]] = []
     domain_reviewers: dict[str, str] = {}
-    for prefix, agents in domain_touch_map().items():
-        for agent in agents:
-            domain_reviewers.setdefault(agent, f"touch_map:{prefix}")
+    for row in load_routing_table(repo_root):
+        for agent in (*row["primary"], *row["also_notify"]):
+            domain_reviewers.setdefault(agent, f"{ROUTING_TABLE_REL}:{','.join(row['prefixes'])}")
     for agent in _CROSS_CUTTING_SPECIALISTS:
         domain_reviewers.setdefault(agent, "cross_cutting_specialists")
     for agent in _INDEPENDENCE_TOPUP:
@@ -342,6 +347,18 @@ def validate_maintenance_agent_isolation(*, repo_root: Path) -> list[dict[str, A
                 "validator": "validate_maintenance_agent_isolation",
                 "role": source, "target": target,
                 "reason": "maintenance_agent_in_domain_review_pairing",
+            })
+            continue
+        agent_md = resolve_agent_md_path(target, repo_root)
+        if agent_md is None:
+            continue
+        write_tools = FILE_WRITE_TOOLS & frontmatter_tools(agent_md.read_text(encoding="utf-8"))
+        if write_tools:
+            failures.append({
+                "validator": "validate_maintenance_agent_isolation",
+                "role": source, "target": target,
+                "write_tools": sorted(write_tools),
+                "reason": "writer_agent_in_domain_review_pairing",
             })
     # Also check product-audit roster.
     pa_dir = repo_root / ".claude" / "agents" / "product-audit"

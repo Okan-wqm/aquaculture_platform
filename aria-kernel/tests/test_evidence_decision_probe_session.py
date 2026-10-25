@@ -108,7 +108,7 @@ class OneProbeSessionPerDecision(unittest.TestCase):
         evidences = [{"ref": f"{ref}:1", "summary": ref} for ref in self.REFS]
         with _ProbeSpy() as spy, spy.spy_classifier("aria_kernel.finding"):
             session = GitProbeSession()
-            target_sha = _target_sha(self.root, session)
+            target_sha = _target_sha(self.root, session, "HEAD")
             normalized = _normalize_evidences(
                 self.root, evidences, target_sha=target_sha, probe_session=session,
             )
@@ -131,7 +131,7 @@ class OneProbeSessionPerDecision(unittest.TestCase):
                 with self.assertRaisesRegex(
                     GovernanceError, "finding_evidence_target_sha_unavailable: baseline_unreachable",
                 ):
-                    _target_sha(plain, GitProbeSession())
+                    _target_sha(plain, GitProbeSession(), "HEAD")
         finally:
             shutil.rmtree(plain, ignore_errors=True)
 

@@ -661,8 +661,10 @@ class NativeImplementationContextTests(unittest.TestCase):
         from aria_kernel.tool_registry import update_tools_index as actual_index_writer
         from aria_kernel.validation import run_validation_commands
         from aria_kernel.validation_runs_ledger import verify_validation_run
+        from aria_kernel.agent_routing import ROUTING_TABLE_REL
         from tests._helpers.git_fixtures import make_repo_with_initial_commit
         from tests._helpers.production_shaped import production_converged_plan
+        from tests._helpers.routing_fixture import write_routing_table
 
         fixture_directory = tempfile.TemporaryDirectory(prefix="aria-native-implementation-")
         self.addCleanup(fixture_directory.cleanup)
@@ -745,6 +747,11 @@ class NativeImplementationContextTests(unittest.TestCase):
         def git(*argv: str) -> str:
             return subprocess.check_output(["git", *argv], cwd=repo, text=True).strip()
 
+        # SE-2 — the claim-time panel is chosen from the workspace's routing
+        # table, the one path -> agent map; the base commit carries it.
+        write_routing_table(repo, {"apps/farm-service/**": ("farm-expert", "")})
+        git("add", ROUTING_TABLE_REL)
+        git("commit", "-q", "-m", "fixture: the routing table names the farm reviewer")
         initial_sha = git("rev-parse", "HEAD")
         os.environ["NX_BASE"] = initial_sha
         os.environ["NX_HEAD"] = "HEAD"

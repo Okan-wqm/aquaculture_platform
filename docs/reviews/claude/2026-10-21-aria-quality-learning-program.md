@@ -1857,6 +1857,497 @@ are provisioned, are unmeasured.
   as a TP verified at path:line or as a named FP with its cause, in the F2.1 notes or the review
   doc; an empty list is recorded as such.
 
+## ARIA-MEDIUM-850
+
+SE-2 adds a public `runtime_profiles.FILE_WRITE_TOOLS` with exactly the members of the existing
+`hooks.WRITE_TOOL_NAMES` (probe at HEAD: the two frozensets are equal). Two names now own
+"file-editing tool": Layer 6's writer rule reads one and the hook broker reads the other, so one can
+gain a tool without the other.
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: SE-2-C review round 1, ssot lens, non-blocking item 1; non-blocking, registered by the
+  SE-2-C findings clerk. The SE-2
+  branch (`feat/aria-se2-one-path-agent-map`) is not held on it. Line numbers are those of HEAD
+  `539f7badc`, not the reviewers' `a55ac2704`.
+- Evidence:
+  - `aria-kernel/aria_kernel/runtime_profiles.py:72`
+  - `aria-kernel/aria_kernel/hooks.py:77`
+  - `aria-kernel/aria_kernel/surface_manifest_validator.py:355`
+  - `aria-kernel/aria_kernel/hooks.py:144`
+- Verified: Verified at 539f7badc: runtime_profiles.py:72 and hooks.py:77 are equal frozensets
+  (hooks.WRITE_TOOL_NAMES == runtime_profiles.FILE_WRITE_TOOLS is True).
+- Rule: One owner per concept (PLAN-v2 F0.9b ownership atlas; memory
+  feedback_single_center_no_duplicates): the set of file-editing tools is named once and every
+  consumer (the hook broker, the profile write-scope rule, Layer 6) reads that one name.
+- Close: One module owns the file-editing tool set and the other imports it, so there is a single
+  literal of {Edit, Write, MultiEdit, NotebookEdit} in aria_kernel; a test fails when a second
+  literal of that set appears. `runtime_profiles.WRITE_TOOLS` (adds Bash, the write-tier profile
+  test) is a different concept and stays.
+
+## ARIA-MEDIUM-851
+
+The routing table has a second reader with different semantics. `worktree-audit` picks the
+most-specific primary and does not filter out placeholders, while `agent_routing` rejects them
+(`_AGENT_RE`). The new `*ARIA lane — no Lane-A primary*` rows therefore turn `aria-kernel/**` and
+`tools/aria-*` paths from "PROCESS HIGH ownership gap" (main) into the owner "ARIA lane — no Lane-A
+primary", which hides the gap that the table's own rule (every changed file maps to at least one
+primary) requires. It is an operator tool and not part of CI.
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: SE-2-C review round 1, ssot lens, non-blocking item 2; non-blocking, registered by the
+  SE-2-C findings clerk. The SE-2
+  branch (`feat/aria-se2-one-path-agent-map`) is not held on it. Line numbers are those of HEAD
+  `539f7badc`, not the reviewers' `a55ac2704`.
+- Evidence:
+  - `tools/worktree-audit/worktree-audit.ts:258`
+  - `tools/worktree-audit/worktree-audit.ts:357-379`
+  - `.claude/shared/orchestrator-routing-table.md:98-100`
+  - `.claude/shared/orchestrator-routing-table.md:129`
+  - `aria-kernel/aria_kernel/agent_routing.py:37`
+- Verified: Re-run at 539f7badc with the reviewer's probe-wta.ts against the origin/main table and
+  the HEAD table: main reports "PROCESS HIGH ownership gap" for aria-kernel/aria_kernel/cli.py and
+  tools/aria-poc/poc.py, HEAD reports "ARIA lane — no Lane-A primary" for both. worktree-audit.ts is
+  byte-identical to main.
+- Rule: One owner per concept: the routing table has one meaning for a placeholder primary, and
+  every reader (agent_routing, worktree-audit) applies it; the table's own rule at line 129 says an
+  unmatched path is a PROCESS HIGH ownership gap.
+- Close: worktree-audit treats a primary cell that is not an agent name as no owner (the same rule
+  as `agent_routing._AGENT_RE`), or both readers share one parser. A spec in tools/worktree-audit
+  feeds the live table and pins that `aria-kernel/aria_kernel/cli.py` reports the ownership gap, not
+  the placeholder.
+
+## ARIA-LOW-852
+
+An agent-to-paths store is left alive with no reader. `map_agent_priors` still writes
+`agent-priors/agent-map.jsonl` with per-agent `scope_globs` and the hardcoded token-to-globs default
+table, and `latest_agent_priors` reads it. With `related_agents_for_paths` deleted, no non-test code
+in `aria_kernel` calls either function. The state surface `agent_priors_map` stays registered.
+
+- Severity: LOW; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: SE-2-C review round 1, ssot lens, non-blocking item 3; non-blocking, registered by the
+  SE-2-C findings clerk. The SE-2
+  branch (`feat/aria-se2-one-path-agent-map`) is not held on it. Line numbers are those of HEAD
+  `539f7badc`, not the reviewers' `a55ac2704`.
+- Evidence:
+  - `aria-kernel/aria_kernel/agent_priors.py:14-44`
+  - `aria-kernel/aria_kernel/agent_priors.py:66-68`
+  - `aria-kernel/aria_kernel/agent_priors.py:181-196`
+  - `aria-kernel/aria_kernel/state_manifest.py:761`
+- Verified: Grep at 539f7badc: map_agent_priors and latest_agent_priors have callers only under
+  aria-kernel/tests (test_agent_genesis_foundation, test_portability_bootstrap,
+  test_agent_genesis_h4_real_exec); tools/aria-poc/poc.py has its own write_agent_priors.
+- Rule: No store without a reader (memory feedback_single_center_no_duplicates; PLAN-v2 F0.9b):
+  `scope_globs` stays a genesis draft field (agent_genesis.REQUIRED_DRAFT_FIELDS), not a second
+  path-to-agent store that the kernel writes and nothing reads.
+- Close: `map_agent_priors`, `latest_agent_priors`, `_default_scope_for_agent` and the
+  `agent_priors_map` state surface are removed in one change, with the ledger-roster and portability
+  tests updated; `_parse_agent` and `reviewer_names` stay (agent_network and plan_convergence read
+  them). Alternatively a named non-test reader is added and the decision recorded here.
+
+## ARIA-LOW-853
+
+`agent_routing.ROUTING_INPUT_DIR` is the owner of the directory the kernel reads routing inputs
+from, and its comment names `agent_network`'s routing hashes as a consumer. `agent_network` does not
+import it: `_routing_files`, `_source_manifest` and `_source_hashes` each spell `.claude/shared`
+themselves.
+
+- Severity: LOW; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: SE-2-C review round 1, ssot lens, non-blocking item 4; non-blocking, registered by the
+  SE-2-C findings clerk. The SE-2
+  branch (`feat/aria-se2-one-path-agent-map`) is not held on it. Line numbers are those of HEAD
+  `539f7badc`, not the reviewers' `a55ac2704`.
+- Evidence:
+  - `aria-kernel/aria_kernel/agent_routing.py:31-33`
+  - `aria-kernel/aria_kernel/agent_network.py:89`
+  - `aria-kernel/aria_kernel/agent_network.py:102`
+  - `aria-kernel/aria_kernel/agent_network.py:125`
+- Verified: Re-read at 539f7badc: agent_network.py:89 (`repo / ".claude" / "shared"`), :102
+  (`".claude/shared/*routing*.md"`) and :125 (`rel.startswith(".claude/shared/")`).
+- Rule: One owner per concept: a directory the owner exports as a constant is imported by its
+  consumers, not re-spelled (the ROUTING_INPUT_MEMBERS authority entry already does this).
+- Close: `agent_network` builds its routing glob, shared directory and hash bucket from
+  `agent_routing.ROUTING_INPUT_DIR`; the three literals are gone. A change to the constant then
+  changes the routing hashes and the authority set together.
+
+## ARIA-MEDIUM-854
+
+`load_routing_table` returns `[]` when `.claude/shared/orchestrator-routing-table.md` is absent.
+Gate C and `expert_review_gate` now take all their domain reviewers from that table, so a workspace
+that does not resolve to a repo checkout silently yields only the independence top-up
+(`security-reviewer`, `architectural-arbiter`) and records nothing. On origin/main the touch map was
+compiled into the code and could not be missing.
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: SE-2-C review round 1, security lens non-blocking item 1 (MEDIUM) merged with ssot lens
+  non-blocking item 5 (LOW); the higher severity is kept; non-blocking, registered by the SE-2-C
+  findings clerk. The SE-2
+  branch (`feat/aria-se2-one-path-agent-map`) is not held on it. Line numbers are those of HEAD
+  `539f7badc`, not the reviewers' `a55ac2704`.
+- Evidence:
+  - `aria-kernel/aria_kernel/agent_routing.py:94-95`
+  - `aria-kernel/aria_kernel/specialist_review_runner.py:520-534`
+  - `aria-kernel/aria_kernel/expert_review_gate.py:171`
+- Verified: Probe at 539f7badc: select_specialist_agents(auth-service file) with the live table
+  returns 8 agents and [] with the table absent; select_expert_reviewers returns 8 agents live and
+  ['security-reviewer', 'architectural-arbiter'] with the table absent.
+- Rule: Fail closed with a named gap: a missing authority input is surfaced as a gap the cycle
+  records, not read as "no rows" (the ARIA-HIGH-788 fail-open class).
+- Close: An absent routing table raises or records a named gap (for example
+  `routing_table_unavailable`) from one owner accessor that Gate C and expert_review_gate both use.
+  A test drives `load_routing_table` against a directory without the table and pins that Gate C
+  blocks with the named gap and that expert_review_gate requests no review without naming it.
+
+## ARIA-LOW-855
+
+`remaining_runtime_dependencies` scans a fixed list of dispatch modules for quoted names of the
+removable security agents. The list still names `specialist_touch_map.py`, which does not exist (a
+defect that predates SE-2), and it does not include `agent_routing`, `specialist_review_runner` or
+the routing table. Gate C now reaches `security-reviewer` and `auth-security-expert` through the
+table, so the retirement scan under-reports the runtime dependencies.
+
+- Severity: LOW; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: SE-2-C review round 1, ssot lens, non-blocking item 6; non-blocking, registered by the
+  SE-2-C findings clerk. The SE-2
+  branch (`feat/aria-se2-one-path-agent-map`) is not held on it. Line numbers are those of HEAD
+  `539f7badc`, not the reviewers' `a55ac2704`.
+- Evidence:
+  - `aria-kernel/aria_kernel/security/parity.py:27`
+  - `aria-kernel/aria_kernel/security/parity.py:34`
+  - `aria-kernel/aria_kernel/security/parity.py:134-145`
+- Verified: Re-read at 539f7badc: `aria-kernel/aria_kernel/specialist_touch_map.py` does not exist;
+  REMOVABLE_SECURITY_AGENTS = (security-reviewer, auth-security-expert).
+- Rule: A retirement gate reads every place that can dispatch the agent it retires; a scan list that
+  names a deleted module and omits the live dispatch path gives a green result it has not earned.
+- Close: `_RUNTIME_DISPATCH_MODULES` drops the nonexistent module and the scan covers the routing
+  table (rows naming `security-reviewer` or `auth-security-expert`) and the modules that dispatch
+  from it. A test with a table row naming a removable agent pins that
+  `remaining_runtime_dependencies` reports it.
+
+## ARIA-LOW-856
+
+SE-2 removes writer agents from the routing table (a writer is never a reviewer, Q4), but
+`legal-hold-auditor.md` still lists "GDPR erasure cascade (gdpr-erasure-executor primary)", and
+`specialist_review_runner._TIER_1_SPECIALISTS` still contains `gdpr-erasure-executor` and
+`security-architecture-writer`. The set is a profile-gating attribute and not a routing source, so
+this is a prose and naming inconsistency, not a routing defect.
+
+- Severity: LOW; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: SE-2-C review round 1, ssot lens, non-blocking item 7; non-blocking, registered by the
+  SE-2-C findings clerk. The SE-2
+  branch (`feat/aria-se2-one-path-agent-map`) is not held on it. Line numbers are those of HEAD
+  `539f7badc`, not the reviewers' `a55ac2704`.
+- Evidence:
+  - `.claude/agents/legal-hold-auditor.md:37`
+  - `aria-kernel/aria_kernel/specialist_review_runner.py:157-168`
+- Verified: Re-read at 539f7badc: legal-hold-auditor.md:37 and specialist_review_runner.py:163,
+  :167.
+- Rule: One owner per concept: the routing table is the only place that says which agent owns a
+  path; agent prose and gating sets do not restate ownership with a writer as primary.
+- Close: legal-hold-auditor.md names the routing table's owner for the erasure cascade (or drops the
+  owner annotation), and the Tier-1 set either drops the two writer agents or a comment records that
+  the set gates dispatch only and never selects a reviewer. A test pins that no agent .md claims a
+  writer agent as `primary`.
+
+## ARIA-LOW-857
+
+`_pattern_prefix` cuts a glob at its first wildcard, so the `apps/*/src/gdpr/**`,
+`apps/*/src/**/tenant*.ts` and `apps/*/src/**/entities/*.entity.ts` rows reduce to the prefix
+`apps`, and `_matches` then reaches every `apps/*` path. One `apps/auth-service` file routes to 8
+agents. Commit 539f7badc fixes the consequence the SE-2-C blocker named (the
+`max_specialists_per_cycle` cap cutting a service's own domain expert), but the reviewer set itself
+is still wider than the rows intend, so a merge asks more reviewers than the file needs.
+
+- Severity: LOW; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: SE-2-C review round 1, security lens non-blocking item 4 (implementer note 5);
+  non-blocking, registered by the SE-2-C findings clerk. The SE-2
+  branch (`feat/aria-se2-one-path-agent-map`) is not held on it. Line numbers are those of HEAD
+  `539f7badc`, not the reviewers' `a55ac2704`.
+- Evidence:
+  - `aria-kernel/aria_kernel/agent_routing.py:53-65`
+  - `aria-kernel/aria_kernel/agent_routing.py:117-126`
+  - `aria-kernel/aria_kernel/agent_routing.py:149-163`
+  - `.claude/shared/orchestrator-routing-table.md:102`
+  - `.claude/shared/orchestrator-routing-table.md:67`
+  - `.claude/shared/orchestrator-routing-table.md:36`
+- Verified: Probe at 539f7badc:
+  select_specialist_agents(['apps/auth-service/src/auth/jwt.strategy.ts']) returns 8 agents
+  (auth-security-expert, compliance-expert, legal-hold-auditor, security-reviewer,
+  audit-trail-completeness-auditor, data-expert, database-reviewer, multi-tenant-saas-expert). The
+  four-service case (farm, sensor, hr, billing) now keeps all four service experts.
+- Rule: A glob row reviews the paths it matches: the row's prefix is a necessary condition, not the
+  match; the derived reviewer set per surface equals the Q4 literal for the files in it.
+- Close: A row with a wildcard before its last literal segment is matched with the glob (not only
+  its literal prefix), or each such row is split per service. A test pins that
+  `reviewing_agents_for_paths(['apps/auth-service/src/auth/jwt.strategy.ts'])` does not contain the
+  reviewers of the gdpr, tenant and entity rows and still contains the auth owner.
+
+## ARIA-LOW-858
+
+`request_implementation_expert_reviews` requires only four checks (`required`) before it mints
+review requests, and it reads the routing table from `context.workspace_root`, which is the PR-head
+worktree `_evaluate_pre_merge_perimeter` shapes. When `readonly_paths_untouched_at_merge` or
+`forbidden_scope_normalized` fails, the table may be the one the PR edited. The merge is still
+refused and the implementer room's read-only mount already blocks the edit, so the outcome is
+unchanged. The comment "the change being reviewed cannot have edited it" and ADR-049's "that table
+is always the base table" are nevertheless wrong.
+
+- Severity: LOW; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: SE-2-C review round 1, security lens non-blocking item 2; non-blocking, registered by
+  the SE-2-C findings clerk. The SE-2
+  branch (`feat/aria-se2-one-path-agent-map`) is not held on it. Line numbers are those of HEAD
+  `539f7badc`, not the reviewers' `a55ac2704`.
+- Evidence:
+  - `aria-kernel/aria_kernel/expert_review_gate.py:134-148`
+  - `aria-kernel/aria_kernel/expert_review_gate.py:168-171`
+  - `aria-kernel/aria_kernel/merge_authority.py:764-780`
+  - `aria-kernel/aria_kernel/merge_authority.py:833-843`
+  - `docs/adr/049-aria-routing-inputs-authority.md:67-68`
+- Verified: Re-read at 539f7badc: required at expert_review_gate.py:134-137 names four checks; the
+  table is loaded at :171 from context.workspace_root; merge_authority.py:780 shapes the PR-head
+  worktree and :833-843 requests from inside it.
+- Rule: A claim in a comment or an ADR holds for every path that reaches the code it describes;
+  reviewer selection reads an authority input at the base, or only after the checks that make it
+  trustworthy.
+- Close: `request_implementation_expert_reviews` reads the table at `base_sha`, or
+  `readonly_paths_untouched_at_merge` and `forbidden_scope_normalized` join `required`; the comment
+  and ADR-049 are corrected to match. A test mints reviews for a PR head that edits
+  `.claude/shared/orchestrator-routing-table.md` and pins that the edited table is not used.
+
+## ARIA-LOW-859
+
+`validate_maintenance_agent_isolation` refuses a reviewer whose `tools:` include a file-editing
+tool. `FILE_WRITE_TOOLS` excludes Bash, and `test-runner` (tools: Read, Grep, Glob, Bash) is the
+primary of the `**/*.spec.ts`, `**/*.test.ts` and `tests/**` rows, so a reviewer can run Bash.
+Separately, when `resolve_agent_md_path` returns `None` for a routed agent the validator
+`continue`s, so an agent named in the table with no resolvable file is not reported.
+
+- Severity: LOW; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: SE-2-C review round 1, security lens non-blocking item 3; non-blocking, registered by
+  the SE-2-C findings clerk. The SE-2
+  branch (`feat/aria-se2-one-path-agent-map`) is not held on it. Line numbers are those of HEAD
+  `539f7badc`, not the reviewers' `a55ac2704`.
+- Evidence:
+  - `aria-kernel/aria_kernel/runtime_profiles.py:72`
+  - `.claude/shared/orchestrator-routing-table.md:68`
+  - `.claude/agents/test-runner.md:6`
+  - `aria-kernel/aria_kernel/surface_manifest_validator.py:352-354`
+- Verified: Re-read at 539f7badc: runtime_profiles.py:72 excludes Bash; test-runner.md:6 is `tools:
+Read, Grep, Glob, Bash`; routing-table row 68 names test-runner;
+  surface_manifest_validator.py:352-354 resolves the agent and continues on None.
+- Rule: A validator that guards a reviewer-independence rule names every way the reviewer can write
+  the tree it reviews, and reports an input it cannot evaluate instead of passing it.
+- Close: The Layer 6 decision on Bash is recorded (a reviewer may run Bash only under a read-only
+  profile, or Bash is a writer tool for this rule) and pinned by a test on test-runner. A routed
+  agent with no resolvable .md appends a failure with its own reason (for example
+  `routed_agent_without_definition`) instead of `continue`. Both are tested on a fixture first.
+
+## ARIA-LOW-860
+
+SE-2 adds `.claude/shared/` to the derived authority set and CODEOWNERS, a change to the
+implementer's read-only perimeter. PLAN §8 SE-2 and `implementation_safety.py` require "ADR +
+arbiter approval + invariant amendment" for that. ADR-049 is `Status: Proposed` and says the arbiter
+ruling is obtained separately by the program lead; no ruling is cited.
+
+- Severity: LOW; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: SE-2-C review round 1, security lens non-blocking item 5 (process); non-blocking,
+  registered by the SE-2-C findings clerk. The SE-2
+  branch (`feat/aria-se2-one-path-agent-map`) is not held on it. Line numbers are those of HEAD
+  `539f7badc`, not the reviewers' `a55ac2704`.
+- Evidence:
+  - `docs/adr/049-aria-routing-inputs-authority.md:3`
+  - `aria-kernel/aria_kernel/implementation_safety.py:88-89`
+- Verified: Re-read at 539f7badc: docs/adr/049-aria-routing-inputs-authority.md:3-4 reads "Status:
+  Proposed. The architectural-arbiter ruling is obtained separately...".
+- Rule: PLAN section 8 SE-2 and implementation_safety.py: adding or removing a read-only path takes
+  ADR + arbiter approval + invariant amendment; an ADR changes to Accepted only with the ruling
+  cited.
+- Close: The architectural-arbiter ruling on ADR-049 is obtained, cited in the ADR, and its Status
+  is changed to Accepted, before the SE-2 pull request merges. If the arbiter rules against, the
+  READONLY change is reverted in the same pull request.
+
+## ARIA-MEDIUM-824
+
+`harness.py review_change` runs the cycle and the `ci_executor.py --drain` under `{**os.environ}`,
+where the Stage J it replaces ran under an `env -i` allowlist. `GH_TOKEN`, `GITHUB_*`,
+`ANTHROPIC_API_KEY`, `GIT_DIR` and ambient `ARIA_*` settings reach code run from the room tree, and
+the room environment now has two definitions of different hermeticity. The kernel tripwire (iii)
+covers only the in-process `run_enterprise_cycle`, not the harness or the drain.
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: D1 review round 1, ssot lens (room env defined twice) and security lens (the leak),
+  merged into one finding. Registered by the WP-D1 findings clerk after re-checking the evidence at
+  `258c14657`.
+- Evidence:
+  - `tools/aria-acceptance/harness.py:519-530`
+  - `tools/aria-acceptance/harness.py:541-545`
+  - `tools/aria-acceptance/harness.py:562-564`
+  - `tools/aria-poc/ci_executor_drain.py:860`
+  - `tools/aria-poc/ci_executor_drain.py:938`
+  - `tools/aria-poc/ci_executor_drain.py:1473-1474`
+  - `aria-kernel/aria_kernel/evidence_probe.py:179-185`
+  - `/root/aria-handover/2026-10-21/decision-test/run_aria_case.sh:64-95`
+- Rule: Hermetic room (WP-D1 exit iii, DESIGN-discovery D1): the room environment is an allowlist
+  with one definition (`room_env` of `run_aria_case.sh`: 'No GH/GITHUB/RUNNER/GIT\_/ANTHROPIC');
+  CLAUDE.md one owner per concept.
+- Citation note: the review cited `ci_executor.py:1030` for the `GITHUB_OUTPUT` write. That is the
+  per-request child's write, and the drain overrides `GITHUB_OUTPUT` per child
+  (`ci_executor_drain.py:938`). The path that reaches an ambient `GITHUB_OUTPUT` is the drain's own
+  summary write (`ci_executor_drain.py:860`, `:1473-1474`). No passive harm was reproduced:
+  `change_review` runs no GitHub phase.
+- Close: the harness builds the room environment from one shared allowlist (no `{**os.environ}`); a
+  test sets `GH_TOKEN`, `GITHUB_OUTPUT`, `GIT_DIR` and `ANTHROPIC_API_KEY` in the parent and asserts
+  none reaches the cycle or drain subprocess env and the `GITHUB_OUTPUT` file is untouched.
+
+## ARIA-MEDIUM-825
+
+`run_aria_case.sh` still runs Stage J through its embedded helper (`cmd_mint`, `cmd_settle`,
+`cmd_promote` over the private kernel functions `_select_findings`, `_sample_id` and
+`_resolve_workspace_head_sha`). The private settle loop stays a live second owner beside
+`harness.py review-change` until the driver, which lives outside the repo, is switched.
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: D1 review round 1, ssot lens. Registered by the WP-D1 findings clerk after re-checking
+  the evidence at `258c14657`.
+- Evidence:
+  - `/root/aria-handover/2026-10-21/decision-test/run_aria_case.sh:445-458`
+  - `/root/aria-handover/2026-10-21/decision-test/run_aria_case.sh:279-349`
+  - `/root/aria-handover/2026-10-21/decision-test/run_aria_case.sh:390-391`
+  - `tools/aria-acceptance/harness.py:503-505`
+- Rule: One owner per concept (CLAUDE.md); DESIGN-discovery D1 row: 'Retires the private-function
+  Stage J of `run_aria_case.sh`'.
+- The commit message of `258c14657` records the driver switch as the operator's step; no repo gate
+  sees the script.
+- Close: `run_aria_case.sh` Stage J calls `harness.py review-change`, and the helper's `cmd_mint`,
+  `cmd_settle`, `cmd_promote` and their private kernel imports are deleted. Verified by reading the
+  script at close time.
+
+## ARIA-MEDIUM-826
+
+Changed file paths of the reviewed change are rendered raw, newlines included, into the
+change-intelligence `suggested_prompt` outside any untrusted tag. `resolve_change_subject` takes
+them from `git diff --name-only -z` and `dispatch_change_intelligence` joins them into the prompt,
+so a path containing a newline can plant its own lines, including a closing tag, in the agent's task
+text.
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: D1 review round 1, security lens. Registered by the WP-D1 findings clerk after
+  re-checking the evidence at `258c14657`.
+- Evidence:
+  - `aria-kernel/aria_kernel/pr_tracking.py:142-151`
+  - `aria-kernel/aria_kernel/pr_tracking.py:281-282`
+  - `aria-kernel/aria_kernel/agent_invocations.py:1142`
+- Rule: PLAN-v2 F4.0 trust boundary and DESIGN-discovery D2 row: change content reaches the agent
+  only inside `<untrusted_*>` tags (diff hunks in `<untrusted_diff>`).
+- Same class as the merge feed on main (the same raw join of PR `changed_files`); D1 only adds a new
+  path source. D2 owns `<untrusted_diff>`, so this is not a D1 blocker. The security reviewer's
+  probe (a head adding a file whose name contains a newline and a closing tag) put that text into
+  `suggested_prompt` as its own lines.
+- Close: D2 renders changed paths inside an untrusted tag with control characters and angle brackets
+  escaped or refused by name; a test with a newline-and-closing-tag path pins it for the operator
+  subject and the merge feed.
+
+## ARIA-LOW-827
+
+`harness.py review_change` spells the session-store variable as the literal `ARIA_SESSION_STORE_DIR`
+and defines the room store's extra layout (`sessions`, `logs`, `home/xdg/*`) itself, instead of
+importing `session_continuity.SESSION_STORE_ENV_VAR` and keeping the layout in `state_store` beside
+the four store roots.
+
+- Severity: LOW; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: D1 review round 1, ssot lens. Registered by the WP-D1 findings clerk after re-checking
+  the evidence at `258c14657`.
+- Evidence:
+  - `tools/aria-acceptance/harness.py:522`
+  - `tools/aria-acceptance/harness.py:531`
+  - `aria-kernel/aria_kernel/session_continuity.py:51`
+  - `aria-kernel/aria_kernel/state_store.py:393-411`
+- Rule: One owner per concept (CLAUDE.md); HARNESS section 2.1 store binding from the kernel's one
+  definition.
+- Citation correction: the review cited `harness.py:586,595`; at `258c14657` they are `:522` and
+  `:531`.
+- Close: `harness.py` imports `SESSION_STORE_ENV_VAR`, takes the room layout and binding from one
+  function beside `store_root_environment`, and holds no `ARIA_*` literal.
+
+## ARIA-LOW-828
+
+`state_store.store_root_environment` spells `root / TOOLS_SUBDIR` and `root / FINDINGS_SUBDIR`
+itself, where `store_environment` called `tools_root(store)` and `findings_root(store)` until
+`258c14657`, so the same path shape now has two expressions.
+
+- Severity: LOW; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: D1 review round 1, ssot lens. Registered by the WP-D1 findings clerk after re-checking
+  the evidence at `258c14657`.
+- Evidence:
+  - `aria-kernel/aria_kernel/state_store.py:401-403`
+  - `aria-kernel/aria_kernel/state_store.py:322-323`
+  - `aria-kernel/aria_kernel/state_store.py:332-333`
+- Rule: One owner per concept (CLAUDE.md): a store root's subdirectory has one expression.
+- Citation correction: the review cited `state_store.py:518-520`; at `258c14657` the joins are
+  `:401-403`. `tools_root`/`findings_root` take a `StateStore` and `store_root_environment` takes a
+  root `Path`, which is why the refactor re-spelled the join.
+- Close: `tools_root`, `findings_root` and the workspace base are defined once over the root path
+  (the `StateStore` forms delegate) and `store_root_environment` calls them; no second
+  `root / SUBDIR` join remains.
+
+## ARIA-LOW-829
+
+`harness.py review_change` derives `cycle_id` from a one-second UTC stamp
+(`review-change-<YYYYmmddTHHMMSSZ>-c<round>`), so two review-change runs on one store within the
+same second get the same `cycle_id` and overwrite each other's logs.
+
+- Severity: LOW; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: D1 review round 1, ssot lens. Registered by the WP-D1 findings clerk after re-checking
+  the evidence at `258c14657`.
+- Evidence:
+  - `tools/aria-acceptance/harness.py:533`
+  - `tools/aria-acceptance/harness.py:540`
+  - `tools/aria-acceptance/harness.py:547`
+  - `tools/aria-acceptance/harness.py:566`
+- Rule: A `cycle_id` names exactly one cycle of a store; the harness keys `logs/<cycle_id>.*` by it.
+- Whether the kernel itself refuses a repeated `cycle_id` on one store was not probed.
+- Close: the `cycle_id` is unique per run (sub-second stamp plus pid, or a uuid); a test pins
+  distinct ids for two calls in the same second.
+
+## ARIA-LOW-830
+
+`test_harness_review_change.py` covers only the usage errors of `review-change`. The cycle, drain,
+cycle settle loop and the `settled`/`passed` flag have no test.
+
+- Severity: LOW; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: D1 review round 1, ssot lens. Registered by the WP-D1 findings clerk after re-checking
+  the evidence at `258c14657`.
+- Evidence:
+  - `tools/aria-acceptance/test_harness_review_change.py:48-66`
+  - `tools/aria-acceptance/harness.py:539-571`
+- Rule: CLAUDE.md test rules: new behaviour is test-first; the settle loop is the unit D1 adds to
+  the harness.
+- The reviewer's manual probe with `rounds=0` on a two-commit fixture worked (run 1 minted 1, run 2
+  minted 0, tree clean). Kernel-side mode tests are in
+  `aria-kernel/tests/test_cycle_change_review_mode.py`.
+- Close: a harness test drives `review_change` with the drain stubbed at the subprocess boundary and
+  pins: settled in round 1; drained then settled in round 2; stopped at `rounds` with `settled`
+  false while requests stay open; a nonzero cycle exit gives `passed` false with the named error.
+
+## ARIA-LOW-831
+
+`pr_tracking.subject_open_request_ids` loads the request ledger twice and indexes
+`states[request_id]` directly, so a request row that `derive_request_states` skips (a falsy
+`request_id`) raises `KeyError` instead of a refusal by name.
+
+- Severity: LOW; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: D1 review round 1, security lens (a correctness point, not a security one). Registered
+  by the WP-D1 findings clerk after re-checking the evidence at `258c14657`.
+- Evidence:
+  - `aria-kernel/aria_kernel/pr_tracking.py:321-333`
+  - `aria-kernel/aria_kernel/agent_invocations.py:3646-3647`
+- Rule: Refuse by name, never crash with a bare `KeyError` (the `change_review_*` `GovernanceError`
+  family of `resolve_change_subject`).
+- Found by the security lens as a correctness point. Read from the code, not reproduced; it crashes
+  the cycle, it does not pass.
+- Close: the subject's open ids and their states come from one ledger load, or a row without a state
+  is refused by name (`change_review_request_state_missing:<id>`); a test with such a row pins the
+  refusal.
+
 ## ARIA-MEDIUM-840
 
 The impact closure's import edges carry no evidence site: `impact_graph.impact_closure` reports

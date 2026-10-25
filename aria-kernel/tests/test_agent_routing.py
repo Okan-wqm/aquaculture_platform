@@ -21,7 +21,10 @@ if str(_KERNEL) not in sys.path:
 from aria_kernel.agent_routing import (  # noqa: E402
     ROUTING_TABLE_REL,
     load_routing_table,
+    owning_agents_for_paths,
     recommended_agents_for_project,
+    reviewing_agents_for_paths,
+    routing_domain_for_path,
 )
 import aria_kernel.impact_graph as ig  # noqa: E402
 from tests._helpers.service_facts import NO_CONTRACT_FACTS  # noqa: E402
@@ -130,6 +133,74 @@ class RecommendTests(unittest.TestCase):
     def test_unowned_project_is_a_coverage_gap(self) -> None:
         rec = recommended_agents_for_project("apps/mystery-service", self.routing)
         self.assertEqual(rec["primary"], [])
+
+
+class ReviewingAgentsForPathsTests(unittest.TestCase):
+    """SE-2 — the one path -> reviewing agents answer (moved here from
+    service_dimension.owning_agent_domains_for_paths)."""
+
+    def setUp(self) -> None:
+        self._td = tempfile.TemporaryDirectory()
+        self.routing = load_routing_table(_repo_with_table(Path(self._td.name)))
+
+    def tearDown(self) -> None:
+        self._td.cleanup()
+
+    def test_a_file_gets_its_owning_rows_primary_and_also_notify(self) -> None:
+        self.assertEqual(
+            reviewing_agents_for_paths(["apps/billing-service/src/invoice.ts"], self.routing),
+            ["billing-expert", "database-reviewer", "multi-tenant-saas-expert", "security-reviewer"])
+
+    def test_the_union_over_paths_and_line_refs(self) -> None:
+        agents = reviewing_agents_for_paths(
+            ["./apps/farm-service/src/batch.ts:12", "libs/backend-common/src/auth/jwt.ts"], self.routing)
+        self.assertIn("farm-expert", agents)
+        self.assertIn("auth-security-expert", agents)
+
+    def test_a_path_no_row_reaches_names_no_agent(self) -> None:
+        self.assertEqual(reviewing_agents_for_paths(["cycle/c-1", "docs/x.md"], self.routing), [])
+
+    def test_a_dot_prefixed_path_keeps_its_dot(self) -> None:
+        # The normalizer strips ``./`` and never the dot of ``.github``.
+        routing = [{"prefixes": [".github/workflows"], "primary": ["infra-expert"], "also_notify": []}]
+        self.assertEqual(reviewing_agents_for_paths(["./.github/workflows/x.yml"], routing), ["infra-expert"])
+
+    def test_the_live_table_routes_a_farm_file_to_farm_expert(self) -> None:
+        self.assertIn("farm-expert", reviewing_agents_for_paths(
+            ["apps/farm-service/src/batch/batch.service.ts"], load_routing_table(_REPO_ROOT)))
+
+    def test_the_domain_of_a_path_is_its_most_specific_owning_prefix(self) -> None:
+        self.assertEqual(routing_domain_for_path("apps/farm-service/src/x.ts", self.routing), "apps/farm-service")
+        self.assertEqual(routing_domain_for_path("libs/backend-common/src/auth/a.ts", self.routing),
+                         "libs/backend-common/src/auth")
+        self.assertIsNone(routing_domain_for_path("docs/x.md", self.routing))
+
+
+class OwningAgentsForPathsTests(unittest.TestCase):
+    """SE-2-C B1 — a path's owners are the primaries of the rows that claim the
+    whole subtree it sits in. A row whose glob a wildcard cuts earlier
+    (``apps/*/src/gdpr/**``, a brace group) reaches only some paths under its
+    prefix, so it reviews the path but does not own it."""
+
+    def setUp(self) -> None:
+        self._td = tempfile.TemporaryDirectory()
+        self.routing = load_routing_table(_repo_with_table(Path(self._td.name), _PROSE_AND_BRACE_TABLE))
+
+    def tearDown(self) -> None:
+        self._td.cleanup()
+
+    def test_a_service_file_is_owned_by_its_service_row_only(self) -> None:
+        path = "apps/farm-service/src/batch.ts"
+        self.assertEqual(owning_agents_for_paths([path], self.routing), ["farm-expert"])
+        self.assertIn("gdpr-erasure-executor", reviewing_agents_for_paths([path], self.routing))
+
+    def test_a_wildcard_or_brace_row_owns_nothing(self) -> None:
+        self.assertEqual(owning_agents_for_paths(
+            ["apps/auth-service/src/privacy/p.ts", "apps/hr-service/src/gdpr/h.ts"], self.routing), [])
+
+    def test_a_directory_and_a_line_ref_resolve_to_the_same_owner(self) -> None:
+        self.assertEqual(owning_agents_for_paths(
+            ["apps/farm-service/", "./apps/farm-service/src/a.ts:3"], self.routing), ["farm-expert"])
 
 
 class ExaminationIntegrationTests(unittest.TestCase):

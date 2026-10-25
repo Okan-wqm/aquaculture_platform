@@ -9,10 +9,15 @@ same ledgers replay reads, and injected into the evidence by
 
 Three measured components:
 
-* **Window superiority** — `agent_eval.compare_eval_windows` (the program's
-  own success test, reused not rewritten): the promotion window must be
-  `improved`. `insufficient_evidence`, `flat`, `regressed` all refuse —
-  a promotion that cannot show measured improvement is not a promotion.
+* **Paired gain** (F1.7, ARIA-HIGH-734) — `agent_eval.compare_eval_windows`
+  in its PAIRED mode (one-sided exact McNemar on the candidate's and the
+  incumbent's discordant cases, real runs only, `mock_mode=False`) at the
+  pre-registered `alpha` / `min_discordant_pairs` of the superiority block:
+  it must read `improved`. `insufficient_evidence`, `flat`, `regressed` all
+  refuse — a promotion that cannot show a significant gain is not a
+  promotion. The lifecycle records no predecessor for an entity, so the
+  incumbent is the entity itself: its previous window against its current
+  one on the same case ids.
 * **Duel superiority** — when `knowledge-graph/duel-ratings.jsonl` carries
   at least `min_duel_matches` decided duels involving the candidate, its
   Bradley-Terry rating must top every opponent it faced. Fewer matches →
@@ -32,7 +37,7 @@ from typing import Any
 
 from .agent_eval import compare_eval_windows
 from .calibrated_intelligence import bradley_terry
-from .genesis_policy import SUPERIORITY_DEFAULTS, superiority_policy
+from .genesis_policy import superiority_policy
 from .ledger import load_jsonl
 from .plan_convergence import DISSENTING_REVIEW_VERDICTS
 from .tool_registry import ensure_tools_dir
@@ -85,11 +90,15 @@ def compute_eval_window_superiority(
     window comparison and duel component, so the lifecycle row that
     carries it is recomputable from ledgers alone.
     """
-    policy = superiority_policy(repo_root) if repo_root is not None else dict(SUPERIORITY_DEFAULTS)
+    policy = superiority_policy(repo_root)
     window = compare_eval_windows(
         target_agent=entity_id,
+        incumbent_agent=entity_id,
         base_dir=base_dir,
-        window_days=int(policy["window_days"]),
+        window_days=policy["window_days"],
+        alpha=policy["alpha"],
+        min_discordant_pairs=policy["min_discordant_pairs"],
+        mock_mode=False,
     )
     reasons: list[str] = []
     if window["verdict"] != "improved":
@@ -99,7 +108,7 @@ def compute_eval_window_superiority(
     involved = [
         o for o in observations if entity_id in (o["winner"], o["loser"])
     ]
-    min_matches = int(policy["min_duel_matches"])
+    min_matches = policy["min_duel_matches"]
     duel: dict[str, Any]
     if len(involved) < min_matches:
         duel = {

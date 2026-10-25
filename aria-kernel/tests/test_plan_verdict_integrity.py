@@ -282,7 +282,14 @@ class P1AuthorClaimIsNotAResolution(_PlanFixture):
             [], verdict="agreed",
             dispositions=[_disposition("CR-R1-CR-001", "resolved", [f"{SURFACE}:1"])],
         )
-        self.assertEqual(_terminal(self.evaluate(2)), "CONVERGED")
+        result = self.evaluate(2)
+        self.assertEqual(_terminal(result), "CONVERGED")
+        # The resolved view is the reviewer's own answer, and the rollup and
+        # the duel row count it; a view that is always empty would still
+        # converge, so the population itself is pinned here.
+        state = fold_plan_state(plan_id="plan-1", base_dir=self.tools)
+        self.assertEqual(state["resolved_review_risk_ids"], ["CR-R1-CR-001"])
+        self.assertEqual(result["event"]["payload"]["risks_rollup_summary"]["resolved_review_risks"], 1)
 
     def test_a_disposition_outside_the_vocabulary_is_refused(self) -> None:
         self.round_one_blocking_then_claimed()

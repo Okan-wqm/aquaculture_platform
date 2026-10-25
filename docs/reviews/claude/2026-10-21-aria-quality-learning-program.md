@@ -2500,7 +2500,7 @@ drops every evidence-backed and pressure-backed service with no disclosure
   must not look like a closure that reaches nothing.
 - Close: The seeder reads exam['hold'] and discloses it by name in the phase result instead of
   seeding the CORE set alone; test_cycle pins a held examination: the phase result names
-  contract_edges_unavailable:<reason> and mints no mission from the absent order.
+  `contract_edges_unavailable:<reason>` and mints no mission from the absent order.
 
 ## ARIA-LOW-864
 
@@ -2637,7 +2637,7 @@ impact_closure builds its hold reason with a defensive fallback, (service_facts.
   - `aria-kernel/aria_kernel/plan_coverage.py:530-534`
 - Rule: no defensive fallbacks (CLAUDE.md Architectural Approach): compute_service_facts documents
   that every non-computed result carries witness.error.
-- Close: The reason reads service_facts['witness']['error'] directly, so malformed facts raise at
+- Close: The reason reads `service_facts['witness']['error']` directly, so malformed facts raise at
   the boundary; test_impact_closure pins both: unavailable facts give the named hold, facts without
   a witness raise.
 
@@ -2694,6 +2694,6 @@ is dropped silently, while an unreadable file holds by name
   - `aria-kernel/aria_kernel/impact_graph.py:160-161`
 - Rule: service-expertise PLAN §3.3 and Risk 12: a hold is declared, never hidden; a closure missing
   an edge kind must say so.
-- Close: An absent subgraphs.json holds as contract_edges_unavailable:subgraphs_missing:<relpath>
+- Close: An absent subgraphs.json holds as `contract_edges_unavailable:subgraphs_missing:<relpath>`
   (the file is generated and committed, so its absence is a defect of the base); test_impact_closure
   pins a fixture tree without the file.

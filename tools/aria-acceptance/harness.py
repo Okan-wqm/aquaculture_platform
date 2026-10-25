@@ -553,6 +553,9 @@ def review_change(
         change = state.get("change_intelligence") or {}
         open_requests = list(change.get("subject_open_requests") or [])
         report["subject_ref"] = change.get("subject_ref")
+        # WP-D4 — the kernel's own cost attribution (cost_budget), copied: the
+        # LAST round's, since it is cumulative over this room's store.
+        report["cost_budget"] = change.get("cost_budget")
         report["rounds"].append({
             "cycle_id": cycle_id, "exit_code": 0, "status": state.get("status"),
             "minted": change.get("change_intelligence_requests_minted"), "open_requests": open_requests,

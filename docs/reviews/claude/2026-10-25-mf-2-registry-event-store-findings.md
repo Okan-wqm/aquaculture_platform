@@ -24,3 +24,29 @@ Retire `tools/gates/finding-registry-migrate-branch.ts` once no open PR touches
   `docs/reviews/_registry/findings.jsonl`, and the converter, its spec
   (`tests/invariants/finding-registry-migrate-branch.spec.ts`) and the remedy it names in
   `GENESIS_REMEDY` (`tools/gates/finding-registry-events.ts`) are deleted in one change.
+
+## ARIA-MEDIUM-962
+
+Two kernel readers still treat the frozen `findings.jsonl` as a finding's home: `system_one` cannot
+resolve a finding born after the freeze, and the registry view cites `findings.jsonl` as every
+row's source.
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-15.
+- Raised by: the MF-2 implementer; not in MF-2's change list (MF-DESIGN §5), registered through
+  the event writer.
+- Evidence:
+  - `aria-kernel/aria_kernel/system_one.py:362-382` (`_finding` reads `findings.jsonl` at
+    `refs/aria-public/heads/main` and refuses an id it does not hold as `finding_not_registered`)
+  - `aria-kernel/aria_kernel/report_ingestion.py:97` (`read_registry_view` stamps every row with
+    the source `docs/reviews/_registry/findings.jsonl`)
+  - `aria-kernel/aria_kernel/report_ingestion.py:314-319` (that source becomes an evidence ref of
+    the ingested finding)
+- Rule: the store layout has one reader (`tools/gates/finding-registry-projection.ts`), and the
+  kernel reads the registry only through `run_registry_cli`.
+- Failure scenario: PROC-MEDIUM-062 (or any finding `add` records from now on) is asked about by a
+  System One question that cites it: the answer is the refusal `finding_not_registered`, not its
+  title and rule. The same finding ingested by `report_ingestion` carries an evidence ref to a file
+  that does not contain it.
+- Done when: `system_one` asks the projection at the public ref (`project --ref=… --ids …`) and the
+  view's source for a finding with an event log is that log, each with a test on an event-born
+  finding.

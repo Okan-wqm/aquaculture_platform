@@ -568,9 +568,12 @@ def reconcile_enqueued_merges(
                 base_dir=base_dir,
             )
             # Review of #1910, F9 — the queue entry names the PR; a payload
-            # missing its number never loses the merged row.
+            # missing its number never loses the merged row. F3.4 — the row
+            # names the merge commit the queue made: self-revert reverts the
+            # commit merge_record's row names.
             record_merge(pr={**pr, "number": number}, merged_by=MERGED_BY_MERGE_LANE, base_dir=base_dir,
-                         cycle_id=cycle_id, head_lineage=LINEAGE_DELIVERED)
+                         cycle_id=cycle_id, merge_sha=state.get("merge_commit_sha"),
+                         head_lineage=LINEAGE_DELIVERED)
         else:
             observed = str(state.get("state") or "")
             if state.get("head_sha") != head_sha:

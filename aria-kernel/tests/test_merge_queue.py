@@ -442,22 +442,24 @@ class TheLaneSettlesTheQueueTests(_Store):
 
 
 class SelfRevertCountsAQueuedMergeTests(_Store):
-    def test_an_enqueued_pr_the_queue_merged_at_that_head_is_an_aria_merge(self) -> None:
-        from aria_kernel.self_revert import _aria_merged_prs
+    def test_a_pr_the_queue_merged_at_that_head_is_an_aria_merge_naming_its_merge_commit(self) -> None:
+        # F3.3a — the enqueued decision is not authorship: the merged row the
+        # queue settlement writes through merge_record is, and it names the
+        # merge commit self-revert reverts (F3.4).
+        from aria_kernel.merge_record import arias_merges
 
         append_declared_jsonl(
             self.tools / "auto-merge-decisions.jsonl",
-            {"schema_version": 1, "pr_number": 9, "head_sha": _HEAD, "decision": "enqueued"},
+            {"schema_version": 1, "pr_number": 9, "head_sha": _HEAD, "decision": "enqueued",
+             "eligible": True, "readiness_claim_id": _CLAIM},
             expected_surface="auto_merge_decisions",
         )
-        self.assertEqual(_aria_merged_prs(self.tools), set())
-        append_declared_jsonl(
-            self.tools / "ci" / "merge-outcomes.jsonl",
-            {"schema_version": 1, "pr_number": 9, "head_ref": "aria-impl-0123456789abcdef",
-             "head_sha": _HEAD, "merge_sha": "f" * 40, "red_jobs": [], "pending_jobs": [], "status": "green"},
-            expected_surface="merge_outcomes",
-        )
-        self.assertEqual(_aria_merged_prs(self.tools), {9})
+        self.assertEqual(arias_merges(self.tools), {})
+        reconcile_enqueued_merges(adapter=_Adapter({}, merge_state={
+            "state": "MERGED", "head_sha": _HEAD, "in_merge_queue": False, "auto_merge_enabled": False,
+            "merge_commit_sha": "f" * 40}), base_dir=self.tools)
+        self.assertEqual({number: row["merge_sha"] for number, row in arias_merges(self.tools).items()},
+                         {9: "f" * 40})
 
 
 if __name__ == "__main__":

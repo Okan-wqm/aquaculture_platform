@@ -34,7 +34,7 @@ from aria_kernel.auto_merge_runners import enumerate_prs_with_readiness_claims
 from aria_kernel.cli import main as cli_main
 from aria_kernel.ledger import append_declared_jsonl, load_declared_jsonl, read_jsonl
 from aria_kernel.merge_authority import merge_pr_if_ready
-from aria_kernel.self_revert import _aria_merged_prs
+from aria_kernel.merge_record import LINEAGE_DELIVERED, MERGED_BY_OBSERVED, arias_merges, record_merge
 from aria_kernel.state_store import (
     BOOTSTRAP_ACK_ENV,
     checkout_state_store,
@@ -315,16 +315,15 @@ class SelfRevertSeesAPublishedIntentTests(unittest.TestCase):
             expected_surface="merge_outcomes",
         )
 
-    def test_an_intent_whose_pr_merged_at_that_head_is_an_aria_merge(self) -> None:
+    def test_an_intent_and_a_merge_at_that_head_are_not_authorship_the_merged_row_is(self) -> None:
+        # F3.3a — the merge lane's decisions are not a second rule of ARIA
+        # authorship: merge_record's merged row is the one, whoever wrote it.
         self._decision(7, "merge_intent", _HEAD)
-        self.assertEqual(_aria_merged_prs(self.tools), set())
         self._merged_at(7, _HEAD)
-        self.assertEqual(_aria_merged_prs(self.tools), {7})
-
-    def test_an_intent_for_another_head_is_not(self) -> None:
-        self._decision(8, "merge_intent", _HEAD)
-        self._merged_at(8, "b" * 40)
-        self.assertEqual(_aria_merged_prs(self.tools), set())
+        self.assertEqual(arias_merges(self.tools), {})
+        record_merge(pr={"number": 7, "head_sha": _HEAD}, merged_by=MERGED_BY_OBSERVED, base_dir=self.tools,
+                     merge_sha="f" * 40, merged_head_sha=_HEAD, head_lineage=LINEAGE_DELIVERED)
+        self.assertEqual(list(arias_merges(self.tools)), [7])
 
     def test_an_implementation_branch_is_one_of_arias_own_prs(self) -> None:
         from aria_kernel.own_pr_ci import is_own_pr_head
@@ -348,6 +347,9 @@ class SelfRevertSeesAPublishedIntentTests(unittest.TestCase):
                 return [{"name": "build-status", "status": "completed", "conclusion": "success",
                          "headBranch": "main"}]
 
+        # The scan watches ARIA's merges, as merge_record holds them (F3.3a).
+        record_merge(pr={"number": 9, "head_sha": _HEAD}, merged_by=MERGED_BY_OBSERVED, base_dir=self.tools,
+                     merge_sha="f" * 40, merged_head_sha=_HEAD, head_lineage=LINEAGE_DELIVERED)
         scan_merged_own_prs(cycle_id="cyc", base_dir=self.tools, reader=Reader())
         rows = load_declared_jsonl(merge_outcomes_path(self.tools), expected_surface="merge_outcomes")
         self.assertEqual(rows[-1]["head_sha"], _HEAD)

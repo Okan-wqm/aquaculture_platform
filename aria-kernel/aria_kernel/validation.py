@@ -489,7 +489,7 @@ def prove_red_first(
     The subject checkout is never written: the worktrees live in a private
     scratch directory and are removed, registration included, afterwards.
     """
-    files, command, signature = _admit_pin(pin)
+    files, command, signature = admit_pin(pin)
     root = Path(workspace_root).resolve()
     shas: dict[str, str] = {}
     for side, rev in (("red_at", red_at), ("green_at", green_at)):
@@ -526,8 +526,10 @@ def prove_red_first(
     }
 
 
-def _admit_pin(pin: Any) -> tuple[dict[str, str], str, str]:
-    """The pin's files (canonical test paths) and command, or a named refusal."""
+def admit_pin(pin: Any) -> tuple[dict[str, str], str, str]:
+    """The pin's files (canonical test paths), command and failure signature,
+    or a named refusal: the ONE pin admission, for the prover and for every
+    caller that must refuse a pin before it registers anything for it."""
     if type(pin) is not dict or set(pin) != PIN_KEYS:
         raise GovernanceError(f"red_first_pin_shape_invalid: keys must be {sorted(PIN_KEYS)}")
     command, signature, expectation = pin["command"], pin["failure_signature"], pin["expectation_ref"]
@@ -540,13 +542,80 @@ def _admit_pin(pin: Any) -> tuple[dict[str, str], str, str]:
         raise GovernanceError(f"red_first_pin_files_invalid: 1..{_PIN_FILE_LIMIT} test files required")
     files: dict[str, str] = {}
     for raw_path, content in raw_files.items():
-        path = normalize_repo_relpath(raw_path)
-        if not any(matches_repo_glob(path, glob) for glob in PIN_TEST_GLOBS):
-            raise GovernanceError(f"red_first_pin_path_not_a_test: {raw_path!r} matches none of {PIN_TEST_GLOBS}")
+        path = _admit_pin_path(raw_path)
         if type(content) is not str:
             raise GovernanceError(f"red_first_pin_content_not_text: {raw_path!r}")
         files[path] = content
     return files, command, signature
+
+
+def _admit_pin_path(raw_path: Any) -> str:
+    """``raw_path`` as a canonical repository path a pin may write
+    (``PIN_TEST_GLOBS``), or ``red_first_pin_path_not_a_test`` naming it."""
+    path = normalize_repo_relpath(raw_path)
+    if not any(matches_repo_glob(path, glob) for glob in PIN_TEST_GLOBS):
+        raise GovernanceError(f"red_first_pin_path_not_a_test: {raw_path!r} matches none of {PIN_TEST_GLOBS}")
+    return path
+
+
+def lift_sandbox_pin(
+    sandbox: str | Path,
+    *,
+    base_sha: str,
+    command: str,
+    failure_signature: str,
+    expectation_ref: str,
+) -> dict[str, Any]:
+    """D6 — the reproduction seat's sandbox diff, as the pin the kernel proves.
+
+    The WP-J ``reproduction_test`` seat writes its red test in its request
+    worktree (a checkout of ``base_sha``) and certifies nothing: this reads
+    what the seat left there — every path whose content differs from
+    ``base_sha``, committed, staged, unstaged or untracked (ignored files are
+    not the seat's diff) — and returns it as the pin ``{files, command,
+    failure_signature, expectation_ref}`` that ``prove_red_first`` runs at the
+    SHAs the kernel chooses. Each path passes the pin's own admission before
+    its file is read, so a source edit, a ``conftest.py`` or a deletion is
+    refused by name and the seat can only ADD tests, never change the code
+    under proof; ``admit_pin`` then refuses a command off the allowlist.
+
+    The seat wrote the tree, so the kernel reads it as untrusted: git runs
+    hermetic (no caller ``GIT_*``, no fsmonitor) with no external diff, paths
+    are listed NUL-separated, and no component of a lifted path may be a
+    symlink (a link would make the kernel read wherever the seat points it).
+    The sandbox is read, never written.
+    """
+    from .workspace_view import hermetic_git
+
+    tree = Path(sandbox).resolve()
+    listings = (
+        hermetic_git(tree, "diff", "--no-ext-diff", "--no-renames", "--name-status", "-z", base_sha, "--"),
+        hermetic_git(tree, "ls-files", "--others", "--exclude-standard", "-z"),
+    )
+    for listing in listings:
+        if listing.returncode != 0:
+            raise GovernanceError(f"red_first_sandbox_unreadable:{base_sha}:{listing.stderr.strip()[:200]}")
+    fields = listings[0].stdout.split("\0")
+    changed = [*zip(fields[0::2], fields[1::2]), *(("A", path) for path in listings[1].stdout.split("\0") if path)]
+    paths: list[str] = []
+    for status, raw_path in changed:
+        if status == "D":
+            raise GovernanceError(f"red_first_pin_deletes_a_path: the seat deleted {raw_path!r}")
+        paths.append(_admit_pin_path(raw_path))
+    files: dict[str, str] = {}
+    for path in paths:
+        _refuse_pin_path_through_symlink(tree, path, base_sha)
+        fd = os.open(tree / path, os.O_RDONLY | os.O_NOFOLLOW)
+        with os.fdopen(fd, "rb") as handle:
+            raw = handle.read()
+        try:
+            files[path] = raw.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise GovernanceError(f"red_first_pin_content_not_text: {path!r}") from exc
+    pin = {"files": files, "command": command, "failure_signature": failure_signature,
+           "expectation_ref": expectation_ref}
+    admit_pin(pin)
+    return pin
 
 
 @contextmanager

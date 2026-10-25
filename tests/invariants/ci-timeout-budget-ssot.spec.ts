@@ -80,6 +80,32 @@ const MEASURED = {
 const MIN_STEP_BUDGET_FACTOR = 1.35;
 const MIN_JOB_BUDGET_FACTOR = 1.5;
 
+const CLOSES_FOOTER = '.github/workflows/closes-footer-check.yml';
+const GATE_SELF_TESTS = 'Gate self-tests (resolver + ID allocator)';
+
+/**
+ * Wall clock of `closes-footer-check.yml` job `validate-closes`, measured 2026-10-25
+ * over its 20 newest runs (2026-10-24T08:09Z .. 2026-10-25T02:19Z, run 40076957775 ..
+ * 40154016007). Minutes, decimal. The job's budget (5) dated from when it ran only the
+ * trailer validator; the gate self-tests (`npm run gates:test`, 28 suites, one ts-node
+ * process each) were later added to the same job and took 1.37-3.02 minutes, which put
+ * the job's p90 at 89% of the budget. Run 40154016007 (PR #2103) finished every gate
+ * suite green at 5.0 minutes and was cancelled before the trailer validator ran — a
+ * DURATION problem reported as a failed Closes check.
+ *
+ * `prologueMax` is everything outside the self-test step (checkout with full history,
+ * setup-node, npm ci, the two validator steps). `stepMax` includes the killed run, whose
+ * self-test step had completed; `jobKilledAt` is a lower bound on that run's duration.
+ */
+const MEASURED_CLOSES = {
+  jobMedian: 4.18,
+  jobP90: 4.43,
+  jobMax: 4.63,
+  jobKilledAt: 5.12,
+  stepMax: 3.02,
+  prologueMax: 2.2,
+} as const;
+
 interface WorkflowStep {
   readonly name?: string;
   readonly run?: string;
@@ -187,6 +213,37 @@ describe('CI timeout budgets are hang detectors, not performance budgets', () =>
 
     // The sibling's own two-level shape is the precedent this file generalises.
     expect(affectedStepBudget).toBeLessThan(affectedBudget);
+  });
+
+  it('budgets the Closes trailer job from its measured duration, with the self-tests named', () => {
+    const validateCloses = job(CLOSES_FOOTER, 'validate-closes');
+    const selfTests = step(CLOSES_FOOTER, 'validate-closes', GATE_SELF_TESTS);
+
+    // Premise of MEASURED_CLOSES: the self-test step is the gate-spec fan-out. If the
+    // command changes, the distribution no longer describes it and both budgets are
+    // re-derived.
+    expect(selfTests.run?.trim()).toBe('npm run gates:test');
+
+    const jobBudget = budgetMinutes(validateCloses, `${CLOSES_FOOTER}:validate-closes`);
+    const stepBudget = budgetMinutes(
+      selfTests,
+      `${CLOSES_FOOTER}:validate-closes/${GATE_SELF_TESTS}`,
+    );
+
+    expect(jobBudget).toBe(10);
+    expect(stepBudget).toBe(5);
+
+    expect(stepBudget).toBeGreaterThanOrEqual(MEASURED_CLOSES.stepMax * MIN_STEP_BUDGET_FACTOR);
+    expect(jobBudget).toBeGreaterThanOrEqual(MEASURED_CLOSES.jobMax * MIN_JOB_BUDGET_FACTOR);
+    expect(jobBudget).toBeGreaterThanOrEqual(MEASURED_CLOSES.jobKilledAt * MIN_JOB_BUDGET_FACTOR);
+
+    // A self-test overrun fails as the named step before the job is cancelled, so a slow
+    // gate suite never again reads as a refused Closes trailer.
+    expect(MEASURED_CLOSES.prologueMax + stepBudget).toBeLessThan(jobBudget);
+
+    expect(MEASURED_CLOSES.jobMax).toBeGreaterThan(MEASURED_CLOSES.jobP90);
+    expect(MEASURED_CLOSES.jobP90).toBeGreaterThan(MEASURED_CLOSES.jobMedian);
+    expect(MEASURED_CLOSES.jobMax).toBeGreaterThan(MEASURED_CLOSES.stepMax);
   });
 
   it('gives every job in the full lane a hang detector', () => {

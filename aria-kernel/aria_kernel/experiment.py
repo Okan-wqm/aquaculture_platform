@@ -57,6 +57,7 @@ from .validation_runs_ledger import (
     VALIDATION_RUN_STATUSES,
     classify_validation_run_status,
     find_validation_run_by_id,
+    verified_validation_run_output,
 )
 from .digest import is_sha256_digest
 
@@ -407,7 +408,7 @@ def run_experiment(
         "comparator": contract["comparator"],
         "expected": contract["expected"],
         "observed": observed,
-        "matched": _compare(contract["comparator"], contract["expected"], run),
+        "matched": _compare(contract["comparator"], contract["expected"], run, base_dir=base_dir),
         "run_status": classify_validation_run_status(run),
     }
     if selection is not None:
@@ -501,11 +502,14 @@ def _observe(comparator: str, run: dict[str, Any]) -> Any:
     )
 
 
-def _compare(comparator: str, expected: Any, run: dict[str, Any]) -> bool:
+def _compare(comparator: str, expected: Any, run: dict[str, Any], *, base_dir: str | Path | None) -> bool:
+    """ARIA-MEDIUM-936 — ``log_contains`` judges what the run PRINTED, read
+    through the one reader the red-first prover's signature check uses
+    (``validation_runs_ledger.verified_validation_run_output``): the
+    runner's header is not output, and one red row is never a hit for the
+    bench and ``wrong_reason`` for the prover."""
     if comparator == "log_contains":
-        return expected in Path(str(run.get("log_path"))).read_text(
-            encoding="utf-8",
-        )
+        return expected in verified_validation_run_output(str(run["validation_run_id"]), base_dir=base_dir)
     return expected == _observe(comparator, run)
 
 

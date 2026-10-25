@@ -43,8 +43,7 @@ from .validation_runs_ledger import (
     VALIDATION_RUNS_FILENAME,
     record_validation_run,
     validation_run_log_dir,
-    validation_run_log_output,
-    verify_validation_run,
+    verified_validation_run_output,
 )
 from .canonical_path import matches_repo_glob, normalize_repo_relpath
 from .snapshot import _capture_scoped_files, _read_scoped_working_file, _scoped_input_path, _scoped_input_digest, _sha256 as _input_digest
@@ -597,20 +596,14 @@ def _proof_verdict(red: dict[str, Any], green: dict[str, Any], signature: str, *
         return "refuted"
     if red["failure_reason"] in _UNRUNNABLE_REASONS:
         return "unrunnable"
-    if red["failure_reason"] != "assertion" or signature not in _run_log_output(red, base_dir=base_dir):
+    if (red["failure_reason"] != "assertion"
+            or signature not in verified_validation_run_output(red["validation_run_id"], base_dir=base_dir)):
         return "wrong_reason"
     if green["status"] == "ok":
         return "proven"
     if green["failure_reason"] in _UNRUNNABLE_REASONS:
         return "unrunnable"
     return "exposed" if green["failure_reason"] == "assertion" else "wrong_reason"
-
-
-def _run_log_output(row: dict[str, Any], *, base_dir: str | Path | None) -> str:
-    """The command's output as the run's hash-verified log holds it, read
-    the way the ledger classified it (``validation_run_log_output``)."""
-    verified = verify_validation_run(row["validation_run_id"], base_dir=base_dir)
-    return validation_run_log_output(Path(verified["log_path"]).read_text(encoding="utf-8"))
 
 
 # How long a killed validation tree has to die before it is SIGKILLed: the

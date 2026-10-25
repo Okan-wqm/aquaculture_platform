@@ -24,6 +24,11 @@ The design fixtures pinned here:
 * ARIA-MEDIUM-936: text present only in a run log's runner header is not a
   ``log_contains`` hit — the experiment judges the run's OUTPUT section, the
   one reader the prover uses (``validation_runs_ledger.validation_run_log_output``).
+* ARIA-HIGH-964 / ARIA-LOW-971: the lift reads the seat's tree as data. A
+  seat that points its ``.git`` file at a gitdir it wrote, with a clean filter
+  and a ``.gitattributes`` naming it, gets no command run in the kernel; a
+  directory the seat swaps for a symlink while the lift reads is refused by
+  name, never followed.
 
 ``lift_sandbox_pin`` and ``prove_candidate_pin`` are NEW API (red at the branch
 base by assertion through ``_api``, not by import); the ARIA-MEDIUM-936 test
@@ -31,10 +36,12 @@ drives existing API and is red by its assertion.
 """
 from __future__ import annotations
 
+import os
 import tempfile
 import unittest
 from pathlib import Path
 from typing import Any, Callable
+from unittest import mock
 
 from aria_kernel import experiment, validation
 from aria_kernel.change_ledger import emit_change_committed, emit_change_planned
@@ -255,6 +262,101 @@ class OneOutputJudgeTests(unittest.TestCase):
 
     def test_text_in_the_output_section_is_a_hit(self) -> None:
         self.assertTrue(self._matched("exp-output", "usage:"))
+
+
+class SeatTreeIsReadAsDataTests(unittest.TestCase):
+    """ARIA-HIGH-964 / ARIA-LOW-971 — the seat wrote the tree, so the lift reads
+    it as data: nothing in it chooses git's repository, config, attributes or
+    filters, and no path the lift opens goes through a symlink."""
+
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory(prefix="aria-d6-sec-")
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name).resolve()
+        self.repo = make_repo_with_initial_commit(
+            self.root, {"calc.py": _CALC_A, _PIN_PATH: _SUB_PROBE}, name="subject",
+        )
+        self.sha = _git(["rev-parse", "HEAD"], cwd=self.repo).stdout.strip()
+        self.marker = self.root / "KERNEL_RAN_SEAT_COMMAND"
+
+    def _sandbox(self, name: str) -> Path:
+        sandbox = self.root / f"seat-{name}"
+        _git(["worktree", "add", "--quiet", "--detach", str(sandbox), self.sha], cwd=self.repo)
+        self.addCleanup(_git, ["worktree", "remove", "--force", str(sandbox)], cwd=self.repo, check=False)
+        return sandbox
+
+    def _lift(self, sandbox: Path) -> dict[str, Any]:
+        return validation.lift_sandbox_pin(sandbox, base_sha=self.sha, command=_COMMAND,
+                                           failure_signature=_SIGNATURE, expectation_ref=_EXPECTATION)
+
+    def _redirect_git(self, sandbox: Path, gitdir: Path) -> None:
+        """What a hostile seat writes (the reviewer's probe): a gitdir of its
+        own — the request worktree's index copied, the subject's objects
+        through alternates — whose config defines a clean filter, its ``.git``
+        file naming that gitdir, and a ``.gitattributes`` routing ``*.py``
+        through the filter. The filter's command touches the marker."""
+        _git(["init", "-q", "--bare", str(gitdir)], cwd=self.root)
+        (gitdir / "objects/info/alternates").write_text(f"{self.repo / '.git/objects'}\n", encoding="utf-8")
+        (gitdir / "HEAD").write_text(f"{self.sha}\n", encoding="utf-8")
+        with open(gitdir / "config", "a", encoding="utf-8") as config:
+            config.write(f"[core]\n\tbare = false\n\tworktree = {sandbox}\n"
+                         f"[filter \"x\"]\n\tclean = touch {self.marker}; cat\n")
+        (gitdir / "index").write_bytes((self.repo / ".git/worktrees" / sandbox.name / "index").read_bytes())
+        (sandbox / ".git").write_text(f"gitdir: {gitdir}\n", encoding="utf-8")
+        (sandbox / ".gitattributes").write_text("*.py filter=x\n", encoding="utf-8")
+        (sandbox / _PIN_PATH).write_text(_ADD_PROBE, encoding="utf-8")
+
+    def test_a_seat_written_gitdir_with_a_clean_filter_runs_nothing_and_is_refused_by_name(self) -> None:
+        sandbox = self._sandbox("probe")
+        self._redirect_git(sandbox, sandbox / "fakegit")
+        with self.assertRaises(GovernanceError) as refused:
+            self._lift(sandbox)
+        self.assertFalse(self.marker.exists(), "the seat's filter command ran in the kernel")
+        self.assertIn("red_first_pin_path_not_a_test: '.gitattributes'", str(refused.exception),
+                      "the seat's attributes are a path it added, refused by name, never configuration")
+
+    def test_a_seat_that_hides_its_redirection_still_runs_nothing(self) -> None:
+        """The redirection outside the tree and the attributes ignored by a
+        self-ignoring ``.gitignore``: the lift returns the seat's test, and
+        the seat's gitdir, config and attributes decided nothing."""
+        sandbox = self._sandbox("hidden")
+        self._redirect_git(sandbox, self.root / "seat-gitdir")
+        (sandbox / ".gitignore").write_text(".gitignore\n.gitattributes\n", encoding="utf-8")
+        try:
+            lifted: dict[str, Any] | GovernanceError = self._lift(sandbox)
+        except GovernanceError as refused:
+            lifted = refused
+        self.assertFalse(self.marker.exists(), "the seat's filter command ran in the kernel")
+        self.assertIsInstance(lifted, dict, f"the lift refused the seat's own test: {lifted}")
+        self.assertEqual(lifted["files"], {_PIN_PATH: _ADD_PROBE})
+
+    def test_a_directory_swapped_for_a_symlink_while_the_lift_reads_is_refused(self) -> None:
+        """ARIA-LOW-971 — the seat's process may still run while the kernel
+        lifts. The swap lands on the first open of the lifted path or of its
+        parent directory, after any separate symlink check: every component
+        is opened without following a link, so the swap is refused by name."""
+        sandbox = self._sandbox("race")
+        lifted = "tests/unit/test_new.py"
+        (sandbox / "tests/unit").mkdir()
+        (sandbox / lifted).write_text(_ADD_PROBE, encoding="utf-8")
+        elsewhere = self.root / "elsewhere"
+        elsewhere.mkdir()
+        (elsewhere / "test_new.py").write_text("KERNEL_PRIVATE = 'read through the seat link'\n", encoding="utf-8")
+        real_open = os.open
+        swapped: list[bool] = []
+
+        def open_after_swap(path: Any, *args: Any, **kwargs: Any) -> int:
+            if not swapped and os.fspath(path).endswith(("unit", "test_new.py")):
+                swapped.append(True)
+                os.rename(sandbox / "tests/unit", self.root / "was-unit")
+                os.symlink(elsewhere, sandbox / "tests/unit")
+            return real_open(path, *args, **kwargs)
+
+        with mock.patch.object(os, "open", side_effect=open_after_swap):
+            with self.assertRaises(GovernanceError) as refused:
+                self._lift(sandbox)
+        self.assertTrue(swapped, "the lift never opened the seat's file")
+        self.assertIn(f"red_first_pin_path_escapes_worktree: {lifted!r}", str(refused.exception))
 
 
 if __name__ == "__main__":

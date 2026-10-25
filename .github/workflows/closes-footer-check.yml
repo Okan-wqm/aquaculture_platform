@@ -26,7 +26,12 @@ permissions:
 jobs:
   validate-closes:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    # Hang detectors derived from the measured distribution in
+    # tests/invariants/ci-timeout-budget-ssot.spec.ts (MEASURED_CLOSES): job max
+    # 4.6 min, self-test step max 3.0 min. The old 5-minute budget predates the
+    # self-test step and cancelled run 40154016007 before the trailer validator
+    # ran. Re-measure there before changing either number.
+    timeout-minutes: 10
     steps:
       # SEC-CI-002: pinned to full SHA per infra-expert rule
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -65,6 +70,7 @@ jobs:
       # about which finding IDs exist and nothing said so. A gate whose
       # tests never execute is a gate whose behaviour is unpinned.
       - name: "Gate self-tests (resolver + ID allocator)"
+        timeout-minutes: 5
         run: |
           npm run gates:test
 

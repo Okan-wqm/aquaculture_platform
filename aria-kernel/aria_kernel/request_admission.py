@@ -34,7 +34,7 @@ its change would take a seat nothing counted.
 
 A refusal is named (``request_admission_throttled:<reason>``), recorded on
 ``agent-invocations/admissions.jsonl`` once per (cycle, producer, role,
-reason), and disclosed on governance once per (cycle, role). An admission is
+reason, change named), and disclosed on governance once per (cycle, role). An admission is
 recorded by the mint, in the request's own transaction, only for an identity
 that was new. Each producer re-derives what it did not mint on its next cycle
 (``ProducerClass.re_offer``). One new plan per cycle is admitted ahead of the
@@ -249,6 +249,16 @@ class Admission:
     def refusal(self) -> str:
         return f"{THROTTLED_PREFIX}{self.reason}"
 
+    @property
+    def refuses_this_change_only(self) -> bool:
+        """A refusal about the change asked for (its seats), not about the cycle.
+
+        It holds no other work: a producer walking several changes skips this
+        one by name and asks the door about the next. Every other refusal is
+        the cycle's (drain, provider, backlog) and holds the rest of the walk.
+        """
+        return not self.admitted and self.reason == REASON_CHANGE_SEAT_CAP
+
 
 @dataclass
 class _CycleView:
@@ -256,7 +266,7 @@ class _CycleView:
     snapshot: dict[str, Any] | None = None
     admitted_since_snapshot: int = 0
     minted_by_producer: dict[str, int] = field(default_factory=dict)
-    throttled_keys: set[tuple[str, str, str]] = field(default_factory=set)
+    throttled_keys: set[tuple[str, str, str, str | None]] = field(default_factory=set)
     throttled_roles: set[str] = field(default_factory=set)
 
 
@@ -312,6 +322,18 @@ def _view(root: Path, cycle_key: str) -> _CycleView:
     return view
 
 
+def _refusal_key(row: Mapping[str, Any]) -> tuple[str, str, str, str | None]:
+    """What a refusal is recorded once per, in a cycle: the ask, why, and the change it named.
+
+    The change is part of the key because a refusal of one change (its seats)
+    says nothing about the next: a walk over several changes skips each one by
+    name, and each skipped change keeps its own row (WP-D4).
+    """
+    subject = row.get("subject_ref")
+    return (str(row.get("producer")), str(row.get("role")), str(row.get("reason")),
+            None if subject is None else str(subject))
+
+
 def _fold(view: _CycleView, row: dict[str, Any]) -> None:
     kind = row.get("row_type")
     if kind == "snapshot":
@@ -321,7 +343,7 @@ def _fold(view: _CycleView, row: dict[str, Any]) -> None:
         producer = str(row.get("producer"))
         view.minted_by_producer[producer] = view.minted_by_producer.get(producer, 0) + 1
     elif kind == "decision" and not row.get("admitted"):
-        view.throttled_keys.add((str(row.get("producer")), str(row.get("role")), str(row.get("reason"))))
+        view.throttled_keys.add(_refusal_key(row))
         view.throttled_roles.add(str(row.get("role")))
 
 
@@ -379,9 +401,9 @@ def _change_seats_over_cap(root: Path, role: str, subject_ref: str, count: int) 
 
 def _record_refusal(root: Path, view: _CycleView, row: dict[str, Any], *, reason: str,
                     capacity: Mapping[str, Any], backlog_now: int) -> None:
-    """Record a refusal once per (cycle, producer, role, reason) on admissions, once per (cycle, role) on governance."""
+    """Record a refusal once per (cycle, producer, role, reason, change) on admissions, once per (cycle, role) on governance."""
     producer, role = row["producer"], row["role"]
-    if (producer, role, reason) in view.throttled_keys:
+    if _refusal_key({**row, "reason": reason}) in view.throttled_keys:
         return
     first_for_role = role not in view.throttled_roles
     _append(root, view, {**row, "admitted": False, "reason": reason, "backlog_before": backlog_now})
@@ -440,8 +462,8 @@ def admit_request(
     seats, in either class (WP-D4).
     Discretionary is measured once per cycle and decided against that
     snapshot plus every request minted since; a refusal writes its admissions
-    row once per (cycle, producer, role, reason) and its governance row once
-    per (cycle, role). An admission is recorded by the MINT, and only for an
+    row once per (cycle, producer, role, reason, change named) and its governance
+    row once per (cycle, role). An admission is recorded by the MINT, and only for an
     identity that was new (``minted_row``): a re-request of a sealed row
     consumes nothing (review of #1833, MEDIUM-4).
     """

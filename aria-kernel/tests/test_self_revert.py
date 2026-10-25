@@ -29,6 +29,15 @@ from aria_kernel.change_ledger import (
     emit_change_planned,
 )
 from aria_kernel.ledger import append_declared_jsonl, load_declared_jsonl
+from aria_kernel.merge_record import (
+    LINEAGE_DELIVERED,
+    LINEAGE_DIVERGED,
+    MERGED_BY_MERGE_LANE,
+    MERGED_BY_OBSERVED,
+    lifecycle_rows,
+    opened_row,
+    record_merge,
+)
 from aria_kernel.recovery import unresolved_intents
 from aria_kernel.self_merge_freeze import (
     FREEZE_NOTICE_LABELS,
@@ -448,6 +457,68 @@ class SelfRevertTests(unittest.TestCase):
         self.assertEqual(load_self_reverts(base_dir=self.tools), [])
         self.assertEqual(self.gh_calls, [])
         self.assertEqual(result["skipped"], [{"pr_number": MERGED_PR, "reason": "not_an_aria_merge"}])
+
+    # -- F3.4: every ARIA merge per merge_record --------------------------
+
+    def _recorded_merge(self, *, merged_by: str = MERGED_BY_OBSERVED, head_lineage: str = LINEAGE_DELIVERED) -> None:
+        """merge_record's ``merged`` row for MERGED_PR: the PR the kernel opened
+        (setUp's ``opened`` row), merged at ``self.merge_sha`` — by default by a
+        person (observed on GitHub) at the head ARIA delivered, as #1906 was."""
+        record_merge(
+            pr=opened_row(lifecycle_rows(self.tools), pr_number=MERGED_PR), merged_by=merged_by,
+            base_dir=self.tools, merge_sha=self.merge_sha, merged_at="2026-09-25T00:30:00Z",
+            merged_head_sha="e" * 40, head_lineage=head_lineage,
+        )
+
+    def _regression_verdict(self) -> None:
+        append_declared_jsonl(
+            self.tools / "change-ledger" / "outcome.jsonl",
+            {"$schema": CHANGE_RECORD_SCHEMA, "schema_version": 1, "event": "change_outcome",
+             "change_id": self.reverted_change_id, "verdict": "regression", "merged_pr_number": MERGED_PR,
+             "recorded_at": "2026-09-25T02:00:00Z", "readings": []},
+            expected_surface="change_outcome",
+        )
+
+    def test_a_person_merged_aria_pr_is_reverted_on_its_regression(self) -> None:
+        # The #1906 case (F3.4): ARIA's change, merged by a person. merge_record
+        # says it is ARIA's by lineage; the merge lane decided nothing and the
+        # head branch carries no ARIA prefix, so no post-merge CI row exists.
+        # The candidate set is every ARIA merge per merge_record, and the merge
+        # commit is the one its merged row names.
+        self._recorded_merge()
+        self._regression_verdict()
+        result = self._produce(None, triggers=(TRIGGER_CHANGE_OUTCOME,))
+        self.assertEqual(result["skipped"], [])
+        rows = load_self_reverts(base_dir=self.tools)
+        self.assertEqual([row["decision"] for row in rows], [DECISION_OPENED])
+        self.assertEqual(rows[0]["trigger"], TRIGGER_CHANGE_OUTCOME)
+        freeze = active_freeze(base_dir=self.tools)
+        assert freeze is not None
+        self.assertEqual(freeze["merge_sha"], self.merge_sha)
+        self.assertEqual(len(self.gh_calls), 1)
+
+    def test_a_person_merged_aria_pr_red_on_main_is_reverted(self) -> None:
+        # The post-merge CI row own_pr_ci writes for that merge once it
+        # attributes it through merge_record: its head branch is a person's.
+        self._recorded_merge()
+        self._merge_outcome(head_ref="fix/f015-converge-the-chain")
+        result = self._produce(self._green_parent())
+        self.assertNotIn({"pr_number": MERGED_PR, "reason": "not_an_aria_merge"}, result["skipped"])
+        self.assertEqual(self._decisions(), [DECISION_OPENED])
+        self.assertIsNotNone(active_freeze(base_dir=self.tools))
+
+    def test_a_merge_lane_decision_does_not_make_a_merge_arias(self) -> None:
+        # One rule of authorship: the merged row's lineage. A lane decision of
+        # `merged` beside a merged row whose head is not ARIA's change is not
+        # a second opinion that makes the merge ARIA's.
+        self._aria_merged()
+        self._recorded_merge(merged_by=MERGED_BY_MERGE_LANE, head_lineage=LINEAGE_DIVERGED)
+        self._merge_outcome()
+        result = self._produce(self._green_parent())
+        self.assertEqual(result["skipped"], [{"pr_number": MERGED_PR, "reason": "not_an_aria_merge"}])
+        self.assertIsNone(active_freeze(base_dir=self.tools))
+        self.assertEqual(load_self_reverts(base_dir=self.tools), [])
+        self.assertEqual(self.gh_calls, [])
 
     # -- the revert -------------------------------------------------------
 

@@ -32,7 +32,6 @@ from aria_kernel import human_required_adjudication as hra
 from aria_kernel.belief_escalation import (
     BELIEF_ESCALATION_KIND,
     BELIEF_PANEL_SOURCE_TYPE,
-    escalate_stuck_contradictions,
     execute_belief_panel_correction,
 )
 from aria_kernel.feedback_store import (
@@ -49,7 +48,7 @@ from aria_kernel.human_required import (
     resolve_human_required,
 )
 from aria_kernel.ledger import load_declared_jsonl
-from aria_kernel.memory import _feedback_adjustment, _record_contradiction
+from aria_kernel.memory import _feedback_adjustment
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
 from tests._helpers.adjudication import seed_adjudicator_opinion
 
@@ -67,16 +66,22 @@ _PANEL_AGENTS = (
 
 
 def _stuck_belief(root: Path, belief_id: str) -> str:
-    """Drive the REAL producer: three cycles of the same open contradiction."""
-    for cycle_id in ("cyc-1", "cyc-2", "cyc-3"):
-        _record_contradiction(
-            root,
-            cycle_id=cycle_id,
-            belief_id=belief_id,
-            reason="withdrawn belief candidate re-emitted by adapter",
-            source_tool_id="adapter-x",
-        )
-    escalate_stuck_contradictions(cycle_id="cyc-3", base_dir=root)
+    """A belief escalation as the producer minted it before F0.7 (ARIA-MEDIUM-730:
+    a standing contradiction now asks the arbiter; the panel drains the
+    records that already exist)."""
+    record_human_required(
+        request_id=f"HR-belief-{belief_id}",
+        severity="medium",
+        reason=f"belief {belief_id} has an open contradiction across 3 cycles",
+        context={
+            "kind": BELIEF_ESCALATION_KIND,
+            "belief_id": belief_id,
+            "source_tool_id": "adapter-x",
+            "contradiction_reason": "withdrawn belief candidate re-emitted by adapter",
+            "open_cycle_count": 3,
+        },
+        base_dir=root,
+    )
     return f"HR-belief-{belief_id}"
 
 

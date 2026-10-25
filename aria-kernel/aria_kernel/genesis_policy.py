@@ -132,7 +132,6 @@ JUDGMENT_PIPELINE_DEFAULTS: dict[str, Any] = {
     # `measure_only`, on the record, while fewer than two calibrated seats
     # exist (`effective_calibration_gate`, asking the ONE seat law, F0.8).
     "calibration_gate": "measure_only",
-    "max_uncalibrated_escalations_per_cycle": 5,
     # WP-J slice C — the judgment funnel (judgment_funnel.route_judgment_sample,
     # the ONE routing owner called between generate_judgment_sample and
     # dispatch_judges_for_sample). `funnel_enabled` FALSE is the shipped

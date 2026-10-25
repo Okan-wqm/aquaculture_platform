@@ -4,7 +4,7 @@ import fnmatch
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Mapping
+from typing import TYPE_CHECKING, Any, Iterable, Mapping
 
 # ARIA-HIGH-189 — findings.jsonl is feedback_store's declared ledger; it is
 # read and rewritten through the owner's primitives, never the raw ledger
@@ -419,6 +419,39 @@ def subject_open_request_ids(subject: ChangeSubject, *, base_dir: str | Path | N
         str(row.get("request_id")) for row in rows
         if states[str(row.get("request_id"))] not in TERMINAL_REQUEST_STATES
     ]
+
+
+def context_recall(cases: Iterable[Mapping[str, Any]], *, repo_root: str | Path | None = None) -> dict[str, Any]:
+    """WP-D2 exit metric (DESIGN-discovery row D2): did the envelope hold the fix's ground?
+
+    Over bug cases ``{case_id, envelope_files, fix_files}`` — ``envelope_files``
+    being the change-review envelope's file set (the change's files, the
+    impacted services' roots, the twin slice) — a case is a hit when a file
+    the fix F changed is one of those entries or lies under one (directory
+    boundary, ``knowledge_graph._paths_related``). Deterministic, no LLM, and
+    independent of case order (``missed`` is sorted). The share is judged
+    against the pre-registered ``change_review.context.recall_floor``
+    (``genesis_policy.change_review_policy``, SE-13 strict), with n and the
+    Wilson lower bound of the one Wilson owner (``judge_calibration``). DEV
+    cases only: the HELD-OUT set is measured once, at D-FINAL. No case
+    measures nothing — share, Wilson bound and the floor verdict are None.
+    """
+    from .genesis_policy import change_review_policy
+    from .judge_calibration import wilson_lower
+    from .knowledge_graph import _paths_related
+
+    floor = change_review_policy(repo_root)["context"]["recall_floor"]
+    rows = list(cases)
+    missed = sorted(
+        str(case["case_id"]) for case in rows
+        if not any(_paths_related(fixed, held) for fixed in case["fix_files"] for held in case["envelope_files"])
+    )
+    n, hits = len(rows), len(rows) - len(missed)
+    share = hits / n if n else None
+    return {
+        "n": n, "hits": hits, "share": share, "wilson_lower": wilson_lower(hits, n), "missed": missed,
+        "recall_floor": floor, "meets_floor": None if share is None else share >= floor,
+    }
 
 
 def plan_pr_impact(

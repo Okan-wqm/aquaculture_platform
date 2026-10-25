@@ -1069,6 +1069,12 @@ CHANGE_REVIEW_SCHEMA: dict[str, Any] = {
         "impacted_entries_per_seat": _prereg.whole(0, 100),
         "sections_in_render_order": _prereg.names(),
     },
+    # WP-D2 (DESIGN-discovery row D2) — the context-recall exit floor,
+    # pre-registered before the first DEV measurement; read by
+    # pr_tracking.context_recall.
+    "context": {
+        "recall_floor": _PROBABILITY,
+    },
 }
 
 

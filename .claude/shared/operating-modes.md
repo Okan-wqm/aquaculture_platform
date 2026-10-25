@@ -69,7 +69,7 @@ Extend at the bottom of the agent file. Examples:
 
 - `context-manager.md` — no WRITER mode; TEACHER mode outputs compacted reports only.
 - `architectural-arbiter.md` — no WRITER mode; CATCHER + TEACHER only; arbiter rulings feed other agents' decisions, not code.
-- `prompt-writer.md` — inverse: WRITER is primary mode; CATCHER reviews agent-prompt files.
+- `prompt-writer.md` — WRITER only: it writes agent prompts and never reviews them; the routing table names their reviewer (ADR-050).
 - `implementation-planner.md` — no CATCHER; TEACHER mode = read reviews, WRITER mode = emit skill-DAG work packages under `docs/plans/...`.
 
 ## References

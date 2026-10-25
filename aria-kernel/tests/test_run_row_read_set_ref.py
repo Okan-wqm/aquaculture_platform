@@ -197,7 +197,7 @@ class ProductionShapedReadSet(unittest.TestCase):
 
         def gaps(row: dict[str, Any]) -> list[dict[str, Any]]:
             with patch.object(capability_gap, "read_runs_rows", return_value=[row]):
-                return capability_gap._gaps_from_shadow_runs(row["cycle_id"], self.tools, self.tools)
+                return capability_gap._gaps_from_shadow_runs(row["cycle_id"], self.tools, self.tools, [])
 
         shadow = {
             **self.row,

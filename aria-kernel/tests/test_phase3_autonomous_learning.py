@@ -18,10 +18,12 @@ from aria_kernel.verification_gate import submit_worker_result, verify_worker_re
 from aria_kernel.worker_dispatch import claim_assignment, create_dispatch_request
 from aria_kernel.workspace import ensure_workspace, workspace_paths
 from aria_kernel.tool_registry import ensure_tools_binding
+from tests._helpers.registry_projection import project_registry_as_stored
 
 
 class Phase3AutonomousLearningTests(unittest.TestCase):
     def setUp(self):
+        project_registry_as_stored(self)
         self.tmp = tempfile.TemporaryDirectory()
         self.repo = Path(self.tmp.name) / "repo"
         self.repo.mkdir()

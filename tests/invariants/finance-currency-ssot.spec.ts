@@ -49,8 +49,9 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 
+import { projectRegistry } from '../../tools/gates/finding-registry-projection';
+
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
-const REGISTRY_PATH = path.join(REPO_ROOT, 'docs/reviews/_registry/findings.jsonl');
 
 /**
  * A recognised ISO 4217 currency code hardcoded on a currency-writing path:
@@ -169,14 +170,18 @@ function currencyLiteralsIn(file: string): string[] {
   return matches ? [...new Set(matches)] : [];
 }
 
+/**
+ * The findings RESOLVED as every reader sees them: the projection, where a
+ * merged `Closes:` trailer resolves a finding the moment it merges. No
+ * workflow refreshes the stored `state` (MF-1, PROC-HIGH-039), so reading it
+ * would keep an exemption alive past its closed finding.
+ */
 function resolvedFindingIds(): Set<string> {
-  const resolved = new Set<string>();
-  for (const line of readFileSync(REGISTRY_PATH, 'utf8').trim().split('\n')) {
-    if (!line) continue;
-    const entry = JSON.parse(line) as { id?: unknown; state?: unknown };
-    if (typeof entry.id === 'string' && entry.state === 'RESOLVED') resolved.add(entry.id);
-  }
-  return resolved;
+  return new Set(
+    projectRegistry(REPO_ROOT)
+      .filter((row) => row.state === 'RESOLVED')
+      .map((row) => row.id),
+  );
 }
 
 describe('Finance currency SSoT invariant', () => {

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import fnmatch
 import re
 from pathlib import Path
 from typing import Any
@@ -67,23 +66,6 @@ def reviewer_names(*, workspace_root: str | Path) -> set[str]:
 def latest_agent_priors(*, base_dir: str | Path | None = None) -> dict[str, Any] | None:
     rows = load_jsonl(ensure_tools_dir(base_dir) / "agent-priors" / "agent-map.jsonl")
     return rows[-1] if rows else None
-
-
-def related_agents_for_paths(
-    *,
-    paths: list[str],
-    base_dir: str | Path | None = None,
-) -> list[str]:
-    priors = latest_agent_priors(base_dir=base_dir)
-    if not priors:
-        return []
-    related = set()
-    for agent in priors.get("agents", []):
-        scopes = agent.get("scope_globs", []) if isinstance(agent, dict) else []
-        for path in paths:
-            if any(fnmatch.fnmatch(path, scope) or path.startswith(scope.rstrip("*")) for scope in scopes):
-                related.add(str(agent.get("name")))
-    return sorted(related)
 
 
 def _parse_agent(path: Path, root: Path) -> dict[str, Any] | None:

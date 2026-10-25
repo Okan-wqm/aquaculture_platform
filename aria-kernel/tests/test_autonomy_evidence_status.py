@@ -1668,6 +1668,17 @@ def alias_factory(root):
                     f"{KERNEL}planner_dispatch_hook.py",
                     "consumer",
                 ),
+                # D1 — the change_review settle loop asks
+                # pr_tracking.subject_open_request_ids (derive_request_states)
+                # whether the subject's change-intelligence requests are still
+                # open; it reads request state to decide when the room stops
+                # cycling, never whether the executor's work is accepted.
+                (
+                    "executor",
+                    "agent_invocation_results",
+                    f"{KERNEL}pr_tracking.py",
+                    "consumer",
+                ),
                 (
                     "pre_merge_perimeter",
                     "auto_merge_decisions",

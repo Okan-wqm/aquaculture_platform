@@ -31,6 +31,7 @@ from aria_kernel.doctor import DoctorCheck, DoctorReport
 from aria_kernel.mcp_client import QUARANTINE_RELPATH
 from aria_kernel.tool_registry import ensure_tools_dir
 from tests._helpers.hermetic_git import apply_hermetic_git_env
+from tests._helpers.registry_projection import project_registry_as_stored
 
 CORRUPT_ROW = "{not json\n"
 
@@ -46,6 +47,7 @@ def _git_env() -> dict[str, str]:
 
 class _Store(unittest.TestCase):
     def setUp(self) -> None:
+        project_registry_as_stored(self)
         self._tmp = tempfile.TemporaryDirectory()
         root = Path(self._tmp.name)
         self.ws = root / "repo"

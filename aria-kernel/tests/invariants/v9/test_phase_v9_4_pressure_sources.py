@@ -29,6 +29,7 @@ from . import _helpers  # noqa: F401
 from aria_kernel import plan_synthesizer as _ps
 from aria_kernel.finding import fold_findings
 from aria_kernel.plan_candidate_source import PlanCandidateSource
+from tests._helpers.registry_projection import project_registry_as_stored
 
 
 class TestV9KeyChangeCategories(unittest.TestCase):
@@ -80,6 +81,13 @@ class TestV9OrphanScanner(unittest.TestCase):
         "## ORPHAN-HIGH-417 — closed by the registry, heading never updated — OPEN\n\nbody\n\n"
         "## ORPHAN-LOW-047 — open, heading still says resolved — RESOLVED (this PR)\n\nbody\n"
     )
+
+    def setUp(self) -> None:
+        # The scanner reads the registry's projection (MF-1); these fixtures
+        # have no history, so their projection is their stored rows. The
+        # source dropping a finding a merged trailer closed is pinned on a real
+        # repository in tests/test_report_ingestion_registry_view.py.
+        project_registry_as_stored(self)
 
     def test_scan_without_a_registry_returns_empty(self):
         with tempfile.TemporaryDirectory() as tmp:

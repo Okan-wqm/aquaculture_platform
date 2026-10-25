@@ -9,6 +9,8 @@
 * self-attestation: runner_identity == change_author_identity → raise.
 * verify with tampered log file → raise (hash mismatch).
 * cmd correlation: change_id filter returns the right rows.
+
+D5 — the failure-reason class is derived from the bound log, per runner.
 """
 from __future__ import annotations
 
@@ -19,6 +21,7 @@ from pathlib import Path
 from aria_kernel.runtime_profile import set_profile
 from aria_kernel.tool_registry import GovernanceError
 from aria_kernel.validation_runs_ledger import (
+    derive_validation_failure_reason,
     find_validation_run_by_id,
     list_validation_runs_for_change,
     record_validation_run,
@@ -107,6 +110,62 @@ class ValidationRunsLedgerTests(unittest.TestCase):
         self.assertEqual(len(a_runs), 2)
         self.assertEqual(len(b_runs), 1)
         self.assertEqual(b_runs[0]["cmd"], "nx test:c")
+
+    def test_failure_reason_is_stamped_from_the_bound_log(self) -> None:
+        self.assertIsNone(self._record()["failure_reason"])
+        self.log.write_text("argv: ['x']\n--- stdout ---\nAssertionError: 1 != 2\n", encoding="utf-8")
+        self.assertEqual(self._record(exit_code=1)["failure_reason"], "assertion")
+        self.assertEqual(self._record(exit_code=None, timed_out=True)["failure_reason"], "timeout")
+
+    def test_failure_reason_reads_the_command_output_never_the_log_header(self) -> None:
+        # D5-R1-SSOT-B1: the header carries the command line, which a caller
+        # chooses (a ``-k ECONNREFUSED`` filter, an embedded newline); only
+        # the streams after ``--- stdout ---`` are what the command printed.
+        self.log.write_text(
+            "command: python3 -m unittest tests.test_probe -k ECONNREFUSED\n"
+            "ConnectionRefusedError: [Errno 111] Connection refused\n"
+            "argv: ['python3', '-m', 'unittest', 'tests.test_probe', '-k', 'ECONNREFUSED']\n"
+            "--- stdout ---\n\n--- stderr ---\n"
+            "FAIL: test_claim (tests.test_probe.Probe.test_claim)\nAssertionError: 1 != 2\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(self._record(exit_code=1)["failure_reason"], "assertion")
+
+
+class FailureReasonClassTests(unittest.TestCase):
+    """The class each admitted runner's red output reads as (D5 / F3.2)."""
+
+    def test_each_runner_output_reads_as_its_class(self) -> None:
+        cases = (
+            ("ImportError: Failed to import test module: t\nModuleNotFoundError: No module named 'x'", "import"),
+            ("  ● Test suite failed to run\n\n    Cannot find module './calc' from 'calc.spec.ts'", "import"),
+            ("ImportError: Failed to import test module: t\nNameError: name 'x' is not defined", "collection"),
+            ("  File \"t.py\", line 4\nSyntaxError: invalid syntax", "collection"),
+            ("  ● Test suite failed to run\n\n    SyntaxError: Unexpected token", "collection"),
+            ("error: could not compile `gateway` (lib test) due to 1 previous error", "collection"),
+            ("ConnectionRefusedError: [Errno 111] Connection refused\nAssertionError: 0 != 1", "infra_required"),
+            ("connect ECONNREFUSED 127.0.0.1:5432", "infra_required"),
+            ("Error: connect ECONNREFUSED 127.0.0.1:5432", "infra_required"),
+            ("Error: getaddrinfo EAI_AGAIN db.internal", "infra_required"),
+            ("socket.gaierror: [Errno -3] Temporary failure in name resolution", "infra_required"),
+            # D5-R1-SSOT-B1: an assertion whose message NAMES an infra token
+            # is an assertion, not a refused connection.
+            ("FAIL: test_claim (t.P.test_claim)\nAssertionError: 'ETIMEDOUT' != 'ECONNREFUSED'", "assertion"),
+            ("AssertionError: 'EAI_AGAIN' not found in 'ok'", "assertion"),
+            ("    expect(received).toBe(expected)\n    Expected: \"Temporary failure in name resolution\"", "assertion"),
+            ("command: python3 -m unittest t -k ECONNREFUSED\nFAIL: test_a (t.P.test_a)\nAssertionError: 1 != 2",
+             "assertion"),
+            ("FAIL: test_add (tests.test_calc.T.test_add)\nAssertionError: -1 != 5", "assertion"),
+            ("    expect(received).toBe(expected) // Object.is equality", "assertion"),
+            ("thread 'tests::add' panicked at src/lib.rs:9:5:", "assertion"),
+            ("AttributeError: module 'calc' has no attribute 'sub'", None),
+        )
+        for output, reason in cases:
+            with self.subTest(output=output):
+                self.assertEqual(derive_validation_failure_reason(status="failed", output=output), reason)
+
+    def test_an_ok_run_has_no_class_whatever_it_printed(self) -> None:
+        self.assertIsNone(derive_validation_failure_reason(status="ok", output="AssertionError: logged"))
 
 
 if __name__ == "__main__":

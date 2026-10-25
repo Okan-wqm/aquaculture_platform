@@ -44,7 +44,7 @@ REQUEST_ROLES: tuple[str, ...] = (
     # added them as a contract extension for lanes that were then built
     # differently: the auth lane became the security-boundary ADAPTER plus the
     # architecture spine gate, and domain review became `specialist_domain_review`
-    # (specialist_review_runner's touch-map) plus expert_review_gate. Five roles
+    # (specialist_review_runner over the routing table) plus expert_review_gate. Five roles
     # a request could name, that no kernel path ever minted and no bridge ever
     # consumed — a surface that admits a role nothing can fulfil is how a caller
     # ends up waiting forever for an answer that was never dispatched. Removal is
@@ -230,13 +230,13 @@ DEFAULT_TARGET_AGENT_WHITELIST: tuple[str, ...] = (
     "aria-goldset-curator",
     "aria-autonomy-planner",
     "aria-worker",
-    # Kept because the kernel really does dispatch these two: the specialist
-    # touch-map routes auth-service / gateway-api / guards changes to
+    # Kept because the kernel really does dispatch these two: the routing
+    # table (SE-2) routes auth-service / gateway-api / guards changes to
     # `auth-security-expert`, and expert_review_gate + ci.produce_ci_review
     # reach for `architectural-arbiter`. E14 dropped `access-boundary-auditor`
     # and `tenant-isolation-auditor` with the roles that were their only
     # kernel-side dispatch path; they remain Lane-B product-audit agents,
-    # reachable the moment the touch-map names them.
+    # reachable the moment the routing table names them.
     "architectural-arbiter",
     "auth-security-expert",
     # WP-J B-2 — the three new panel-seat agents (the architecture seat

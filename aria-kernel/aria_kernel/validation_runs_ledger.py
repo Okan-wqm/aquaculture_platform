@@ -93,6 +93,68 @@ VALIDATION_RUN_SCHEMA_VERSION = 2
 # an infrastructure stall read as a code defect.
 VALIDATION_RUN_STATUSES: tuple[str, ...] = ("ok", "failed", "timeout")
 
+# D5 / PLAN-v2 F3.2 — WHY a run that is not ``ok`` is red, closed. A red run
+# proves a claim only when the test body ran and its check failed
+# (``assertion``); a test that never loaded (``import``, ``collection``), a
+# run the runner killed (``timeout``) or a test that needed a service the
+# sandbox does not have (``infra_required``) is red for a reason that says
+# nothing about the code under test. ``None`` on a failed row is "no class
+# recognised" — never guessed into one of these.
+VALIDATION_FAILURE_REASONS: tuple[str, ...] = ("assertion", "collection", "import", "timeout", "infra_required")
+
+# The line of a validation run log after which the command's own output (its
+# stdout, then its stderr) begins; above it is the header the RUNNER wrote
+# (``command:``/``argv:``), text the caller chose, not the command printed.
+# ``validation._write_run_log`` writes it; ``validation_run_log_output`` is
+# the one reader.
+VALIDATION_RUN_LOG_OUTPUT_LINE = "--- stdout ---"
+
+# The output lines each class is read from, checked in this order: a run in
+# which any test module failed to load is not an assertion run whatever else
+# it printed, and a refused connection outranks the assertion it caused.
+# Every marker is the error LINE a runtime prints, anchored at a line start
+# (leading whitespace allowed), never a bare token: an assertion message
+# that names ``ECONNREFUSED`` is an assertion. Python's unittest and the
+# jest/cargo runners ``validation.parse_allowed_command`` admits.
+_FAILURE_REASON_MARKERS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("import", re.compile(
+        r"^\s*(?:ModuleNotFoundError|ImportError): (?!Failed to import test module)|^\s*Cannot find module ", re.M)),
+    ("collection", re.compile(
+        r"^\s*(?:SyntaxError|IndentationError|TabError):|^\s*ImportError: Failed to import test module:"
+        r"|^\s*● Test suite failed to run|^error: could not compile", re.M)),
+    ("infra_required", re.compile(
+        r"^\s*(?:ConnectionRefusedError|socket\.gaierror)\b"
+        r"|^\s*(?:Error: )?(?:connect ECONNREFUSED|getaddrinfo EAI_AGAIN) ", re.M)),
+    ("assertion", re.compile(
+        r"^\s*AssertionError\b|^FAIL: |^\s*expect\(received\)|^\s*thread '[^']*' panicked at", re.M)),
+)
+
+
+def validation_run_log_output(log_text: str) -> str:
+    """The command's output in a validation run log: everything after the
+    ``VALIDATION_RUN_LOG_OUTPUT_LINE``, never the runner's header above it
+    ("" for a log with no output section)."""
+    return log_text.partition(f"\n{VALIDATION_RUN_LOG_OUTPUT_LINE}\n")[2]
+
+
+def derive_validation_failure_reason(*, status: str, output: str) -> str | None:
+    """The ONE failure-reason rule for the ``validation_runs`` surface.
+
+    Stamped by ``record_validation_run`` from the output section
+    (``validation_run_log_output``) of the hash-bound log it is recording,
+    the way ``status`` is derived from the exit code: a writer cannot claim
+    a class its log does not show, and a command line cannot claim one
+    either.
+    """
+    if status == "ok":
+        return None
+    if status == "timeout":
+        return "timeout"
+    for reason, marker in _FAILURE_REASON_MARKERS:
+        if marker.search(output):
+            return reason
+    return None
+
 
 
 def derive_validation_run_status(
@@ -224,7 +286,8 @@ def record_validation_run(
 
     ``status`` is NOT a parameter: it is derived from
     ``exit_code``/``timed_out`` so the write side cannot disagree with
-    the numbers it is stamping.
+    the numbers it is stamping. ``failure_reason`` (D5) is derived the same
+    way, from the log being bound (``derive_validation_failure_reason``).
 
     ``spawn_environment`` (ARIA-MEDIUM-066) is the names-only report of the
     environment the runner BUILT for the child —
@@ -305,6 +368,7 @@ def record_validation_run(
     binding = _validated_input_binding(input_binding) if input_binding is not None else None
     environment = _validated_spawn_environment(spawn_environment) if spawn_environment is not None else None
     log_hash = _hash_log_file(log)
+    status = derive_validation_run_status(exit_code=exit_code, timed_out=timed_out)
     row = {
         "$schema": VALIDATION_RUN_SCHEMA,
         "schema_version": VALIDATION_RUN_SCHEMA_VERSION,
@@ -313,8 +377,9 @@ def record_validation_run(
         "cmd": cmd,
         "exit_code": exit_code,
         "timed_out": timed_out,
-        "status": derive_validation_run_status(
-            exit_code=exit_code, timed_out=timed_out,
+        "status": status,
+        "failure_reason": derive_validation_failure_reason(
+            status=status, output=validation_run_log_output(log.read_text(encoding="utf-8", errors="replace")),
         ),
         "duration_ms": duration_ms,
         "log_path": log.as_posix(),
@@ -647,9 +712,13 @@ __all__ = [
     "VALIDATION_RUNS_FILENAME",
     "VALIDATION_RUN_SCHEMA",
     "VALIDATION_RUN_SCHEMA_VERSION",
+    "VALIDATION_FAILURE_REASONS",
+    "VALIDATION_RUN_LOG_OUTPUT_LINE",
     "VALIDATION_RUN_STATUSES",
     "classify_validation_run_status",
+    "derive_validation_failure_reason",
     "derive_validation_run_status",
+    "validation_run_log_output",
     "find_validation_run_by_id",
     "list_validation_runs",
     "list_validation_runs_at_committed_tip",

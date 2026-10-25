@@ -35,6 +35,7 @@ import { existsSync, readFileSync, writeFileSync, readdirSync, statSync } from '
 import { resolve, relative } from 'node:path';
 
 import { isUnresolvedFindingState } from '../gates/finding-registry-chain';
+import { projectRegistry } from '../gates/finding-registry-projection';
 
 const REPO_ROOT = process.cwd();
 
@@ -168,20 +169,6 @@ function parseChurn(text: string): Map<string, number> {
     churn.set(file, count);
   }
   return churn;
-}
-
-function readFindingsJsonl(path: string): FindingEntry[] {
-  if (!existsSync(path)) return [];
-  const out: FindingEntry[] = [];
-  for (const line of readFileSync(path, 'utf8').split('\n')) {
-    if (!line.trim()) continue;
-    try {
-      out.push(JSON.parse(line) as FindingEntry);
-    } catch {
-      // skip malformed lines (shouldn't happen — registry is gated)
-    }
-  }
-  return out;
 }
 
 function readJscpdClones(reportPath: string): JscpdClone[] {
@@ -320,8 +307,10 @@ function main(): void {
 
   // --- open findings: walk registry, attribute evidence file refs ---
   // "Open" is the registry's one predicate: every state but RESOLVED. A STALE
-  // or BLOCKED finding is still owed, so it still weighs on its files.
-  const findings = readFindingsJsonl(resolve(REPO_ROOT, 'docs', 'reviews', '_registry', 'findings.jsonl'));
+  // or BLOCKED finding is still owed, so it still weighs on its files. The
+  // projection (finding-registry-projection.ts) closes a finding a merged
+  // `Closes:` trailer closed, so fixed code stops weighing at the merge.
+  const findings: FindingEntry[] = projectRegistry(REPO_ROOT);
   const openFindings = findings.filter((f) => isUnresolvedFindingState(f.state));
   for (const f of openFindings) {
     for (const ev of f.evidence ?? []) {

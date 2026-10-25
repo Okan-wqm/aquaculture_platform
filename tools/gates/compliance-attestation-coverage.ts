@@ -25,18 +25,13 @@
  *   1  one or more missing attestations
  *   2  input error (malformed JSONL, missing finding registry, etc.)
  */
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
+
+import { projectRegistry, registryPath } from './finding-registry-projection';
 
 const SCRIPT_DIR = __dirname;
 const REPO_ROOT = resolve(SCRIPT_DIR, '..', '..');
-const REGISTRY_PATH = resolve(
-  REPO_ROOT,
-  'docs',
-  'reviews',
-  '_registry',
-  'findings.jsonl',
-);
 const EVIDENCE_DIR = resolve(REPO_ROOT, 'docs', 'compliance', 'evidence');
 const FAR_FUTURE_ISO = '9999-12-31T23:59:59Z';
 
@@ -72,28 +67,18 @@ function resolveCutoff(argv: readonly string[]): string {
   return FAR_FUTURE_ISO;
 }
 
+/**
+ * The registry as the projection reads it (finding-registry-projection.ts): a
+ * finding a merged `Closes:` trailer closed is RESOLVED, closed at the merge
+ * that brought the trailer in, whether or not its row records it.
+ */
 function loadRegistry(): FindingEntry[] {
-  if (!existsSync(REGISTRY_PATH)) {
+  if (!existsSync(registryPath(REPO_ROOT))) {
     throw new Error(
-      `[compliance-attestation-coverage] findings registry missing at ${REGISTRY_PATH}`,
+      `[compliance-attestation-coverage] findings registry missing at ${registryPath(REPO_ROOT)}`,
     );
   }
-  const raw = readFileSync(REGISTRY_PATH, 'utf8');
-  const entries: FindingEntry[] = [];
-  let lineNum = 0;
-  for (const line of raw.split('\n')) {
-    lineNum++;
-    const trimmed = line.trim();
-    if (trimmed === '') continue;
-    try {
-      entries.push(JSON.parse(trimmed) as FindingEntry);
-    } catch (e) {
-      throw new Error(
-        `[compliance-attestation-coverage] findings.jsonl line ${lineNum}: ${(e as Error).message}`,
-      );
-    }
-  }
-  return entries;
+  return projectRegistry(REPO_ROOT);
 }
 
 function loadAttestationFiles(): Set<string> {

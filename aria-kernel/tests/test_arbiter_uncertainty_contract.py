@@ -138,6 +138,8 @@ class ArbiterUncertaintyIsAValidOutcome(unittest.TestCase):
                 "anchor_evidence_empty",
                 # WP-J fix round — a panel whose seats echo each other.
                 "panel_echo",
+                # J5 — an anchor-grade closing set judged at different trees.
+                "target_sha_mixed",
             },
         )
 

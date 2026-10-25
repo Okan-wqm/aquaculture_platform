@@ -7,7 +7,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from .agent_priors import related_agents_for_paths
+from .agent_routing import load_routing_table, reviewing_agents_for_paths
 from .auto_merge import evaluate_auto_merge, read_required_status_checks
 from .ledger import (
     append_declared_jsonl,
@@ -15,7 +15,7 @@ from .ledger import (
 )
 from .proposal import record_proposal
 from .risk_policy import first_present_string
-from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
+from .tool_registry import GovernanceError, bound_workspace_root, ensure_tools_dir, utc_now
 from .digest import sha256_digest_text
 
 
@@ -284,7 +284,9 @@ def produce_ci_review(
 ) -> dict[str, Any]:
     failure = _failure_by_id(ci_failure_id, base_dir)
     paths = sorted(set(_string_list(failure.get("affected_files")) + _string_list(failure.get("changed_file_overlap"))))
-    agents = related_agents_for_paths(paths=paths, base_dir=base_dir)
+    # The reviewers of the failing files: the store's workspace routing table,
+    # the one path -> agent map (SE-2).
+    agents = reviewing_agents_for_paths(paths, load_routing_table(bound_workspace_root(base_dir)))
     agents = sorted(set(agents + _fallback_agents(failure)))
     if not agents:
         agents = ["architectural-arbiter"]

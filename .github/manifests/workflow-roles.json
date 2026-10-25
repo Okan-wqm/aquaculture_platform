@@ -216,12 +216,6 @@
       "reason": "Edge agent release build from a release tag."
     },
     {
-      "workflow": "finding-closure-reconcile.yml",
-      "name": "Finding Closure Reconcile",
-      "role": "main_verdict",
-      "reason": "Reconciles the finding registry on every push to main."
-    },
-    {
       "workflow": "finding-state-sweep.yml",
       "name": "Finding State Sweep",
       "role": "main_verdict",

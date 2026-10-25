@@ -40,6 +40,7 @@ from aria_kernel.request_admission import admit_request
 
 from tests._helpers.plan_evaluations import evaluator_escalation
 from tests.test_implementation_lifecycle_continuity import converging_plan_content
+from tests._helpers.service_facts import facts_without_contract_edges
 
 KIND = "observed_plan_failure_mode"
 HR_SURFACE = [{"paths": ["apps/hr-service/src/leave/**"]}]
@@ -55,6 +56,8 @@ def _body(title: str, surfaces: list[Any] = HR_SURFACE, finding_id: str | None =
 
 class _LedgerCase(unittest.TestCase):
     def setUp(self) -> None:
+        # SE-4 — a fixture workspace has no TypeScript toolchain; its subject is not contract edges.
+        self.enterContext(facts_without_contract_edges())
         self.tmp = tempfile.TemporaryDirectory()
         self.tools = Path(self.tmp.name) / "aria-tools"
         self.workspace = Path(self.tmp.name) / "workspace"

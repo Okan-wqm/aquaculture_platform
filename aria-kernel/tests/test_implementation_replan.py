@@ -29,6 +29,7 @@ from aria_kernel.plan_convergence import events_path, fold_plan_state
 from tests._helpers.declared_fixtures import append_declared_fixture
 from tests._helpers.operator_requests import OperatorRequestFixture
 from tests.test_executor_event_driven_planning import _PlanCase
+from tests._helpers.service_facts import facts_without_contract_edges
 
 _VERIFY = "aria_kernel.round_independence.verify_independence"
 _LEASE = {ec.WRITER_LEASE_ENV: ec.WRITER_LEASE_HELD}
@@ -44,6 +45,8 @@ class _ConvergedOperatorPlan(_PlanCase):
     foreign_signer = False
 
     def setUp(self) -> None:  # noqa: D401 — replaces _PlanCase.setUp: the store lives in the signed checkout
+        # SE-4 — a fixture workspace has no TypeScript toolchain; its subject is not contract edges.
+        self.enterContext(facts_without_contract_edges())
         from aria_kernel.cross_review_bridge import issue_implementation_envelope
         from aria_kernel.request_admission import admit_request
 

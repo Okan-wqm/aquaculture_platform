@@ -40,6 +40,7 @@ from aria_kernel.plan_convergence import abandon_plan, force_plan_human_required
 from aria_kernel.request_admission import admit_request
 
 from tests.test_implementation_lifecycle_continuity import converging_plan_content
+from tests._helpers.service_facts import facts_without_contract_edges
 
 HR_SURFACE = [{"paths": ["apps/hr-service/src/leave/**"]}]
 KIND = "observed_plan_failure_mode"
@@ -49,6 +50,8 @@ INVALID_RELEASE = "plan_content_invalid:plan_content:key_changes_empty"
 
 class _Ledgers(unittest.TestCase):
     def setUp(self) -> None:
+        # SE-4 — a fixture workspace has no TypeScript toolchain; its subject is not contract edges.
+        self.enterContext(facts_without_contract_edges())
         self.tmp = tempfile.TemporaryDirectory()
         self.tools = ensure_tools_dir(Path(self.tmp.name) / "aria-tools")
         self.workspace = Path(self.tmp.name) / "workspace"

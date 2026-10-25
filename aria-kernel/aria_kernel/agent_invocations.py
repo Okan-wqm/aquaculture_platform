@@ -1414,6 +1414,13 @@ def create_agent_invocation_request(
     # judge envelope that forgot its method stamp is unrepresentable — a
     # partially-stamped panel would fail the anchor's hybrid leg closed.
     agent_method: str | None = None,
+    # F0.7 + J4 — what an arbiter envelope was minted over
+    # (``judge_fanout.arbiter_inputs``: subject, facts, digest). The bridge
+    # refuses an answer whose group no longer reads the same
+    # (``judge_fanout.require_current_arbiter_inputs``). Part of the request
+    # identity, so a group re-offered at new inputs gets a fresh envelope.
+    # Additive optional: only arbiter envelopes carry it.
+    arbiter_inputs: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     # Plan ARIA-V5 §3c v2 (B1 fix) — ``plan_revision_hash`` binds the
     # envelope to a specific plan revision so I-V5.1-03 can assert
@@ -1609,6 +1616,9 @@ def create_agent_invocation_request(
             # `base_sha` is read from them): a re-mint for a new proposal or
             # branch is a new request, never the old row handed back.
             **({"implementation_ids": dict(implementation_ids)} if implementation_ids else {}),
+            # F0.7 + J4 — what an arbiter envelope was minted over: a group
+            # re-offered at new inputs is a new request.
+            **({"arbiter_inputs": arbiter_inputs} if arbiter_inputs is not None else {}),
         },
     )
     existing_request = _find_request_by_id(root, request_id)
@@ -1757,6 +1767,8 @@ def create_agent_invocation_request(
         "prompt_render_version": PROMPT_RENDER_VERSION,
         "implementation_ids": dict(implementation_ids) if implementation_ids else None,
     }
+    if arbiter_inputs is not None:
+        row["arbiter_inputs"] = arbiter_inputs
     # ARIA-HIGH-355 — a successor of a refused answer is told why it was
     # refused; absent on every other row, so historical rows render unchanged.
     predecessor_rejection = _predecessor_rejection(root, remint_of) if remint_of else None

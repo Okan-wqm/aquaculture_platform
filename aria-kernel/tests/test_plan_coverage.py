@@ -14,10 +14,15 @@ from pathlib import Path
 
 from aria_kernel.workspace_view import workspace_head_sha
 from aria_kernel.plan_convergence import _validate_cross_review_risk
-from aria_kernel.plan_coverage import build_synthetic_risk, compute_plan_coverage
+from aria_kernel.plan_coverage import (
+    EVENT_FACTS_RELPATH,
+    MODULE_FACTS_RELPATH,
+    build_synthetic_risk,
+    compute_plan_coverage,
+)
 from tests._helpers.git_fixtures import make_repo_with_initial_commit
 from tests._helpers.node_modules import installed_node_modules
-from tests._helpers.witness_sources import witness_tool_paths
+from tests._helpers.witness_sources import plan_coverage_ssot_files, plan_coverage_tool_paths
 from tests._helpers.operator_acts import operator_set_profile
 
 PLAN_CONTENT = {
@@ -46,8 +51,14 @@ WITNESS_REPORT = {
 }
 
 
+# The code facts of a tree with no application: the closure's contract edges are none (SE-4).
+NO_EVENT_FACTS = {"schema": "aria/event_facts/v1", "services": [], "event_definitions": []}
+
+
 class _FakeRunner:
-    """Scripted runner for the witness call, the only command the runner runs.
+    """Scripted runner: the two code-fact entries answer facts with no contract edge (SE-4: the
+    closure plan coverage hands the witness is computed over them), the witness answers
+    ``witness_result``.
 
     The HEAD the closure is computed at is read through the kernel's hermetic git owner
     (``workspace_view.workspace_head_sha``), never through this runner (SE-3-R2 round-2 RA).
@@ -61,6 +72,8 @@ class _FakeRunner:
         self.calls.append(list(cmd))
         if cmd[:1] == ["git"]:
             raise AssertionError(f"plan coverage ran git through the witness runner: {cmd}")
+        if cmd[3] in (EVENT_FACTS_RELPATH, MODULE_FACTS_RELPATH):
+            return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(NO_EVENT_FACTS), stderr="")
         result = self.witness_result
         if isinstance(result, Exception):
             raise result
@@ -186,7 +199,7 @@ class NativePlanCoverageTests(unittest.TestCase):
         selected_repo = Path(__file__).resolve().parents[2]
         source_path = "libs/interval-core/src/index.ts"
         note_path = "docs/coverage-note.md"
-        native_tool_paths = witness_tool_paths()
+        native_tool_paths = plan_coverage_tool_paths()
         native_tool_bytes = {path: (selected_repo / path).read_bytes() for path in native_tool_paths}
         files = {
             ".gitignore": "/node_modules\n.nx/\naria-debts/\n",
@@ -199,11 +212,18 @@ class NativePlanCoverageTests(unittest.TestCase):
                 "name": "farm-service", "root": "apps/farm-service", "projectType": "application",
                 "implicitDependencies": ["interval-core"], "targets": {},
             }),
+            # SE-4 — the closure is the kernel's import scan over tsconfig aliases: farm-service
+            # imports interval-core in code, not only through nx's implicitDependencies.
+            "tsconfig.base.json": json.dumps({"compilerOptions": {"paths": {
+                "@fixture/interval-core": ["libs/interval-core/src/index.ts"]}}}),
             source_path: "export const interval = 30;\n",
-            "apps/farm-service/src/index.ts": "export const unit = 'seconds';\n",
+            "apps/farm-service/src/index.ts": (
+                "import { interval } from '@fixture/interval-core';\nexport const unit = interval;\n"
+            ),
             note_path: "This documentation path has no owning Nx project.\n",
             ".claude/agents/farm-expert.md": "---\nname: farm-expert\ndescription: Fixture reviewer.\n---\nOwns `apps/farm-service/**`.\n",
             **{path: data.decode("utf-8") for path, data in native_tool_bytes.items()},
+            **plan_coverage_ssot_files("farm-service", "farm"),
         }
         environment_values = {name: value for name, value in os.environ.items()
             if not name.startswith(("ARIA_", "NX_", "npm_config_", "NPM_CONFIG_"))
@@ -224,7 +244,7 @@ class NativePlanCoverageTests(unittest.TestCase):
         environment.start()
         self.addCleanup(environment.stop)
         repo = make_repo_with_initial_commit(fixture / "source", files)
-        installed = installed_node_modules("nx", "typescript", "ts-node")
+        installed = installed_node_modules("nx", "typescript", "ts-node", "yaml", "ajv")
         (repo / "node_modules").symlink_to(installed, target_is_directory=True)
         head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
         self.assertEqual(subprocess.check_output(["git", "status", "--porcelain"], cwd=repo), b"")
@@ -270,8 +290,8 @@ class NativePlanCoverageTests(unittest.TestCase):
         self.assertEqual(payload["computed_at_sha"], head)
         # ARIA-LOW-558: the witness builds the real nx graph in a temp dir and
         # removes it; nothing it made stays under TMPDIR. What the graph said
-        # (both roots, the farm-service -> interval-core edge) is read from the
-        # witness's own closure below, not from a leftover file.
+        # (the touched root) is read from the witness's report below, not from
+        # a leftover file.
         self.assertEqual(sorted(path.name for path in witness_tmp.glob("plan-coverage-*")), [])
         manifest_path = tools / "coverage" / (plan_id + "-r1.json")
         manifest_bytes = manifest_path.read_bytes()
@@ -282,15 +302,18 @@ class NativePlanCoverageTests(unittest.TestCase):
         self.assertEqual(payload["verdict"], "gaps", payload)
         witness_input = json.loads((tools / "coverage" / (plan_id + "-r1-input.json")).read_text())
         self.assertEqual(witness_input["affected_paths"], [source_path, note_path])
+        # SE-4 — the dependent is the kernel's closure node, handed to the witness and echoed.
+        self.assertEqual([node["node_id"] for node in witness_input["closure_nodes"]], ["project:farm-service"])
         report = json.loads(manifest_bytes)
         self.assertEqual(
-            {(row["name"], row["root"], row["reason"]) for row in report["closure"]["projects"]},
-            {("interval-core", "libs/interval-core", "direct"),
-             ("farm-service", "apps/farm-service", "reverse_dependent")},
+            [(row["name"], row["root"], row["reason"]) for row in report["closure"]["projects"]],
+            [("interval-core", "libs/interval-core", "direct")],
         )
+        self.assertEqual(report["closure"]["closure_nodes"], witness_input["closure_nodes"])
         self.assertEqual(report["unmapped_paths"], [note_path])
         self.assertEqual([row["node_id"] for row in payload["uncovered"]], ["project:farm-service"])
-        self.assertEqual(payload["closure_summary"]["projects"], 2)
+        self.assertEqual(payload["closure_summary"]["projects"], 1)
+        self.assertEqual(payload["closure_summary"]["closure_nodes"], 1)
         self.assertEqual(payload["closure_summary"]["unmapped_paths"], 1)
         self.assertEqual(len(payload["synthetic_risks"]), 1)
         recorded = record_coverage(plan_id=plan_id, coverage=payload, base_dir=tools)

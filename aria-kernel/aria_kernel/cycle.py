@@ -1619,12 +1619,12 @@ def _phase_belief_decay(context: PhaseContext) -> dict[str, Any]:
         cycle_id=context.cycle_id, base_dir=context.base_dir,
     )
     # M4+M8/E8 — the belief-verdict channel's producer half. A contradiction
-    # open across >= 3 distinct cycles becomes a HUMAN_REQUIRED record whose
-    # resolution routes the operator's verdict back into belief confidence
-    # (via affected_belief_ids). Runs in the same belief-health phase as the
-    # decay triggers because escalation IS the fourth staleness response:
-    # age, TTL, head-distance revalidate; a standing contradiction asks a
-    # human.
+    # open across >= 3 distinct cycles asks the consensus arbiter once (F0.7;
+    # before it, a HUMAN_REQUIRED record), and the ruling routes back into
+    # belief confidence (via affected_belief_ids). Runs in the same
+    # belief-health phase as the decay triggers because escalation IS the
+    # fourth staleness response: age, TTL, head-distance revalidate; a
+    # standing contradiction asks the arbiter.
     from .belief_escalation import escalate_stuck_contradictions
 
     escalation = escalate_stuck_contradictions(
@@ -1836,16 +1836,10 @@ def _phase_dispatch_lease_reap(context: PhaseContext) -> dict[str, Any]:
 
 
 def _phase_consensus_escalation(context: PhaseContext) -> dict[str, Any]:
-    # Plan 023 §B — drain consensus disagreements / low-confidence verdicts
-    # into HUMAN_REQUIRED so a split judge vote reaches an operator instead
-    # of being silently held. Idempotent, so re-running a cycle never
-    # double-escalates.
-    from .genesis_policy import judgment_pipeline_policy as _pipeline_policy
-
-    return sweep_consensus_uncertainties_for_human_required(
-        base_dir=context.base_dir,
-        max_uncalibrated_escalations=int(_pipeline_policy(context.workspace_root)["max_uncalibrated_escalations_per_cycle"]),
-    )
+    # F0.7 — consensus uncertainty goes to the arbiter (the judge phase's
+    # dispatch_arbiter_for_split_verdicts), never to HUMAN_REQUIRED; this
+    # phase records the routes and the unverifiable rate against its ceiling.
+    return sweep_consensus_uncertainties_for_human_required(base_dir=context.base_dir)
 
 
 def _phase_lease_lifecycle_escalation(context: PhaseContext) -> dict[str, Any]:
@@ -2546,10 +2540,13 @@ def _phase_service_examination(context: PhaseContext) -> dict[str, Any]:
         "service_examination", cycle_id=context.cycle_id, phase="started",
         changed_paths=len(changed_paths), pressures=len(cycle_pressures or []),
     )
+    from .plan_coverage import compute_service_facts_at_head
+
     return cycle_service_examination(
         workspace_root=context.workspace_root,
         base_dir=context.base_dir,
         changed_files=changed_paths,
+        service_facts=compute_service_facts_at_head(workspace_root=context.workspace_root),
         pressures=cycle_pressures,
     )
 

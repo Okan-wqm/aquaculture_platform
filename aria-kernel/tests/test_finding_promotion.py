@@ -10,6 +10,12 @@ ARIA-HIGH-325 — what a promotion stands on: the adapter finding it promotes,
 resolved by fingerprint from the raw-findings ledger, is the subject and the
 location; the refs the judges cited must be admissible for the producing
 tool (its declared scope, never ARIA's detector source outside it).
+
+F2.3 (PLAN-v2 §2 'Bulgu kabul çıtası') — ONE acceptance bar: a consensus row
+promotes only when it is ground truth (``feedback_store.is_ground_truth_row``,
+the anchor) AND every ref it stands on is repo_verified by ``evidence_trust``
+at the row's own ``target_sha``. The seam is fail-closed per row: a row that
+fails the bar is refused by name and never stops a later row.
 """
 from __future__ import annotations
 
@@ -28,7 +34,9 @@ from aria_kernel.feedback_store import (
     record_operator_feedback,
 )
 from aria_kernel.finding import findings_dir
+from aria_kernel import finding_promotion
 from aria_kernel.finding_promotion import promote_consensus_findings
+from aria_kernel.tool_registry import GovernanceError
 
 from tests._helpers.rule_contracts import DEFAULT_RULE_CONTRACT, register_contracted_tool
 
@@ -38,6 +46,9 @@ _REPO_FILES = (
     "web/modules/zeta/vite.config.ts",
     "tools/aria-adapters/bundle-budget-adapter.ts",
 )
+
+# The default target of a fixture consensus row: the commit setUp seeded.
+_AT_FIXTURE_HEAD = "at-fixture-head"
 
 
 class _PromotionCase(unittest.TestCase):
@@ -66,6 +77,8 @@ class _PromotionCase(unittest.TestCase):
             ],
             check=True,
         )
+        # The commit the judges judged: every consensus row is minted at it.
+        self.head = self._git("rev-parse", "HEAD")
         self.tools = Path(self.tmp.name) / "aria-tools"
         # The producing tools, registered with their rule contracts the way
         # the cycle's manifest sync registers the shipped adapters.
@@ -73,6 +86,12 @@ class _PromotionCase(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.tmp.cleanup()
+
+    def _git(self, *args: str) -> str:
+        return subprocess.run(
+            ["git", "-C", str(self.repo), "-c", "user.email=t@t", "-c", "user.name=t", *args],
+            check=True, capture_output=True, text=True,
+        ).stdout.strip()
 
     def _seed(self, *, tool_id: str = "tool-a", rule: str = "some_rule", path: str = "apps/target.ts",
               line: int = 1, finding_id: str = "f-1") -> str:
@@ -93,27 +112,34 @@ class _PromotionCase(unittest.TestCase):
         return fingerprint
 
     def _consensus_row(self, fingerprint: str, *, refs: list[str], verdict: str = "true_positive",
-                       tool_id: str = "tool-a", severity: str = "high") -> None:
+                       tool_id: str = "tool-a", severity: str = "high", finding_id: str = "f-1",
+                       judge_count: int = 3, judges_voted: int = 3,
+                       target_sha: str | None = _AT_FIXTURE_HEAD) -> None:
+        """A consensus row as the mint writes it. The default is an ANCHOR
+        (three distinct seats agreed, nobody dissented) minted at the
+        fixture's commit — the only row the one acceptance bar admits; the
+        F2.3 tests below lower one leg at a time."""
         record_operator_feedback(
             tool_id=tool_id,
             run_id="run-1",
-            finding_id="f-1",
+            finding_id=finding_id,
             verdict=verdict,
             severity=severity,
-            note="AI consensus from 2 independent judges",
+            note=f"AI consensus from {judges_voted} judges",
             source_type="ai_consensus",
             judge_id="aria-consensus-arbiter",
             confidence=0.9,
-            judgment_group_id=f"judge:{tool_id}:run-1:f-1",
+            judgment_group_id=f"judge:{tool_id}:run-1:{finding_id}",
             finding_fingerprint=fingerprint,
             evidence_refs=refs,
-            # JJ-1 — every consensus row must state its judge backing.
-            # TWO here on purpose: finding promotion is deliberately NOT
-            # anchor-gated (a promoted finding is a reviewable work item,
-            # not ground truth), so this row proves the two lanes stayed
-            # separate rather than silently converging on the anchor floor.
-            judge_count=2,
-            judges_voted=2,
+            judge_count=judge_count,
+            judges_voted=judges_voted,
+            observers=[
+                {"judge_id": "aria-evidence-judge", "model": "claude-opus-5"},
+                {"judge_id": "aria-adversarial-judge", "model": "claude-opus-5"},
+                {"judge_id": "aria-consensus-arbiter", "model": "fable"},
+            ][:judges_voted],
+            target_sha=self.head if target_sha == _AT_FIXTURE_HEAD else target_sha,
             base_dir=self.tools,
         )
 
@@ -140,9 +166,12 @@ class FindingPromotionTests(_PromotionCase):
         self._consensus_row(ghost, refs=["apps/does-not-exist.ts:1"])
         result = promote_consensus_findings(repo_root=self.repo, base_dir=self.tools)
         self.assertEqual(result["promoted_count"], 0)
+        # F2.3 — the missing file is refused by the ONE evidence bar
+        # (evidence_trust at target_sha), named with the ref it refused.
+        (skip,) = result["skipped"]
         self.assertEqual(
-            [row["reason"] for row in result["skipped"]],
-            ["no_repo_verified_evidence"],
+            (skip["finding_fingerprint"], skip["reason"], set(skip.get("refused") or {})),
+            (ghost, "evidence_not_verified_at_target_sha", {"apps/does-not-exist.ts:1"}),
         )
 
     def test_empty_fingerprint_skips_visibly_not_silently(self) -> None:
@@ -291,6 +320,86 @@ class PromotionTakesClaimTypeAndSeverityFromTheContract(_PromotionCase):
                                 contract=contract, severity="medium")
         self.assertEqual((doc["claim_type"], doc["severity"]), ("currency_gap", "MEDIUM"))
         self.assertIn("A document describes a path that no longer exists.", doc["claim_summary"])
+
+class OneAcceptanceBar(_PromotionCase):
+    """F2.3 — promotion requires is_ground_truth_row AND evidence verified at
+    the row's target_sha (evidence_trust), fail-closed per row.
+
+    New API pinned here (the seam's refusal vocabulary, beside the existing
+    ``inadmissible_evidence`` shape): ``not_ground_truth`` for a row the anchor
+    rule rejects, and ``evidence_not_verified_at_target_sha`` with
+    ``refused: {ref: trust_grade}`` for a row whose evidence the committed
+    tree at its target does not hold."""
+
+    def _refusal(self, result: dict, fingerprint: str) -> dict:
+        refusals = [skip for skip in result["skipped"] if skip.get("finding_fingerprint") == fingerprint]
+        self.assertEqual(len(refusals), 1, result["skipped"])
+        return refusals[0]
+
+    def test_a_two_judge_consensus_is_not_ground_truth_and_does_not_promote(self) -> None:
+        fingerprint = self._seed()
+        self._consensus_row(fingerprint, refs=["apps/target.ts:1"], judge_count=2, judges_voted=2)
+        result = promote_consensus_findings(repo_root=self.repo, base_dir=self.tools)
+        self.assertEqual(result["promoted_count"], 0)
+        self.assertEqual(self._promoted_docs(), [])
+        self.assertEqual(self._refusal(result, fingerprint)["reason"], "not_ground_truth")
+
+    def test_a_weighted_majority_over_a_dissenter_does_not_promote(self) -> None:
+        # Two of three agreed: the arbiter minted to refute the pair dissented.
+        # The majority settles the adapter-precision lane, never a finding.
+        fingerprint = self._seed()
+        self._consensus_row(fingerprint, refs=["apps/target.ts:1"], judge_count=2, judges_voted=3)
+        result = promote_consensus_findings(repo_root=self.repo, base_dir=self.tools)
+        self.assertEqual(result["promoted_count"], 0)
+        self.assertEqual(self._promoted_docs(), [])
+        self.assertEqual(self._refusal(result, fingerprint)["reason"], "not_ground_truth")
+
+    def test_evidence_present_in_the_worktree_but_not_at_target_sha_does_not_promote(self) -> None:
+        # The judges judged self.head; the subject file was committed AFTER it.
+        # The working tree (and HEAD) hold it, the judged commit does not.
+        judged = self.head
+        (self.repo / "apps/later.ts").write_text("export const later = 1;\n")
+        self._git("add", "apps/later.ts")
+        self._git("commit", "-qm", "later")
+        fingerprint = self._seed(path="apps/later.ts", finding_id="f-later")
+        self._consensus_row(fingerprint, refs=["apps/later.ts:1"], finding_id="f-later", target_sha=judged)
+        result = promote_consensus_findings(repo_root=self.repo, base_dir=self.tools)
+        self.assertEqual(result["promoted_count"], 0)
+        self.assertEqual(self._promoted_docs(), [])
+        refusal = self._refusal(result, fingerprint)
+        self.assertEqual(refusal["reason"], "evidence_not_verified_at_target_sha")
+        self.assertEqual(set(refusal.get("refused") or {}), {"apps/later.ts:1"})
+
+    def test_a_row_that_names_no_target_sha_fails_closed(self) -> None:
+        # Unknown is never green: with no commit to verify at, nothing was verified.
+        fingerprint = self._seed()
+        self._consensus_row(fingerprint, refs=["apps/target.ts:1"], target_sha=None)
+        result = promote_consensus_findings(repo_root=self.repo, base_dir=self.tools)
+        self.assertEqual(result["promoted_count"], 0)
+        self.assertEqual(self._refusal(result, fingerprint)["reason"], "evidence_not_verified_at_target_sha")
+
+    def test_one_bad_ref_refuses_its_row_by_name_and_the_next_row_still_promotes(self) -> None:
+        # The first row cites a file that exists in the working tree only
+        # (never committed): the old working-tree precheck admitted it and the
+        # emission raised, aborting every later promotion of the batch.
+        (self.repo / "apps/untracked.ts").write_text("export const u = 1;\n")
+        bad = self._seed(path="apps/untracked.ts", finding_id="f-bad")
+        self._consensus_row(bad, refs=["apps/untracked.ts:1"], finding_id="f-bad")
+        good = self._seed(finding_id="f-good")
+        self._consensus_row(good, refs=["apps/target.ts:1"], finding_id="f-good")
+        try:
+            result = promote_consensus_findings(repo_root=self.repo, base_dir=self.tools)
+        except GovernanceError as exc:
+            self.fail(f"one bad ref stopped the whole promotion batch: {exc}")
+        self.assertEqual([row["finding_fingerprint"] for row in result["promoted"]], [good])
+        refusal = self._refusal(result, bad)
+        self.assertEqual(refusal["reason"], "evidence_not_verified_at_target_sha")
+        self.assertEqual(set(refusal.get("refused") or {}), {"apps/untracked.ts:1"})
+
+    def test_the_promoter_keeps_no_evidence_check_of_its_own(self) -> None:
+        # One owner: evidence existence is evidence_trust's at target_sha; the
+        # working-tree is_file copy is deleted, not left beside it.
+        self.assertFalse(hasattr(finding_promotion, "_repo_file_refs"))
 
 
 if __name__ == "__main__":

@@ -18,6 +18,7 @@ exactly why the merge gate ignored Lane A's rows.
 """
 from __future__ import annotations
 
+import errno
 import os
 import json as _json
 import math as _math
@@ -25,6 +26,7 @@ import secrets
 import shlex
 import shutil
 import signal
+import stat
 import subprocess
 import tempfile
 import time
@@ -46,6 +48,7 @@ from .validation_runs_ledger import (
     verified_validation_run_output,
 )
 from .canonical_path import matches_repo_glob, normalize_repo_relpath
+from .git_object_id import ObjectFormat, blob_object_id
 from .snapshot import _capture_scoped_files, _read_scoped_working_file, _scoped_input_path, _scoped_input_digest, _sha256 as _input_digest
 from .workspace import _canonical_identity_observation
 
@@ -573,6 +576,7 @@ def _admit_pin_path(raw_path: Any) -> str:
 def lift_sandbox_pin(
     sandbox: str | Path,
     *,
+    workspace_root: str | Path,
     base_sha: str,
     command: str,
     failure_signature: str,
@@ -581,53 +585,171 @@ def lift_sandbox_pin(
     """D6 — the reproduction seat's sandbox diff, as the pin the kernel proves.
 
     The WP-J ``reproduction_test`` seat writes its red test in its request
-    worktree (a checkout of ``base_sha``) and certifies nothing: this reads
-    what the seat left there — every path whose content differs from
-    ``base_sha``, committed, staged, unstaged or untracked (ignored files are
-    not the seat's diff) — and returns it as the pin ``{files, command,
-    failure_signature, expectation_ref}`` that ``prove_red_first`` runs at the
-    SHAs the kernel chooses. Each path passes the pin's own admission before
-    its file is read, so a source edit, a ``conftest.py`` or a deletion is
-    refused by name and the seat can only ADD tests, never change the code
-    under proof; ``_admit_pin`` then refuses a command off the allowlist.
+    worktree (a checkout of ``base_sha`` the executor added from the kernel's
+    checkout ``workspace_root``) and certifies nothing: this reads what the
+    seat left there — every path whose content differs from ``base_sha``
+    (ignored files are not the seat's diff) — and returns it as the pin
+    ``{files, command, failure_signature, expectation_ref}`` that
+    ``prove_red_first`` runs at the SHAs the kernel chooses. Each changed
+    path passes the pin's own admission before an added file is read, so a
+    source edit, a ``conftest.py`` or a deletion is refused by name and the
+    seat can only ADD tests, never change the code under proof;
+    ``_admit_pin`` then refuses a command off the allowlist.
 
-    The seat wrote the tree, so the kernel reads it as untrusted: git runs
-    hermetic (no caller ``GIT_*``, no fsmonitor) with no external diff, paths
-    are listed NUL-separated, and no component of a lifted path may be a
-    symlink (a link would make the kernel read wherever the seat points it).
-    The sandbox is read, never written.
+    ARIA-HIGH-964 — the seat wrote the tree, so the kernel reads it as DATA:
+    no git runs with the tree as its repository. The tree's ``.git`` file,
+    whatever gitdir it names, and that gitdir's config, index, hooks and
+    excludes are never read, and no git command that reads file content runs
+    over the tree, so nothing in it (a ``.gitattributes`` included) can choose
+    a filter, textconv or external diff for the kernel to run. ``base_sha``'s
+    entries come from the kernel's own repository (``_base_tree_entries``);
+    the tree's paths from a listing against an empty gitdir the kernel makes
+    (``_listed_tree_paths``); each file is read by ``_read_beneath`` and
+    compared with its base blob by id (``blob_object_id``). A base path the
+    listing omits (tracked but ignored) is compared all the same, so ignore
+    rules can hide only an untracked addition: a smaller pin, never a
+    changed one. The sandbox is read, never written.
     """
-    from .workspace_view import hermetic_git
-
+    base = _base_tree_entries(Path(workspace_root).resolve(), base_sha)
     tree = Path(sandbox).resolve()
-    listings = (
-        hermetic_git(tree, "diff", "--no-ext-diff", "--no-renames", "--name-status", "-z", base_sha, "--"),
-        hermetic_git(tree, "ls-files", "--others", "--exclude-standard", "-z"),
-    )
-    for listing in listings:
-        if listing.returncode != 0:
-            raise GovernanceError(f"red_first_sandbox_unreadable:{base_sha}:{listing.stderr.strip()[:200]}")
-    fields = listings[0].stdout.split("\0")
-    changed = [*zip(fields[0::2], fields[1::2]), *(("A", path) for path in listings[1].stdout.split("\0") if path)]
-    paths: list[str] = []
-    for status, raw_path in changed:
-        if status == "D":
-            raise GovernanceError(f"red_first_pin_deletes_a_path: the seat deleted {raw_path!r}")
-        paths.append(_admit_pin_path(raw_path))
-    files: dict[str, str] = {}
-    for path in paths:
-        _refuse_pin_path_through_symlink(tree, path, base_sha)
-        fd = os.open(tree / path, os.O_RDONLY | os.O_NOFOLLOW)
-        with os.fdopen(fd, "rb") as handle:
-            raw = handle.read()
-        try:
-            files[path] = raw.decode("utf-8")
-        except UnicodeDecodeError as exc:
-            raise GovernanceError(f"red_first_pin_content_not_text: {path!r}") from exc
+    listed = _listed_tree_paths(tree)
+    tree_fd = os.open(tree, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        changed: dict[str, tuple[str, bytes] | None] = {}
+        for path in sorted(set(listed) | set(base)):
+            entry = base.get(path)
+            if entry is None:
+                changed[path] = None
+                continue
+            mode, oid = entry
+            if mode == _GITLINK_MODE:
+                continue
+            read = _read_beneath(tree_fd, path)
+            if read[0] == "missing":
+                raise GovernanceError(f"red_first_pin_deletes_a_path: the seat deleted {path!r}")
+            kind = "symlink" if mode == _SYMLINK_MODE else "file"
+            if read[0] != kind or blob_object_id(read[1], ObjectFormat(len(oid))) != oid:
+                changed[path] = read
+        admitted = [(_admit_pin_path(path), read) for path, read in changed.items()]
+        files: dict[str, str] = {}
+        for path, read in admitted:
+            kind, raw = read or _read_beneath(tree_fd, path)
+            if kind == "symlink":
+                raise GovernanceError(f"red_first_pin_path_escapes_worktree: {path!r} at {base_sha}")
+            if kind != "file":
+                raise GovernanceError(f"red_first_pin_path_not_a_file: {path!r} is {kind}")
+            try:
+                files[path] = raw.decode("utf-8")
+            except UnicodeDecodeError as exc:
+                raise GovernanceError(f"red_first_pin_content_not_text: {path!r}") from exc
+    finally:
+        os.close(tree_fd)
     pin = {"files": files, "command": command, "failure_signature": failure_signature,
            "expectation_ref": expectation_ref}
     _admit_pin(pin)
     return pin
+
+
+# git's modes for a symlink and a submodule (gitlink) entry: a gitlink has no
+# blob and no file a pin could carry, so the lift does not compare it.
+_SYMLINK_MODE = "120000"
+_GITLINK_MODE = "160000"
+
+
+def _base_tree_entries(workspace_root: Path, base_sha: str) -> dict[str, tuple[str, str]]:
+    """``{path: (mode, object id)}`` for every entry of ``base_sha``'s tree, read
+    from the kernel's own repository — never from the seat's tree."""
+    from .workspace_view import hermetic_git
+
+    listing = hermetic_git(workspace_root, "ls-tree", "-r", "-z", "--full-tree", "--end-of-options", base_sha)
+    if listing.returncode != 0:
+        raise GovernanceError(f"red_first_base_tree_unreadable:{base_sha}:{listing.stderr.strip()[:200]}")
+    entries: dict[str, tuple[str, str]] = {}
+    for record in filter(None, listing.stdout.split("\0")):
+        meta, path = record.split("\t", 1)
+        mode, _kind, oid = meta.split(" ")
+        entries[path] = (mode, oid)
+    return entries
+
+
+def _listed_tree_paths(tree: Path) -> list[str]:
+    """Every path in ``tree`` its ignore rules do not ignore (``ls-files
+    --others --exclude-standard`` against an EMPTY gitdir the kernel creates,
+    without templates: nothing is tracked there, so every file is "other").
+    ``--git-dir`` and ``--work-tree`` are explicit, so git never reads the
+    tree's ``.git``; listing walks directories and ``.gitignore`` files and
+    reads no file content, config or attributes from the tree."""
+    from .workspace_view import hermetic_git
+
+    with tempfile.TemporaryDirectory(prefix="aria-lift-gitdir-") as holder:
+        gitdir = Path(holder) / "gitdir"
+        created = hermetic_git(holder, "init", "--quiet", "--bare", "--template=", str(gitdir))
+        if created.returncode != 0:
+            raise GovernanceError(f"red_first_sandbox_unreadable:gitdir:{created.stderr.strip()[:200]}")
+        listing = hermetic_git(tree, f"--git-dir={gitdir}", f"--work-tree={tree}",
+                               "ls-files", "--others", "--exclude-standard", "-z")
+    if listing.returncode != 0:
+        raise GovernanceError(f"red_first_sandbox_unreadable:{tree.name}:{listing.stderr.strip()[:200]}")
+    return [path for path in listing.stdout.split("\0") if path]
+
+
+def _read_beneath(tree_fd: int, path: str) -> tuple[str, bytes]:
+    """ARIA-LOW-971 — ``path`` (canonical, relative) under the directory
+    ``tree_fd`` holds, with no symlink followed anywhere: each directory is
+    opened relative to its parent with ``O_NOFOLLOW``, so checking a
+    component and using it are one call, and a seat process that swaps a
+    directory for a link while the kernel reads gets a refusal, never the
+    link's target. A file is opened non-blocking and read only when it is
+    regular (a fifo cannot stall the kernel).
+
+    Returns ``("file", content)``, ``("symlink", target)`` for a last
+    component that is a link, ``("missing", b"")``, or ``("other", b"")``
+    (a directory, fifo or socket). A link above the last component raises
+    ``red_first_pin_path_escapes_worktree``; a component the kernel may not
+    read raises ``red_first_sandbox_unreadable``.
+    """
+    *parents, name = path.split("/")
+    held: list[int] = []
+    dir_fd = tree_fd
+    try:
+        for part in parents:
+            try:
+                dir_fd = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=dir_fd)
+            except OSError as exc:
+                if exc.errno == errno.ENOTDIR and _is_symlink_at(dir_fd, part):
+                    raise GovernanceError(f"red_first_pin_path_escapes_worktree: {path!r}") from exc
+                if exc.errno in (errno.ENOENT, errno.ENOTDIR):
+                    return "missing", b""
+                raise GovernanceError(f"red_first_sandbox_unreadable:{path!r}:{exc.strerror}") from exc
+            held.append(dir_fd)
+        try:
+            fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=dir_fd)
+        except OSError as exc:
+            if exc.errno == errno.ENOENT:
+                return "missing", b""
+            if exc.errno == errno.ENXIO:
+                return "other", b""
+            if exc.errno != errno.ELOOP:
+                raise GovernanceError(f"red_first_sandbox_unreadable:{path!r}:{exc.strerror}") from exc
+            try:
+                return "symlink", os.readlink(os.fsencode(name), dir_fd=dir_fd)
+            except OSError as gone:
+                raise GovernanceError(f"red_first_sandbox_unreadable:{path!r}:{gone.strerror}") from gone
+        with os.fdopen(fd, "rb") as handle:
+            if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
+                return "other", b""
+            return "file", handle.read()
+    finally:
+        for held_fd in held:
+            os.close(held_fd)
+
+
+def _is_symlink_at(dir_fd: int, name: str) -> bool:
+    """Whether ``name`` in the directory ``dir_fd`` holds is a symlink (never followed)."""
+    try:
+        return stat.S_ISLNK(os.stat(name, dir_fd=dir_fd, follow_symlinks=False).st_mode)
+    except FileNotFoundError:
+        return False
 
 
 @contextmanager

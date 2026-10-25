@@ -116,7 +116,7 @@ class SeatPinToKernelProofTests(unittest.TestCase):
         return sandbox
 
     def _lift(self, sandbox: Path, **overrides: Any) -> dict[str, Any]:
-        kwargs = {"base_sha": self.sha_b, "command": _COMMAND, "failure_signature": _SIGNATURE,
+        kwargs = {"workspace_root": self.repo, "base_sha": self.sha_b, "command": _COMMAND, "failure_signature": _SIGNATURE,
                   "expectation_ref": _EXPECTATION, **overrides}
         return self._api(validation, "lift_sandbox_pin")(sandbox, **kwargs)
 
@@ -286,8 +286,9 @@ class SeatTreeIsReadAsDataTests(unittest.TestCase):
         return sandbox
 
     def _lift(self, sandbox: Path) -> dict[str, Any]:
-        return validation.lift_sandbox_pin(sandbox, base_sha=self.sha, command=_COMMAND,
-                                           failure_signature=_SIGNATURE, expectation_ref=_EXPECTATION)
+        return validation.lift_sandbox_pin(sandbox, workspace_root=self.repo, base_sha=self.sha,
+                                           command=_COMMAND, failure_signature=_SIGNATURE,
+                                           expectation_ref=_EXPECTATION)
 
     def _redirect_git(self, sandbox: Path, gitdir: Path) -> None:
         """What a hostile seat writes (the reviewer's probe): a gitdir of its

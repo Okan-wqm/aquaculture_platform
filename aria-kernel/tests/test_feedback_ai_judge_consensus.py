@@ -48,19 +48,29 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from aria_kernel.evidence_trust import cited_blobs_code_hash
 from aria_kernel.feedback_store import (
     ANCHOR_MIN_JUDGE_COUNT,
     _confirmed_false_positive_fingerprints,
     record_operator_feedback,
 )
-from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
+from aria_kernel.tool_registry import GovernanceError, ensure_tools_binding
+from tests._helpers.git_fixtures import commit_files, make_local_git_repo
+
+CITED_REF = "src/app.ts:10"
 
 
 class ConsensusGateFilterTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = Path(tempfile.mkdtemp(prefix="aria-f1-"))
-        self.tools = self.tmp / "aria-tools"
-        ensure_tools_dir(self.tools)
+        # J1 (ARIA-MEDIUM-783) — an anchor suppresses only while the code it
+        # judged is still at HEAD of the store's declared workspace, so the
+        # store is bound to a repository carrying the cited file, and every
+        # anchor below names the commit and code identity it judged.
+        repo = make_local_git_repo(self.tmp, name="repo")
+        self.sha = commit_files(repo, {"src/app.ts": "export const app = 1;\n" * 12})
+        self.tools = ensure_tools_binding(self.tmp / "aria-tools", workspace_root=repo)
+        self.cited_code_hash = cited_blobs_code_hash(repo, [CITED_REF], self.sha)
 
     def tearDown(self) -> None:
         shutil.rmtree(self.tmp, ignore_errors=True)
@@ -118,7 +128,9 @@ class ConsensusGateFilterTests(unittest.TestCase):
             confidence=0.85,
             # WP-J review — an anchor stands on code evidence: the rows that
             # must suppress cite the code they judged.
-            evidence_refs=["src/app.ts:10"],
+            evidence_refs=[CITED_REF],
+            target_sha=self.sha,
+            cited_code_hash=self.cited_code_hash,
             finding_fingerprint=fingerprint,
             judge_count=judges,
             judges_voted=judges if voted is None else voted,
@@ -208,7 +220,9 @@ class ConsensusGateFilterTests(unittest.TestCase):
             source_type="ai_consensus", judge_id="aria-consensus-arbiter",
             model=None, confidence=0.85,
             note="consensus from 3 judges",
-            evidence_refs=["src/app.ts:10"],
+            evidence_refs=[CITED_REF],
+            target_sha=self.sha,
+            cited_code_hash=self.cited_code_hash,
             finding_fingerprint="fp-consensus",
             judge_count=ANCHOR_MIN_JUDGE_COUNT,
             judges_voted=ANCHOR_MIN_JUDGE_COUNT,

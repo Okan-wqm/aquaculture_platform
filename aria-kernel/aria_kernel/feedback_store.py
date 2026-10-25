@@ -11,6 +11,8 @@ from typing import Any
 from .confidence import confidence_in_unit_interval
 from .digest import is_sha256_digest
 from .agent_surface import EXPERT_METHODS
+from .evidence_probe import GitProbeSession
+from .evidence_trust import cited_blobs_code_hash
 from .git_object_id import ANY_OBJECT_FORMAT, is_object_id
 from .model_fleet import dispatching_provider_for_model
 from .ledger import append_declared_jsonl, append_declared_jsonl_rows, append_jsonl as append_chained_jsonl
@@ -21,7 +23,7 @@ from .ledger import load_jsonl as load_chained_jsonl
 from .ledger import rewrite_jsonl as rewrite_chained_jsonl
 from .runtime_artifacts import resolve_finding_from_artifact, run_ledger_format
 from .runs_reader import read_runs_rows
-from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
+from .tool_registry import GovernanceError, declared_bound_repo_root, ensure_tools_dir, utc_now
 
 
 FEEDBACK_VERDICTS = ("true_positive", "false_positive")
@@ -807,6 +809,10 @@ def record_operator_feedback(
     label_provenance: dict[str, Any] | None = None,
     request_ids: list[str] | None = None,
     target_sha: str | None = None,
+    # J1 (ARIA-MEDIUM-783) — the code identity the consensus judged, stamped
+    # by its one producer (generate_ai_consensus via _store_cited_code_hash).
+    # None stamps nothing: a row without it cannot say what code it judged.
+    cited_code_hash: str | None = None,
     # WP-J slice C — the decision's cost, read from the ONE cost ledger
     # (cost-attribution rows joined by judgment_group_id through
     # ci_executor._cost_identity). Additive optional: legacy rows read as
@@ -854,6 +860,15 @@ def record_operator_feedback(
         raise GovernanceError("target_sha must be a full git object id")
     if agent_contract_hash is not None and not is_sha256_digest(agent_contract_hash):
         raise GovernanceError("agent_contract_hash must be a sha256 digest")
+    # J1 — a code identity is a fact about named blobs at a named commit; a
+    # stamp without both, or in any spelling but the blob law's, is refused
+    # at mint instead of being compared (and never matching) at every read.
+    if cited_code_hash is not None and not (
+        is_sha256_digest(cited_code_hash) and target_sha is not None and evidence_refs
+    ):
+        raise GovernanceError(
+            "cited_code_hash must be a sha256 digest over the row's evidence_refs at its target_sha"
+        )
     # One gate for the whole number semantics: isinstance lets bool and
     # NaN through (nan < 0 and nan > 1 are both False), and those must be
     # refusals, not probabilities.
@@ -992,6 +1007,9 @@ def record_operator_feedback(
         # different commits). funnel_health joins the learning funnel on them.
         "request_ids": sorted(set(request_ids)) if request_ids else [],
         "target_sha": target_sha,
+        # J1 — present only when stamped, so a legacy row reads as exactly
+        # what it is: an anchor that cannot name the code it judged.
+        **({"cited_code_hash": cited_code_hash} if cited_code_hash is not None else {}),
         # WP-J slice C — additive: what the decision cost and which agents
         # ran it, joined from cost-attribution by the group id.
         "cost_usd": round(float(cost_usd), 6) if cost_usd is not None else None,
@@ -1496,6 +1514,8 @@ def generate_ai_consensus(
                     ),
                 )
                 continue
+        closing_refs = sorted({ref for row in closing for ref in _optional_string_list(row.get("evidence_refs"))})
+        closing_sha = _common_target_sha(closing)
         consensus_rows.append(
             record_operator_feedback(
                 tool_id=tool_id,
@@ -1547,7 +1567,7 @@ def generate_ai_consensus(
                 ),
                 confidence=round(avg_confidence, 3),
                 rationale="; ".join(str(row.get("rationale") or row.get("note") or "") for row in closing if row.get("rationale") or row.get("note"))[:2000],
-                evidence_refs=sorted({ref for row in closing for ref in _optional_string_list(row.get("evidence_refs"))}),
+                evidence_refs=closing_refs,
                 judgment_group_id=group_id,
                 finding_fingerprint=next((str(row.get("finding_fingerprint")) for row in rows if row.get("finding_fingerprint")), ""),
                 # JJ-1 - the anchor discriminator, read off the pair
@@ -1571,7 +1591,11 @@ def generate_ai_consensus(
                     for row in closing
                     for request_id in _optional_string_list(row.get("request_ids"))
                 }) or None,
-                target_sha=_common_target_sha(closing),
+                target_sha=closing_sha,
+                # J1 (ARIA-MEDIUM-783) — what code this verdict judged, by the
+                # verdict cache's one blob law; the suppression read honours
+                # a false-positive anchor only while HEAD still hashes the same.
+                cited_code_hash=_store_cited_code_hash(base_dir, closing_refs, closing_sha),
                 base_dir=base_dir,
             ),
         )
@@ -1631,6 +1655,30 @@ def _decision_cost(group_id: str, base_dir: str | Path | None) -> dict[str, Any]
     usd = sum(float(row.get("estimated_usd") or 0.0) for row in rows)
     agents = sorted({str(row.get("agent_role")) for row in rows if row.get("agent_role")})
     return {"cost_usd": round(usd, 6), "agents": agents}
+
+
+def _store_cited_code_hash(
+    base_dir: str | Path | None,
+    refs: list[str],
+    at_sha: str | None,
+    *,
+    session: GitProbeSession | None = None,
+) -> str | None:
+    """J1 (ARIA-MEDIUM-783) — the code ``refs`` name at ``at_sha`` in the
+    workspace this store DECLARES, or None when that is unknown.
+
+    The one place a feedback row's citation becomes a code identity, for the
+    mint stamp and the suppression read alike, so the two can only disagree
+    when the code did. The hash is ``evidence_trust.cited_blobs_code_hash``
+    — the verdict cache's law, not a second one. Unknown (no declared
+    workspace, no commit, a git that did not answer) is None, and so is a
+    row that cites nothing: a verdict that named no code cannot later show
+    that its code is unchanged.
+    """
+    repo_root = declared_bound_repo_root(base_dir)
+    if repo_root is None or not refs:
+        return None
+    return cited_blobs_code_hash(repo_root, refs, at_sha, session=session)
 
 
 def _target_shas(rows: list[dict[str, Any]]) -> set[str]:
@@ -2093,14 +2141,28 @@ def _confirmed_false_positive_fingerprints(
     being produced, so no later evidence can contradict it. Eligibility is
     now `is_ground_truth_row`: an operator verdict, or an ANCHOR consensus
     that a third judge was minted to attack and failed to overturn.
+
+    J1 (ARIA-MEDIUM-783) BOUNDS THE ANCHOR IN TIME. Its verdict judged the
+    code its evidence_refs named at its target_sha; it suppresses only while
+    the store's declared workspace, at its current HEAD, still hashes those
+    refs to the ``cited_code_hash`` the mint stamped. Changed code, a row
+    with no stamp, a blob git cannot read and a git that does not answer
+    all leave the finding unsuppressed: unknown is never "unchanged". This
+    is what the merge-impact signal (pr_tracking flipping a suppressed
+    finding to needs_revalidation) needed from this read — no new ledger.
+    Operator rows are not stamped and are not bounded here.
     """
     confirmed: dict[str, dict[str, Any]] = {}
+    # One probe clock and one HEAD resolution for the whole read.
+    session = GitProbeSession()
     for row in feedback if feedback is not None else load_feedback(base_dir=base_dir):
         if row.get("verdict") != "false_positive":
             continue
         # JJ-1 — ground-truth filter (one predicate, five readers). Raw
         # ai_judge rows and 2-judge consensus rows both stop here.
         if not is_ground_truth_row(row):
+            continue
+        if (row.get("source_type") or "human") != "human" and not _anchor_code_unchanged(row, base_dir, session):
             continue
         fingerprint = str(row.get("finding_fingerprint") or "")
         if fingerprint:
@@ -2113,6 +2175,21 @@ def _confirmed_false_positive_fingerprints(
                 "recorded_at": row.get("recorded_at"),
             }
     return confirmed
+
+
+def _anchor_code_unchanged(row: dict[str, Any], base_dir: str | Path | None, session: GitProbeSession) -> bool:
+    """J1 — does the store's HEAD still carry the code this anchor judged?
+
+    True only on a positive match of the mint stamp; every unknown is False.
+    """
+    stamped = row.get("cited_code_hash")
+    repo_root = declared_bound_repo_root(base_dir)
+    if not is_sha256_digest(stamped) or repo_root is None:
+        return False
+    head = session.resolve_baseline(repo_root, "HEAD").commit_sha
+    if head is None:
+        return False
+    return _store_cited_code_hash(base_dir, _optional_string_list(row.get("evidence_refs")), head, session=session) == stamped
 
 
 def _first_evidence_path(finding: dict[str, Any]) -> str:

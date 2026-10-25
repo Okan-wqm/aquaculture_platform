@@ -52,7 +52,10 @@ import { fileURLToPath } from 'node:url';
 const SELF = 'scripts/ci/aria-suite-changed.mjs';
 const RUNNER = 'scripts/ci/aria-suite-run.sh';
 const GRAPH = 'scripts/ci/aria-import-graph.py';
-const GATE_FILES = [SELF, RUNNER, GRAPH];
+// The parse GRAPH reads is the kernel's (PLAN-v2 F0.9: one parser for the graph and the
+// ownership atlas), so a change to it changes the selection exactly as a change to GRAPH does.
+const GRAPH_FACTS = 'aria-kernel/aria_kernel/source_facts.py';
+const GATE_FILES = [SELF, RUNNER, GRAPH, GRAPH_FACTS];
 
 /**
  * Paths whose change can break something the ARIA kernel suite asserts: the kernel lane's PR

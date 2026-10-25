@@ -84,7 +84,7 @@ const parsed = rawMqttPayload as any;
 
 ### Lifecycle
 
-1. Author writes override inline + creates registry entry in `docs/reviews/_registry/findings.jsonl` (hash-chained; W10).
+1. Author writes override inline + records the registry entry with `npm run findings:add` (a `CREATED` event in `docs/reviews/_registry/findings/<PREFIX>/<ID>.jsonl`, hash-chained; W10, MF-2).
 2. `commit-msg-validator.ts` (W7) verifies the finding ID exists in the registry AND the registry entry is in `BLOCKED` state AND the commit that registered the finding was signed.
 3. CI `closes-footer` job cross-references override IDs in commits to ensure registry reflects reality.
 4. Scheduled `finding-state-sweep.yml` (W10) runs daily: past-deadline overrides escalate.

@@ -15,8 +15,9 @@
 //
 // WHAT it models: blanks, newlines and line continuations; comments; single,
 // double and ANSI-C quotes; command (`$(…)`, backticks) and process (`<(…)`)
-// substitution, read recursively; parameter and arithmetic expansion, kept as
-// text; redirections, here-strings and heredocs (a heredoc body is data,
+// substitution, read recursively, with how each is written (backticks or
+// parentheses, inside double quotes or not); parameter and arithmetic
+// expansion, kept as text; redirections, here-strings and heredocs (a heredoc body is data,
 // except when it is fed to a shell that reads its script from stdin); lists,
 // pipelines and subshells; the reserved words of compound commands (`if`,
 // `for`, `while`, `case`, function definitions), which are stripped so the
@@ -33,6 +34,18 @@ export interface ShellWord {
 export interface ShellRedirect {
   readonly op: string;
   readonly target: string;
+}
+
+/**
+ * How the substitution that runs a command is written. Bash runs a backtick
+ * inside double quotes as a command, which is what a message that names a
+ * command in backticks gets wrong (`echo "run `make deploy`"`); `$(…)` and a
+ * process substitution `<(…)` are `parenthesis`.
+ */
+export interface ShellSubstitution {
+  readonly syntax: 'backtick' | 'parenthesis';
+  /** Whether it sits inside a double-quoted string (`"… `x` …"`, `"$(x)"`). */
+  readonly doubleQuoted: boolean;
 }
 
 export type ShellCommandVia =
@@ -62,6 +75,12 @@ export interface ShellCommand {
    * script, and a substitution held by an assignment or a redirection.
    */
   readonly holderWord: number | null;
+  /**
+   * For a command a substitution runs (`via` is `command_substitution` or
+   * `process_substitution`): how that substitution is written. Null for a
+   * top-level command and a heredoc script.
+   */
+  readonly substitution: ShellSubstitution | null;
 }
 
 export interface ShellParseError {
@@ -88,6 +107,7 @@ export const SHELL_INTERPRETERS: ReadonlySet<string> = new Set([
 // ------------------------------------------------------------------- tokens
 interface NestedScript {
   readonly via: 'command_substitution' | 'process_substitution';
+  readonly substitution: ShellSubstitution;
   readonly text: string;
   readonly start: number;
 }
@@ -370,7 +390,12 @@ class Lexer {
         open + 2,
         via === 'command_substitution' ? '$(' : `${src[open]}(`,
       );
-      nested.push({ via, text: src.slice(open + 2, close - 1), start: open + 2 });
+      nested.push({
+        via,
+        substitution: { syntax: 'parenthesis', doubleQuoted: false },
+        text: src.slice(open + 2, close - 1),
+        start: open + 2,
+      });
       text += src.slice(open, close);
       this.i = close;
     };
@@ -423,6 +448,7 @@ class Lexer {
         const close = closingBacktick(src, this.i + 1);
         nested.push({
           via: 'command_substitution',
+          substitution: { syntax: 'backtick', doubleQuoted: false },
           text: unescapeBacktickBody(src.slice(this.i + 1, close)),
           start: this.i + 1,
         });
@@ -462,6 +488,7 @@ class Lexer {
         const end = closingBacktick(src, i + 1);
         nested.push({
           via: 'command_substitution',
+          substitution: { syntax: 'backtick', doubleQuoted: true },
           text: unescapeBacktickBody(src.slice(i + 1, end)),
           start: i + 1,
         });
@@ -473,7 +500,12 @@ class Lexer {
         i = end;
       } else if (char === '$' && next === '(') {
         const end = closingParen(src, i + 2, '$(');
-        nested.push({ via: 'command_substitution', text: src.slice(i + 2, end - 1), start: i + 2 });
+        nested.push({
+          via: 'command_substitution',
+          substitution: { syntax: 'parenthesis', doubleQuoted: true },
+          text: src.slice(i + 2, end - 1),
+          start: i + 2,
+        });
         text += src.slice(i, end);
         i = end;
       } else if (char === '$' && next === '{') {
@@ -709,6 +741,7 @@ function assemble(
   src: string,
   firstLine: number,
   via: ShellCommandVia,
+  substitution: ShellSubstitution | null,
   parent: number | null,
   out: Assembly,
 ): void {
@@ -762,7 +795,7 @@ function assemble(
     const holders = new Map<number, number | null>();
     for (const { script, holderWord } of nested) {
       const before = out.commands.length;
-      assemble(script.text, lineAt(script.start), script.via, null, out);
+      assemble(script.text, lineAt(script.start), script.via, script.substitution, null, out);
       for (let child = before; child < out.commands.length; child += 1) {
         if ((out.commands[child] as ShellCommand).parent === null) holders.set(child, holderWord);
       }
@@ -797,13 +830,14 @@ function assemble(
       via,
       parent,
       holderWord: null,
+      substitution,
     });
     // A heredoc fed to a shell that reads its script from stdin is a script.
     if (shellReadsScriptFromStdin(effectiveArgv(argv))) {
       for (const redirect of command.redirects) {
         const body = redirect.heredoc?.body;
         if (redirect.heredoc !== null && body !== null && body !== undefined) {
-          assemble(body, lineAt(redirect.heredoc.bodyStart), 'heredoc_script', index, out);
+          assemble(body, lineAt(redirect.heredoc.bodyStart), 'heredoc_script', null, index, out);
         }
       }
     }
@@ -927,6 +961,6 @@ export function parseShellScript(
   options: { readonly firstLine?: number } = {},
 ): ShellParse {
   const out: Assembly = { commands: [], errors: [], nextPipeline: 0 };
-  assemble(text, options.firstLine ?? 1, 'top', null, out);
+  assemble(text, options.firstLine ?? 1, 'top', null, null, out);
   return { commands: out.commands, errors: out.errors };
 }

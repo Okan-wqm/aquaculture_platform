@@ -801,6 +801,10 @@ CONSENSUS_UNCERTAINTY_SEVERITY = {
     # WP-J fix round — a panel whose seats echoed each other: the agreement
     # is one reading wearing N receipts; a human must see the echo.
     "panel_echo": "HIGH",
+    # J5 — the agreeing seats judged different trees: the verdict agreed but
+    # is about no single tree, so the anchor is withheld (aligned-but-not-
+    # truth, like low_confidence). A human or a re-judge at one tree decides.
+    "target_sha_mixed": "MEDIUM",
     # WP-J B-2 — the evidence-weighing arbiter could not weigh the
     # load-bearing assertions: an open question nobody may close by
     # fatigue. Escalates like a disagreement.

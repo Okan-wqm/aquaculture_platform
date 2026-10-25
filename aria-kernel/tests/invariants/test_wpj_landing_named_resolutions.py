@@ -445,7 +445,8 @@ class N2NoDefensiveFallbackTest(unittest.TestCase):
             base_dir = Path(tmp) / "aria-tools"
             result = judgment_funnel.route_judgment_sample(
                 sample={"sample_id": "S1", "cycle_id": "cyc-n2", "items": [dict(item)]},
-                base_dir=base_dir, repo_root=None, target_sha=None, policy=policy,
+                base_dir=base_dir, repo_root=None, target_sha=None,
+                calibration_gate="measure_only", policy=policy,
             )
             path = judgment_funnel.routing_path(base_dir)
             rows = (load_declared_jsonl(path, expected_surface=judgment_funnel.ROUTING_SURFACE)

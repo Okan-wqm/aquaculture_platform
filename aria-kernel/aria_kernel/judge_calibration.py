@@ -405,6 +405,14 @@ def _mean(values: list[float]) -> float | None:
     return round(sum(values) / len(values), 3) if values else None
 
 
+def _judge_version(row: dict[str, Any]) -> tuple[str, str]:
+    """J2 (SEPT-HARVEST §2) — the version of the judge that gave this verdict:
+    the dispatched model and the hash of the contract it was shown
+    (``agent_contract_hash``, kept by judgment_bridge). A row that names
+    neither is its own (unknown) version, never the current one's."""
+    return (str(row.get("model") or ""), str(row.get("agent_contract_hash") or ""))
+
+
 def score_judges(
     *,
     cycle_id: str | None = None,
@@ -441,6 +449,12 @@ def score_judges(
     ``judgment_group_prefix`` isolates a subset of verdicts by their
     ``judgment_group_id`` — Plan 025 §C passes ``"replay:"`` to score the
     gold-set replay independently from organic surfaced verdicts.
+
+    J2 (SEPT-HARVEST §2) — a judge is scored only over the verdicts of its
+    CURRENT version: the (model, agent_contract_hash) of its newest verdict.
+    A rewritten prompt or a swapped model does not inherit the calibration
+    its previous version earned; the older truth-backed verdicts are counted
+    under ``prior_version`` and scored nowhere.
     """
     rows = load_feedback(base_dir=base_dir)
     if judgment_group_prefix is not None:
@@ -466,8 +480,17 @@ def score_judges(
                 "conf_correct": [], "conf_wrong": [], "top_pairs": [], "tp_pairs": [], "decision_pairs": [],
                 "n_human": 0, "n_human_escalated": 0, "n_outcome": 0,
                 "n_anchor_external": 0, "n_anchor_self_excluded": 0,
+                "n_prior_version": 0,
                 "w_tp": 0.0, "w_fp": 0.0, "w_fn": 0.0}
 
+    # J2 — the ledger is append-ordered, so the last verdict a judge gave
+    # names its current version.
+    current_version: dict[str, tuple[str, str]] = {
+        str(row.get("judge_id")): _judge_version(row)
+        for row in rows
+        if row.get("source_type") == "ai_judge" and row.get("judge_id")
+    }
+    prior_versions: dict[str, set[tuple[str, str]]] = {}
     agg: dict[str, dict[str, Any]] = {}
     by_source: dict[tuple[str, str, str], dict[str, Any]] = {}
     for row in rows:
@@ -482,6 +505,10 @@ def score_judges(
             continue
         truth_verdict, truth_source, observers, weight = found
         bucket = agg.setdefault(judge_id, _fresh_bucket())
+        if _judge_version(row) != current_version[judge_id]:
+            bucket["n_prior_version"] += 1
+            prior_versions.setdefault(judge_id, set()).add(_judge_version(row))
+            continue
         if truth_source == "ai_consensus" and judge_id in observers:
             # ARIA-HIGH-173 — an anchor this judge helped form is its own
             # vote wearing a consensus hat: counted, never scored.
@@ -594,6 +621,10 @@ def score_judges(
             "mean_confidence_correct": _mean(b["conf_correct"]),
             "mean_confidence_wrong": _mean(b["conf_wrong"]),
             "status": status,
+            "version": {"model": current_version[judge_id][0] or None,
+                        "agent_contract_hash": current_version[judge_id][1] or None},
+            "prior_version": {"samples": b["n_prior_version"],
+                              "versions": len(prior_versions.get(judge_id, ()))},
             "ground_truth_strata": {"n_human": b["n_human"], "n_human_escalated": b["n_human_escalated"],
                                     "n_outcome": b["n_outcome"],
                                     "n_anchor_external": b["n_anchor_external"],

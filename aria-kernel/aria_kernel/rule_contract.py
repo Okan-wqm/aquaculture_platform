@@ -19,7 +19,7 @@ passes, so a contract that could never be promoted never registers.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
@@ -196,6 +196,17 @@ def contract_for_tool(tool: dict[str, Any], rule: str) -> RuleContract | None:
         declared_scope=tuple(str(glob) for glob in tool.get("declared_scope") or ()),
         observable=observable or None,
     )
+
+
+def rule_contract_digest(contract: RuleContract | None) -> str:
+    """J2 (SEPT-HARVEST §2) — the version of the claim a judge was asked to
+    weigh: a digest over every field of the resolved contract. ``None`` (the
+    tool declares no contract for the rule) is a version too — its own
+    digest — so a contract declared or rewritten later is a different one.
+    """
+    from .ledger import sha256_digest_of_canonical_json
+
+    return sha256_digest_of_canonical_json(asdict(contract) if contract is not None else None)
 
 
 def resolve_rule_contract(

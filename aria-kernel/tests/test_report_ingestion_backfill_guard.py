@@ -28,6 +28,7 @@ from aria_kernel.report_ingestion import (
     report_ingestion_scan,
 )
 from aria_kernel.workspace import workspace_paths
+from tests._helpers.registry_projection import project_registry_as_stored
 
 
 def _row(index: int) -> dict[str, object]:
@@ -45,6 +46,7 @@ def _row(index: int) -> dict[str, object]:
 
 class BackfillGuardTests(unittest.TestCase):
     def setUp(self) -> None:
+        project_registry_as_stored(self)
         self.tmp = tempfile.TemporaryDirectory(prefix="aria-h192-")
         self.repo = Path(self.tmp.name) / "repo"
         self.registry = self.repo / "docs" / "reviews" / "_registry" / "findings.jsonl"

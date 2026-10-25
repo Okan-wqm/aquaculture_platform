@@ -10,14 +10,15 @@
  * every `findings:add`. Every registry PR touched the same lines, so any two
  * conflicted. These specs pin what replaces it:
  *
- *   - the snapshot is a pure function of the registry text (determinism);
+ *   - the snapshot is a pure function of the projected rows (determinism);
  *   - adding a non-CRITICAL finding needs no plan edit at all (the de-churn);
  *   - the guarantee the mirror carried is checked against the derived set:
  *     an active CRITICAL with no truth-table row, a row for a CRITICAL that is
  *     no longer active, a duplicate row and an unknown bucket each fail by id;
- *   - the reconcile lane's one remaining write — retiring the row of a
- *     CRITICAL it resolved — is planned in full before anything is written,
- *     refuses rather than guess, and is idempotent;
+ *   - MF-1 (PROC-HIGH-039): nothing retires a row after a merge any more; a
+ *     CRITICAL that left the active set fails as a retired row, so the PR
+ *     whose trailer closes it removes the row itself (the end-to-end case
+ *     through the CLI is tests/invariants/enterprise-grade-debt-plan-contract.spec.ts);
  *   - ARIA-HIGH-534: "active" is the registry's own unresolved set (OPEN,
  *     IN-PROGRESS, BLOCKED, STALE), so the daily sweep's BLOCKED transition of
  *     a past-deadline CRITICAL keeps its truth-table row valid instead of
@@ -31,11 +32,10 @@ import {
   TRUTH_BUCKETS,
   checkDebtPlanTruth,
   deriveRegistrySnapshot,
-  retireResolvedRows,
   truthTableActiveRows,
 } from './debt-plan-truth';
 import { planSweep } from './finding-registry';
-import { type Finding, ZERO_HASH, serializeRegistryJsonl } from './finding-registry-chain';
+import { type Finding, ZERO_HASH } from './finding-registry-chain';
 
 interface Row {
   readonly id: string;
@@ -44,17 +44,15 @@ interface Row {
   readonly closing_commits?: readonly string[];
 }
 
-function registry(rows: readonly Row[]): string {
-  return rows
-    .map((row, index) =>
-      JSON.stringify({
-        ...row,
-        closing_commits: row.closing_commits ?? [],
-        content_hash: String(index + 1).padStart(64, '0'),
-      }),
-    )
-    .join('\n')
-    .concat('\n');
+/** A row as the projection hands it to the snapshot: chained. */
+type ChainedRow = Row & { readonly content_hash: string };
+
+function registry(rows: readonly Row[]): ChainedRow[] {
+  return rows.map((row, index) => ({
+    ...row,
+    closing_commits: row.closing_commits ?? [],
+    content_hash: String(index + 1).padStart(64, '0'),
+  }));
 }
 
 const BASE_ROWS: readonly Row[] = [
@@ -92,20 +90,16 @@ const TRUTH_TABLE = [
   '',
 ].join('\n');
 
-void test('the registry snapshot is a pure function of the registry text', () => {
-  const text = registry(BASE_ROWS);
-  const snapshot = deriveRegistrySnapshot(text);
-  assert.deepEqual(deriveRegistrySnapshot(text), snapshot);
-  // Line endings and a missing trailing newline are not inputs.
-  assert.deepEqual(deriveRegistrySnapshot(text.replace(/\n/g, '\r\n')), snapshot);
-  assert.deepEqual(deriveRegistrySnapshot(text.trimEnd()), snapshot);
+void test('the registry snapshot is a pure function of the projected rows', () => {
+  const rows = registry(BASE_ROWS);
+  const snapshot = deriveRegistrySnapshot(rows);
+  assert.deepEqual(deriveRegistrySnapshot(rows), snapshot);
 
   assert.equal(snapshot.entries, 5);
   assert.equal(snapshot.open, 2);
   assert.equal(snapshot.inProgress, 2);
   assert.equal(snapshot.tipHash, '5'.padStart(64, '0'));
   assert.deepEqual(snapshot.activeCriticalIds, ['INFRA-CRITICAL-001', 'ARIA-CRITICAL-003']);
-  assert.equal(snapshot.closingCommitById.get('SENSOR-CRITICAL-004'), 'abc123def4567890');
 });
 
 void test('the truth table and the derived active set agree on the fixture', () => {
@@ -180,84 +174,6 @@ void test('a duplicate row and an unknown bucket fail by id', () => {
   assert.deepEqual(verdict.invalidBuckets, [{ id: 'INFRA-CRITICAL-001', bucket: 'maybe-later' }]);
 });
 
-void test('the reconcile lane retires a resolved CRITICAL row into Resolved Evidence', () => {
-  const resolved = deriveRegistrySnapshot(
-    registry(
-      BASE_ROWS.map((row) =>
-        row.id === 'ARIA-CRITICAL-003'
-          ? { ...row, state: 'RESOLVED' as const, closing_commits: ['fedcba9876543210'] }
-          : row,
-      ),
-    ),
-  );
-  const { contents, retired } = retireResolvedRows(TRUTH_TABLE, resolved);
-  assert.deepEqual(retired, ['ARIA-CRITICAL-003']);
-  assert.doesNotMatch(contents, /^\| `ARIA-CRITICAL-003`/m);
-  assert.match(
-    contents,
-    /^- `ARIA-CRITICAL-003`: registry state is `RESOLVED` with closing commit$/m,
-  );
-  assert.match(contents, /`fedcba987`, derived by `finding-registry reconcile`/);
-  assert.match(contents, /Left the active table from bucket `blocked`\./);
-  // Appended to the END of the Resolved Evidence section, after what was there.
-  assert.ok(contents.indexOf('OLD-CRITICAL-000') < contents.indexOf('- `ARIA-CRITICAL-003`'));
-  // The result satisfies the check, and a second run changes nothing.
-  assert.equal(checkDebtPlanTruth(resolved, truthTableActiveRows(contents)).valid, true);
-  assert.deepEqual(retireResolvedRows(contents, resolved), { contents, retired: [] });
-});
-
-void test('a retired row continues a bullet list, and starts its own list after a paragraph', () => {
-  const resolved = deriveRegistrySnapshot(
-    registry(
-      BASE_ROWS.map((row) =>
-        row.id === 'ARIA-CRITICAL-003'
-          ? { ...row, state: 'RESOLVED' as const, closing_commits: ['fedcba9876543210'] }
-          : row,
-      ),
-    ),
-  );
-  // After a bullet the new bullet is the next list item: no blank line between them.
-  const afterBullet = retireResolvedRows(TRUTH_TABLE, resolved).contents;
-  assert.match(afterBullet, /- `OLD-CRITICAL-000`: resolved long ago\.\n- `ARIA-CRITICAL-003`:/);
-
-  // After a paragraph a list needs a blank line before it (markdownlint MD032, which docs-check enforces).
-  const paragraphTail = TRUTH_TABLE.replace(
-    '- `OLD-CRITICAL-000`: resolved long ago.',
-    'Updated 2026-10-19: `OLD-CRITICAL-000` closed by 44bb256a2 on main.',
-  );
-  const afterParagraph = retireResolvedRows(paragraphTail, resolved).contents;
-  assert.match(
-    afterParagraph,
-    /closed by 44bb256a2 on main\.\n\n- `ARIA-CRITICAL-003`: registry state is `RESOLVED`/,
-  );
-  // Idempotent: a second run adds nothing and does not insert another blank line.
-  assert.deepEqual(retireResolvedRows(afterParagraph, resolved), {
-    contents: afterParagraph,
-    retired: [],
-  });
-});
-
-void test('the reconcile lane refuses rather than guess, before writing anything', () => {
-  const missing = deriveRegistrySnapshot(
-    registry([...BASE_ROWS, { id: 'ADMIN-CRITICAL-008', severity: 'CRITICAL', state: 'OPEN' }]),
-  );
-  assert.throws(() => retireResolvedRows(TRUTH_TABLE, missing), /ADMIN-CRITICAL-008/);
-
-  // A CRITICAL that left the active set without a closing commit (a RESOLVED
-  // row with no closer) is not a resolution the lane can record.
-  const unproven = deriveRegistrySnapshot(
-    registry(
-      BASE_ROWS.map((row) =>
-        row.id === 'ARIA-CRITICAL-003' ? { ...row, state: 'RESOLVED' as const } : row,
-      ),
-    ),
-  );
-  assert.throws(
-    () => retireResolvedRows(TRUTH_TABLE, unproven),
-    /ARIA-CRITICAL-003.*closing commit/,
-  );
-});
-
 void test('a BLOCKED or STALE CRITICAL is unresolved debt and keeps its truth-table row', () => {
   const judged = deriveRegistrySnapshot(
     registry(
@@ -269,12 +185,8 @@ void test('a BLOCKED or STALE CRITICAL is unresolved debt and keeps its truth-ta
     ),
   );
   assert.deepEqual(judged.activeCriticalIds, ['INFRA-CRITICAL-001', 'ARIA-CRITICAL-003']);
+  // BLOCKED and STALE are judgements, not resolutions: the rows stay valid.
   assert.equal(checkDebtPlanTruth(judged, truthTableActiveRows(TRUTH_TABLE)).valid, true);
-  // Nothing to retire: BLOCKED and STALE are judgements, not resolutions.
-  assert.deepEqual(retireResolvedRows(TRUTH_TABLE, judged), {
-    contents: TRUTH_TABLE,
-    retired: [],
-  });
 });
 
 function finding(row: Row, overrides: Partial<Finding>): Finding {
@@ -327,7 +239,7 @@ void test("the sweep's past-deadline BLOCKED transition passes the debt-plan gat
     return action === undefined ? entry : { ...entry, state: action.toState };
   });
   const verdict = checkDebtPlanTruth(
-    deriveRegistrySnapshot(serializeRegistryJsonl(swept)),
+    deriveRegistrySnapshot(swept),
     truthTableActiveRows(TRUTH_TABLE),
   );
   assert.deepEqual(verdict, {

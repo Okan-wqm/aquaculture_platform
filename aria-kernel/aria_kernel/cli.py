@@ -6789,19 +6789,21 @@ def _main(argv: list[str] | None = None) -> int:
 
     if args.command == "specialist-review":
         if args.specialist_review_command == "dry-run":
+            from .agent_routing import load_routing_table
             from .specialist_review_runner import (
                 _CROSS_CUTTING_SPECIALISTS,
-                _DOMAIN_TOUCH_MAP,
                 _TIER_1_SPECIALISTS,
             )
             from .agent_invocations import ROLES
             agents_dir = Path(args.agents_dir).resolve()
             inventory_findings: list[dict[str, Any]] = []
-            # Verify every specialist named in the touch-map exists as
-            # an agent .md file under .claude/agents.
+            # Verify every specialist the routing table routes to (the one
+            # path -> agent map, SE-2; it sits at <repo>/.claude/shared/
+            # beside <repo>/.claude/agents/) exists as an agent .md file.
             all_specialists: set[str] = set(_CROSS_CUTTING_SPECIALISTS)
-            for agents in _DOMAIN_TOUCH_MAP.values():
-                all_specialists.update(agents)
+            for row in load_routing_table(agents_dir.parents[1]):
+                all_specialists.update(row["primary"])
+                all_specialists.update(row["also_notify"])
             all_specialists.update(_TIER_1_SPECIALISTS)
             for agent_name in sorted(all_specialists):
                 if ":" in agent_name:

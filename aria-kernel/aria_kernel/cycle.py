@@ -2120,6 +2120,7 @@ def _phase_judgment_pipeline(context: PhaseContext) -> dict[str, Any]:
                     base_dir=context.base_dir,
                     repo_root=context.workspace_root,
                     target_sha=target_sha,
+                    calibration_gate=str(_gate["effective"]),
                     policy=pipeline_policy,
                 )
                 for leg in funnel["plan"]:

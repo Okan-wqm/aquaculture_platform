@@ -23,6 +23,7 @@ from aria_kernel.plan_synthesizer import (
     scan_orphan_findings,
 )
 from aria_kernel.plan_candidate_source import PlanCandidateSource
+from tests._helpers.registry_projection import project_registry_as_stored
 
 
 class FFindingEvidenceTests(unittest.TestCase):
@@ -183,6 +184,9 @@ class FFindingEvidenceTests(unittest.TestCase):
 
 
 class OrphanRegistryEvidenceTests(unittest.TestCase):
+    def setUp(self) -> None:
+        project_registry_as_stored(self)
+
     def _workspace_with_orphan(self, evidence: list | None, *, review_file: str | None = None) -> str:
         d = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, d, True)

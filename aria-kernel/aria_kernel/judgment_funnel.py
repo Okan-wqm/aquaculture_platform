@@ -39,7 +39,10 @@ WP-D4 — the same funnel bounds ONE change. ``admit_change_claims`` is where a
 change's claims enter proof: the first ``change_review.proof.claims_per_change``
 by severity, then confidence, then claim_id enter; every other claim is held
 (it stays a hypothesis) with one ``change_review_budget_held`` row. The cap is
-a hold for its reader like every cap above, never a raise.
+per change, not per call: each admitted claim leaves a
+``change_review_claim_admitted`` row, and a later call takes only the slots the
+change has left. The cap is a hold for its reader like every cap above, never
+a raise.
 """
 from __future__ import annotations
 
@@ -70,8 +73,11 @@ ROUTING_RELPATH: tuple[str, ...] = ("judgment-funnel", "routing.jsonl")
 BUDGET_HELD_KIND: str = "judgment_funnel_budget_held"
 TIER0_REJECTED_KIND: str = "judgment_funnel_tier0_rejected"
 # WP-D4 — a claim of one change held at the per-change cap: the row's kind and
-# the reason it names.
+# the reason it names. A claim admitted into proof under the same cap leaves a
+# row of its own, so what a change has already admitted is read off the ledger,
+# the way the request door reads a change's seats off the request ledger.
 CHANGE_CLAIM_HELD_KIND: str = "change_review_budget_held"
+CHANGE_CLAIM_ADMITTED_KIND: str = "change_review_claim_admitted"
 CLAIMS_PER_CHANGE_CAP: str = "claims_per_change_cap"
 
 # The funnel's producer at the request-admission door ("judgment_funnel.tiers",
@@ -727,21 +733,36 @@ def _change_claim_rank(claim: dict[str, Any]) -> tuple[int, float, str]:
     return (-SEVERITY_RANK[severity], -float(confidence), claim_id)
 
 
+def _admitted_claim_ids(root: Path, subject_ref: str) -> set[str]:
+    """The claims of ``subject_ref`` already admitted into proof, read off the governance ledger."""
+    from .governance_reader import read_governance_rows
+
+    return {
+        row["details"]["claim_id"]
+        for row in read_governance_rows(root / "governance.jsonl", base_dir=root)
+        if row.get("kind") == CHANGE_CLAIM_ADMITTED_KIND and row["details"]["subject_ref"] == subject_ref
+    }
+
+
 def admit_change_claims(
     subject_ref: str,
     claims: list[dict[str, Any]],
     *,
     base_dir: str | Path,
 ) -> dict[str, list[dict[str, Any]]]:
-    """Split one change's claims into those that enter proof and those held (WP-D4).
+    """Split a change's claims into those that enter proof and those held (WP-D4).
 
-    The whole change's claims go in one call. The ``claims_per_change`` highest
-    ranked claims (``_change_claim_rank``) are admitted; every other claim is
-    held: it stays a hypothesis and gets exactly ONE ``change_review_budget_held``
-    governance row naming the change, the claim, the reason and the cap, written
-    once however often the same claims come back (a later cycle over the same
-    change holds nothing a second time). ``admitted`` and ``held`` partition the
-    input, both in rank order; the caller's claims are not edited.
+    The cap bounds the claims a CHANGE puts into proof, however many calls
+    bring them (one per discovery seat). The change's earlier admissions are
+    read off the ledger (``_admitted_claim_ids``), never held by the process:
+    a claim already admitted stays admitted and spends no second slot, and of
+    the claims not yet admitted the highest ranked (``_change_claim_rank``) take
+    the slots the change has left. Each claim that enters proof gets one
+    ``change_review_claim_admitted`` row; every other claim is held: it stays a
+    hypothesis and gets exactly ONE ``change_review_budget_held`` row naming the
+    change, the claim, the reason and the cap, written once however often the
+    same claims come back. ``admitted`` and ``held`` partition the input, both
+    in rank order; the caller's claims are not edited.
 
     The cap is the strictly parsed ``change_review.proof.claims_per_change`` of
     the workspace the store is bound to, read the way the request door reads
@@ -762,7 +783,19 @@ def admit_change_claims(
         raise GovernanceError(f"change_claim_malformed: claim_id repeats within one change: {repeated}")
     root = ensure_tools_dir(base_dir)
     cap = change_review_policy(bound_workspace_root(root))["proof"]["claims_per_change"]
-    admitted, held = ranked[:cap], ranked[cap:]
+    already = _admitted_claim_ids(root, subject_ref)
+    fresh = [claim for claim in ranked if claim["claim_id"] not in already]
+    slots = max(cap - len(already), 0)
+    entering, held = fresh[:slots], fresh[slots:]
+    # The admitted rows are written first, in rank order: a call that stops
+    # part way re-derives the same split from them on its next run.
+    for claim in entering:
+        append_tools_governance_once(
+            root, CHANGE_CLAIM_ADMITTED_KIND,
+            {"subject_ref": subject_ref, "claim_id": claim["claim_id"], "cap": cap,
+             "severity": claim["severity"], "confidence": claim["confidence"]},
+            claim_keys=("subject_ref", "claim_id"),
+        )
     for claim in held:
         append_tools_governance_once(
             root, CHANGE_CLAIM_HELD_KIND,
@@ -770,11 +803,13 @@ def admit_change_claims(
              "cap": cap, "severity": claim["severity"], "confidence": claim["confidence"]},
             claim_keys=("subject_ref", "claim_id", "reason"),
         )
-    return {"admitted": admitted, "held": held}
+    held_ids = {claim["claim_id"] for claim in held}
+    return {"admitted": [claim for claim in ranked if claim["claim_id"] not in held_ids], "held": held}
 
 
 __all__ = [
     "BUDGET_HELD_KIND",
+    "CHANGE_CLAIM_ADMITTED_KIND",
     "CHANGE_CLAIM_HELD_KIND",
     "CLAIMS_PER_CHANGE_CAP",
     "ROUTING_RELPATH",

@@ -50,9 +50,9 @@ import {
   appendFindingEvents,
   type CreatedPayload,
   type FindingEventDraft,
-  GIT_STATE_TARGETS,
-  type GitStateTarget,
   genesisPin,
+  isCreatedState,
+  isGitStateTarget,
   planFindingEvents,
   serializeGenesisPin,
 } from './finding-registry-events';
@@ -98,10 +98,6 @@ function gitText(args: readonly string[]): string {
   return git(args).toString('utf8').trim();
 }
 
-function isGitStateTarget(state: string): state is GitStateTarget {
-  return (GIT_STATE_TARGETS as readonly string[]).includes(state);
-}
-
 function present(value: unknown): boolean {
   return typeof value === 'string' && value.trim() !== '';
 }
@@ -118,7 +114,7 @@ function createdPayload(row: Finding): CreatedPayload {
   return {
     ...body,
     id: row.id,
-    state: row.state === 'IN-PROGRESS' ? 'IN-PROGRESS' : 'OPEN',
+    state: isCreatedState(row.state) ? row.state : 'OPEN',
     closed_at: null,
     closing_commits: [],
   };
@@ -131,7 +127,9 @@ type Draft = DistributiveOmit<FindingEventDraft, 'finding_id' | 'actor' | 'reaso
 /** The events of a finding born on the branch. */
 function newFindingEvents(row: Finding): Draft[] {
   const drafts: Draft[] = [{ event_type: 'CREATED', payload: createdPayload(row) }];
-  if (row.state === 'STALE' || row.state === 'BLOCKED') {
+  // A finding the branch recorded STALE or BLOCKED is born OPEN and moved there;
+  // one it recorded RESOLVED stays OPEN until its merged trailer derives the closure.
+  if (!isCreatedState(row.state) && isGitStateTarget(row.state)) {
     drafts.push({
       event_type: 'STATE_TRANSITIONED',
       payload: { from_state: 'OPEN', to_state: row.state },

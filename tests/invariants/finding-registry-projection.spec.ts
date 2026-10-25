@@ -52,6 +52,7 @@ import { join, relative, sep } from 'node:path';
 import * as ts from 'typescript';
 
 import { type Finding, parseRegistryJsonl } from '../../tools/gates/finding-registry-chain';
+import { readRegistryRows } from '../../tools/gates/finding-registry-projection';
 import {
   closesTrailer,
   FIXTURE_ALIAS_REVIEW_FILE,
@@ -394,9 +395,9 @@ describe('MF-1 T4 — main is green at the closer merge, with no follow-up commi
 
 describe('MF-1 — the projection over this repository', () => {
   let run: ProjectionRun;
-  const recorded = parseRegistryJsonl(
-    readFileSync(join(REPO_ROOT, REGISTRY_RELATIVE_PATH), 'utf8'),
-  );
+  // The rows as recorded: the frozen genesis segment with every event log
+  // folded in (MF-2), before any closure is derived.
+  const recorded = readRegistryRows(REPO_ROOT);
 
   beforeAll(() => {
     run = runProjection(REPO_ROOT);
@@ -600,12 +601,36 @@ const STORED_STATE_DECIDERS: ReadonlyMap<string, string> = new Map([
     PROJECTION_MODULE,
     "the projection itself: it derives every reader's state from the stored rows",
   ],
+  [
+    'tools/gates/finding-registry-events.ts',
+    'store level: the event writer asks which states an event may write ' +
+      '(isGitStateTarget: every state but RESOLVED), not whether a finding is closed',
+  ],
+  [
+    'tools/gates/finding-registry-accountability.spec.ts',
+    'store level: it pins the row contract and the event writers on the rows as recorded, ' +
+      'a question about what a write may store, not about whether a finding is closed',
+  ],
+  [
+    'tests/invariants/finding-registry-projection.spec.ts',
+    "the projection's own check: it holds the projection over this repository, read through " +
+      'the CLI, to the rows as recorded',
+  ],
 ]);
 
 /** A literal that names the registry rows file (not its schema). */
 const REGISTRY_FILE_LITERAL = /(?:^|\/)_registry\/findings\.jsonl$/;
 /** The projection's names that hand out the stored rows or their path. */
-const STORED_ROW_EXPORTS = new Set(['readRegistryRows', 'registryPath', 'REGISTRY_RELATIVE_PATH']);
+const STORED_ROW_EXPORTS = new Set([
+  'readRegistryRows',
+  'registryPath',
+  'REGISTRY_RELATIVE_PATH',
+  // MF-2: the store readers and the fold hand out the recorded rows as well.
+  'readRegistryStoreIn',
+  'readRegistryStoreAt',
+  'readEventLogs',
+  'foldRegistry',
+]);
 /** The projection's readers: a file importing one reads the derived state. */
 const PROJECTION_READERS = new Set(['projectRegistry', 'closureVerdicts']);
 /** The registry's state predicates: using one decides on a finding's state. */

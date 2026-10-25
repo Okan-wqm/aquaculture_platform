@@ -70,6 +70,7 @@ import {
   type CreatedPayload,
   type FindingEventDraft,
   type GitStateTarget,
+  isCreatedState,
   pinGenesis,
   registryDefects,
 } from './finding-registry-events';
@@ -559,7 +560,7 @@ function buildCreatedPayload(stub: Partial<Finding>, id: string): CreatedPayload
     }
   }
   const state = stub.state;
-  if (state !== 'OPEN' && state !== 'IN-PROGRESS') {
+  if (state === undefined || !isCreatedState(state)) {
     process.stderr.write(
       `Stub state ${String(state)}: a finding is registered OPEN or IN-PROGRESS. RESOLVED is ` +
         "derived from the fix commit's merged Closes: trailer, and STALE/BLOCKED are later " +

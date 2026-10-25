@@ -48,6 +48,7 @@ import {
   chainTip,
   type Finding,
   type FindingState,
+  isUnresolvedFindingState,
   parseRegistryJsonl,
   sha256hex,
   verify,
@@ -67,17 +68,24 @@ import { RegistryWriteRefused, rowContractViolations } from './finding-registry-
 import { atomicWriteFileWithRegistryLease, type RegistryLockLease } from './finding-registry-store';
 import { repoPinnedEnv } from './git-reachability';
 
-/** Every state an event may move a finding to: RESOLVED is derived, never written. */
+/**
+ * Every state an event may move a finding to: RESOLVED is derived, never
+ * written. The set is the registry's unresolved states, so the one predicate
+ * of finding-registry-chain.ts answers for it.
+ */
 export type GitStateTarget = Exclude<FindingState, 'RESOLVED'>;
-export const GIT_STATE_TARGETS: readonly GitStateTarget[] = [
-  'OPEN',
-  'IN-PROGRESS',
-  'STALE',
-  'BLOCKED',
-];
 
-/** A finding is born OPEN or IN-PROGRESS, with no closure. */
-export type CreatedState = Extract<GitStateTarget, 'OPEN' | 'IN-PROGRESS'>;
+export function isGitStateTarget(state: string): state is GitStateTarget {
+  return isUnresolvedFindingState(state);
+}
+
+/** A finding is born OPEN or IN-PROGRESS, with no closure; STALE and BLOCKED are later judgements. */
+export const CREATED_STATES = ['OPEN', 'IN-PROGRESS'] as const satisfies readonly GitStateTarget[];
+export type CreatedState = (typeof CREATED_STATES)[number];
+
+export function isCreatedState(state: string): state is CreatedState {
+  return (CREATED_STATES as readonly string[]).includes(state);
+}
 
 /** The row body a CREATED event carries: the row minus its chain fields. */
 export interface CreatedPayload {

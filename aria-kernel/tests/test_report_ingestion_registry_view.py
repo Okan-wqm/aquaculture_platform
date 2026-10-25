@@ -64,10 +64,20 @@ class RegistryViewContractTests(unittest.TestCase):
     @unittest.skipUnless((_REPO_ROOT / "node_modules/.bin/ts-node").is_file(),
                          "the repository's ts-node is not installed in this checkout")
     def test_the_live_registry_reads_through_the_view(self) -> None:
+        # MF-2: the frozen genesis segment, then every finding born after the
+        # freeze, one event log each (docs/reviews/_registry/findings/<PREFIX>/<ID>.jsonl),
+        # in the store's path order.
         chain = _REPO_ROOT.joinpath(*REGISTRY_FINDINGS_RELPATH).read_text(encoding="utf-8")
         chain_ids = [json.loads(line)["id"] for line in chain.splitlines() if line.strip()]
+        store = _REPO_ROOT / "docs/reviews/_registry/findings"
+        genesis_ids = set(chain_ids)
+        born = [
+            path.stem
+            for path in sorted(store.glob("*/*.jsonl"), key=lambda p: p.relative_to(store).as_posix())
+            if path.stem not in genesis_ids
+        ]
         view = read_registry_view(_REPO_ROOT)
-        self.assertEqual([row["id"] for row in view.rows], chain_ids)
+        self.assertEqual([row["id"] for row in view.rows], chain_ids + born)
         self.assertEqual({entry.source for entry in view.entries}, {_BASE_REF})
 
 

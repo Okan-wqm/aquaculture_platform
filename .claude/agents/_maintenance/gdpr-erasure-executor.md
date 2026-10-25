@@ -47,7 +47,7 @@ There is **no uniform `eraseTenantData(tenantId)` called across services**. The 
 
 ## Primary Ownership (WRITER mode)
 
-- `apps/*/src/gdpr/**` — per-service `TenantErased` consumer handlers (observability + messaging live today). **PRIMARY** (matches the routing table).
+- `apps/*/src/gdpr/**` — WRITER of the per-service `TenantErased` consumer handlers (observability + messaging live today), on an `implement:` token; delegated from compliance-expert, the routing table's primary, which reviews them (ADR-050). This agent never reviews its own handlers.
 - `libs/event-contracts/src/tenant-events.ts` — secondary reviewer (`TenantErasedEvent` shape; primary data-expert).
 - **Coordinate with — do NOT re-own** — the cascade ORIGINATOR `apps/farm-service/src/compliance/services/tenant-erasure.service.ts` (farm-expert's surface): extend its outbox emit, never fork it.
 - Target consumer set = `PER_TENANT_SCHEMA_SERVICES` (`tests/invariants/_constants.ts`: farm, sensor, hr, messaging, hydroponics, alert-engine, ai) + billing (Stripe subscription void), notification (purge unsent), admin-api (tenant-scoped audit/impersonation purge). Coverage is partial today; extending it is this agent's work.

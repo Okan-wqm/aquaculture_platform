@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import re
 import uuid
@@ -739,6 +740,45 @@ def _metrics_for_rows(
 MIN_RUNS_FOR_TREND = 5
 
 
+def _recorded_at(row: dict[str, Any]) -> datetime | None:
+    """A run's ``recorded_at`` as an aware datetime; None for an undated run."""
+    try:
+        return datetime.fromisoformat(str(row.get("recorded_at", "")).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+
+
+Dated = list[tuple[datetime, dict[str, Any]]]
+
+
+def _split_windows(
+    rows: list[dict[str, Any]], *, now: datetime, window_days: int
+) -> tuple[Dated, Dated, int]:
+    """(previous, current, undated count) for [now-2W, now-W) and [now-W, now],
+    each run carried with its parsed ``recorded_at``.
+
+    Adjacent, non-overlapping, half-open at the seam so a run on the
+    boundary is counted once, in the current window. Both modes of
+    `compare_eval_windows` select their runs here, so they cannot disagree
+    about which window a run belongs to.
+    """
+    current_start = now - timedelta(days=window_days)
+    previous_start = now - timedelta(days=2 * window_days)
+    current: Dated = []
+    previous: Dated = []
+    undated = 0
+    for row in rows:
+        recorded = _recorded_at(row)
+        if recorded is None:
+            undated += 1
+            continue
+        if recorded >= current_start:
+            current.append((recorded, row))
+        elif recorded >= previous_start:
+            previous.append((recorded, row))
+    return previous, current, undated
+
+
 def compare_eval_windows(
     *,
     target_agent: str,
@@ -746,17 +786,22 @@ def compare_eval_windows(
     window_days: int = 30,
     mock_mode: bool | None = None,
     min_runs: int = MIN_RUNS_FOR_TREND,
+    incumbent_agent: str | None = None,
+    alpha: float | None = None,
+    min_discordant_pairs: int | None = None,
 ) -> dict[str, Any]:
     """Is round N+1 better than round N? - the program's own success test.
+
+    Two modes. The WINDOW mode (no ``incumbent_agent``) describes one
+    agent's trend between two time windows; it runs no significance test
+    and decides nothing (``agent-eval delta``). The PAIRED mode (F1.7,
+    ``incumbent_agent`` given) is the gain test a promotion decides on:
+    see ``_compare_paired``.
 
     The intelligence plan defines improvement as a MEASURED difference
     between consecutive windows, not a felt one. `aggregate_eval_metrics`
     could only ever describe one window, so "did it get better" had no
     answer except a human comparing two printouts.
-
-    Windows are [now-2W, now-W) and [now-W, now]: adjacent, non-overlapping,
-    half-open at the seam so a run on the boundary is counted once, in the
-    current window.
 
     The verdict refuses to speak when either side is thin. That refusal is
     the point: a pass_rate that moved because a five-run baseline became a
@@ -765,29 +810,22 @@ def compare_eval_windows(
     """
     if window_days <= 0:
         raise GovernanceError("window_days must be positive")
+    now = datetime.now(timezone.utc)
+    if incumbent_agent is not None:
+        return _compare_paired(
+            target_agent=target_agent, incumbent_agent=incumbent_agent, base_dir=base_dir,
+            window_days=window_days, mock_mode=mock_mode, alpha=alpha,
+            min_discordant_pairs=min_discordant_pairs, now=now,
+        )
+    if alpha is not None or min_discordant_pairs is not None:
+        raise GovernanceError("alpha and min_discordant_pairs belong to the paired mode: name an incumbent_agent")
     if min_runs < 1:
         raise GovernanceError("min_runs must be at least 1")
 
-    now = datetime.now(timezone.utc)
-    current_start = now - timedelta(days=window_days)
-    previous_start = now - timedelta(days=2 * window_days)
-
     rows = list_eval_runs(base_dir=base_dir, target_agent=target_agent, mock_mode=mock_mode)
-    current_rows: list[dict[str, Any]] = []
-    previous_rows: list[dict[str, Any]] = []
-    undated = 0
-    for row in rows:
-        try:
-            recorded = datetime.fromisoformat(
-                str(row.get("recorded_at", "")).replace("Z", "+00:00")
-            )
-        except (TypeError, ValueError):
-            undated += 1
-            continue
-        if recorded >= current_start:
-            current_rows.append(row)
-        elif recorded >= previous_start:
-            previous_rows.append(row)
+    previous_dated, current_dated, undated = _split_windows(rows, now=now, window_days=window_days)
+    previous_rows = [row for _, row in previous_dated]
+    current_rows = [row for _, row in current_dated]
 
     current = _metrics_for_rows(
         target_agent=target_agent, rows=current_rows,
@@ -827,6 +865,7 @@ def compare_eval_windows(
 
     return {
         "schema_version": 1,
+        "mode": "window",
         "target_agent": target_agent,
         "window_days": window_days,
         "mock_mode": mock_mode,
@@ -834,6 +873,115 @@ def compare_eval_windows(
         "previous_window": previous,
         "current_window": current,
         "deltas": deltas,
+        "verdict": verdict,
+        "reason": reason,
+        "undated_run_count": undated,
+    }
+
+
+#: The paired mode's test, named in its result so a later sequential
+#: (anytime-valid, PLAN-v2 F1.8(a)) decision is a different name, not a
+#: silently different number under the same one.
+PAIRED_TEST = "exact_mcnemar_one_sided"
+
+
+def _upper_tail(successes: int, trials: int) -> float:
+    """P(Binomial(trials, 1/2) >= successes), exact (integer sum, one division)."""
+    return sum(math.comb(trials, k) for k in range(successes, trials + 1)) / 2 ** trials
+
+
+def _newest_outcome_per_case(runs: Dated) -> dict[str, bool]:
+    """fixture_id -> passed of the newest run on that case."""
+    newest: dict[str, tuple[datetime, bool]] = {}
+    for recorded, row in runs:
+        case = str(row["fixture_id"])
+        if case not in newest or recorded >= newest[case][0]:
+            newest[case] = (recorded, bool(row["passed"]))
+    return {case: passed for case, (_, passed) in newest.items()}
+
+
+def _compare_paired(
+    *, target_agent: str, incumbent_agent: str, base_dir: str | Path | None, window_days: int,
+    mock_mode: bool | None, alpha: float | None, min_discordant_pairs: int | None, now: datetime,
+) -> dict[str, Any]:
+    """F1.7 (ARIA-HIGH-734) — candidate vs incumbent on the SAME case ids.
+
+    WHY: the window mode called any positive pass_rate delta 'improved'; two
+    identical agents read 'improved' about 36% of the time (measurement
+    review M1) and a promotion decided on that. Here each side is its
+    newest REAL run per case (mock runs are never scored), cases are paired
+    by ``fixture_id``, and only discordant pairs carry information: with n
+    of them, p = P(Bin(n, 1/2) >= candidate_only) is the one-sided exact
+    McNemar test of a gain. 'improved' needs p <= alpha AND
+    n >= min_discordant_pairs; fewer pairs is 'insufficient_evidence'.
+    'regressed' is the same test in the incumbent's direction; otherwise
+    'flat' (no significant difference). alpha and min_discordant_pairs come
+    from the caller's pre-registered policy and are never defaulted.
+
+    The candidate side is ``target_agent``'s current window. A distinct
+    incumbent is measured side by side, in the same window; an incumbent
+    that IS the candidate (no other version in service) is its own
+    previous window: before against after on the same cases.
+
+    ``aa_noise_floor`` is the A/A floor at this n: the probability that two
+    identical agents with n discordant pairs read 'improved', i.e. the
+    test's exact size; it is <= alpha by construction and 0 below the pair
+    minimum.
+    """
+    if mock_mode is not False:
+        raise GovernanceError(
+            f"the paired gain test scores real runs only: mock_mode must be False, got {mock_mode!r}"
+        )
+    if alpha is None or min_discordant_pairs is None:
+        raise GovernanceError("the paired gain test needs the pre-registered alpha and min_discordant_pairs")
+    from .judge_calibration import wilson_lower
+
+    previous, current, undated = _split_windows(
+        list_eval_runs(base_dir=base_dir, target_agent=target_agent, mock_mode=False),
+        now=now, window_days=window_days,
+    )
+    candidate = _newest_outcome_per_case(current)
+    if incumbent_agent == target_agent:
+        incumbent = _newest_outcome_per_case(previous)
+    else:
+        _, incumbent_current, incumbent_undated = _split_windows(
+            list_eval_runs(base_dir=base_dir, target_agent=incumbent_agent, mock_mode=False),
+            now=now, window_days=window_days,
+        )
+        incumbent = _newest_outcome_per_case(incumbent_current)
+        undated += incumbent_undated
+    shared = sorted(candidate.keys() & incumbent.keys())
+    candidate_only = sum(1 for case in shared if candidate[case] and not incumbent[case])
+    incumbent_only = sum(1 for case in shared if incumbent[case] and not candidate[case])
+    pairs = candidate_only + incumbent_only
+    p_value = _upper_tail(candidate_only, pairs)
+    if pairs < min_discordant_pairs:
+        verdict, reason = "insufficient_evidence", f"need {min_discordant_pairs} discordant pairs, have {pairs}"
+    elif p_value <= alpha:
+        verdict, reason = "improved", f"candidate wins {candidate_only}/{pairs} discordant pairs, p={p_value:.6g} <= {alpha}"
+    elif _upper_tail(incumbent_only, pairs) <= alpha:
+        verdict, reason = "regressed", f"incumbent wins {incumbent_only}/{pairs} discordant pairs"
+    else:
+        verdict, reason = "flat", f"p={p_value:.6g} > alpha={alpha} on {pairs} discordant pairs"
+    critical = next((k for k in range(pairs + 1) if _upper_tail(k, pairs) <= alpha), None)
+    aa_noise_floor = (
+        _upper_tail(critical, pairs) if critical is not None and pairs >= min_discordant_pairs else 0.0
+    )
+    return {
+        "schema_version": 1,
+        "mode": "paired",
+        "test": PAIRED_TEST,
+        "target_agent": target_agent,
+        "incumbent_agent": incumbent_agent,
+        "window_days": window_days,
+        "mock_mode": False,
+        "paired_case_count": len(shared),
+        "discordant_pairs": {"candidate_only": candidate_only, "incumbent_only": incumbent_only},
+        "p_value": p_value,
+        "wilson_lower": wilson_lower(candidate_only, pairs),
+        "alpha": alpha,
+        "min_discordant_pairs": min_discordant_pairs,
+        "aa_noise_floor": aa_noise_floor,
         "verdict": verdict,
         "reason": reason,
         "undated_run_count": undated,

@@ -102,8 +102,13 @@ describe('AddMemberHandler', () => {
     expect(result.tenantId).toBe(tenantId);
     expect(queryRunner.commitTransaction).toHaveBeenCalled();
     expect(queryRunner.query).toHaveBeenCalledWith(
-      `SELECT pg_catalog.set_config('search_path', $1, true)`,
-      ['"tenant_aaaaaaaaaaaa4aaa", "messaging", public'],
+      expect.stringContaining("set_config('search_path'"),
+      [
+        '"tenant_aaaaaaaaaaaa4aaa", "messaging", public',
+        'app.current_tenant',
+        tenantId,
+        'app.bypass_rls',
+      ],
     );
   });
 

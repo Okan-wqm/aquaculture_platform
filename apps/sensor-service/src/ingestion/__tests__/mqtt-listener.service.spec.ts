@@ -745,6 +745,80 @@ describe('MqttListenerService', () => {
       });
     });
 
+    // The durable ack gate processes one message at a time per MQTT connection,
+    // so a message's wall time is its ingest ceiling. Loading the sensor in a
+    // separate read transaction doubled the tenant-boundary round trips per
+    // message; the load and the write must share one tenant transaction.
+    it('loads the sensor and persists the reading in ONE tenant transaction', async () => {
+      const { service, sensorTopicCache, dataSource, metricWriter } = buildService();
+      sensorTopicCache!.getSensorByTopic.mockResolvedValue(createCachedSensorInfo());
+      const qr = dataSource.createQueryRunner();
+      mockTenantSensorReload(qr, createSensor());
+      const repository = (qr.manager.getRepository as jest.Mock)();
+      repository.find.mockResolvedValueOnce([
+        {
+          id: '66666666-6666-4666-8666-666666666666',
+          sensorId: SENSOR_ID,
+          channelKey: 'temperature',
+          dataPath: null,
+          isEnabled: true,
+          applyCalibration: (v: number) => v,
+          validateValue: () => ({ valid: true, level: 'good' }),
+        },
+      ]);
+
+      // Obtaining the mock above is itself a createQueryRunner call.
+      (dataSource.createQueryRunner as jest.Mock).mockClear();
+
+      await callHandleMessage(
+        service,
+        `sensors/${TENANT_ID}/${SENSOR_ID}/data`,
+        JSON.stringify({ temperature: 23.5 }),
+      );
+
+      expect(dataSource.createQueryRunner).toHaveBeenCalledTimes(1);
+      expect(qr.startTransaction).toHaveBeenCalledTimes(1);
+      expect(qr.commitTransaction).toHaveBeenCalledTimes(1);
+      expect(metricWriter.writeManaged).toHaveBeenCalledTimes(1);
+    });
+
+    it('ACK-drops when the tenant schema is gone and the platform no longer lists the tenant active', async () => {
+      const { service, sensorTopicCache, dataSource, metricWriter } = buildService();
+      sensorTopicCache!.getSensorByTopic.mockResolvedValue(createCachedSensorInfo());
+      sensorTopicCache!.evictIfTenantInactive.mockResolvedValue(true);
+      dropTenantSchema(dataSource.createQueryRunner());
+      const warnSpy = jest.spyOn(service['logger'], 'warn');
+
+      await expect(
+        callHandleMessage(
+          service,
+          `sensors/${TENANT_ID}/${SENSOR_ID}/data`,
+          JSON.stringify({ temperature: 23.5 }),
+        ),
+      ).resolves.toBeUndefined();
+
+      expect(sensorTopicCache!.evictIfTenantInactive).toHaveBeenCalledWith(TENANT_ID);
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('no longer active'));
+      expect(metricWriter.writeManaged).not.toHaveBeenCalled();
+    });
+
+    it('holds the ack for redelivery when the tenant transaction fails and the tenant is still active', async () => {
+      const { service, sensorTopicCache, dataSource, metricWriter } = buildService();
+      sensorTopicCache!.getSensorByTopic.mockResolvedValue(createCachedSensorInfo());
+      sensorTopicCache!.evictIfTenantInactive.mockResolvedValue(false);
+      dropTenantSchema(dataSource.createQueryRunner());
+
+      await expect(
+        callHandleMessage(
+          service,
+          `sensors/${TENANT_ID}/${SENSOR_ID}/data`,
+          JSON.stringify({ temperature: 23.5 }),
+        ),
+      ).rejects.toThrow(/Durable metric write failed/);
+
+      expect(metricWriter.writeManaged).not.toHaveBeenCalled();
+    });
+
     it('logs an error and evicts the mapping when the resolved sensor cannot be reloaded', async () => {
       const { service, sensorTopicCache, dataSource, metricWriter } = buildService();
       sensorTopicCache!.getSensorByTopic.mockResolvedValue(createCachedSensorInfo());

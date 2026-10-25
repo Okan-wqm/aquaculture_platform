@@ -299,10 +299,28 @@ export async function assertTenantTransactionContext(
             current_setting($2, true) AS bypass`,
     [RLS_TENANT_GUC, RLS_BYPASS_GUC],
   );
-  const row = (Array.isArray(rows) ? rows[0] : rows) as
-    | { schema?: string | null; tenant?: string | null; bypass?: string | null }
-    | undefined
-    | null;
+  verifyTenantBinding(rows, expectedSchema, tenantId, sourceSchema);
+}
+
+/** What the binding read-back returns: the resolved schema and the two RLS settings. */
+interface TenantBindingRow extends RlsBindingRow {
+  schema?: string | null;
+}
+
+/**
+ * The single rule for "this transaction resolves to `tenantId`'s schema and RLS
+ * context", shared by every boundary that reads the binding back so they cannot
+ * disagree: the first schema on the live `search_path` is the tenant's own
+ * (a missing/un-provisioned tenant schema falls through to the source schema),
+ * `app.current_tenant` names the tenant, and `app.bypass_rls` is off.
+ */
+function verifyTenantBinding(
+  rows: unknown,
+  expectedSchema: string,
+  tenantId: string,
+  sourceSchema: string,
+): void {
+  const row = (Array.isArray(rows) ? rows[0] : rows) as TenantBindingRow | undefined | null;
 
   // A live Postgres connection ALWAYS returns exactly one row for
   // `SELECT current_schema()`. The only way `row` is absent is a unit-test
@@ -333,6 +351,53 @@ export async function assertTenantTransactionContext(
 }
 
 /**
+ * Bind a transaction to one tenant — transaction-local `search_path` pin, the
+ * tenant RLS GUC, bypass forced off — and verify the binding took, in ONE round
+ * trip.
+ *
+ * `pinTenantTransactionSearchPath` + `assertTenantTransactionContext` express
+ * the same guarantee as four sequential statements. On the tenant-scoped hot
+ * path (every transaction of every schema-per-tenant service) each statement is
+ * a network round trip plus driver and ORM CPU, and measured under load the
+ * ceremony was the largest share of a transaction's statements. The three
+ * `set_config` calls live in the derived table's select list, which contains
+ * volatile functions and is therefore never flattened into the outer query: the
+ * executor produces that row first, and only then evaluates `current_schema()`
+ * and `current_setting()` against the freshly bound session.
+ *
+ * Guarantees are exactly those of the two functions it replaces: a stale pooled
+ * `bypass = on` is overwritten, a missing tenant schema falls through to the
+ * source schema and is reported as `SCHEMA_MISMATCH`, and a GUC that did not
+ * apply is reported as `RLS_MISMATCH`.
+ */
+export async function bindTenantTransactionContext(
+  queryRunner: TenantContextQueryExecutor,
+  sourceSchema: string,
+  tenantId: string,
+): Promise<void> {
+  if (!SOURCE_SCHEMA_RE.test(sourceSchema)) {
+    throw new Error(`bindTenantTransactionContext: invalid source schema "${sourceSchema}"`);
+  }
+  if (!isValidUUID(tenantId)) {
+    throw new Error(`bindTenantTransactionContext: invalid tenantId "${tenantId}"`);
+  }
+
+  const tenantSchema = getTenantSchemaName(tenantId);
+  validateTenantSchemaName(tenantSchema);
+
+  const rows = await queryRunner.query(
+    `SELECT current_schema() AS schema,
+            current_setting($2, true) AS tenant,
+            current_setting($4, true) AS bypass
+       FROM (SELECT pg_catalog.set_config('search_path', $1, true),
+                    pg_catalog.set_config($2, $3, true),
+                    pg_catalog.set_config($4, 'off', true)) AS bound`,
+    [`"${tenantSchema}", "${sourceSchema}", public`, RLS_TENANT_GUC, tenantId, RLS_BYPASS_GUC],
+  );
+  verifyTenantBinding(rows, tenantSchema, tenantId, sourceSchema);
+}
+
+/**
  * Execute a TypeORM QueryRunner transaction inside a fail-closed tenant
  * context and with transaction-local search_path pinning.
  */
@@ -349,8 +414,7 @@ export async function runInTenantTransaction<T>(
     await queryRunner.startTransaction();
 
     try {
-      await pinTenantTransactionSearchPath(queryRunner, sourceSchema, tenantId);
-      await assertTenantTransactionContext(queryRunner, sourceSchema, tenantId);
+      await bindTenantTransactionContext(queryRunner, sourceSchema, tenantId);
       const result = await fn(queryRunner);
       await queryRunner.commitTransaction();
       traceTenantBoundary({
@@ -401,8 +465,7 @@ export async function runInTenantRead<T>(
 
     try {
       await queryRunner.query('SET TRANSACTION READ ONLY');
-      await pinTenantTransactionSearchPath(queryRunner, sourceSchema, tenantId);
-      await assertTenantTransactionContext(queryRunner, sourceSchema, tenantId);
+      await bindTenantTransactionContext(queryRunner, sourceSchema, tenantId);
       const result = await fn(queryRunner);
       await queryRunner.commitTransaction();
       traceTenantBoundary({

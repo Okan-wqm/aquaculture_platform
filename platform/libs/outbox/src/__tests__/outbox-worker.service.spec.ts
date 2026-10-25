@@ -40,8 +40,11 @@ describe('OutboxWorkerService system context (ORPHAN-HIGH-321)', () => {
   let transactions: TxnTrace[];
   let leaseRows: Array<Partial<OutboxEntityBase>>;
   let pendingCount: number;
+  let deadLetterCount: number;
   let oldestAgeSeconds: number | null;
   let updateCalls: unknown[][];
+  let gaugeQueries: string[];
+  let failNextGaugeQuery: boolean;
 
   const publish = jest.fn<Promise<void>, [Record<string, unknown>]>().mockResolvedValue(undefined);
   const metrics = {
@@ -67,16 +70,22 @@ describe('OutboxWorkerService system context (ORPHAN-HIGH-321)', () => {
         if (sql.includes('set_config')) return Promise.resolve([]);
         if (sql.includes('FOR UPDATE SKIP LOCKED')) return Promise.resolve(leaseRows);
         if (sql.includes('EXTRACT(EPOCH')) {
-          return Promise.resolve([{ age_seconds: oldestAgeSeconds }]);
+          if (failNextGaugeQuery) {
+            failNextGaugeQuery = false;
+            return Promise.reject(new Error('db down'));
+          }
+          // The gauge refresh is ONE statement; COUNT(*) comes back from pg as
+          // a bigint string.
+          gaugeQueries.push(sql);
+          return Promise.resolve([
+            {
+              pending: String(pendingCount),
+              dead_lettered: String(deadLetterCount),
+              age_seconds: oldestAgeSeconds,
+            },
+          ]);
         }
         return Promise.resolve([]);
-      },
-      count: (): Promise<number> => {
-        trace.statements.push('count');
-        // The Promise.all issues the pending (LessThan) count first; the
-        // fake returns the scenario's pendingCount for both — dead-letter
-        // count is irrelevant to these pins.
-        return Promise.resolve(pendingCount);
       },
       update: (
         ...args: unknown[]
@@ -97,8 +106,11 @@ describe('OutboxWorkerService system context (ORPHAN-HIGH-321)', () => {
     transactions = [];
     leaseRows = [];
     pendingCount = 0;
+    deadLetterCount = 0;
     oldestAgeSeconds = null;
     updateCalls = [];
+    gaugeQueries = [];
+    failNextGaugeQuery = false;
 
     // Cast-free DataSource double — same Object.create idiom as the manager.
     const dataSource: DataSource = Object.assign(
@@ -165,16 +177,87 @@ describe('OutboxWorkerService system context (ORPHAN-HIGH-321)', () => {
     expect(publish).toHaveBeenCalledTimes(1);
   });
 
-  it('computes the pending gauges in system context and still early-exits an EMPTY queue', async () => {
+  it('computes the gauges in system context and publishes nothing for an EMPTY queue', async () => {
     pendingCount = 0;
     oldestAgeSeconds = null;
 
     await worker.pollAndPublish();
 
     expect(metrics.setPending).toHaveBeenCalledWith('fake_outbox', 0);
+    expect(metrics.setDeadLetterCount).toHaveBeenCalledWith('fake_outbox', 0);
     expect(metrics.setOldestPendingAge).toHaveBeenCalledWith('fake_outbox', 0);
-    // Empty queue → the counts ran (1 txn) but no lease was attempted.
-    expect(transactions).toHaveLength(1);
+    // Gauge refresh (1 txn) + an empty lease attempt (1 txn); nothing to publish.
+    expect(transactions).toHaveLength(2);
+    expect(publish).not.toHaveBeenCalled();
+  });
+
+  // The gauges describe the queue; they are not an input to draining it. The
+  // dispatcher wakes on every outbox NOTIFY (once per ingested reading under
+  // load), so a gauge query there is a per-message cost on a table that grows
+  // for as long as published rows are retained.
+  describe('gauge refresh cost', () => {
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it('reads pending, dead-lettered and oldest-pending in ONE statement', async () => {
+      pendingCount = 7;
+      deadLetterCount = 2;
+      oldestAgeSeconds = 12;
+
+      await worker.pollAndPublish();
+
+      expect(gaugeQueries).toHaveLength(1);
+      expect(metrics.setPending).toHaveBeenCalledWith('fake_outbox', 7);
+      expect(metrics.setDeadLetterCount).toHaveBeenCalledWith('fake_outbox', 2);
+      expect(metrics.setOldestPendingAge).toHaveBeenCalledWith('fake_outbox', 12);
+    });
+
+    it('spells every gauge predicate so a partial index can serve it', async () => {
+      await worker.pollAndPublish();
+
+      // Postgres only uses a partial index when the query's WHERE implies the
+      // index predicate, and it cannot see through a bound parameter or a
+      // differently-spelled flag. The poll index is
+      // `WHERE "publishedAt" IS NULL AND "isDeadLettered" = false`; the
+      // dead-letter index is the `= true` twin.
+      const sql = gaugeQueries[0] ?? '';
+      expect(sql).toContain(`"publishedAt" IS NULL AND "isDeadLettered" = false`);
+      expect(sql).toContain(`"publishedAt" IS NULL AND "isDeadLettered" = true`);
+      expect(sql).not.toMatch(/"isDeadLettered"\s*=\s*\$/);
+    });
+
+    it('does not recompute the gauges on every wake-up inside the refresh interval', async () => {
+      jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate'] });
+      jest.setSystemTime(new Date('2026-10-25T10:00:00Z'));
+
+      await worker.pollAndPublish();
+      await worker.pollAndPublish();
+      await worker.pollAndPublish();
+
+      expect(gaugeQueries).toHaveLength(1);
+      // Each wake-up still tries to lease work: draining does not wait on gauges.
+      expect(transactions).toHaveLength(1 + 3);
+
+      jest.setSystemTime(new Date('2026-10-25T10:00:06Z'));
+      await worker.pollAndPublish();
+
+      expect(gaugeQueries).toHaveLength(2);
+    });
+
+    it('retries the gauge refresh on the next wake-up when it failed', async () => {
+      const errorSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+      failNextGaugeQuery = true;
+
+      await worker.pollAndPublish();
+      expect(gaugeQueries).toHaveLength(0);
+
+      // The failed refresh must not stamp the interval: the next wake-up retries
+      // it immediately instead of leaving the gauges stale for another 5 s.
+      await worker.pollAndPublish();
+      expect(gaugeQueries).toHaveLength(1);
+      errorSpy.mockRestore();
+    });
   });
 
   it('fires the pending-age alarm when the oldest row exceeds the threshold', async () => {

@@ -134,7 +134,12 @@ describe('ToggleLegalHoldHandler — LEGAL-MEDIUM-002 boundary checks', () => {
 
     expect(queryRunner.query).toHaveBeenCalledWith(
       expect.stringContaining(`set_config('search_path'`),
-      [expect.stringContaining('"tenant_aaaaaaaaaaaa4aaa"')],
+      [
+        expect.stringContaining('"tenant_aaaaaaaaaaaa4aaa"'),
+        'app.current_tenant',
+        TENANT_A,
+        'app.bypass_rls',
+      ],
     );
     // The transaction's manager should have run pg_advisory_xact_lock before
     // legalHoldService.activate fired. The mock callback receives

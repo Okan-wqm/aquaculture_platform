@@ -127,8 +127,7 @@ export const OUTBOX_PUBLISH_CONCURRENCY = 20;
  * another tenant's room key. Failing closed at the publisher boundary
  * keeps all downstream layers honest.
  */
-export const OUTBOX_UUID_REGEX =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export const OUTBOX_UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * PascalCase validation regex for `eventType`. The event type becomes the
@@ -137,3 +136,12 @@ export const OUTBOX_UUID_REGEX =
  * and unexpected characters leaking into metric labels / room names.
  */
 export const OUTBOX_EVENT_TYPE_REGEX = /^[A-Z][A-Za-z0-9]+$/;
+
+/**
+ * How often the worker recomputes the queue gauges (`outbox_pending`,
+ * `outbox_dead_letter_count`, `outbox_oldest_pending_age_seconds`) and checks
+ * the pending-age alarm. Matches the 5-second cron safety net: a Prometheus
+ * scrape is never fresher than that, and the dispatcher wakes once per inserted
+ * row, so the gauges must not ride on those wake-ups.
+ */
+export const OUTBOX_GAUGE_REFRESH_INTERVAL_MS = 5_000;

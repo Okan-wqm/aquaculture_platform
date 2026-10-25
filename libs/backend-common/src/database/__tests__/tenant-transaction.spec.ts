@@ -5,7 +5,9 @@ import { TenantContextError } from '../tenant-context-error';
 import {
   assertSourceReadContext,
   assertTenantTransactionContext,
+  bindTenantTransactionContext,
   pinTenantTransactionSearchPath,
+  runInTenantRead,
   runInTenantTransaction,
   TenantContextQueryExecutor,
 } from '../tenant-transaction';
@@ -64,14 +66,46 @@ describe('tenant transaction helpers', () => {
       'ok',
     );
 
-    expect(queryRunner.query).toHaveBeenCalledWith(
-      `SELECT pg_catalog.set_config('search_path', $1, true)`,
-      ['"tenant_aaaaaaaaaaaa4aaa", "messaging", public'],
-    );
+    expect(queryRunner.query).toHaveBeenCalledWith(expect.stringContaining('set_config'), [
+      '"tenant_aaaaaaaaaaaa4aaa", "messaging", public',
+      'app.current_tenant',
+      tenantId,
+      'app.bypass_rls',
+    ]);
     expect(work).toHaveBeenCalledWith(queryRunner);
     expect(queryRunner.commitTransaction).toHaveBeenCalledTimes(1);
     expect(queryRunner.rollbackTransaction).not.toHaveBeenCalled();
     expect(queryRunner.release).toHaveBeenCalledTimes(1);
+  });
+
+  // Every statement is a network round trip plus driver/ORM CPU on a hot path
+  // shared by all tenant-scoped services. The binding (search_path pin, RLS GUCs
+  // and their read-back) must therefore cost exactly one round trip.
+  it('spends exactly one round trip binding the tenant before the work runs', async () => {
+    const { dataSource, queryRunner } = makeTransactionHarness();
+    let statementsBeforeWork = -1;
+
+    await runInTenantTransaction(dataSource, 'messaging', tenantId, () => {
+      statementsBeforeWork = (queryRunner.query as jest.Mock).mock.calls.length;
+      return Promise.resolve('ok');
+    });
+
+    expect(statementsBeforeWork).toBe(1);
+  });
+
+  it('runs the read-only boundary with one binding round trip after SET TRANSACTION READ ONLY', async () => {
+    const { dataSource, queryRunner } = makeTransactionHarness();
+    const issued: string[] = [];
+    jest.spyOn(queryRunner, 'query').mockImplementation((sql: string) => {
+      issued.push(sql);
+      return Promise.resolve(undefined);
+    });
+
+    await runInTenantRead(dataSource, 'messaging', tenantId, () => Promise.resolve('ok'));
+
+    expect(issued).toHaveLength(2);
+    expect(issued[0]).toBe('SET TRANSACTION READ ONLY');
+    expect(issued[1]).toContain('current_schema()');
   });
 
   it('rolls back and releases when work fails', async () => {
@@ -136,6 +170,84 @@ describe('tenant transaction helpers', () => {
     ).rejects.toThrow('invalid tenantId');
 
     expect(queryRunner.query).not.toHaveBeenCalled();
+  });
+
+  describe('bindTenantTransactionContext', () => {
+    it('binds search_path, tenant GUC and bypass in one statement and passes when they read back', async () => {
+      const { runner, query } = makeQueryRunner({
+        schema: tenantSchema,
+        tenant: tenantId,
+        bypass: 'off',
+      });
+
+      await expect(bindTenantTransactionContext(runner, 'farm', tenantId)).resolves.toBeUndefined();
+
+      expect(query).toHaveBeenCalledTimes(1);
+      expect(query).toHaveBeenCalledWith(expect.stringContaining('current_schema()'), [
+        `"${tenantSchema}", "farm", public`,
+        'app.current_tenant',
+        tenantId,
+        'app.bypass_rls',
+      ]);
+    });
+
+    it('forces bypass off inside the same statement that binds the tenant', async () => {
+      const { runner, query } = makeQueryRunner({
+        schema: tenantSchema,
+        tenant: tenantId,
+        bypass: 'off',
+      });
+
+      await bindTenantTransactionContext(runner, 'farm', tenantId);
+
+      expect(query).toHaveBeenCalledWith(
+        expect.stringMatching(/set_config\(\$4, 'off', true\)/),
+        expect.anything(),
+      );
+    });
+
+    it('throws SCHEMA_MISMATCH when current_schema fell back to the source schema', async () => {
+      const { runner } = makeQueryRunner({ schema: 'farm', tenant: tenantId, bypass: 'off' });
+
+      await expect(bindTenantTransactionContext(runner, 'farm', tenantId)).rejects.toMatchObject({
+        state: 'SCHEMA_MISMATCH',
+        resolvedSchema: 'farm',
+      });
+    });
+
+    it('throws RLS_MISMATCH when the tenant GUC reads back empty', async () => {
+      const { runner } = makeQueryRunner({ schema: tenantSchema, tenant: '', bypass: 'off' });
+
+      await expect(bindTenantTransactionContext(runner, 'farm', tenantId)).rejects.toMatchObject({
+        state: 'RLS_MISMATCH',
+      });
+    });
+
+    it('throws RLS_MISMATCH when bypass reads back enabled', async () => {
+      const { runner } = makeQueryRunner({ schema: tenantSchema, tenant: tenantId, bypass: 'on' });
+
+      await expect(bindTenantTransactionContext(runner, 'farm', tenantId)).rejects.toBeInstanceOf(
+        TenantContextError,
+      );
+    });
+
+    it('skips verification when the read-back returns no row (no live connection)', async () => {
+      const { runner } = makeQueryRunner(undefined);
+
+      await expect(bindTenantTransactionContext(runner, 'farm', tenantId)).resolves.toBeUndefined();
+    });
+
+    it('rejects an invalid tenant id or source schema before issuing SQL', async () => {
+      const { runner, query } = makeQueryRunner();
+
+      await expect(bindTenantTransactionContext(runner, 'farm', 'not-a-uuid')).rejects.toThrow(
+        'invalid tenantId',
+      );
+      await expect(bindTenantTransactionContext(runner, 'Farm; DROP', tenantId)).rejects.toThrow(
+        'invalid source schema',
+      );
+      expect(query).not.toHaveBeenCalled();
+    });
   });
 
   describe('assertTenantTransactionContext', () => {

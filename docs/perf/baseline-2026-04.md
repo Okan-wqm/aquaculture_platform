@@ -192,6 +192,40 @@ Postgres 1 vCPU / 1.5 GiB, Mosquitto 0.15 vCPU / 128 MiB (`max_inflight 20`, `ma
 Postgres statement time in a 40 s window and grows linearly with the table (published rows
 are kept 7 days). It is not the throughput ceiling (mt-100-idx).
 
+### After the fix (same rig, same fixture)
+
+Three changes: the tenant-boundary binding is one statement instead of four
+(`bindTenantTransactionContext`), the sensor is loaded inside the write transaction instead
+of a separate read transaction, and the outbox gauges leave the NOTIFY-driven drain path
+(one index-served statement, at most every 5 s; dead-letter partial index on all 13 outbox
+tables).
+
+| Run | vCPU | Offered msg/s | Persisted | p50 ms | Sustained msg/s |
+|---|---|---|---|---|---|
+| mt-100 (before) | 0.5 | 100 | 63.4 % | 16,801 | 58.7 |
+| fix-100 | 0.5 | 100 | 89.4 % | 11,515 | 77.8 |
+| fix-150 | 0.5 | 150 | 58.3 % | 12,406 | 72.8 |
+| fix-250 | 0.5 | 250 | 37.8 % | 11,229 | 81.5 |
+| fixcpu1-100 | 1 | 100 | 92.6 % | 10,864 | 80.5 |
+| fixcpu1-150 | 1 | 150 | 64.1 % | 11,114 | 83.6 |
+
+Sustained = persisted ÷ (load + drain seconds).
+
+- SQL statements per message: 28.1 → 12.6 (`log_min_duration_statement = 0`, 40 s window,
+  3,126 messages). Node CPU per message: ≈ 8.4 → ≈ 5.7 ms. Postgres CPU average 58 % → 42 %.
+- The per-connection ceiling moved from ≈ 57 to ≈ 80 msg/s. **100 msg/s is still not met**
+  (89 % persisted at 0.5 vCPU, 93 % at 1 vCPU).
+- A second vCPU changes nothing (throttling 2 %, Node CPU 45 % average): with one message in
+  flight per connection, a message's own CPU (≈ 5.7 ms) and database waits (≈ 6 ms) cannot
+  overlap, so wall time per message ≈ 12 ms is the ceiling again.
+- Reaching 100 msg/s needs ≤ ~8 ms per message, or a second consumer. Two consumers sharing
+  one subscription (`$share/…`, measured before the fix) held 100 msg/s at 100 %
+  (6,001 / 6,001, p50 19 ms) and the ceiling scaled linearly (two consumers at 160 msg/s:
+  96.3 %, ≈ 2 × 57). That topology was not shipped: the broker's ACL path for a shared filter
+  could not be exercised here (anonymous Mosquitto, no go-auth).
+- Outbox gauges on a 3 M-row table: old predicates 1,776 ms, new statement 1.9 ms, all three
+  sub-selects planned as index scans.
+
 ### Stock-provisioning gaps hit while measuring
 
 Applied manually to the benchmark database only; not changed in the repo.
@@ -206,6 +240,11 @@ Applied manually to the benchmark database only; not changed in the repo.
 68 tenants in 24 min with a single worker (~21 s each; two parallel workers deadlocked):
 14,144 tables, 77,316 indexes, 1.17 GB empty database. Topic-cache warm-up for 68 tenants /
 1,360 sensors: 2.6 s.
+
+A release-wide `aqua-db-migrate` over those 68 tenants ran 490 schema passes in 38 minutes
+(7 tenant-aware services × 68 tenants plus the source schemas), for a release whose only new
+migrations are source-only. Every pass re-verifies the tenant schema's hardening, so the
+cost scales with tenants × services, not with the size of the release.
 
 ### Deviations from production
 
@@ -234,10 +273,10 @@ doc can cite the exact hotspots:
 | 10–15K msg/s sustained | Faz 2 proceeds. Performance still wins, but the gap is smaller; allocate extra time for benchmarking the sidecar against the same load profile to prove the 5–10× claim. |
 | ≥ 15K msg/s sustained AND p99 < 50 ms across all tiers | Faz 2 priority drops. Saha + güvenlik kazanımları (`protocol-codec` SSoT, memory-safe binary parsers) still justify the migration but the order of operations changes — Faz 1 ships first, Faz 2 reordered after another roadmap item. Open a follow-up plan PR. |
 
-Recorded verdict: legacy path sustains ≈ 56 msg/s (≤ 10K row). The limit is the
-serial PUBACK gate on one MQTT connection, not CPU or language. The sidecar was not
-measured here, so its capacity relative to this baseline is still open. Sign-off by Okan
-pending.
+Recorded verdict: legacy path sustained ≈ 57 msg/s before the fix and ≈ 80 msg/s after it
+(≤ 10K row either way). The limit is the serial PUBACK gate on one MQTT connection, not CPU
+or language. The sidecar was not measured here, so its capacity relative to this baseline is
+still open. Sign-off by Okan pending.
 
 ---
 

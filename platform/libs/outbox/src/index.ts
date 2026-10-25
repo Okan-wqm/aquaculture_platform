@@ -33,9 +33,12 @@ export type {
 export { assertOutboxTenantIntegrity, OutboxTenantIntegrityError } from './tenant-integrity';
 export { OutboxMetricsService } from './outbox-metrics.service';
 export { OutboxModule } from './outbox.module';
+export { buildOutboxGaugeSql } from './outbox-gauge-sql';
 export {
   buildEventDlqDownSql,
   buildEventDlqUpSql,
+  buildOutboxDeadLetterIndexDownSql,
+  buildOutboxDeadLetterIndexUpSql,
   buildTenantErasureTargetProofLedgerDownSql,
   buildTenantErasureTargetProofLedgerUpSql,
   buildTransactionalOutboxDownSql,
@@ -45,6 +48,7 @@ export {
 } from './outbox-migration';
 export type {
   EventDlqDdlOptions,
+  OutboxDeadLetterIndexDdlOptions,
   TenantErasureTargetProofLedgerDdlOptions,
   TransactionalOutboxDdlOptions,
 } from './outbox-migration';

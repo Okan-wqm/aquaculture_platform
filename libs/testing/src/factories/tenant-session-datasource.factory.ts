@@ -56,6 +56,16 @@ export function answerTenantBoundaryStatement(
   sql: string,
   params: readonly unknown[] = [],
 ): unknown[] | undefined {
+  // bindTenantTransactionContext: pin, bind, force bypass off and read the
+  // binding back in ONE statement (params: search_path, tenant GUC name,
+  // tenant id, bypass GUC name). Must precede the single-purpose branches
+  // below, which match the same `set_config(...)` substrings.
+  if (sql.includes("set_config('search_path'") && sql.includes('current_schema() AS schema')) {
+    session.schema = String(params[0]).split(',')[0]?.trim().replace(/"/g, '') ?? '';
+    if (params[1] === 'app.current_tenant') session.tenant = String(params[2]);
+    session.bypass = 'off';
+    return [{ schema: session.schema, tenant: session.tenant, bypass: session.bypass }];
+  }
   if (sql.includes("set_config('search_path'")) {
     session.schema = String(params[0]).split(',')[0]?.trim().replace(/"/g, '') ?? '';
     return [];

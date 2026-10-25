@@ -17,14 +17,11 @@ export interface TenantErasureTargetProofLedgerDdlOptions {
   readonly targetIndexName: string;
 }
 
-export const TENANT_ERASURE_TARGET_PROOF_LEDGER_TABLE =
-  'tenant_erasure_target_proofs';
+export const TENANT_ERASURE_TARGET_PROOF_LEDGER_TABLE = 'tenant_erasure_target_proofs';
 
 function assertSqlIdentifier(identifier: string, label: string): string {
   if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(identifier) || identifier.length > 63) {
-    throw new Error(
-      `Transactional outbox DDL ${label} must be a safe SQL identifier`,
-    );
+    throw new Error(`Transactional outbox DDL ${label} must be a safe SQL identifier`);
   }
   return identifier;
 }
@@ -109,6 +106,47 @@ export function buildTransactionalOutboxDownSql(
     `DROP FUNCTION IF EXISTS ${schema}.${quote(options.notifyFunctionName, 'notify function')}()`,
     `DROP TABLE IF EXISTS ${qualified}`,
   ];
+}
+
+export interface OutboxDeadLetterIndexDdlOptions {
+  readonly schema: string;
+  readonly table: string;
+  readonly indexName: string;
+}
+
+/**
+ * The `= true` twin of the poll index `buildTransactionalOutboxUpSql` creates
+ * (`WHERE "publishedAt" IS NULL AND "isDeadLettered" = false`).
+ *
+ * The queue gauges count dead-lettered rows. No index covered them, so the
+ * count scanned the whole table — which keeps published rows for days. Dead
+ * letters are rare, so this index stays tiny and the count reads only them.
+ * See `buildOutboxGaugeSql` for why the predicate is spelled this way.
+ */
+export function buildOutboxDeadLetterIndexUpSql(
+  options: OutboxDeadLetterIndexDdlOptions,
+): readonly string[] {
+  const schema = quote(options.schema, 'schema');
+  const table = quote(options.table, 'table');
+  const indexName = quote(options.indexName, 'dead-letter index');
+
+  return [
+    `
+      CREATE INDEX IF NOT EXISTS ${indexName}
+        ON ${schema}.${table} ("createdAt")
+        WHERE "publishedAt" IS NULL AND "isDeadLettered" = true
+    `,
+  ];
+}
+
+export function buildOutboxDeadLetterIndexDownSql(
+  options: OutboxDeadLetterIndexDdlOptions,
+): readonly string[] {
+  const schema = quote(options.schema, 'schema');
+  quote(options.table, 'table');
+  const indexName = quote(options.indexName, 'dead-letter index');
+
+  return [`DROP INDEX IF EXISTS ${schema}.${indexName}`];
 }
 
 export function buildTenantErasureTargetProofLedgerUpSql(

@@ -3,19 +3,12 @@ import * as os from 'os';
 import { Injectable, Inject, Logger, OnApplicationBootstrap, Type } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import type { IEventBus, IEvent } from '@platform/event-bus';
-import {
-  DataSource,
-  EntityManager,
-  Repository,
-  IsNull,
-  LessThan,
-  MoreThanOrEqual,
-  In,
-} from 'typeorm';
+import { DataSource, EntityManager, Repository, LessThan, In } from 'typeorm';
 
 import {
   OUTBOX_ENTITY_CLASS,
   OUTBOX_BATCH_SIZE,
+  OUTBOX_GAUGE_REFRESH_INTERVAL_MS,
   OUTBOX_MAX_RETRIES,
   OUTBOX_LAST_ERROR_MAX_LENGTH,
   OUTBOX_LEASE_DURATION_MS,
@@ -23,6 +16,7 @@ import {
   OUTBOX_PUBLISH_CONCURRENCY,
 } from './constants';
 import { OutboxEntityBase } from './outbox-entity.base';
+import { buildOutboxGaugeSql } from './outbox-gauge-sql';
 import { OutboxMetricsService } from './outbox-metrics.service';
 import {
   assertOutboxDeliveryPolicyIntegrity,
@@ -98,6 +92,8 @@ export class OutboxWorkerService implements OnApplicationBootstrap {
   private readonly logger = new Logger(OutboxWorkerService.name);
   private repo!: Repository<OutboxEntityBase>;
   private processing = false;
+  /** Epoch ms of the last successful gauge refresh (see `refreshGaugesWhenDue`). */
+  private lastGaugeRefreshAt = 0;
   /** Prometheus `service` label derived from the consuming entity class name. */
   private readonly metricsLabel: string;
   /**
@@ -168,10 +164,12 @@ export class OutboxWorkerService implements OnApplicationBootstrap {
    *
    * # Gauges
    *
-   * Every cycle refreshes the Prometheus `outbox_pending` and
-   * `outbox_dead_letter_count` gauges — this gives operators a
-   * near-real-time view of outbox health without a separate
-   * observer job.
+   * The Prometheus `outbox_pending`, `outbox_dead_letter_count` and
+   * `outbox_oldest_pending_age_seconds` gauges refresh at most once per
+   * `OUTBOX_GAUGE_REFRESH_INTERVAL_MS`, from whichever wake-up arrives first.
+   * They are not an input to draining: a NOTIFY fires this method once per
+   * inserted row, so recomputing them here would put a query on every
+   * ingested message.
    */
   @Cron(CronExpression.EVERY_5_SECONDS, { name: 'outbox-poll' })
   async pollAndPublish(): Promise<void> {
@@ -180,58 +178,10 @@ export class OutboxWorkerService implements OnApplicationBootstrap {
     this.processing = true;
 
     try {
-      // Refresh gauges IN SYSTEM CONTEXT (ORPHAN-HIGH-321): under tenant
-      // RLS these counts read 0, which both lied to Prometheus AND took
-      // the `pendingCount === 0` early exit below — the dispatcher never
-      // even attempted a lease. Counting is cheap — a partial index on
-      // `(createdAt) WHERE publishedAt IS NULL` makes the pending count
-      // fast even when the table is large.
-      const tableName = this.repo.metadata.tableName;
-      const { pendingCount, deadLetterCount, oldestPendingAgeSeconds } =
-        await this.runAsOutboxSystem(async (manager) => {
-          const [pending, deadLettered] = await Promise.all([
-            manager.count(this.entityClass, {
-              where: {
-                publishedAt: IsNull(),
-                retryCount: LessThan(OUTBOX_MAX_RETRIES),
-              },
-            }),
-            manager.count(this.entityClass, {
-              where: {
-                publishedAt: IsNull(),
-                retryCount: MoreThanOrEqual(OUTBOX_MAX_RETRIES),
-              },
-            }),
-          ]);
-          const oldestRows: Array<{ age_seconds: string | number | null }> = await manager.query(
-            `SELECT EXTRACT(EPOCH FROM (NOW() - MIN("createdAt"))) AS age_seconds
-               FROM "${tableName}"
-               WHERE "publishedAt" IS NULL AND "isDeadLettered" = false`,
-          );
-          const rawAge = oldestRows[0]?.age_seconds;
-          return {
-            pendingCount: pending,
-            deadLetterCount: deadLettered,
-            oldestPendingAgeSeconds: rawAge == null ? 0 : Number(rawAge),
-          };
-        });
-      this.metrics.setPending(this.metricsLabel, pendingCount);
-      this.metrics.setDeadLetterCount(this.metricsLabel, deadLetterCount);
-      this.metrics.setOldestPendingAge(this.metricsLabel, oldestPendingAgeSeconds);
-
-      // ORPHAN-HIGH-321: the silent-stall alarm. A healthy dispatcher
-      // never lets a row age past the threshold; sustained firing means
-      // rows are visible but not draining (NATS down, permissions, ...)
-      // — or were invisible until now (the RLS class this cures).
-      if (oldestPendingAgeSeconds * 1000 > OUTBOX_PENDING_AGE_ALARM_MS) {
-        this.logger.error(
-          `Outbox pending-age alarm: oldest unpublished ${this.metricsLabel} row is ` +
-            `${Math.round(oldestPendingAgeSeconds)}s old (threshold ` +
-            `${OUTBOX_PENDING_AGE_ALARM_MS / 1000}s) — the dispatch pipeline is stalled`,
-        );
-      }
-
-      if (pendingCount === 0) return;
+      // The gauges and the pending-age alarm describe the queue; draining it
+      // does not depend on them, so they refresh on their own interval rather
+      // than on every wake-up (see `refreshGaugesWhenDue`).
+      await this.refreshGaugesWhenDue();
 
       // ── Phase 1: Acquire leases ───────────────────────────────────
       // Claim up to OUTBOX_BATCH_SIZE rows by tagging them with
@@ -269,6 +219,61 @@ export class OutboxWorkerService implements OnApplicationBootstrap {
       // holds zero, which reads exactly like nothing to do.
       this.metrics.markRelayCycle(this.metricsLabel);
       this.processing = false;
+    }
+  }
+
+  /**
+   * Refresh the queue gauges and fire the pending-age alarm, at most once per
+   * `OUTBOX_GAUGE_REFRESH_INTERVAL_MS`.
+   *
+   * Computed IN SYSTEM CONTEXT (ORPHAN-HIGH-321): under tenant RLS these counts
+   * read 0, which both lied to Prometheus and, when the same counts gated the
+   * drain, made the dispatcher never even attempt a lease.
+   *
+   * One statement, three sub-selects, every predicate spelled with the literal
+   * `"isDeadLettered"` flag. The table keeps published rows for days, so a count
+   * the planner cannot serve from a partial index is a sequential scan of the
+   * whole history: Postgres only uses a partial index when the query's WHERE
+   * implies the index predicate, and `retryCount >= MAX` (the old dead-letter
+   * spelling) or a bound `isDeadLettered = $1` does not. Pending and the oldest
+   * pending row are served by the poll index
+   * (`WHERE "publishedAt" IS NULL AND "isDeadLettered" = false`); dead letters by
+   * its `= true` twin.
+   *
+   * A failed refresh leaves the interval unstamped so the next wake-up retries.
+   */
+  private async refreshGaugesWhenDue(): Promise<void> {
+    const now = Date.now();
+    if (now - this.lastGaugeRefreshAt < OUTBOX_GAUGE_REFRESH_INTERVAL_MS) {
+      return;
+    }
+
+    const tableName = this.repo.metadata.tableName;
+    const row = await this.runAsOutboxSystem(async (manager) => {
+      const rows: Array<{
+        pending: string | number;
+        dead_lettered: string | number;
+        age_seconds: string | number | null;
+      }> = await manager.query(buildOutboxGaugeSql(tableName), [OUTBOX_MAX_RETRIES]);
+      return rows[0];
+    });
+    this.lastGaugeRefreshAt = now;
+
+    const oldestPendingAgeSeconds = row?.age_seconds == null ? 0 : Number(row.age_seconds);
+    this.metrics.setPending(this.metricsLabel, Number(row?.pending ?? 0));
+    this.metrics.setDeadLetterCount(this.metricsLabel, Number(row?.dead_lettered ?? 0));
+    this.metrics.setOldestPendingAge(this.metricsLabel, oldestPendingAgeSeconds);
+
+    // ORPHAN-HIGH-321: the silent-stall alarm. A healthy dispatcher never lets a
+    // row age past the threshold; sustained firing means rows are visible but
+    // not draining (NATS down, permissions, ...) — or were invisible until now
+    // (the RLS class this cures).
+    if (oldestPendingAgeSeconds * 1000 > OUTBOX_PENDING_AGE_ALARM_MS) {
+      this.logger.error(
+        `Outbox pending-age alarm: oldest unpublished ${this.metricsLabel} row is ` +
+          `${Math.round(oldestPendingAgeSeconds)}s old (threshold ` +
+          `${OUTBOX_PENDING_AGE_ALARM_MS / 1000}s) — the dispatch pipeline is stalled`,
+      );
     }
   }
 

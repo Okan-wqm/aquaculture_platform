@@ -98,8 +98,13 @@ describe('ComplianceAuditService', () => {
     );
     expect(auditRepo.save).toHaveBeenCalled();
     expect(queryRunner.query).toHaveBeenCalledWith(
-      `SELECT pg_catalog.set_config('search_path', $1, true)`,
-      ['"tenant_aaaaaaaaaaaa4aaa", "messaging", public'],
+      expect.stringContaining("set_config('search_path'"),
+      [
+        '"tenant_aaaaaaaaaaaa4aaa", "messaging", public',
+        'app.current_tenant',
+        TENANT_A,
+        'app.bypass_rls',
+      ],
     );
   });
 

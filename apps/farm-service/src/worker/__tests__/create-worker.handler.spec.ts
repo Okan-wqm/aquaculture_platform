@@ -92,16 +92,14 @@ describe('CreateWorkerHandler', () => {
     const workerRepository = createMockRepository<Worker>();
 
     const year = new Date().getFullYear();
-    // queryRunner.query drives BOTH the boundary's pin/GUC/readback calls AND the
-    // handler's FOR UPDATE select. The boundary pins search_path, owns both RLS
-    // GUCs, and verifies the live context before the handler may query a worker.
+    // queryRunner.query drives BOTH the boundary's binding call AND the handler's
+    // FOR UPDATE select. The boundary pins search_path, owns both RLS GUCs, and
+    // verifies the live context in ONE statement before the handler may query a
+    // worker.
     (mockQueryRunner.query as jest.Mock).mockResolvedValue([]);
-    (mockQueryRunner.query as jest.Mock).mockResolvedValueOnce([]); // pin search_path
-    (mockQueryRunner.query as jest.Mock).mockResolvedValueOnce([]); // tenant GUC
-    (mockQueryRunner.query as jest.Mock).mockResolvedValueOnce([]); // bypass GUC
     (mockQueryRunner.query as jest.Mock).mockResolvedValueOnce([
       { schema: getTenantSchemaName(tenantId), tenant: tenantId, bypass: 'off' },
-    ]); // schema/GUC readback
+    ]); // pin + GUCs + schema/GUC readback
     (mockQueryRunner.query as jest.Mock).mockResolvedValueOnce([
       { employeeNumber: `EMP-${year}-00041` },
     ]);

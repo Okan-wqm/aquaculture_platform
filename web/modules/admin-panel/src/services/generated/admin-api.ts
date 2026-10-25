@@ -6906,7 +6906,7 @@ export interface components {
             migrationName: string;
             version: string;
             /** @enum {string} */
-            status: "failed" | "pending" | "rolled_back" | "completed" | "running";
+            status: "failed" | "rolled_back" | "completed" | "pending" | "running";
             upScript: string;
             downScript: string;
             errorMessage: string;
@@ -8104,7 +8104,7 @@ export interface components {
             /** @enum {string} */
             format: "json" | "csv" | "pdf";
             /** @enum {string} */
-            status: "failed" | "pending" | "completed" | "running";
+            status: "failed" | "completed" | "pending" | "running";
             /** Format: date-time */
             startDate?: string;
             /** Format: date-time */
@@ -8785,7 +8785,7 @@ export interface components {
             /** @enum {string} */
             requestType: "access" | "deletion" | "portability" | "rectification" | "restriction";
             /** @enum {string} */
-            status: "expired" | "rejected" | "pending" | "completed" | "in_progress";
+            status: "expired" | "rejected" | "completed" | "pending" | "in_progress";
             /** @enum {string} */
             complianceFramework: "gdpr" | "ccpa" | "hipaa" | "pci_dss" | "sox" | "iso27001";
             tenantId: string;
@@ -8834,7 +8834,7 @@ export interface components {
         };
         UpdateDataRequestDto: {
             /** @enum {string} */
-            status?: "expired" | "rejected" | "pending" | "completed" | "in_progress";
+            status?: "expired" | "rejected" | "completed" | "pending" | "in_progress";
             assignedTo?: string;
             assignedToName?: string;
             completionNotes?: string;
@@ -17108,7 +17108,7 @@ export interface operations {
                 limit?: number;
                 tenantId?: string;
                 requestType?: "access" | "deletion" | "portability" | "rectification" | "restriction";
-                status?: "expired" | "rejected" | "pending" | "completed" | "in_progress";
+                status?: "expired" | "rejected" | "completed" | "pending" | "in_progress";
                 complianceFramework?: "gdpr" | "ccpa" | "hipaa" | "pci_dss" | "sox" | "iso27001";
                 startDate?: string;
                 endDate?: string;

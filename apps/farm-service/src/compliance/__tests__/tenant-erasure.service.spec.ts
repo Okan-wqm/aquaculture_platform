@@ -1095,8 +1095,8 @@ describe('TenantErasureService tenant-context routing (TASK-14)', () => {
     // tenant schema first so the unqualified DELETEs route into it,
     // farm second so the cross-tenant infra tables still resolve.
     expect(queryRunner.query).toHaveBeenCalledWith(
-      `SELECT pg_catalog.set_config('search_path', $1, true)`,
-      ['"tenant_1111111111114111", "farm", public'],
+      expect.stringContaining("set_config('search_path'"),
+      ['"tenant_1111111111114111", "farm", public', 'app.current_tenant', TENANT, 'app.bypass_rls'],
     );
     // The cascade DID delete after the context was established.
     expect(executed).toEqual(['batches_v2']);

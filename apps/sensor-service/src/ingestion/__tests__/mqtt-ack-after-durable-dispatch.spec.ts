@@ -389,9 +389,9 @@ describe('MQTT PUBACK waits for the durable commit of the reading and its dispat
     });
     // The dedup key is the reading's deterministic identity (Task 1.4).
     expect(row!.idempotencyKey).toBe(row!.payload['eventId']);
-    // The sensor reload reads, then ONE write transaction commits the metric
-    // rows with the dispatch obligation, and only then is PUBACK released.
-    expect(chain.store.timeline).toEqual(['commit:read', 'commit:1 outbox', 'puback']);
+    // ONE tenant transaction loads the sensor and commits the metric rows with
+    // the dispatch obligation, and only then is PUBACK released.
+    expect(chain.store.timeline).toEqual(['commit:1 outbox', 'puback']);
     // The relay owns delivery: the handler never publishes the reading itself.
     const directReadings = chain.publish.mock.calls.filter(
       ([event]: [{ eventType?: string }]) => event.eventType === 'SensorReading',

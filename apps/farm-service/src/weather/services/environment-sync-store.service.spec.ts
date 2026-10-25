@@ -197,15 +197,11 @@ describe('EnvironmentSyncStore', () => {
       String(statement).includes('WITH due AS'),
     );
     expect(claimCall?.[1]?.[4]).toBe(LEASE_DURATION_MS);
-    expect(queryRunner.query).toHaveBeenCalledWith(
-      `SELECT pg_catalog.set_config('search_path', $1, true)`,
-      [`"${SCHEMA}", "farm", public`],
-    );
-    expect(queryRunner.query).toHaveBeenCalledWith(`SELECT set_config($1, $2, true)`, [
+    // search_path pin, tenant GUC and bypass-off travel in one binding statement.
+    expect(queryRunner.query).toHaveBeenCalledWith(expect.stringContaining("set_config('search_path'"), [
+      `"${SCHEMA}", "farm", public`,
       'app.current_tenant',
       TENANT_ID,
-    ]);
-    expect(queryRunner.query).toHaveBeenCalledWith(`SELECT set_config($1, 'off', true)`, [
       'app.bypass_rls',
     ]);
   });

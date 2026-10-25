@@ -11599,8 +11599,8 @@
               "enum": [
                 "expired",
                 "rejected",
-                "pending",
                 "completed",
+                "pending",
                 "in_progress"
               ]
             }
@@ -17756,9 +17756,9 @@
             "type": "string",
             "enum": [
               "failed",
-              "pending",
               "rolled_back",
               "completed",
+              "pending",
               "running"
             ]
           },
@@ -22194,8 +22194,8 @@
           "status": {
             "enum": [
               "failed",
-              "pending",
               "completed",
+              "pending",
               "running"
             ],
             "type": "string"
@@ -24503,8 +24503,8 @@
             "enum": [
               "expired",
               "rejected",
-              "pending",
               "completed",
+              "pending",
               "in_progress"
             ],
             "type": "string"
@@ -24687,8 +24687,8 @@
             "enum": [
               "expired",
               "rejected",
-              "pending",
               "completed",
+              "pending",
               "in_progress"
             ]
           },

@@ -628,6 +628,8 @@ const STORED_ROW_EXPORTS = new Set([
   // MF-2: the store readers and the fold hand out the recorded rows as well.
   'readRegistryStoreIn',
   'readRegistryStoreAt',
+  'readRegistrySnapshotIn',
+  'readRegistrySnapshotAt',
   'readEventLogs',
   'foldRegistry',
 ]);

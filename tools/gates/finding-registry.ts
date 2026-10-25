@@ -20,6 +20,7 @@
  *                           prefix of itself here, and once the base holds
  *                           the freeze, genesis.json and findings.jsonl are
  *                           unchanged.
+ *   verify --ref=<rev>    — the whole registry as <rev> stores it, as one JSON line.
  *   verify --stdin        — the chain of the registry bytes on stdin.
  *   genesis               — pin findings.jsonl in genesis.json
  *                           (`npm run findings:genesis`).
@@ -93,6 +94,8 @@ import {
   foldRegistry,
   listMergedClosers,
   projectRegistry,
+  readRegistrySnapshotAt,
+  readRegistrySnapshotIn,
   readRegistryStoreIn,
   REGISTRY_DIR_RELATIVE_PATH,
   registryDir,
@@ -351,13 +354,16 @@ function eventLogRepoPath(findingId: string): string {
 function cmdVerify(args: readonly string[]): number {
   const base = args.find((arg) => arg.startsWith('--base='))?.slice('--base='.length);
   if (args.some((arg) => !arg.startsWith('--base=')) || base === '') {
-    process.stderr.write('usage: finding-registry verify [--base=<rev>] | verify --stdin\n');
+    process.stderr.write(
+      'usage: finding-registry verify [--base=<rev>] | verify --ref=<rev> | verify --stdin\n',
+    );
     return 2;
   }
   // The base decides which remedy a pin mismatch may name: once it holds the freeze, none re-pins.
   const freeze = base === undefined ? currentFreeze(REPO_ROOT) : freezeAt(REPO_ROOT, base);
+  const snapshot = readRegistrySnapshotIn(DEFAULT_LAYOUT.dir);
   const defects = [
-    ...registryDefects(DEFAULT_LAYOUT, freeze),
+    ...registryDefects(DEFAULT_LAYOUT, snapshot, freeze),
     ...(base === undefined ? [] : appendOnlyDefects(REPO_ROOT, base)),
   ];
   if (defects.length > 0) {
@@ -365,12 +371,54 @@ function cmdVerify(args: readonly string[]): number {
     for (const defect of defects) process.stderr.write(`  ${defect}\n`);
     return 1;
   }
-  const store = readRegistryStoreIn(DEFAULT_LAYOUT.dir);
   writeOut(
-    `OK: genesis segment ${store.genesis.length} entries (tip ${chainTip(store.genesis)}), ` +
-      `${store.logs.size} event log(s)${base === undefined ? '' : `, append-only since ${base}`}.`,
+    `OK: genesis segment ${snapshot.store.genesis.length} entries ` +
+      `(tip ${chainTip(snapshot.store.genesis)}), ${snapshot.store.logs.size} event log(s)` +
+      `${base === undefined ? '' : `, append-only since ${base}`}.`,
   );
   return 0;
+}
+
+/** How many defects a machine verdict names before it counts the rest. */
+const VERDICT_DEFECTS_NAMED = 5;
+
+/**
+ * `verify --ref=<rev>` — the whole registry as the commit stores it, judged
+ * by the contracts of this checkout: the genesis segment's chain and pin, every
+ * event log's chain and anchors, the fold and the row contract (`registryDefects`).
+ * The autonomy closure verifier (aria-kernel/aria_kernel/autonomy_closure.py)
+ * asks it of its evidence commit, so a verdict that claims a verified registry
+ * has verified the event logs the projection folds, not the frozen segment
+ * alone. Prints one JSON line, as `verify --stdin` does; exit 0 only when intact.
+ */
+function cmdVerifyRef(ref: string): number {
+  let verdict: {
+    ok: boolean;
+    entries: number;
+    event_logs: number;
+    reason: string | null;
+    tip: string | null;
+  };
+  try {
+    const snapshot = readRegistrySnapshotAt(REPO_ROOT, ref);
+    const defects = registryDefects(DEFAULT_LAYOUT, snapshot, null);
+    const named = defects.slice(0, VERDICT_DEFECTS_NAMED).join('; ');
+    verdict = {
+      ok: defects.length === 0,
+      entries: snapshot.store.genesis.length,
+      event_logs: snapshot.store.logs.size,
+      reason:
+        defects.length === 0
+          ? null
+          : `${named}${defects.length > VERDICT_DEFECTS_NAMED ? ` (+${defects.length - VERDICT_DEFECTS_NAMED} more)` : ''}`,
+      tip: defects.length === 0 ? chainTip(snapshot.store.genesis) : null,
+    };
+  } catch (error) {
+    const reason = `registry_unreadable: ${error instanceof Error ? error.message : String(error)}`;
+    verdict = { ok: false, entries: 0, event_logs: 0, reason, tip: null };
+  }
+  process.stdout.write(`${JSON.stringify(verdict)}\n`);
+  return verdict.ok ? 0 : 1;
 }
 
 /**
@@ -1528,7 +1576,7 @@ function main(): void {
     process.stderr.write(
       [
         'Usage: finding-registry <verify|genesis|project|add|add-explicit|import-narrative|reopen|assign|canonicalize-owner|sweep|list> [args]',
-        '  verify [--base=<rev>] | verify --stdin  — genesis pin, event logs, append-only since <rev>; or the chain of the stdin bytes',
+        '  verify [--base=<rev>] | verify --ref=<rev> | verify --stdin  — genesis pin, event logs, append-only since <rev>; or the whole registry as <rev> stores it; or the chain of the stdin bytes',
         '  genesis  — pin findings.jsonl as the frozen genesis segment (npm run findings:genesis)',
         '  project [--ref=<rev>] [--stdin] [--ids <ID>...] [--format=jsonl|csv|json-array|closures]  — the registry with RESOLVED derived from merged Closes: trailers',
         '  add <domain> <stub.json>  — atomically allocate id + record CREATED',
@@ -1547,7 +1595,14 @@ function main(): void {
 
   let exitCode = 0;
   if (sub === 'verify') {
-    exitCode = args.length === 1 && args[0] === '--stdin' ? cmdVerifyStdin() : cmdVerify(args);
+    const refArg = args.length === 1 ? (args[0] ?? '') : '';
+    const verifyRef = refArg.startsWith('--ref=') ? refArg.slice('--ref='.length) : '';
+    exitCode =
+      args.length === 1 && args[0] === '--stdin'
+        ? cmdVerifyStdin()
+        : verifyRef !== ''
+          ? cmdVerifyRef(verifyRef)
+          : cmdVerify(args);
   } else if (sub === 'genesis') {
     if (args.length > 0) {
       process.stderr.write('usage: finding-registry genesis\n');

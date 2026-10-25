@@ -62,6 +62,7 @@ import {
   readRegistryStoreIn,
   REGISTRY_RELATIVE_PATH,
   type RegistryLayout,
+  type RegistrySnapshot,
   type RegistryStore,
 } from './finding-registry-projection';
 import { RegistryWriteRefused, rowContractViolations } from './finding-registry-rows';
@@ -463,14 +464,17 @@ function readPin(layout: RegistryLayout): GenesisPin | null {
 }
 
 /**
- * Why the genesis segment at `layout` is not the one its pin names; empty when
- * it is. The remedy follows the base: `freeze` is the freeze the change's base
- * holds, and once there is one the message does not offer a re-pin.
+ * Why the genesis segment of `snapshot` is not the one its pin names; empty
+ * when it is. The remedy follows the base: `freeze` is the freeze the change's
+ * base holds, and once there is one the message does not offer a re-pin.
  */
-export function genesisPinDefects(layout: RegistryLayout, freeze: Freeze | null): string[] {
+export function genesisPinDefects(snapshot: RegistrySnapshot, freeze: Freeze | null): string[] {
   const remedy = freeze === null ? GENESIS_REMEDY : frozenRemedy(freeze);
-  const pin = readPin(layout);
-  const actual = genesisPin(readFileSync(layout.genesisPath));
+  const pin =
+    snapshot.pinBytes === null
+      ? null
+      : (JSON.parse(snapshot.pinBytes.toString('utf8')) as GenesisPin);
+  const actual = genesisPin(snapshot.genesisBlob);
   if (pin === null) return [`${GENESIS_PIN_RELATIVE_PATH} is missing. ${remedy}`];
   return (Object.keys(actual) as (keyof GenesisPin)[])
     .filter((key) => pin[key] !== actual[key])
@@ -603,22 +607,28 @@ function logDefects(
 }
 
 /**
- * Why the registry at `layout` is not intact; empty when it is: the genesis
- * segment's chain and pin, every log's chain and anchors, the vocabulary,
- * unique event ids, a fold that every reader can take, and the row contract
- * on every row an event wrote. Without a pin the registry has not been frozen:
- * its segment's chain is all there is, and an event store is refused (its
- * lines would anchor on a segment nothing pins). A change whose base holds the
- * freeze (`freeze`) is refused without its pin too, and no message offers a
- * re-pin.
+ * Why the registry `snapshot` holds is not intact; empty when it is: the
+ * genesis segment's chain and pin, every log's chain and anchors, the
+ * vocabulary, unique event ids, a fold that every reader can take, and the row
+ * contract on every row an event wrote. The contracts are `layout`'s (the
+ * schemas of the checkout that judges), the data is the snapshot's: the
+ * working tree's, or a commit's (`verify --ref`). Without a pin the registry
+ * has not been frozen: its segment's chain is all there is, and an event store
+ * is refused (its lines would anchor on a segment nothing pins). A change whose
+ * base holds the freeze (`freeze`) is refused without its pin too, and no
+ * message offers a re-pin.
  */
-export function registryDefects(layout: RegistryLayout, freeze: Freeze | null): string[] {
-  const store = readRegistryStoreIn(layout.dir);
+export function registryDefects(
+  layout: RegistryLayout,
+  snapshot: RegistrySnapshot,
+  freeze: Freeze | null,
+): string[] {
+  const { store } = snapshot;
   const defects: string[] = [];
   const chain = verify(store.genesis);
   if (!chain.ok) defects.push(`findings.jsonl: ${chain.reason}`);
-  if (existsSync(layout.pinPath) || store.logs.size > 0 || freeze !== null) {
-    defects.push(...genesisPinDefects(layout, freeze));
+  if (snapshot.pinBytes !== null || store.logs.size > 0 || freeze !== null) {
+    defects.push(...genesisPinDefects(snapshot, freeze));
   }
   const eventIds = new Map<string, string>();
   for (const log of store.logs.values()) {

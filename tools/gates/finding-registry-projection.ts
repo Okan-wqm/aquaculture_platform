@@ -193,15 +193,6 @@ export function readEventLogs(storeDir: string): Map<string, EventLog> {
   return logs;
 }
 
-/** The registry stored in the registry directory `dir` of a working tree. */
-export function readRegistryStoreIn(dir: string): RegistryStore {
-  const layout = registryLayout(dir);
-  const genesis = existsSync(layout.genesisPath)
-    ? parseRegistryJsonl(readFileSync(layout.genesisPath, 'utf8'))
-    : [];
-  return { genesis, logs: readEventLogs(layout.storeDir) };
-}
-
 function git(repoRoot: string, args: readonly string[], input?: string | Buffer): Buffer {
   return execFileSync('git', ['-C', repoRoot, ...args], {
     env: repoPinnedEnv(),
@@ -255,12 +246,57 @@ function readEventLogsAt(repoRoot: string, ref: string): Map<string, EventLog> {
   return logs;
 }
 
+/**
+ * The registry as stored, with the bytes its pin is judged on: the store
+ * every reader folds, findings.jsonl as written and genesis.json as written
+ * (null when the registry has not been frozen).
+ */
+export interface RegistrySnapshot {
+  readonly store: RegistryStore;
+  readonly genesisBlob: Buffer;
+  readonly pinBytes: Buffer | null;
+}
+
+/** The registry stored in the registry directory `dir` of a working tree. */
+export function readRegistrySnapshotIn(dir: string): RegistrySnapshot {
+  const layout = registryLayout(dir);
+  const genesisBlob = existsSync(layout.genesisPath)
+    ? readFileSync(layout.genesisPath)
+    : Buffer.alloc(0);
+  return {
+    store: {
+      genesis: parseRegistryJsonl(genesisBlob.toString('utf8')),
+      logs: readEventLogs(layout.storeDir),
+    },
+    genesisBlob,
+    pinBytes: existsSync(layout.pinPath) ? readFileSync(layout.pinPath) : null,
+  };
+}
+
+/** The registry as the commit `ref` stores it, with the bytes its pin is judged on. */
+export function readRegistrySnapshotAt(repoRoot: string, ref: string): RegistrySnapshot {
+  const genesisBlob = git(repoRoot, ['show', `${ref}:${REGISTRY_RELATIVE_PATH}`]);
+  const pinned =
+    gitText(repoRoot, ['ls-tree', '--name-only', ref, '--', GENESIS_PIN_RELATIVE_PATH]).trim() !==
+    '';
+  return {
+    store: {
+      genesis: parseRegistryJsonl(genesisBlob.toString('utf8')),
+      logs: readEventLogsAt(repoRoot, ref),
+    },
+    genesisBlob,
+    pinBytes: pinned ? git(repoRoot, ['show', `${ref}:${GENESIS_PIN_RELATIVE_PATH}`]) : null,
+  };
+}
+
+/** The registry stored in the registry directory `dir` of a working tree. */
+export function readRegistryStoreIn(dir: string): RegistryStore {
+  return readRegistrySnapshotIn(dir).store;
+}
+
 /** The registry as the commit `ref` stores it. */
 export function readRegistryStoreAt(repoRoot: string, ref: string): RegistryStore {
-  return {
-    genesis: parseRegistryJsonl(gitText(repoRoot, ['show', `${ref}:${REGISTRY_RELATIVE_PATH}`])),
-    logs: readEventLogsAt(repoRoot, ref),
-  };
+  return readRegistrySnapshotAt(repoRoot, ref).store;
 }
 
 /**

@@ -330,3 +330,171 @@ describe('REG-ID — the finding-id grammar has one owner per language', () => {
     expect(missing).toEqual([]);
   });
 });
+
+// -----------------------------------------------------------------------------
+// RECALL — ARIA-MEDIUM-1001. The shapes above are the spellings the repository
+// carried when REG-ID began; a detector that knows only yesterday's spellings
+// does not make the next one detectable. The lines below are spellings an author
+// would write next, and the sites the first scan did not see.
+// -----------------------------------------------------------------------------
+
+interface QuotedLine {
+  readonly why: string;
+  readonly line: string;
+}
+
+describe('REG-ID — the detector sees the restatement an author would write next', () => {
+  // Each line is a spelling of the grammar with a digit count of its own that none
+  // of the shapes above was written for. The first eight are the audit's probe of
+  // the invariant; the real sites among them are quoted as they stood.
+  const NATURAL_RESTATEMENTS: readonly QuotedLine[] = [
+    {
+      why: 'three of the four severities',
+      line: String.raw`const A = /^[A-Z]+-(HIGH|MEDIUM|LOW)-\d{3}$/;`,
+    },
+    { why: 'two class segments', line: String.raw`const B = /^([A-Z]+)-([A-Z]+)-(\d{3})$/;` },
+    { why: 'two class segments, Python', line: String.raw`X = re.compile(r"[A-Z]+-[A-Z]+-\d{3}")` },
+    {
+      why: 'a RegExp built from a template literal',
+      line: 'const C = new RegExp(`^${domain}-[A-Z]+-\\\\d{3}$`);',
+    },
+    {
+      why: 'the last segment padded to three',
+      line: 'const seq = id.split("-").pop().padStart(3, "0");',
+    },
+    { why: 'the last three characters read as a number', line: 'const n = Number(id.slice(-3));' },
+    {
+      why: 'a classifier alternation that is not a severity (scripts/ci/check-advisory-ignore-sync.ts)',
+      line: String.raw`const FINDING_ID_RE = /\b(?:[A-Z][A-Z0-9]*-)+(?:CI|CVE)-\d{3}\b|\bRUST-CVE-\d{3}\b/;`,
+    },
+    {
+      why: 'a bounded sequence after a chain of domain segments (aria_kernel/system_one.py)',
+      line: String.raw`_FINDING_ID_RE = re.compile(r"^[A-Z][A-Z0-9]*(?:-[A-Z][A-Z0-9]*)*-[0-9]{1,6}$")`,
+    },
+    {
+      why: 'word-character segments',
+      line: String.raw`const m = /^(\w+)-(\w+)-(\d{3})$/.exec(id);`,
+    },
+    {
+      why: 'named groups, Python',
+      line: String.raw`FID = re.compile(r"(?P<domain>[A-Z]+)-(?P<severity>[A-Z]+)-(?P<seq>\d{3})")`,
+    },
+    {
+      why: 'a RegExp built from a string literal',
+      line: String.raw`const D = new RegExp('^[A-Z]+-(?:CRITICAL|HIGH)-\\d{3}$');`,
+    },
+    {
+      why: 'an f-string with a doubled brace',
+      line: String.raw`ID = re.compile(rf"^{domain}-[A-Z]+-\d{{3}}$")`,
+    },
+    {
+      why: 'the last three characters read as a number, Python',
+      line: 'sequence = int(finding_id[-3:])',
+    },
+    {
+      why: 'the last segment padded to three, Python',
+      line: 'sequence = finding_id.split("-")[-1].zfill(3)',
+    },
+  ];
+
+  // Lines that spell no finding id, or an id of another family, and that a detector
+  // casting a wider net must still leave alone.
+  const OTHER_GRAMMARS: readonly string[] = [
+    // The NIT dialect of the deferral matchers (tools/gates/banned-phrase.ts): a
+    // severity the registry does not have, with a two-or-three-digit tracking number.
+    String.raw`  /(ADR-\d+)|(#?[A-Z][A-Z0-9]+-(CRITICAL|HIGH|MEDIUM|LOW|NIT)-\d{2,3})|(\b[A-Z]+-\d{2,3}-FU-\d{1,3}\b)/i;`,
+    String.raw`const GHSA = /^GHSA-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}$/;`,
+    String.raw`const RUSTSEC_RE = /RUSTSEC-\d{4}-\d{4}/g;`,
+    String.raw`const ADR_FILE = /^ADR-\d{3}-[a-z-]+\.md$/;`,
+    String.raw`const DATE = /^\d{4}-\d{2}-\d{2}$/;`,
+    String.raw`const SEMVER = /^v\d{3}\.\d{3}$/;`,
+    'const tail = path.slice(-3);',
+    'self.assertEqual(limited[-3:], ["bwrap", "--", "claude"])',
+    'latest = pending[-3:]',
+    'return f"F-{last_num + 1:03d}"',
+    'cycle_id=f"cyc-{i:03d}",',
+    'name = f"{index:03d}.json"',
+    'label = str(index).zfill(3)',
+    String.raw`// const B = /^([A-Z]+)-([A-Z]+)-(\d{3})$/ was the base spelling`,
+    String.raw`# X = re.compile(r"[A-Z]+-[A-Z]+-\d{3}")`,
+    String.raw` * the /^(\w+)-(\w+)-(\d{3})$/ form was one of them`,
+  ];
+
+  it('sees every spelling of the grammar with a digit count of its own', () => {
+    const missed = NATURAL_RESTATEMENTS.filter(({ line }) => restatementsIn(line).length === 0);
+    expect(missed).toEqual([]);
+  });
+
+  it('leaves a different family, a plain slice or counter and a comment alone', () => {
+    const flagged = OTHER_GRAMMARS.map((line) => ({ line, shapes: restatementsIn(line) })).filter(
+      ({ shapes }) => shapes.length > 0,
+    );
+    expect(flagged).toEqual([]);
+  });
+});
+
+// -----------------------------------------------------------------------------
+// ARIA-LOW-1003 — the scan's roots. A restatement outside tools/, tests/ and
+// aria-kernel/ is not seen by the scan above; scripts/ is where CI's plain-node
+// gates live, and one of them spelled the grammar there.
+// -----------------------------------------------------------------------------
+
+describe('REG-ID — the scripts CI runs under plain node spell no finding-id grammar of their own', () => {
+  // A script cannot always call the TypeScript owner. Each exemption names the
+  // pin that holds its own spelling to the owner's table.
+  const HELD_TO_THE_TABLE: ReadonlyMap<string, string> = new Map([
+    [
+      'scripts/ci/lib/reviewed-exception.mjs',
+      'plain ESM that CI runs with node; tests/invariants/finding-id-reviewed-exception.spec.ts holds it to the one table',
+    ],
+  ]);
+
+  function scriptRestatements(files: readonly string[]): string[] {
+    const restated: string[] = [];
+    for (const file of files) {
+      readFileSync(resolve(REPO_ROOT, file), 'utf8')
+        .split('\n')
+        .forEach((line, index) => {
+          for (const shape of restatementsIn(line)) {
+            restated.push(`${file}:${index + 1} [${shape}] ${line.trim().slice(0, 140)}`);
+          }
+        });
+    }
+    return restated;
+  }
+
+  function scriptFiles(): string[] {
+    return execFileSync(
+      'git',
+      [
+        '-C',
+        REPO_ROOT,
+        'ls-files',
+        '-z',
+        '--cached',
+        '--others',
+        '--exclude-standard',
+        '--',
+        'scripts',
+      ],
+      { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 },
+    )
+      .split('\0')
+      .filter((file) => file !== '' && SCANNED_EXTENSION.test(file));
+  }
+
+  it('no script restates it, except the ones held to the table', () => {
+    const scanned = scriptFiles().filter((file) => !HELD_TO_THE_TABLE.has(file));
+    expect(scanned.length).toBeGreaterThan(20);
+    expect(scriptRestatements(scanned)).toEqual([]);
+  });
+
+  it('each exemption still restates it, so the list stays honest', () => {
+    for (const file of HELD_TO_THE_TABLE.keys()) {
+      expect({ file, restated: scriptRestatements([file]).length > 0 }).toEqual({
+        file,
+        restated: true,
+      });
+    }
+  });
+});

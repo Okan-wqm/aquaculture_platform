@@ -53,6 +53,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
+import { findingIdAliasesBeside } from './finding-id-aliases';
 import {
   FINDING_DOMAIN_REGEX,
   FINDING_SEQUENCE_MAX,
@@ -61,7 +62,6 @@ import {
   parseFindingId,
   parseFindingIdShape,
 } from './finding-id-grammar';
-import { findingIdAliasesBeside } from './finding-id-aliases';
 import { applyAssignment, type AssignmentRequest } from './finding-registry-assign';
 import {
   chainTip,

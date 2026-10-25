@@ -30,6 +30,7 @@ import {
   findingIdAliasesPath,
   type FindingIdAlias,
 } from '../../tools/gates/finding-id-aliases';
+import { parseFindingId } from '../../tools/gates/finding-id-grammar';
 import { claimedIdsForDomain } from '../../tools/gates/finding-registry';
 import { nextFindingId } from '../../tools/gates/finding-registry-store';
 
@@ -141,18 +142,19 @@ describe('INVARIANT: finding-id alias sidecar', () => {
     const entries = [...ids].map((id) => ({ id }));
     const reissued: string[] = [];
     for (const entry of aliases) {
-      const match = /^([A-Z][A-Z0-9]*)-(?:CRITICAL|HIGH|MEDIUM|LOW)-(\d{3})$/.exec(entry.alias);
-      if (!match?.[1] || !match[2]) continue;
+      const alias = parseFindingId(entry.alias);
+      if (alias === null) continue;
       const claimed = claimedIdsForDomain(
-        match[1],
+        alias.domain,
         entries,
         undefined,
         undefined,
-        findingIdAliasesBeside(REGISTRY_PATH).map((alias) => alias.alias),
+        findingIdAliasesBeside(REGISTRY_PATH).map((other) => other.alias),
       );
-      const next = nextFindingId(match[1], 'HIGH', claimed);
-      if (Number.parseInt(next.slice(-3), 10) <= Number.parseInt(match[2], 10)) {
-        reissued.push(`${entry.alias}: next ${match[1]} id would be ${next}`);
+      const next = nextFindingId(alias.domain, 'HIGH', claimed);
+      const issued = parseFindingId(next);
+      if (issued === null || issued.sequence <= alias.sequence) {
+        reissued.push(`${entry.alias}: next ${alias.domain} id would be ${next}`);
       }
     }
     expect(reissued).toEqual([]);

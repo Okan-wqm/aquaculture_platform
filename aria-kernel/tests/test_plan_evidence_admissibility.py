@@ -43,6 +43,7 @@ from aria_kernel.ledger import load_declared_jsonl
 from aria_kernel.operator_feedback_ingestion import plan_request_ids
 from aria_kernel.plan_convergence import affected_surface_paths, start_plan
 from tests._helpers.operator_requests import GROUNDED_FILE, OperatorRequestFixture, git
+from tests._helpers.service_facts import facts_without_contract_edges
 
 _REAL_RUN = subprocess.run
 _REAL_WHICH = shutil.which
@@ -190,6 +191,8 @@ class _Checkout(unittest.TestCase):
     """A checkout on main with a tools store, F-findings, a workflow and the orphan register."""
 
     def setUp(self) -> None:
+        # SE-4 — a fixture workspace has no TypeScript toolchain; its subject is not contract edges.
+        self.enterContext(facts_without_contract_edges())
         tmp = tempfile.TemporaryDirectory(prefix="aria-plan-evidence-")
         self.addCleanup(tmp.cleanup)
         env = {k: v for k, v in os.environ.items() if k != "ARIA_REPO_STATE_ROOT"}

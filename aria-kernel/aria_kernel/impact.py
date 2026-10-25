@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -16,7 +17,10 @@ def plan_impact(
     base_dir: str | Path | None = None,
     cycle_id: str | None = None,
     nx_graph_file: str | Path | None = None,
+    service_facts: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
+    """``service_facts`` are the code facts of ``workspace_root`` (SE-4: the closure's contract
+    edges), required with it."""
     if not changed_files or not all(isinstance(item, str) and item.strip() for item in changed_files):
         raise GovernanceError("changed_files must contain at least one path")
     # ONE normalizer, not two (ORPHAN-HIGH-576).
@@ -36,9 +40,12 @@ def plan_impact(
     normalized = _normalize_paths(list(changed_files))
     graph = None
     if workspace_root is not None:
+        if service_facts is None:
+            raise GovernanceError("service_facts_missing: the closure of a workspace needs its code facts")
         graph = plan_downstream_impact(
             changed_files=normalized,
             workspace_root=workspace_root,
+            service_facts=service_facts,
             base_dir=base_dir,
             cycle_id=cycle_id,
             nx_graph_file=nx_graph_file,
@@ -48,6 +55,9 @@ def plan_impact(
     blocked_by = [] if risk_class not in ("unknown", "forbidden") else ["operator_scope_decision_required"]
     if graph and graph.get("validation_scope") == "blocked_unknown_graph":
         blocked_by = sorted(set(blocked_by + ["impact_graph_unknown"]))
+    if graph and "hold" in graph:
+        # SE-4 — a held closure blocks by name; it is never a change that reaches nothing.
+        blocked_by = sorted(set(blocked_by + [graph["hold"]]))
     row = {
         "schema_version": 1,
         "recorded_at": utc_now(),

@@ -2547,10 +2547,13 @@ def _phase_service_examination(context: PhaseContext) -> dict[str, Any]:
         "service_examination", cycle_id=context.cycle_id, phase="started",
         changed_paths=len(changed_paths), pressures=len(cycle_pressures or []),
     )
+    from .plan_coverage import compute_service_facts_at_head
+
     return cycle_service_examination(
         workspace_root=context.workspace_root,
         base_dir=context.base_dir,
         changed_files=changed_paths,
+        service_facts=compute_service_facts_at_head(workspace_root=context.workspace_root),
         pressures=cycle_pressures,
     )
 

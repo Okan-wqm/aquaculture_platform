@@ -128,6 +128,15 @@
         "Neither its interpreter line nor a top-level `set` turns on each of errexit, nounset and pipefail.",
         "It is not POSIX sh, a sourced fragment or a fixture."
       ]
+    },
+    "command_substitution_in_message": {
+      "claim_type": "wrong_code",
+      "severity_cap": "MEDIUM",
+      "defect_claim": "A message printed by echo or printf names a command in backticks inside double quotes, so bash runs that command as a command substitution instead of printing its name.",
+      "premises": [
+        "The cited `echo` or `printf` argument is double-quoted and holds an unescaped backtick pair; inside double quotes bash runs the text between the backticks as a command.",
+        "The command is executed by the step or script (not inside a comment, a single-quoted string or a heredoc written to a file), and the backticks name a command to print rather than a substitution the author meant (an intended substitution is written `$(…)`)."
+      ]
     }
   },
   "owner": "platform",

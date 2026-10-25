@@ -21,9 +21,10 @@ from __future__ import annotations
 # ARIA-HIGH-602 — the live partition: this module reads the live checkout
 # outside the kernel surface, so it runs in aria-kernel.yml's always-run
 # `workspace` job (aria_kernel.live_partition), never in a skippable shard.
-READS_LIVE_CHECKOUT = "the banned-phrase adapter's repo-local dependency tools/gates/banned-phrase.ts"
+READS_LIVE_CHECKOUT = "the banned-phrase adapter's repo-local dependency tools/gates/banned-phrase.ts, and the lint-rules configuration and adapter sources"
 
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -185,6 +186,101 @@ class RunnerDependencyContract(unittest.TestCase):
             self.assertEqual(
                 missing_repo_local_dependencies(runner, workspace_root=workspace),
                 ["node_modules/absent/bin.js"],
+            )
+
+
+# ARIA-MEDIUM-735 (PLAN-v2 F2.1) — lint-rules-adapter runs ESLint with ARIA's
+# own configuration, which imports the two rule packs and the TypeScript
+# parser, and the adapter imports the ESLint engine itself. Its manifest
+# declared none of them, so a workspace with the repository's ts-node but
+# without `eslint-plugin-security` (package.json:327; the room's stale
+# node_modules, HARNESS B5) spawned the adapter, which exited 1 on the import
+# and was recorded as a tool `crash` (test_adapter_fixture_evidence_contract
+# fails the same way). The packages are read from the two source files, so a
+# pack added to the configuration is a dependency without a second list.
+LINT_RULES_TOOL_ID = "lint-rules-adapter"
+LINT_RULES_MANIFEST = REPO_ROOT / "tools" / "aria-adapters" / "lint-rules-adapter.tool.json"
+LINT_RULES_SOURCES = (
+    REPO_ROOT / "tools" / "aria-adapters" / "lint-rules.eslint.config.mjs",
+    REPO_ROOT / "tools" / "aria-adapters" / "lint-rules-adapter.ts",
+)
+LINT_RULES_FIXTURE_SET = "tools/aria-adapters/fixtures/lint-rules-adapter"
+_IMPORT_SPECIFIER = re.compile(r"""(?:\bfrom\s+|\bimport\s*\(\s*)['"]([^'"]+)['"]""")
+
+
+def lint_rules_packages() -> set[str]:
+    """The npm packages the lint-rules configuration and adapter import, by name."""
+    packages: set[str] = set()
+    for source in LINT_RULES_SOURCES:
+        for specifier in _IMPORT_SPECIFIER.findall(source.read_text(encoding="utf-8")):
+            if specifier.startswith((".", "/", "node:")):
+                continue
+            parts = specifier.split("/")
+            packages.add("/".join(parts[:2]) if specifier.startswith("@") else parts[0])
+    return packages
+
+
+def _names_package(entry: str, package: str) -> bool:
+    return entry == f"node_modules/{package}" or entry.startswith(f"node_modules/{package}/")
+
+
+class LintRulesAdapterWithoutItsRulePacks(unittest.TestCase):
+    """A workspace that has the repository's ts-node and none of the packages
+    the lint-rules runner imports: the run is refused by name before anything
+    spawns, never priced as tool guilt."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        root = Path(self._tmp.name)
+        self.workspace = make_local_git_repo(root, name="work", initial_commit=False)
+        shutil.copytree(REPO_ROOT / LINT_RULES_FIXTURE_SET, self.workspace / LINT_RULES_FIXTURE_SET)
+        (self.workspace / "package.json").write_text("{}\n", encoding="utf-8")
+        _git(["add", "--", "package.json", "tools"], self.workspace)
+        _git(["commit", "-q", "-m", "fixture: the lint-rules fixture set"], self.workspace)
+        # The derived dependency of an `npx ts-node` runner is present; were
+        # the adapter spawned, this stand-in would exit 1 the way the real
+        # adapter does on `Cannot find package 'eslint-plugin-security'`.
+        ts_node = self.workspace / "node_modules" / "ts-node" / "dist" / "bin.js"
+        ts_node.parent.mkdir(parents=True)
+        ts_node.write_text("process.stderr.write('stand-in ts-node ran\\n');\nprocess.exit(1);\n", encoding="utf-8")
+        self.tools = root / "tools-store"
+        self.tools.mkdir()
+        register_tool(json.loads(LINT_RULES_MANIFEST.read_text(encoding="utf-8")), base_dir=self.tools)
+        self.packages = lint_rules_packages()
+        self.assertTrue(
+            {"eslint", "eslint-plugin-security", "eslint-plugin-sonarjs"} <= self.packages, self.packages,
+        )
+
+    def test_the_runner_depends_on_every_package_it_imports(self) -> None:
+        from aria_kernel.tool_registry import missing_repo_local_dependencies
+
+        runner = get_tool(LINT_RULES_TOOL_ID, self.tools)["runner"]
+        missing = missing_repo_local_dependencies(runner, workspace_root=self.workspace)
+        for package in sorted(self.packages):
+            with self.subTest(package=package):
+                self.assertTrue(
+                    any(_names_package(entry, package) for entry in missing),
+                    f"{package} is imported by the lint-rules runner but absent from its dependencies: {missing}",
+                )
+
+    def test_a_run_without_the_security_pack_is_environment_unavailable_by_name(self) -> None:
+        result = run_tool(
+            LINT_RULES_TOOL_ID, {}, "cyc-no-rule-packs", workspace_root=self.workspace, base_dir=self.tools,
+        )
+        runner = result["envelope"]["runner"]
+        self.assertEqual(result["envelope"]["status"], "environment_unavailable", runner)
+        self.assertIsNone(runner["exit_code"], "nothing spawned")
+        self.assertIn("eslint-plugin-security", runner["stderr_sample"])
+        self.assertNotEqual(result["action"], "calibrate", result)
+        self.assertEqual(get_tool(LINT_RULES_TOOL_ID, self.tools)["status"], "SHADOW")
+
+    def test_the_fixture_suite_is_refused_by_name_instead_of_crashing(self) -> None:
+        from aria_kernel.fixture_runner import run_fixture_suite
+
+        with self.assertRaisesRegex(GovernanceError, r"runner_dependency_missing:.*eslint-plugin-security"):
+            run_fixture_suite(
+                LINT_RULES_TOOL_ID, workspace_root=self.workspace, cycle_id="cyc-no-rule-packs", base_dir=self.tools,
             )
 
 

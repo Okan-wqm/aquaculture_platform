@@ -6,9 +6,9 @@
  *
  * `docs/reviews/_registry/findings.jsonl` is append-only: a branch records
  * its findings at the tail and never edits another branch's rows. Upstream,
- * the `automation/finding-closure-reconcile` lane marks findings RESOLVED
- * as their fixes merge — a legitimate mutation of PAST rows, which forces a
- * rechain of every row after the earliest closure.
+ * the sweep, `assign` and `reopen` change PAST rows (until MF-1 the closure
+ * reconcile lane also wrote RESOLVED there) — legitimate mutations, each of
+ * which forces a rechain of every row after the earliest one changed.
  *
  * Those two facts make git's default text merge conflict on a file that has
  * no semantic conflict in it. A real case, 2026-09-11: upstream rewrote rows

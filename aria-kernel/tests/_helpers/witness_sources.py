@@ -7,6 +7,13 @@ repository instead; a fixture that copied only the witness file broke the
 moment the witness imported a sibling module (tools/gates/nats-services.ts,
 ARIA-MEDIUM-314). The closure is derived from the witness's own relative
 imports, so the fixtures follow the witness without a hand-kept list.
+
+The registry CLI (``aria_kernel.report_ingestion.run_registry_cli``) is the
+second kernel-run tool with a native fixture. Its input set — the closure, its
+tsconfig and the data files it reads — is named once here: the kernel surface
+test requires exactly this set on the surface, and the projection fixture
+copies exactly this set, so the fixture cannot read a file the surface does not
+name (the suite job's read tracer, ARIA-HIGH-602, fails such a read).
 """
 
 from __future__ import annotations
@@ -14,6 +21,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from aria_kernel import report_ingestion
 from aria_kernel.plan_coverage import EVENT_FACTS_RELPATH, MODULE_FACTS_RELPATH, WITNESS_RELPATH, WITNESS_TSCONFIG
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -85,3 +93,22 @@ def plan_coverage_ssot_files(application: str, schema: str) -> dict[str, str]:
             "migrationsGlob: [], reason: 'fixture' },\n];\n"
         ),
     }
+
+
+# The data the registry CLI reads on every kernel call beside its code: the row
+# contract a derived row is held to and the alias sidecar a trailer's name
+# resolves through. No import names them, so they are listed here; each must
+# still be named by the CLI's own sources (test_kernel_surface pins that), so
+# the list cannot outlive the read.
+REGISTRY_CLI_DATA = (
+    "docs/reviews/_registry/findings.jsonl.schema.json",
+    "docs/reviews/_registry/finding-id-aliases.yaml",
+)
+
+
+def registry_cli_tool_paths(repo_root: Path = REPO_ROOT) -> tuple[str, ...]:
+    """The registry CLI, every file it imports relatively, transitively, and its tsconfig; repo-relative."""
+    return (
+        *tool_closure_paths(report_ingestion._REGISTRY_CLI, repo_root=repo_root),
+        report_ingestion._GATES_TSCONFIG,
+    )

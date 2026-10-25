@@ -287,6 +287,12 @@ ROLE_TARGET_PAIRING: dict[str, tuple[str, ...]] = {
     "architecture": ("architectural-arbiter",),
 }
 
+# J2 — every agent a judge role can seat: the set whose delivered contracts
+# are the judge half of the verdict-cache key (agent_contract_delivery).
+JUDGE_SEAT_AGENTS: tuple[str, ...] = tuple(sorted(
+    {agent for role in JUDGE_ROLES for agent in ROLE_TARGET_PAIRING[role]}
+))
+
 DERIVED_REQUEST_STATES: tuple[str, ...] = (
     "PENDING",
     "CLAIMED",
@@ -360,6 +366,7 @@ __all__ = [
     "EXPERT_METHODS",
     "INVOCATION_ROLES",
     "JUDGE_ROLES",
+    "JUDGE_SEAT_AGENTS",
     "METHOD_REQUIRED_EVIDENCE",
     "METHODS",
     "PLANNER_BRIDGE_ROLES",

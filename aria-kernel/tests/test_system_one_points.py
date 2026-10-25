@@ -54,6 +54,7 @@ from aria_kernel.jev_runtime import JEV_CREDENTIAL_FILE_ENV, CircuitBreaker, Jev
 from aria_kernel.ledger import load_declared_jsonl
 from aria_kernel.system_one import CALLS_RELPATH, CALLS_SURFACE
 from aria_kernel.tool_registry import ensure_tools_dir
+from tests._helpers.registry_projection import public_registry_as_stored
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _SEED = json.loads((_REPO_ROOT / "aria-config" / "system-one-questions.json").read_text(encoding="utf-8"))
@@ -114,15 +115,22 @@ def commit_all(repo: Path, message: str, *paths: str) -> str:
 
 @contextlib.contextmanager
 def public_origin() -> Iterator[Path]:
-    """A bare origin standing in for the pinned public URL — the only remote the asks ever fetch."""
+    """A bare origin standing in for the pinned public URL — the only remote the asks ever fetch.
+
+    The finding registry the asks read is the one this origin's ``main`` holds, read as stored (the
+    projection of a fixture that holds only a ``findings.jsonl``, tests/_helpers/registry_projection.py).
+    """
     holder = Path(tempfile.mkdtemp(prefix="aria-points-origin-"))
     origin = holder / "public.git"
     subprocess.run(["git", "init", "-q", "--bare", str(origin)], check=True)
     pinned = patch.object(system_one, "PUBLIC_REPOSITORY_URL", str(origin))
+    registry = public_registry_as_stored()
     pinned.start()
+    registry.start()
     try:
         yield origin
     finally:
+        registry.stop()
         pinned.stop()
         shutil.rmtree(holder, True)
 

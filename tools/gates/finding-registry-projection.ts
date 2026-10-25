@@ -728,8 +728,38 @@ function requestedStore(repoRoot: string, request: ProjectionRequest): RegistryS
  * the row contract (findings.jsonl.schema.json), as every written row is.
  */
 export function projectRegistry(repoRoot: string, request: ProjectionRequest = {}): Finding[] {
-  const ref = request.ref ?? 'HEAD';
-  const rows = foldRegistry(requestedStore(repoRoot, request));
+  return projectStore(repoRoot, request.ref ?? 'HEAD', requestedStore(repoRoot, request));
+}
+
+/** A projected row and the store file that holds it. */
+export interface ProjectedFinding {
+  readonly row: Finding;
+  /** Repo-relative: the finding's event log when it has one, the frozen genesis segment otherwise. */
+  readonly source: string;
+}
+
+/**
+ * `projectRegistry`, each row with the file that holds it, so a reader that
+ * cites the registry names a file that contains the finding without knowing the
+ * store layout.
+ */
+export function projectRegistryRecords(
+  repoRoot: string,
+  request: ProjectionRequest = {},
+): ProjectedFinding[] {
+  const store = requestedStore(repoRoot, request);
+  return projectStore(repoRoot, request.ref ?? 'HEAD', store).map((row) => {
+    const log = store.logs.get(row.id);
+    return {
+      row,
+      source:
+        log === undefined ? REGISTRY_RELATIVE_PATH : `${EVENT_STORE_RELATIVE_PATH}/${log.path}`,
+    };
+  });
+}
+
+function projectStore(repoRoot: string, ref: string, store: RegistryStore): Finding[] {
+  const rows = foldRegistry(store);
   const open = rows.filter((row) => row.state !== 'RESOLVED');
   if (open.length === 0) return rows.map((row) => ({ ...row }));
   const commits = readMergedCommits(repoRoot, ref);

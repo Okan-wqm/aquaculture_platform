@@ -94,6 +94,7 @@ import {
   foldRegistry,
   listMergedClosers,
   projectRegistry,
+  projectRegistryRecords,
   readRegistrySnapshotAt,
   readRegistrySnapshotIn,
   readRegistryStoreIn,
@@ -452,7 +453,7 @@ function cmdVerifyStdin(): number {
   return result.ok ? 0 : 1;
 }
 
-const PROJECT_FORMATS = ['jsonl', 'csv', 'json-array', 'closures'] as const;
+const PROJECT_FORMATS = ['jsonl', 'csv', 'json-array', 'closures', 'records'] as const;
 type ProjectFormat = (typeof PROJECT_FORMATS)[number];
 const CSV_COLUMNS = [
   'id',
@@ -474,7 +475,7 @@ interface ProjectArgs {
 
 const PROJECT_USAGE =
   'usage: finding-registry project [--ref=<rev>] [--stdin] [--ids <ID>...] ' +
-  '[--format=jsonl|csv|json-array|closures]\n';
+  '[--format=jsonl|csv|json-array|closures|records]\n';
 
 function parseProjectArgs(args: readonly string[]): ProjectArgs | null {
   let ref: string | undefined;
@@ -540,7 +541,8 @@ function cmdProject(args: readonly string[]): number {
       for (const verdict of verdicts) writeOut(JSON.stringify(verdict));
       return verdicts.every((verdict) => verdict.ok) ? 0 : 1;
     }
-    const projected = projectRegistry(REPO_ROOT, { ref: parsed.ref, genesis });
+    const records = projectRegistryRecords(REPO_ROOT, { ref: parsed.ref, genesis });
+    const projected = records.map((record) => record.row);
     const wanted = parsed.ids;
     if (wanted !== null) {
       const unknown = wanted.filter((id) => !projected.some((row) => row.id === id));
@@ -551,7 +553,11 @@ function cmdProject(args: readonly string[]): number {
     }
     const selected =
       wanted === null ? projected : projected.filter((row) => wanted.includes(row.id));
-    if (parsed.format === 'json-array') {
+    if (parsed.format === 'records') {
+      for (const record of records) {
+        if (wanted === null || wanted.includes(record.row.id)) writeOut(JSON.stringify(record));
+      }
+    } else if (parsed.format === 'json-array') {
       writeOut(JSON.stringify(selected));
     } else if (parsed.format === 'csv') {
       writeOut(CSV_COLUMNS.join(','));
@@ -1578,7 +1584,7 @@ function main(): void {
         'Usage: finding-registry <verify|genesis|project|add|add-explicit|import-narrative|reopen|assign|canonicalize-owner|sweep|list> [args]',
         '  verify [--base=<rev>] | verify --ref=<rev> | verify --stdin  — genesis pin, event logs, append-only since <rev>; or the whole registry as <rev> stores it; or the chain of the stdin bytes',
         '  genesis  — pin findings.jsonl as the frozen genesis segment (npm run findings:genesis)',
-        '  project [--ref=<rev>] [--stdin] [--ids <ID>...] [--format=jsonl|csv|json-array|closures]  — the registry with RESOLVED derived from merged Closes: trailers',
+        '  project [--ref=<rev>] [--stdin] [--ids <ID>...] [--format=jsonl|csv|json-array|closures|records]  — the registry with RESOLVED derived from merged Closes: trailers (records: each row with the file that holds it)',
         '  add <domain> <stub.json>  — atomically allocate id + record CREATED',
         '  add-explicit <stub.json>  — governed replay/import with fixed id',
         '  import-narrative <stub.json>  — import one exact ORPHAN heading as OPEN',

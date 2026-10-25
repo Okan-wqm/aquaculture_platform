@@ -1,6 +1,7 @@
 /**
- * `finding-registry verify --ref` — the CLI mode the autonomy closure verifier
- * asks of its evidence commit (MF-2 conformance audit R14b, ARIA-MEDIUM-985).
+ * `finding-registry verify --ref` and `project --format=records` — the two CLI
+ * modes the kernel's registry readers ask (MF-2 conformance audit R14b,
+ * ARIA-MEDIUM-985 and ARIA-MEDIUM-962).
  *
  * ## Why
  *
@@ -9,7 +10,9 @@
  * log per finding, and the closure projection folds those logs, so the verdict
  * is only as true as the check over all of them: `verify --ref=<rev>` judges
  * the whole registry as a commit stores it (the working tree is not read), as
- * one JSON line the kernel maps to its predicate.
+ * one JSON line the kernel maps to its predicate. The registry view cites the
+ * file that holds each finding it ingests: `project --format=records` hands
+ * every row out with that file, so the kernel never learns the store layout.
  *
  * ## What these tests pin
  *
@@ -18,7 +21,10 @@
  *     each as `{ok:false}` with the reason and exit 1;
  *   - it reads the commit, not the working tree (a healthy tree does not hide a
  *     broken commit, a broken tree does not break a healthy commit);
- *   - a commit from before the freeze (no pin, no logs) is judged on its chain.
+ *   - a commit from before the freeze (no pin, no logs) is judged on its chain;
+ *   - `project --format=records` names the event log for a finding that has
+ *     one (born after the freeze, or amended since) and the frozen segment for
+ *     the rest, and `--ids` selects.
  */
 import { type Finding } from '../../tools/gates/finding-registry-chain';
 
@@ -205,6 +211,61 @@ describe('finding-registry verify --ref - the whole registry as a commit stores 
       const verdict = verdictOf(run);
       expect(verdict.ok).toBe(false);
       expect(verdict.reason).toContain('registry_unreadable');
+    },
+    SLOW_TEST_MS,
+  );
+});
+
+describe('finding-registry project --format=records - each row with the file that holds it', () => {
+  const repo = RegistryFixtureRepo.create('mf2-records-');
+
+  beforeAll(() => {
+    repo.writeRegistry([fixtureFinding(LEGACY), fixtureFinding(AMENDED)]);
+    repo.commit('chore(registry): seed the legacy registry', '2026-10-01T10:00:00Z');
+    expect(repo.registry(['genesis']).status).toBe(0);
+    bear(repo, BORN);
+    stale(repo, AMENDED);
+    repo.commit('chore(registry): freeze and record two findings', '2026-10-02T10:00:00Z');
+  }, SLOW_TEST_MS);
+
+  afterAll(() => repo.dispose());
+
+  const records = (args: readonly string[] = []): { row: Finding; source: string }[] => {
+    const run = repo.registry(['project', '--format=records', ...args]);
+    expect(run.status).toBe(0);
+    return run.stdout
+      .split('\n')
+      .filter((line) => line.trim() !== '')
+      .map((line) => JSON.parse(line) as { row: Finding; source: string });
+  };
+
+  it(
+    'names the event log for a finding that has one and the frozen segment for the rest',
+    () => {
+      const sources = Object.fromEntries(records().map((record) => [record.row.id, record.source]));
+      expect(sources).toEqual({
+        [LEGACY]: REGISTRY_RELATIVE_PATH,
+        [AMENDED]: eventFilePath(AMENDED),
+        [BORN]: eventFilePath(BORN),
+      });
+    },
+    SLOW_TEST_MS,
+  );
+
+  it(
+    'hands out the same rows as --format=jsonl',
+    () => {
+      const run = repo.project();
+      expect(run.status).toBe(0);
+      expect(records().map((record) => record.row)).toEqual(run.rows);
+    },
+    SLOW_TEST_MS,
+  );
+
+  it(
+    'selects with --ids',
+    () => {
+      expect(records(['--ids', BORN]).map((record) => record.row.id)).toEqual([BORN]);
     },
     SLOW_TEST_MS,
   );

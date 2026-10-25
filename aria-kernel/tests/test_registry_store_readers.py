@@ -251,6 +251,11 @@ class RegistryViewNamesTheFileThatHoldsTheFindingTests(unittest.TestCase):
         self.assertNotEqual(source, _GENESIS_BLOB)
         self.assertIn(_BORN_ID, (self.repo.root / source).read_text(encoding="utf-8"))
 
+    def test_an_amended_legacy_finding_s_source_is_its_event_log(self) -> None:
+        source = self.entries[_AMENDED_ID].source
+        self.assertEqual(source, _event_log_path(_AMENDED_ID))
+        self.assertIn(_AMENDED_ID, (self.repo.root / source).read_text(encoding="utf-8"))
+
     def test_a_finding_only_the_frozen_segment_holds_keeps_the_segment_as_its_source(self) -> None:
         self.assertEqual(self.entries[_UNCHANGED_ID].source, _GENESIS_BLOB)
 

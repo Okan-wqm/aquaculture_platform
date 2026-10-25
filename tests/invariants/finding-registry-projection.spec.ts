@@ -634,7 +634,11 @@ const STORED_ROW_EXPORTS = new Set([
   'foldRegistry',
 ]);
 /** The projection's readers: a file importing one reads the derived state. */
-const PROJECTION_READERS = new Set(['projectRegistry', 'closureVerdicts']);
+const PROJECTION_READERS = new Set([
+  'projectRegistry',
+  'projectRegistryRecords',
+  'closureVerdicts',
+]);
 /** The registry's state predicates: using one decides on a finding's state. */
 const STATE_PREDICATES = new Set(['isUnresolvedFindingState', 'UNRESOLVED_FINDING_STATES']);
 const EXPECTATION_MATCHERS = new Set(['toBe', 'toEqual', 'toStrictEqual']);

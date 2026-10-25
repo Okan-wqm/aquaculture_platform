@@ -47,7 +47,7 @@ What is pinned, and where the owner is:
 
 New API pinned here (red at the base because it does not exist yet): the four
 policy keys above, ``judgment_funnel.admit_change_claims(subject_ref, claims, *,
-base_dir, repo_root=None)`` returning ``{"admitted": [...], "held": [...]}``,
+base_dir)`` returning ``{"admitted": [...], "held": [...]}``,
 the ``subject_ref`` keyword of ``admit_request`` with its refusal reason, and the
 ``cost_budget`` block (``monetary_admission``, ``daily_usd``, ``monthly_usd``,
 ``caps``) in the change-intelligence phase payload. Every test reaches that API
@@ -83,7 +83,12 @@ from aria_kernel.budget import record_cost_attribution  # noqa: E402
 from aria_kernel.cycle import run_enterprise_cycle  # noqa: E402
 from aria_kernel.pr_tracking import CHANGE_INTELLIGENCE_AGENT, CHANGE_INTELLIGENCE_ROLE  # noqa: E402
 from aria_kernel.request_admission import admit_request  # noqa: E402
-from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir  # noqa: E402
+from aria_kernel.tool_registry import (  # noqa: E402
+    GovernanceError,
+    bound_workspace_root,
+    ensure_tools_binding,
+    ensure_tools_dir,
+)
 from tests._helpers.git_fixtures import commit_files, make_local_git_repo  # noqa: E402
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -236,7 +241,7 @@ class ClaimsEnterProofTests(_Store):
             "judgment_funnel has no admit_change_claims: nothing bounds how many of a change's "
             "claims enter proof, so a change returning 20 claims puts 20 into proof",
         )
-        return judgment_funnel.admit_change_claims(subject, claims, base_dir=self.tools, repo_root=self.workspace)
+        return judgment_funnel.admit_change_claims(subject, claims, base_dir=self.tools)
 
     @staticmethod
     def _ids(rows: list[dict[str, Any]]) -> list[str]:
@@ -320,6 +325,29 @@ class ClaimsEnterProofTests(_Store):
         rows = self.governance(HELD_KIND)
         self.assertEqual(len(rows), 17)
         self.assertEqual({row["cap"] for row in rows}, {3})
+
+    def test_the_cap_is_read_from_the_workspace_the_store_is_bound_to(self) -> None:
+        # The door reads change_review through bound_workspace_root(store); the claims
+        # cap is the same block, so a store bound to a workspace other than its own
+        # parent must honour that workspace's override at both places.
+        with tempfile.TemporaryDirectory(prefix="aria-change-bound-") as tmp:
+            root = Path(tmp)
+            repo = make_local_git_repo(root)
+            block = _shipped_block()
+            block["proof"]["claims_per_change"] = 2
+            _write_override(repo, block)
+            tools = ensure_tools_binding(root / "store" / "aria-tools", workspace_root=repo)
+            self.assertNotEqual(bound_workspace_root(tools), tools.parent, "the fixture must bind away from the parent layout")
+            claims = [{"claim_id": f"claim-{index:02d}", "severity": "HIGH", "confidence": 0.5} for index in range(1, 6)]
+
+            result = judgment_funnel.admit_change_claims(SUBJECT, claims, base_dir=tools)
+
+            self.assertEqual(len(result["admitted"]), 2)
+            self.assertEqual(len(result["held"]), 3)
+            rows = [row["details"] for row in map(json.loads, (tools / "governance.jsonl").read_text(encoding="utf-8").splitlines())
+                    if row.get("kind") == HELD_KIND]
+            self.assertEqual(len(rows), 3, "one change_review_budget_held row per held claim")
+            self.assertEqual({row["cap"] for row in rows}, {2})
 
     def test_a_repeat_call_for_the_same_change_writes_no_second_row(self) -> None:
         first = self._admit(_twenty_claims())

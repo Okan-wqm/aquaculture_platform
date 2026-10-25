@@ -49,7 +49,13 @@ from pathlib import Path
 from time import monotonic as _monotonic
 from typing import Any
 
-from .tool_registry import GovernanceError, append_tools_governance, append_tools_governance_once, ensure_tools_dir
+from .tool_registry import (
+    GovernanceError,
+    append_tools_governance,
+    append_tools_governance_once,
+    bound_workspace_root,
+    ensure_tools_dir,
+)
 
 # The funnel's durable routing rows: one per sampled finding per cycle,
 # recording the tier decision, the seats planned, and the hold reason when
@@ -726,7 +732,6 @@ def admit_change_claims(
     claims: list[dict[str, Any]],
     *,
     base_dir: str | Path,
-    repo_root: str | Path | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
     """Split one change's claims into those that enter proof and those held (WP-D4).
 
@@ -737,6 +742,11 @@ def admit_change_claims(
     once however often the same claims come back (a later cycle over the same
     change holds nothing a second time). ``admitted`` and ``held`` partition the
     input, both in rank order; the caller's claims are not edited.
+
+    The cap is the strictly parsed ``change_review.proof.claims_per_change`` of
+    the workspace the store is bound to, read the way the request door reads
+    the same block's seats: one block, one resolution path, so a store never
+    has one policy for seats and another for claims.
 
     A cap is a hold for its reader, never a raise (the 579 discipline above):
     an overflow neither raises nor reaches ``cost_budget``'s breaker.
@@ -750,9 +760,9 @@ def admit_change_claims(
     repeated = sorted({claim_id for claim_id in ids if ids.count(claim_id) > 1})
     if repeated:
         raise GovernanceError(f"change_claim_malformed: claim_id repeats within one change: {repeated}")
-    cap = change_review_policy(repo_root)["proof"]["claims_per_change"]
-    admitted, held = ranked[:cap], ranked[cap:]
     root = ensure_tools_dir(base_dir)
+    cap = change_review_policy(bound_workspace_root(root))["proof"]["claims_per_change"]
+    admitted, held = ranked[:cap], ranked[cap:]
     for claim in held:
         append_tools_governance_once(
             root, CHANGE_CLAIM_HELD_KIND,

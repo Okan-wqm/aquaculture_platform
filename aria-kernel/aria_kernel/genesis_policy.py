@@ -1060,6 +1060,8 @@ CHANGE_REVIEW_SCHEMA: dict[str, Any] = {
         "lens_seats_per_change": _prereg.whole(0, 4),
         "handoff_seats_per_change": _prereg.whole(0, 10),
         "arbiter_seats_per_handoff": _prereg.whole(0, 1),
+        "prover_seats_per_change": _prereg.whole(0, 10),
+        "judge_seats_per_change": _prereg.whole(0, 10),
         "seats_per_cycle": _prereg.whole(1, 1000),
         "seats_per_dev_look": _prereg.whole(1, 10_000),
     },
@@ -1068,6 +1070,12 @@ CHANGE_REVIEW_SCHEMA: dict[str, Any] = {
         "impacted_contract_tokens": _prereg.whole(1, 100_000),
         "impacted_entries_per_seat": _prereg.whole(0, 100),
         "sections_in_render_order": _prereg.names(),
+    },
+    # WP-D4: the claims of ONE change that may enter proof. ``overflow`` is a
+    # one-member vocabulary, a pin: an overflow is a hold, never a drop.
+    "proof": {
+        "claims_per_change": _prereg.whole(1, 100),
+        "overflow": _prereg.one_of("hold"),
     },
 }
 

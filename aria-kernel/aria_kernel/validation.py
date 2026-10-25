@@ -23,11 +23,14 @@ import json as _json
 import math as _math
 import secrets
 import shlex
+import shutil
 import signal
 import subprocess
+import tempfile
 import time
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Iterator, Mapping
 
 from .ledger import (
     append_declared_jsonl,
@@ -36,10 +39,14 @@ from .ledger import (
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 from .validation_env import build_validation_env
 from .validation_runs_ledger import (
+    VALIDATION_RUN_LOG_OUTPUT_LINE,
     VALIDATION_RUNS_FILENAME,
     record_validation_run,
     validation_run_log_dir,
+    validation_run_log_output,
+    verify_validation_run,
 )
+from .canonical_path import matches_repo_glob, normalize_repo_relpath
 from .snapshot import _capture_scoped_files, _read_scoped_working_file, _scoped_input_path, _scoped_input_digest, _sha256 as _input_digest
 from .workspace import _canonical_identity_observation
 
@@ -425,6 +432,187 @@ def _regression_status(baseline: dict[str, Any], worktree: dict[str, Any]) -> st
     return "changed"
 
 
+# D5 / PLAN-v2 F3.2 — the one red-first prover.
+#
+# "This test is red at one commit and green at another, for the reason it
+# claims" had no owner: the apply gate accepts ``improved`` and
+# ``no_regression`` alike (``_regression_status``), and nothing asked WHY a
+# run was red, so a test red because its import broke "proved" any claim.
+# ``prove_red_first`` is that owner. One signature serves discovery
+# (``red_at`` = the change's head) and a fix (``red_at`` = the fix's base).
+PROOF_VERDICTS: tuple[str, ...] = ("proven", "exposed", "wrong_reason", "refuted", "unrunnable")
+
+# What a pin may write: test FILES, nothing that configures or imports into
+# other tests (a ``conftest.py``, a ``jest.config``, a source file).
+PIN_TEST_GLOBS: tuple[str, ...] = (
+    "**/test_*.py", "**/*_test.py", "**/*.{spec,test}.{ts,tsx,js,jsx,mjs,cjs}",
+)
+PIN_KEYS: frozenset[str] = frozenset({"files", "command", "failure_signature", "expectation_ref"})
+_PIN_FILE_LIMIT = 16
+# Red for one of these says the ROOM could not host the test, not that the
+# code under test is wrong or right.
+_UNRUNNABLE_REASONS = ("timeout", "infra_required")
+
+
+def prove_red_first(
+    red_at: str,
+    green_at: str,
+    pin: dict[str, Any],
+    *,
+    workspace_root: str | Path,
+    runner_identity: str,
+    base_dir: str | Path | None = None,
+    timeout_ms: int = 120_000,
+) -> dict[str, Any]:
+    """Run ``pin`` at ``green_at`` and at ``red_at`` and classify the pair.
+
+    ``pin`` is ``{files, command, failure_signature, expectation_ref}``:
+    test files (``PIN_TEST_GLOBS`` only) written over a fresh detached
+    worktree of each commit, one command ``parse_allowed_command`` admits,
+    the text the red run's output must carry, and the expectation source the
+    claim rests on (judged by the promotion bar, carried here). A pin that
+    fails admission raises ``GovernanceError`` before any worktree exists.
+
+    Each side runs through ``_run_one`` under the validation sandbox
+    (``implementation_delivery.validation_sandbox_for``) and lands one row on
+    the ``validation_runs`` ledger at the SHA it ran at, with the ledger's
+    ``failure_reason``. The verdict (``PROOF_VERDICTS``) is read back from
+    those rows and their hash-verified logs:
+
+    * ``refuted`` — green at ``red_at``;
+    * ``unrunnable`` — a side the room could not host (timeout, infra);
+    * ``wrong_reason`` — red at ``red_at`` for anything but an ``assertion``
+      whose output carries ``failure_signature``, or a ``green_at`` that
+      failed to load the test;
+    * ``proven`` — and green at ``green_at``;
+    * ``exposed`` — and red for an assertion at ``green_at`` too.
+
+    The subject checkout is never written: the worktrees live in a private
+    scratch directory and are removed, registration included, afterwards.
+    """
+    files, command, signature = _admit_pin(pin)
+    root = Path(workspace_root).resolve()
+    shas: dict[str, str] = {}
+    for side, rev in (("red_at", red_at), ("green_at", green_at)):
+        resolved = _rev_parse(root, rev) if isinstance(rev, str) and rev.strip() else None
+        if resolved is None:
+            raise GovernanceError(f"red_first_commit_unresolvable:{side}:{rev!r}")
+        shas[side] = resolved
+    if shas["red_at"] == shas["green_at"]:
+        raise GovernanceError(f"red_first_same_commit:{shas['red_at']}")
+    # implementation_delivery imports this module; the sandbox owner is read
+    # at call time.
+    from .implementation_delivery import validation_sandbox_for
+
+    proof_id = f"red-first-{secrets.token_hex(8)}"
+    runs: dict[str, dict[str, Any]] = {}
+    for ordinal, side in enumerate(("green_at", "red_at")):
+        with _pinned_worktree(root, shas[side], files) as tree:
+            runs[side] = _run_one(
+                command=command, workspace_root=tree, base_dir=base_dir, cycle_id=None,
+                validation_plan_id=proof_id, change_id=proof_id, commit_sha=shas[side],
+                runner_identity=runner_identity, change_author_identity=None, ordinal=ordinal,
+                timeout_ms=timeout_ms, spawn_wrapper=validation_sandbox_for(tree, store=base_dir),
+            )
+    return {
+        "proof_id": proof_id,
+        "verdict": _proof_verdict(runs["red_at"], runs["green_at"], signature, base_dir=base_dir),
+        "red_at": shas["red_at"],
+        "green_at": shas["green_at"],
+        "red_run_id": runs["red_at"]["validation_run_id"],
+        "green_run_id": runs["green_at"]["validation_run_id"],
+        "command": command,
+        "failure_signature": signature,
+        "expectation_ref": pin["expectation_ref"],
+    }
+
+
+def _admit_pin(pin: Any) -> tuple[dict[str, str], str, str]:
+    """The pin's files (canonical test paths) and command, or a named refusal."""
+    if type(pin) is not dict or set(pin) != PIN_KEYS:
+        raise GovernanceError(f"red_first_pin_shape_invalid: keys must be {sorted(PIN_KEYS)}")
+    command, signature, expectation = pin["command"], pin["failure_signature"], pin["expectation_ref"]
+    for name, value in (("command", command), ("failure_signature", signature), ("expectation_ref", expectation)):
+        if type(value) is not str or not value.strip():
+            raise GovernanceError(f"red_first_pin_{name}_required")
+    parse_allowed_command(command)
+    raw_files = pin["files"]
+    if type(raw_files) is not dict or not 0 < len(raw_files) <= _PIN_FILE_LIMIT:
+        raise GovernanceError(f"red_first_pin_files_invalid: 1..{_PIN_FILE_LIMIT} test files required")
+    files: dict[str, str] = {}
+    for raw_path, content in raw_files.items():
+        path = normalize_repo_relpath(raw_path)
+        if not any(matches_repo_glob(path, glob) for glob in PIN_TEST_GLOBS):
+            raise GovernanceError(f"red_first_pin_path_not_a_test: {raw_path!r} matches none of {PIN_TEST_GLOBS}")
+        if type(content) is not str:
+            raise GovernanceError(f"red_first_pin_content_not_text: {raw_path!r}")
+        files[path] = content
+    return files, command, signature
+
+
+@contextmanager
+def _pinned_worktree(root: Path, sha: str, files: dict[str, str]) -> Iterator[Path]:
+    """A detached worktree of ``sha`` with the pin's files written over it,
+    in a private scratch directory; removed and pruned on exit."""
+    holder = Path(tempfile.mkdtemp(prefix="aria-red-first-")).resolve()
+    tree = holder / "tree"
+    added = subprocess.run(["git", "worktree", "add", "--quiet", "--detach", str(tree), sha],
+                           cwd=root, capture_output=True, text=True, check=False)
+    try:
+        if added.returncode != 0:
+            raise GovernanceError(f"red_first_worktree_unavailable:{sha}:{added.stderr.strip()[:200]}")
+        for path in files:
+            _refuse_pin_path_through_symlink(tree, path, sha)
+        for path, content in files.items():
+            target = tree / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o644)
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(content)
+        yield tree
+    finally:
+        if added.returncode == 0:
+            subprocess.run(["git", "worktree", "remove", "--force", str(tree)],
+                           cwd=root, capture_output=True, text=True, check=False)
+        subprocess.run(["git", "worktree", "prune"], cwd=root, capture_output=True, text=True, check=False)
+        shutil.rmtree(holder, ignore_errors=True)
+
+
+def _refuse_pin_path_through_symlink(tree: Path, path: str, sha: str) -> None:
+    """The commit under proof is untrusted (in discovery it is the change's
+    head) and this write runs in the kernel, outside the sandbox: no
+    component of a pin path the commit already holds, the file included,
+    may be a symlink, or the write would land wherever the commit points it.
+    Checked for every pin file before any directory or file is created.
+    ``path`` is canonical (``normalize_repo_relpath``: no ``..``, relative)."""
+    current = tree
+    for part in path.split("/"):
+        current = current / part
+        if current.is_symlink():
+            raise GovernanceError(f"red_first_pin_path_escapes_worktree: {path!r} at {sha}")
+
+
+def _proof_verdict(red: dict[str, Any], green: dict[str, Any], signature: str, *, base_dir: str | Path | None) -> str:
+    if red["status"] == "ok":
+        return "refuted"
+    if red["failure_reason"] in _UNRUNNABLE_REASONS:
+        return "unrunnable"
+    if red["failure_reason"] != "assertion" or signature not in _run_log_output(red, base_dir=base_dir):
+        return "wrong_reason"
+    if green["status"] == "ok":
+        return "proven"
+    if green["failure_reason"] in _UNRUNNABLE_REASONS:
+        return "unrunnable"
+    return "exposed" if green["failure_reason"] == "assertion" else "wrong_reason"
+
+
+def _run_log_output(row: dict[str, Any], *, base_dir: str | Path | None) -> str:
+    """The command's output as the run's hash-verified log holds it, read
+    the way the ledger classified it (``validation_run_log_output``)."""
+    verified = verify_validation_run(row["validation_run_id"], base_dir=base_dir)
+    return validation_run_log_output(Path(verified["log_path"]).read_text(encoding="utf-8"))
+
+
 # How long a killed validation tree has to die before it is SIGKILLed: the
 # group gets SIGKILL immediately (a validation command that hit its ceiling
 # has had its whole window), and this is the wait for the reaped processes
@@ -741,7 +929,7 @@ def _write_run_log(
             [
                 f"command: {command}",
                 f"argv: {argv!r}",
-                "--- stdout ---",
+                VALIDATION_RUN_LOG_OUTPUT_LINE,
                 scrub_text(stdout),
                 "--- stderr ---",
                 scrub_text(stderr),

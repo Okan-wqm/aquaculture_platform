@@ -387,13 +387,23 @@ def store_environment(store: StateStore, repo_hash: str) -> dict[str, str]:
     would be invisible at the callsite and impossible to test without
     leaking into the rest of the process.
     """
+    return store_root_environment(store.root)
+
+
+def store_root_environment(root: Path) -> dict[str, str]:
+    """The binding of ``store_environment`` for a store named by its root.
+
+    WP-D1 — a room store (``harness.py review-change``) is a plain directory,
+    not a checkout of the state branch, and binds exactly the same layout:
+    one definition of the paths, whichever form names the store.
+    """
     bindings = {
-        "ARIA_WORKSPACE_BASE": (store.root / WORKSPACE_SUBDIR).as_posix(),
-        "ARIA_REPO_STATE_ROOT": findings_root(store).as_posix(),
-        "ARIA_TOOLS_DIR": tools_root(store).as_posix(),
+        "ARIA_WORKSPACE_BASE": (root / WORKSPACE_SUBDIR).as_posix(),
+        "ARIA_REPO_STATE_ROOT": (root / FINDINGS_SUBDIR).as_posix(),
+        "ARIA_TOOLS_DIR": (root / TOOLS_SUBDIR).as_posix(),
         # Named so a reader of `env` output can tell which store produced
         # it without having to reconstruct the path convention.
-        "ARIA_STATE_STORE_ROOT": store.root.as_posix(),
+        "ARIA_STATE_STORE_ROOT": root.as_posix(),
     }
     # Keyed by the exported tuple so the name list and the export cannot
     # disagree silently: a name without a value fails here, a value without a
@@ -6493,6 +6503,7 @@ __all__ = [
     "snapshot_path",
     "state_size_alarm",
     "store_environment",
+    "store_root_environment",
     "store_roots",
     "tools_root",
     "verify_state_store",

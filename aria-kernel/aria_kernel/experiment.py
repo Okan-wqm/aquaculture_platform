@@ -47,12 +47,20 @@ row behind. It refuses to run rather than fabricate provenance.
 from __future__ import annotations
 
 import re
+import secrets
 from pathlib import Path
 from typing import Any
 
 from .ledger import append_declared_jsonl, load_declared_jsonl
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
-from .validation import _canonical_input_scope, _input_metadata_within_limit, run_validation_commands
+from .validation import (
+    PROOF_VERDICTS,
+    _canonical_input_scope,
+    _input_metadata_within_limit,
+    admit_pin,
+    prove_red_first,
+    run_validation_commands,
+)
 from .validation_runs_ledger import (
     VALIDATION_RUN_STATUSES,
     classify_validation_run_status,
@@ -66,13 +74,21 @@ EXPERIMENTS_DIRNAME = "experiments"
 
 # Closed comparator vocabulary. Each one speaks about a PROCESS OUTCOME,
 # never about a domain: that is what keeps the bench portable across the
-# repositories it will be pointed at.
+# repositories it will be pointed at. ``proof_verdict_equals`` speaks about a
+# PAIR of runs — the red-first prover's verdict (``validation.PROOF_VERDICTS``)
+# — so only ``prove_candidate_pin`` observes it; ``run_experiment`` runs one
+# command and refuses it.
+PROOF_VERDICT_COMPARATOR = "proof_verdict_equals"
 OBSERVATION_COMPARATORS: tuple[str, ...] = (
     "exit_code_equals",
     "status_equals",
     "log_sha256_equals",
     "log_contains",
+    PROOF_VERDICT_COMPARATOR,
 )
+
+# How long each side of a candidate's pin proof may run.
+PIN_PROOF_TIMEOUT_MS = 120_000
 
 _ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$")
 
@@ -251,6 +267,7 @@ def register_experiment(
     recipe_ref: str,
     observation_contract: dict[str, Any],
     finding_ref: str | None = None,
+    candidate_ref: str | None = None,
     base_dir: str | Path | None = None,
     cycle_id: str | None = None,
 ) -> dict[str, Any]:
@@ -271,12 +288,18 @@ def register_experiment(
     domain-blindness invariant pins that), so binding validity is owned
     entirely by the bridge and the night planner DISCLOSES refs that
     resolve to no finding instead of silently skipping them.
+
+    D6 — ``candidate_ref`` binds the experiment, the same way and at the
+    same moment, to the candidate claim a seat judged (opaque data here
+    too): the observation ``prove_candidate_pin`` records answers for that
+    candidate and is never stapled to another after the fact.
     """
     _assert_identifier("experiment_id", experiment_id)
     if not isinstance(hypothesis, str) or not hypothesis.strip():
         raise GovernanceError("experiment_hypothesis_required")
-    if finding_ref is not None and (not isinstance(finding_ref, str) or not finding_ref.strip()):
-        raise GovernanceError("experiment_finding_ref_must_be_nonempty_string")
+    for name, ref in (("finding_ref", finding_ref), ("candidate_ref", candidate_ref)):
+        if ref is not None and (not isinstance(ref, str) or not ref.strip()):
+            raise GovernanceError(f"experiment_{name}_must_be_nonempty_string")
     recipe = get_recipe(recipe_ref, base_dir=base_dir)
     contract = _validated_observation_contract(observation_contract)
     row = {
@@ -288,6 +311,7 @@ def register_experiment(
         "recipe_ref": recipe["recipe_id"],
         "observation_contract": contract,
         "finding_ref": finding_ref,
+        "candidate_ref": candidate_ref,
     }
     return append_declared_jsonl(
         experiments_path(base_dir), row,
@@ -347,6 +371,11 @@ def run_experiment(
     finding.
     """
     experiment = get_experiment(experiment_id, base_dir=base_dir)
+    if experiment["observation_contract"]["comparator"] == PROOF_VERDICT_COMPARATOR:
+        raise GovernanceError(
+            f"experiment_pin_proof_not_a_single_run: experiment {experiment_id!r} "
+            f"observes a red-first verdict over two runs; prove_candidate_pin owns it"
+        )
     recipe = get_recipe(str(experiment["recipe_ref"]), base_dir=base_dir)
     if not recipe.get("deterministic"):
         raise GovernanceError(
@@ -419,6 +448,95 @@ def run_experiment(
     )
 
 
+def prove_candidate_pin(
+    *,
+    candidate_ref: str,
+    pin: dict[str, Any],
+    red_at: str,
+    green_at: str,
+    workspace_root: str | Path,
+    runner_identity: str,
+    base_dir: str | Path | None = None,
+    cycle_id: str | None = None,
+) -> dict[str, Any]:
+    """D6 — the kernel proves a seat's pin and records it for its candidate.
+
+    A reproduction seat never certifies its own red (DESIGN-discovery row
+    D6). The kernel admits the pin first (``validation.admit_pin``: test
+    files only, an allowlisted command — refused before anything is
+    registered), then registers a recipe for the pin's command and an
+    experiment bound to ``candidate_ref`` AT REGISTRATION, runs
+    ``validation.prove_red_first`` at the SHAs it chose, and appends one
+    observation carrying ``candidate_ref``, the verdict, both SHAs and both
+    run ids. The observation is ``matched`` only when the verdict is
+    ``proven``, and its ``run_status`` and ``validation_run_id`` are the
+    red side's: the shape every reader of the observation ledger already
+    reads (``evidence_validator``'s R4 binding, the finding bridge, memory),
+    so a seat's R4 row naming this recipe is backed by the kernel's run and
+    by nothing the seat said.
+
+    What D6 relies on, and what it does not (ARIA-MEDIUM-938 stands): the
+    kernel ran the pin itself, in its own worktrees of ``red_at`` and
+    ``green_at`` under the validation sandbox, with the pin's admission —
+    so a seat cannot change the code under proof, choose the SHAs, pick an
+    unlisted command, or report a run that did not happen. It does NOT rely
+    on ``failure_reason``: that class is read from text the pin itself
+    prints, so a hostile pin can print its way into ``assertion``.
+    ``proven`` here catches honest mistakes (an import or collection red is
+    ``wrong_reason``); it is not an adversarial boundary, and no promotion
+    may treat a seat-written pin's ``proven`` as one on its own.
+    """
+    if not isinstance(candidate_ref, str) or not candidate_ref.strip():
+        raise GovernanceError("experiment_candidate_ref_required")
+    _files, command, _signature = admit_pin(pin)
+    token = secrets.token_hex(8)
+    recipe = register_recipe(
+        recipe_id=f"pin-{token}", command=command, timeout_ms=PIN_PROOF_TIMEOUT_MS,
+        deterministic=True, description=f"red-first pin for candidate {candidate_ref}",
+        base_dir=base_dir, cycle_id=cycle_id,
+    )
+    contract = {"comparator": PROOF_VERDICT_COMPARATOR, "expected": "proven"}
+    experiment = register_experiment(
+        experiment_id=f"pin-proof-{token}",
+        hypothesis=f"the pin is red at {red_at} and green at {green_at}, as {pin['expectation_ref']} expects",
+        recipe_ref=recipe["recipe_id"], observation_contract=contract,
+        candidate_ref=candidate_ref, base_dir=base_dir, cycle_id=cycle_id,
+    )
+    proof = prove_red_first(
+        red_at, green_at, pin, workspace_root=workspace_root, runner_identity=runner_identity,
+        base_dir=base_dir, timeout_ms=PIN_PROOF_TIMEOUT_MS,
+    )
+    red = find_validation_run_by_id(proof["red_run_id"], base_dir=base_dir)
+    if red is None:
+        raise GovernanceError(f"experiment_validation_run_missing: {proof['red_run_id']!r}")
+    row = {
+        "schema_version": 1,
+        "recorded_at": utc_now(),
+        "cycle_id": cycle_id,
+        "experiment_id": experiment["experiment_id"],
+        "recipe_ref": recipe["recipe_id"],
+        "hypothesis": experiment["hypothesis"],
+        "candidate_ref": candidate_ref,
+        "proof_id": proof["proof_id"],
+        "commit_sha": proof["red_at"],
+        "runner_identity": runner_identity,
+        "validation_run_id": proof["red_run_id"],
+        "comparator": contract["comparator"],
+        "expected": contract["expected"],
+        "verdict": proof["verdict"],
+        "matched": proof["verdict"] == contract["expected"],
+        "run_status": classify_validation_run_status(red),
+        "red_at": proof["red_at"],
+        "green_at": proof["green_at"],
+        "red_run_id": proof["red_run_id"],
+        "green_run_id": proof["green_run_id"],
+    }
+    return append_declared_jsonl(
+        observations_path(base_dir), row,
+        expected_surface="experiment_observations",
+    )
+
+
 def _assert_identifier(field: str, value: str) -> None:
     if not isinstance(value, str) or not _ID_PATTERN.match(value):
         raise GovernanceError(
@@ -468,6 +586,12 @@ def _validated_observation_contract(
             raise GovernanceError(
                 f"experiment_observation_expected_must_be_sha256: got "
                 f"{expected!r}"
+            )
+    elif comparator == PROOF_VERDICT_COMPARATOR:
+        if expected not in PROOF_VERDICTS:
+            raise GovernanceError(
+                f"experiment_observation_expected_must_be_proof_verdict: got "
+                f"{expected!r}, allowed {PROOF_VERDICTS}"
             )
     elif comparator == "log_contains":
         if not isinstance(expected, str) or not expected:
@@ -523,6 +647,7 @@ __all__ = [
     "list_experiments",
     "list_recipes",
     "observations_path",
+    "prove_candidate_pin",
     "recipes_path",
     "register_experiment",
     "register_recipe",

@@ -15,7 +15,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from aria_kernel.genesis_policy import SUPERIORITY_DEFAULTS, superiority_policy
+from aria_kernel.genesis_policy import superiority_policy
 from aria_kernel.genesis_superiority import duel_observations
 from aria_kernel.plan_convergence import _record_duel_observation
 from aria_kernel.tool_registry import ensure_tools_dir
@@ -84,12 +84,17 @@ class SuperiorityPolicyThreadingTests(unittest.TestCase):
             override = repo_root / "aria-config" / "genesis_policy.json"
             override.parent.mkdir(parents=True, exist_ok=True)
             override.write_text(
-                json.dumps({"superiority": {"min_duel_matches": 1}}),
+                # F1.7 — the block is pre-registered and replaced whole by an
+                # override, so the override writes every key.
+                json.dumps({"superiority": {
+                    "min_duel_matches": 1, "window_days": 30,
+                    "alpha": 0.05, "min_discordant_pairs": 6,
+                }}),
                 encoding="utf-8",
             )
             policy = superiority_policy(repo_root)
         self.assertEqual(policy["min_duel_matches"], 1)
-        self.assertNotEqual(policy["min_duel_matches"], SUPERIORITY_DEFAULTS["min_duel_matches"])
+        self.assertNotEqual(policy["min_duel_matches"], superiority_policy()["min_duel_matches"])
 
     def test_record_transition_threads_repo_root_to_superiority(self) -> None:
         # Deliberate-break: pre-C8 `record_transition` had no repo_root

@@ -468,6 +468,11 @@ def _service_facts_unavailable(base_sha: str, witness: dict[str, Any]) -> dict[s
     return {"verdict": "environment_unable", "base_sha": base_sha, "witness": witness}
 
 
+def _head_unreadable_error(refused: WorkspaceViewRefused) -> str:
+    """The named error of a checkout whose HEAD git could not answer (``workspace_head_sha`` raised)."""
+    return f"head_unreadable: {refused.reason}"
+
+
 def _base_tree_error(workspace: Path, base_sha: str) -> str | None:
     """None when the disk the entries read is the content of ``base_sha``; otherwise the named error.
 
@@ -495,7 +500,7 @@ def _base_tree_error(workspace: Path, base_sha: str) -> str | None:
     try:
         head_sha = workspace_head_sha(workspace)
     except WorkspaceViewRefused as exc:
-        return f"head_unreadable: {exc.reason}"
+        return _head_unreadable_error(exc)
     if head_sha is None:
         return "head_unreadable: the base tree has no readable HEAD commit"
     if head_sha != base_sha:
@@ -587,6 +592,12 @@ def compute_service_facts(
 def compute_service_facts_at_head(*, workspace_root: str | Path, runner: Runner | None = None) -> dict[str, Any]:
     """The code facts of a checkout's own HEAD (`compute_service_facts`): the base of every closure
     the kernel computes over its own workspace (`impact_graph.impact_closure`; SE-4), where the
-    change subject is the workspace rather than a diff. An unreadable HEAD is ``head_unreadable``."""
+    change subject is the workspace rather than a diff. An unreadable HEAD is ``head_unreadable``:
+    a checkout git cannot read (``workspace_head_sha`` raises) and a tree with no commit are held by
+    name, never raised, because every caller holds the change on the facts' verdict."""
     workspace = Path(workspace_root)
-    return compute_service_facts(workspace_root=workspace, base_sha=workspace_head_sha(workspace) or "", runner=runner)
+    try:
+        head_sha = workspace_head_sha(workspace)
+    except WorkspaceViewRefused as exc:
+        return _service_facts_unavailable("", {"error": _head_unreadable_error(exc)})
+    return compute_service_facts(workspace_root=workspace, base_sha=head_sha or "", runner=runner)

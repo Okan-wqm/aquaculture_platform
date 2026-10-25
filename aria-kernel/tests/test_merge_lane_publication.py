@@ -202,7 +202,8 @@ class _Adapter:
         return None, "fixture_pr_diff_absent"
 
 
-def _gates() -> list:
+def _gates(*, pr_number: int = 7, head_sha: str = _HEAD) -> list:
+    """Every gate before the merge call passes, for ``pr_number`` at ``head_sha``."""
     return [
         patch("aria_kernel.merge_authority.assert_merge_authority_available", return_value="autonomous"),
         patch("aria_kernel.merge_authority.assert_merge_authorized", return_value="autonomous"),
@@ -216,10 +217,10 @@ def _gates() -> list:
         patch("aria_kernel.merge_authority.verify_rollback_bundle", return_value={}),
         patch("aria_kernel.merge_authority.ensure_pre_merge_incident_row", return_value={"ledger_hash": "x"}),
         patch("aria_kernel.merge_authority._merge_if_green_with_executor",
-              return_value={"decision": "proceed", "eligible": True, "head_sha": _HEAD, "pr_number": 7}),
+              return_value={"decision": "proceed", "eligible": True, "head_sha": head_sha, "pr_number": pr_number}),
         patch("aria_kernel.merge_authority._evaluate_triple_gate", return_value={"passed": True, "change_id": "c"}),
         patch("aria_kernel.merge_authority.collect_github_snapshot", return_value={}),
-        patch("aria_kernel.merge_authority.evaluate_auto_merge", return_value={"eligible": True, "head_sha": _HEAD}),
+        patch("aria_kernel.merge_authority.evaluate_auto_merge", return_value={"eligible": True, "head_sha": head_sha}),
         patch("aria_kernel.merge_authority.run_hard_fail_checks",
               return_value=SimpleNamespace(passed=True, failures=(), results=())),
     ]

@@ -8,6 +8,7 @@ asks before it (both stubbed at their subprocess, over one fake PR table).
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import shutil
@@ -20,7 +21,7 @@ from typing import Any
 from unittest import mock
 
 from aria_kernel import cycle, pr_manager, self_revert
-from aria_kernel.auto_merge import _evaluate_triple_gate, record_pr_lifecycle
+from aria_kernel.auto_merge import _evaluate_triple_gate, merge_outcome, record_pr_lifecycle
 from aria_kernel.change_ledger import (
     CHANGE_RECORD_SCHEMA,
     _find_committed,
@@ -29,11 +30,13 @@ from aria_kernel.change_ledger import (
     emit_change_planned,
 )
 from aria_kernel.ledger import append_declared_jsonl, load_declared_jsonl
+from aria_kernel.merge_authority import merge_pr_if_ready
 from aria_kernel.merge_record import (
     LINEAGE_DELIVERED,
     LINEAGE_DIVERGED,
     MERGED_BY_MERGE_LANE,
     MERGED_BY_OBSERVED,
+    arias_merges,
     lifecycle_rows,
     opened_row,
     record_merge,
@@ -81,6 +84,7 @@ from aria_kernel.validation_suite import CANONICAL_VALIDATION_COMMANDS_EXECUTABL
 from tests._helpers.ambient_git_config import AMBIENT_GIT_CONFIG, injected_git_config
 from tests._helpers.installation_credential import INSTALLATION_TOKEN
 from tests._helpers.operator_acts import operator_set_profile
+from tests.test_merge_lane_publication import _gates as merge_lane_gates
 
 MERGED_PR = 41
 REVERT_PR = 77
@@ -155,6 +159,32 @@ class FakeIssueWriter:
         issue["state"] = "closed"
         issue["closing_comment"] = comment
         return {"outcome": "closed", "number": issue["number"], "url": issue["url"]}
+
+
+class _MergeLaneAdapter:
+    """GitHub as the merge lane's direct path sees it: the PR open at the head
+    ARIA delivered, and a merge call GitHub then reports merged at
+    ``merge_commit`` — measured the way the real adapter measures it
+    (``auto_merge.merge_outcome``)."""
+
+    def __init__(self, *, head_sha: str, merge_commit: str) -> None:
+        self.head_sha = head_sha
+        self.merge_commit = merge_commit
+
+    def get_open_issues(self, *, labels: Any) -> dict[str, Any]:
+        return {"readable": True, "issues": []}
+
+    def get_pr(self, number: int) -> dict[str, Any]:
+        return {"number": number, "state": "OPEN", "repository": "o/r", "base_branch": "main",
+                "head_ref": "feat/x", "head_sha": self.head_sha}
+
+    def get_pr_diff(self, number: int) -> tuple[str | None, str | None]:
+        return None, "fixture_pr_diff_absent"
+
+    def merge_pr(self, number: int, *, method: str, expected_head_sha: str) -> dict[str, Any]:
+        return merge_outcome({"state": "MERGED", "head_sha": expected_head_sha, "in_merge_queue": False,
+                              "auto_merge_enabled": False, "merge_commit_sha": self.merge_commit},
+                             expected_head_sha=expected_head_sha, method=method)
 
 
 def _unlocked(lane: str, **_: Any) -> SimpleNamespace:
@@ -302,12 +332,23 @@ class SelfRevertTests(unittest.TestCase):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding="utf-8")
 
-    def _lane_merged(self, pr_number: int = MERGED_PR, *, merge_sha: str | None = None) -> None:
-        """merge_record's merged row for a merge ARIA's merge lane made at the
-        head it delivered: what makes a merge ARIA's (F3.3a)."""
-        record_merge(pr={"number": pr_number, "base_branch": "main", "head_sha": "e" * 40},
-                     merged_by=MERGED_BY_MERGE_LANE, base_dir=self.tools, merge_sha=merge_sha or self.merge_sha,
-                     head_lineage=LINEAGE_DELIVERED)
+    def _lane_merged(self, pr_number: int = MERGED_PR, *, merge_commit: str | None = None) -> None:
+        """ARIA's merge lane merges ``pr_number`` through its direct path: GitHub
+        reports it merged at the head the lane delivered, at merge commit
+        ``merge_commit``, and merge_authority records that measurement.
+
+        The merged row is the one production writes (review r1 of F3.3a, B1):
+        nothing hands merge_record a merge sha the lane did not measure.
+        """
+        head_sha = "e" * 40
+        adapter = _MergeLaneAdapter(head_sha=head_sha, merge_commit=merge_commit or self.merge_sha)
+        with contextlib.ExitStack() as gates:
+            for gate in merge_lane_gates(pr_number=pr_number, head_sha=head_sha):
+                gates.enter_context(gate)
+            result = merge_pr_if_ready(adapter=adapter, pr_number=pr_number, base_dir=self.tools,
+                                       readiness_claim_id=f"claim:{pr_number}:aaaaaaaaaaaa",
+                                       intent_publisher=lambda intent: {"published": True})
+        self.assertEqual(result["decision"], "merged", result)
 
     def _aria_merged(self, pr_number: int = MERGED_PR) -> None:
         """The merge lane's ``merged`` decision row alone: not authorship (F3.3a)."""
@@ -706,13 +747,30 @@ class SelfRevertTests(unittest.TestCase):
         assert freeze is not None
         self.assertEqual(freeze["trigger"], TRIGGER_CHANGE_OUTCOME)
 
+    def test_a_direct_merge_lane_merge_is_reverted_on_its_regression(self) -> None:
+        # Review r1 of F3.3a, B1 — the merge lane's direct path records the
+        # merge commit GitHub reported for its merge on merge_record's merged
+        # row; a regression verdict on the change reverts exactly that commit,
+        # before (and without) any post-merge CI row for the PR.
+        self._lane_merged(merge_commit=self.merge_sha)
+        self.assertEqual(arias_merges(self.tools)[MERGED_PR].get("merge_sha"), self.merge_sha)
+        self._regression_verdict()
+        result = self._produce(None, triggers=(TRIGGER_CHANGE_OUTCOME,))
+        self.assertEqual(result["skipped"], [])
+        rows = load_self_reverts(base_dir=self.tools)
+        self.assertEqual([(row["decision"], row["trigger"]) for row in rows],
+                         [(DECISION_OPENED, TRIGGER_CHANGE_OUTCOME)])
+        freeze = active_freeze(base_dir=self.tools)
+        assert freeze is not None
+        self.assertEqual(freeze["merge_sha"], self.merge_sha)
+
     # -- the landed revert -------------------------------------------------
 
     def test_a_revert_that_lands_green_records_rollback_success_once(self) -> None:
         self._lane_merged()
         self._merge_outcome()
         self._produce(self._green_parent())
-        self._lane_merged(REVERT_PR, merge_sha="c" * 40)
+        self._lane_merged(REVERT_PR, merge_commit="c" * 40)
         self._merge_outcome(pr_number=REVERT_PR, head_ref=revert_branch_for(self.merge_sha),
                             merge_sha="c" * 40, status="green")
         self._produce(self._green_parent())
@@ -1159,7 +1217,7 @@ class SelfRevertTests(unittest.TestCase):
     # -- the regression trigger's merge resolution --------------------------
 
     def _regression(self, *, merge_sha: str | None = None) -> None:
-        self._lane_merged(merge_sha=merge_sha)
+        self._lane_merged(merge_commit=merge_sha)
         self._merge_outcome(status="green", merge_sha=merge_sha)
         append_declared_jsonl(
             self.tools / "change-ledger" / "outcome.jsonl",

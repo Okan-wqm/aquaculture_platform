@@ -197,6 +197,7 @@ class TheAdapterMeasuresWhatTheMergeCallDidTests(unittest.TestCase):
         result, fake = self._merge({"state": "OPEN", "headRefOid": _HEAD, "isInMergeQueue": True,
                                     "autoMergeRequest": None, "mergeCommit": None})
         self.assertEqual((result["merged"], result["enqueued"]), (False, True))
+        self.assertIsNone(result["merge_commit_sha"])
         merge = next(argv for argv in fake.calls if argv[1:3] == ["pr", "merge"])
         self.assertIn("--squash", merge)
         self.assertEqual(merge[merge.index("--match-head-commit") + 1], _HEAD)
@@ -210,7 +211,9 @@ class TheAdapterMeasuresWhatTheMergeCallDidTests(unittest.TestCase):
         result, _ = self._merge({"state": "MERGED", "headRefOid": _HEAD, "isInMergeQueue": False,
                                  "autoMergeRequest": None, "mergeCommit": {"oid": "c" * 40}})
         self.assertEqual((result["merged"], result["enqueued"]), (True, False))
-        self.assertEqual(result["observed"]["merge_commit_sha"], "c" * 40)
+        # F3.4 — a merged result names the merge commit GitHub made: the
+        # commit the merged row records and self-revert reverts.
+        self.assertEqual(result["merge_commit_sha"], "c" * 40)
 
     def test_anything_else_is_neither(self) -> None:
         for state in (
@@ -232,6 +235,7 @@ class TheAdapterMeasuresWhatTheMergeCallDidTests(unittest.TestCase):
     def test_nothing_observed_is_neither(self) -> None:
         result = merge_outcome(None, expected_head_sha=_HEAD, method="squash")
         self.assertEqual((result["merged"], result["enqueued"], result["observed"]), (False, False, None))
+        self.assertIsNone(result["merge_commit_sha"])
 
 
 class _Adapter:
@@ -318,6 +322,19 @@ class TheAuthorityRecordsWhatHappenedTests(_Store):
         self.assertEqual(result["decision"], "merged")
         self.assertIn("merged", [row["event"] for row in self._lifecycle()])
         self.assertIn("merge_finalized_no_incident", [row["incident_event"] for row in self._incidents()])
+
+    def test_a_merged_result_records_the_merge_commit_github_names(self) -> None:
+        # Review r1 of F3.3a, B1 — the direct path's merged row names the
+        # merge commit the adapter measured, as the queue settlement's does:
+        # self-revert reverts the commit merge_record's row names (F3.4).
+        from aria_kernel.merge_record import arias_merges
+
+        measured = merge_outcome({"state": "MERGED", "head_sha": _HEAD, "in_merge_queue": False,
+                                  "auto_merge_enabled": False, "merge_commit_sha": "c" * 40},
+                                 expected_head_sha=_HEAD, method="squash")
+        self.assertEqual(self._merge(measured)["decision"], "merged")
+        self.assertEqual({number: row.get("merge_sha") for number, row in arias_merges(self.tools).items()},
+                         {7: "c" * 40})
 
     def test_an_unconfirmed_result_is_a_failure_never_a_merge(self) -> None:
         # A zero exit used to be recorded as `merged` whatever GitHub did.

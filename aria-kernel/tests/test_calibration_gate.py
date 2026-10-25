@@ -5,14 +5,14 @@ One property per test:
 * under `measure_only` the confidence gate is the legacy gate bit for bit
   and the consensus row records what `enforce` would have excluded;
 * under `enforce`, closing authority is a calibrated quorum: two calibrated
-  judges of distinct models — a calibrated judge beside an uncalibrated
-  partner does NOT close on its own confidence (the review's C2 path), two
-  calibrated judges of one model do not either, two of distinct models do,
-  and an uncalibrated dissenter still produces `judge_disagreement`;
+  judge SEATS — a calibrated judge beside an uncalibrated partner does NOT
+  close on its own confidence (the review's C2 path), two calibrated seats
+  close whatever model they run (WP-P), and an uncalibrated dissenter still
+  produces `judge_disagreement`;
 * without a calibration map there is nothing to enforce: the gate is
   `measure_only` by construction, whatever the caller asked;
 * `effective_calibration_gate` downgrades `enforce` while fewer than two
-  calibrated judges of distinct models exist, and says why;
+  calibrated SEATS exist (the ONE seat law, PLAN-v2 F0.8), and says why;
 * the two reasons that never escalated are in every vocabulary, and the
   AST invariant walks every reason `feedback_store` emits;
 * (F0.7) `confidence_uncalibrated` is calibration work, never arbitrated
@@ -154,19 +154,26 @@ class TheGate(unittest.TestCase):
 
 
 class TheEffectiveGate(unittest.TestCase):
-    def test_enforce_waits_for_two_calibrated_judges_of_one_span(self) -> None:
-        """WP-J B-1 — the downgrade criterion is the hybrid span (methods
-        when the calibration rows can name them, models otherwise), not the
-        bare model count; the leg the gate judged is on the record."""
-        none = effective_calibration_gate("enforce", {})
-        self.assertEqual((none["effective"], none["reason"], none["quorum_leg"]),
-                         ("measure_only", "fewer_than_two_calibrated_judges_of_one_span", "unknown"))
-        one = effective_calibration_gate("enforce", {"a": {"calibration_status": "calibrated", "model": "opus"},
-                                                     "b": {"calibration_status": "provisional", "model": "glm"}})
-        self.assertEqual(one["effective"], "measure_only")
+    def test_enforce_waits_for_two_calibrated_seats(self) -> None:
+        """PLAN-v2 F0.8 (re-pinned from WP-J B-1's hybrid span) — the
+        downgrade criterion is the ONE seat law: two calibrated distinct
+        seats whose receipts name a model or a method. Two seats on ONE
+        model enforce (a single provider has one model); a calibrated
+        entry naming neither is no receipt (G-2) and seats nothing. The
+        span `observation_span` reads is recorded as `quorum_leg`, a
+        descriptor that gates nothing."""
         same = effective_calibration_gate("enforce", {"a": {"calibration_status": "calibrated", "model": "opus"},
                                                       "b": {"calibration_status": "calibrated", "model": "opus"}})
-        self.assertEqual(same["effective"], "measure_only")
+        self.assertEqual((same["effective"], same["reason"], same["quorum_leg"]),
+                         ("enforce", "calibrated_quorum_available", "models"))
+        none = effective_calibration_gate("enforce", {})
+        self.assertEqual((none["effective"], none["reason"], none["quorum_leg"]),
+                         ("measure_only", "fewer_than_two_calibrated_seats", "unknown"))
+        one = effective_calibration_gate("enforce", {"a": {"calibration_status": "calibrated", "model": "opus"},
+                                                     "b": {"calibration_status": "provisional", "model": "glm"}})
+        self.assertEqual((one["effective"], one["reason"]), ("measure_only", "fewer_than_two_calibrated_seats"))
+        receiptless = effective_calibration_gate("enforce", {"a": "calibrated", "b": "calibrated"})
+        self.assertEqual(receiptless["effective"], "measure_only")
         ready = effective_calibration_gate("enforce", {"a": {"calibration_status": "calibrated", "model": "opus"},
                                                        "b": {"calibration_status": "calibrated", "model": "glm"}})
         self.assertEqual((ready["effective"], ready["reason"], ready["calibrated_judges"], ready["quorum_leg"]),

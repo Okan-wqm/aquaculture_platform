@@ -186,5 +186,30 @@ class TheRealPlannerContract(unittest.TestCase):
         self.assertEqual(delivery.omitted_refs, ())
 
 
+class TheJudgeBenchIdentity(unittest.TestCase):
+    """J2 — the verdict cache names its judges by the contracts the executor
+    delivers, from the kernel checkout: every seat renders there, and a seat
+    that cannot render leaves the bench unknown (None), never a stale hash."""
+
+    def test_the_real_kernel_checkout_renders_every_judge_seat(self) -> None:
+        from aria_kernel.agent_contract_delivery import agent_contracts_root, judge_seats_contract_hash
+
+        self.assertEqual(agent_contracts_root(), _REPO_ROOT)
+        self.assertRegex(judge_seats_contract_hash() or "", r"^sha256:[0-9a-f]{64}$")
+
+    def test_a_seat_without_a_contract_leaves_the_bench_unknown(self) -> None:
+        from unittest.mock import patch
+
+        from aria_kernel.agent_contract_delivery import judge_seats_contract_hash
+
+        with tempfile.TemporaryDirectory() as tmp:
+            kernel = Path(tmp)
+            (kernel / "aria-kernel").mkdir()
+            (kernel / ".claude" / "agents").mkdir(parents=True)
+            (kernel / ".claude" / "agents" / "aria-evidence-judge.md").write_text("judge\n", encoding="utf-8")
+            with patch("aria_kernel.claude_settings.kernel_code_root", return_value=kernel / "aria-kernel"):
+                self.assertIsNone(judge_seats_contract_hash())
+
+
 if __name__ == "__main__":
     unittest.main()

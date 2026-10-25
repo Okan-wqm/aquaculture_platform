@@ -52,6 +52,20 @@ _AGENT_MD_DIRECTORIES: tuple[tuple[str, ...], ...] = (
 )
 
 
+def agent_md_candidates(target_agent: str) -> tuple[str, ...]:
+    """The repo-relative paths, in lookup order, where <target_agent>.md may live.
+
+    Empty for a blank name or one that is a path (traversal guard —
+    target_agent is a name, not a path). ``resolve_agent_md_path`` reads them
+    in the working tree; the verdict cache (J2, ``judgment_cache``) reads the
+    same paths at a commit, so both follow this one lookup order.
+    """
+    target = (target_agent or "").strip()
+    if not target or "/" in target or ".." in target:
+        return ()
+    return tuple("/".join((*parts, f"{target}.md")) for parts in _AGENT_MD_DIRECTORIES)
+
+
 def resolve_agent_md_path(target_agent: str, repo_root: Path) -> Path | None:
     """Return the first .md file matching <target_agent> across the agent dirs.
 
@@ -59,17 +73,11 @@ def resolve_agent_md_path(target_agent: str, repo_root: Path) -> Path | None:
     whether None is a hard failure (Phase 11 validator) or a soft fallback
     (Phase 2 context-budget audit returning a zero token estimate).
     """
-    target = (target_agent or "").strip()
-    if not target:
-        return None
-    if "/" in target or ".." in target:
-        # Path-traversal guard — target_agent is a name, not a path.
-        return None
-    for parts in _AGENT_MD_DIRECTORIES:
-        candidate = repo_root.joinpath(*parts, f"{target}.md")
+    for relative in agent_md_candidates(target_agent):
+        candidate = repo_root / relative
         if candidate.exists() and candidate.is_file():
             return candidate
     return None
 
 
-__all__ = ["resolve_agent_md_path"]
+__all__ = ["agent_md_candidates", "resolve_agent_md_path"]

@@ -537,6 +537,11 @@ def record_judge_verdict_from_response(
         # rule's model leg for those receipts.
         method=folded_judge_method(request, details, verdict_block),
         prompt_hash=verdict_block.get("prompt_hash"),
+        # J2 (SEPT-HARVEST §2) — the contract the model was shown, from the
+        # executor's force-stamp (the same mint-first doctrine as the model
+        # above): score_judges scopes a judge's calibration to the
+        # (model, contract) version that earned it.
+        agent_contract_hash=details.get("agent_contract_hash"),
         confidence=float(confidence) if confidence is not None else None,
         rationale=str(note),
         evidence_refs=evidence_refs,

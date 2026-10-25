@@ -600,11 +600,6 @@ const STORED_STATE_DECIDERS: ReadonlyMap<string, string> = new Map([
     PROJECTION_MODULE,
     "the projection itself: it derives every reader's state from the stored rows",
   ],
-  [
-    'tests/invariants/finding-registry-merge-driver.spec.ts',
-    'store level: it pins how the merge driver combines two stored copies of a row, a ' +
-      'question about the stored bytes, not about whether a finding is closed',
-  ],
 ]);
 
 /** A literal that names the registry rows file (not its schema). */

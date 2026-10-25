@@ -4,8 +4,10 @@
  *
  * Phase 6 of /root/.claude/plans/abstract-brewing-mochi.md.
  *
- * docs/reviews/_registry/findings.jsonl is an append-only hash-chained
- * ledger of every CATCHER-produced finding. This invariant asserts:
+ * docs/reviews/_registry/findings.jsonl is the frozen genesis segment of an
+ * append-only hash-chained ledger of every CATCHER-produced finding (since MF-2
+ * every later change is an event under docs/reviews/_registry/findings/). This
+ * invariant asserts:
  *
  *   1. Every line parses as JSON.
  *   2. Every entry conforms to findings.jsonl.schema.json.
@@ -19,13 +21,17 @@
  *
  * # When this fails
  *
- *   - Entry mid-registry edited → re-run tools/scripts/seed-finding-registry.mjs
- *     on a fresh registry OR append a corrective entry (never in-place edit).
+ *   - Entry mid-registry edited, or a row appended → revert it. findings.jsonl
+ *     is frozen: a change to a finding is an event (`finding-registry add`,
+ *     `reopen`, `assign`, ... write it under docs/reviews/_registry/findings/).
+ *     A branch that wrote rows before the freeze converts them with the branch
+ *     converter.
  *   - Schema violation on a new entry → fix the entry to match schema.
  *   - Hash mismatch → content was modified after append; revert the edit.
- *   - Since MF-2 findings.jsonl is frozen: a genesis-pin failure names its
- *     remedy (the branch converter, or `npm run findings:genesis` at landing),
- *     and every later change is an event under docs/reviews/_registry/findings/.
+ *   - A genesis-pin failure names the remedy its base allows. Before the freeze
+ *     lands (the base has no genesis.json) that is the branch converter, or
+ *     `npm run findings:genesis` at landing. Once the base holds the freeze it is
+ *     final, and only the converter, which restores the segment, is named.
  *
  * # References
  *
@@ -361,17 +367,22 @@ describe('finding registry integrity invariant', () => {
  * verifier would otherwise pass both.
  *
  *   - T6: the bytes of findings.jsonl are the blob genesis.json pins (sha256,
- *     entry count, tip content_hash). A mismatch names its two remedies: a
- *     branch that edited or appended rows converts them to events with the
- *     branch converter; a landing that merged origin/main before the freeze
- *     re-pins with `npm run findings:genesis`.
+ *     entry count, tip content_hash). A mismatch names the remedy the base of
+ *     the change allows: a branch that edited or appended rows converts them to
+ *     events with the branch converter; a landing that merged origin/main
+ *     before the freeze also re-pins with `npm run findings:genesis`; once the
+ *     base holds genesis.json the freeze is final and no re-pin is offered.
  *   - T6: every event file is `findings/<PREFIX>/<ID>.jsonl` and its lines
  *     form a chain anchored on the finding's genesis row (or the genesis tip
  *     for a finding born after the freeze); the vocabulary is closed and never
  *     reaches RESOLVED; ids are unique over genesis ∪ files; every owner_user
  *     an event writes is a CODEOWNERS handle in its CODEOWNERS spelling.
  *   - T7: every event file at the base of this change is a byte prefix of
- *     itself here, and none is deleted.
+ *     itself here, and none is deleted; and once the base holds genesis.json,
+ *     genesis.json and findings.jsonl are byte-equal to the base's. This runs
+ *     in every PR (the Closes Footer Check that also holds them is not a
+ *     required status), so a branch cannot append a row, re-pin and merge. The
+ *     cutover itself, whose base has no genesis.json, is exempt.
  */
 describe('MF-2 — the genesis pin and the per-finding event store', () => {
   const REGISTRY_DIR = path.join(REPO_ROOT, 'docs', 'reviews', '_registry');
@@ -380,6 +391,8 @@ describe('MF-2 — the genesis pin and the per-finding event store', () => {
   const STORE_DIR = path.join(REPO_ROOT, STORE_RELATIVE);
   const GENESIS_REMEDY = 'npm run findings:genesis';
   const BRANCH_REMEDY = 'tools/gates/finding-registry-migrate-branch.ts';
+  const GENESIS_RELATIVE = 'docs/reviews/_registry/genesis.json';
+  const SEGMENT_RELATIVE = 'docs/reviews/_registry/findings.jsonl';
   const EVENT_TYPES = [
     'CREATED',
     'STATE_TRANSITIONED',
@@ -429,17 +442,56 @@ describe('MF-2 — the genesis pin and the per-finding event store', () => {
     return execFileSync('git', ['-C', REPO_ROOT, ...args], { maxBuffer: 256 * 1024 * 1024 });
   }
 
+  /** The commit this change is judged against: merge-base(HEAD, origin/main); on main itself, the last merge's first parent. */
+  function changeBase(): string {
+    const remote = spawnSync(
+      'git',
+      ['-C', REPO_ROOT, 'rev-parse', '--verify', '--quiet', 'origin/main'],
+      { encoding: 'utf8' },
+    );
+    if (remote.status !== 0) {
+      throw new Error(
+        'origin/main is not available: the checks against the base compare with merge-base(HEAD, origin/main) (fetch-depth: 0)',
+      );
+    }
+    const head = git(['rev-parse', 'HEAD']).toString('utf8').trim();
+    const mergeBase = git(['merge-base', 'HEAD', 'origin/main']).toString('utf8').trim();
+    return mergeBase === head
+      ? git(['rev-parse', `${head}^1`])
+          .toString('utf8')
+          .trim()
+      : mergeBase;
+  }
+
+  /** Whether `base` already holds genesis.json, which is what makes the segment final. */
+  function baseHoldsFreeze(base: string): boolean {
+    return (
+      git(['ls-tree', '--name-only', base, '--', GENESIS_RELATIVE]).toString('utf8').trim() !== ''
+    );
+  }
+
   function readGenesis(): Record<string, unknown> | null {
     if (!fs.existsSync(GENESIS_PATH)) return null;
     return JSON.parse(fs.readFileSync(GENESIS_PATH, 'utf8')) as Record<string, unknown>;
   }
 
-  /** Why `blob` is not the segment `genesis` pins; each reason names both remedies. */
-  function genesisPinDefects(blob: Buffer, genesis: Record<string, unknown> | null): string[] {
-    const remedy =
-      `A branch that edited or appended findings.jsonl rows converts them to events with ` +
-      `\`ts-node ${BRANCH_REMEDY}\`; a landing that merged origin/main before the freeze ` +
-      `re-pins the segment with \`${GENESIS_REMEDY}\`.`;
+  /**
+   * Why `blob` is not the segment `genesis` pins. Each reason names the remedy the
+   * base allows: before the freeze (`frozenAtBase` false) the converter and the
+   * landing re-pin; once the base froze the segment, the converter alone.
+   */
+  function genesisPinDefects(
+    blob: Buffer,
+    genesis: Record<string, unknown> | null,
+    frozenAtBase: boolean,
+  ): string[] {
+    const remedy = frozenAtBase
+      ? `The base froze findings.jsonl and the freeze is final: a change to the segment is ` +
+        `recorded as events. Convert the rows this branch wrote with \`ts-node ${BRANCH_REMEDY}\`, ` +
+        `which restores findings.jsonl and genesis.json to the base.`
+      : `A branch that edited or appended findings.jsonl rows converts them to events with ` +
+        `\`ts-node ${BRANCH_REMEDY}\`; a landing that merged origin/main before the freeze ` +
+        `re-pins the segment with \`${GENESIS_REMEDY}\`.`;
     if (genesis === null) return [`docs/reviews/_registry/genesis.json is missing. ${remedy}`];
     const text = blob.toString('utf8').trim();
     const rows =
@@ -488,15 +540,24 @@ describe('MF-2 — the genesis pin and the per-finding event store', () => {
   const genesisTip = legacyEntries[legacyEntries.length - 1]?.content_hash ?? '0'.repeat(64);
   const store = loadStore();
 
-  it('T6 — findings.jsonl is the blob genesis.json pins, and a drifted blob names both remedies', () => {
+  it('T6 — findings.jsonl is the blob genesis.json pins, and a drifted blob names the remedy its base allows', () => {
     const blob = fs.readFileSync(REGISTRY_PATH);
     const genesis = readGenesis();
-    expect(genesisPinDefects(blob, genesis)).toEqual([]);
+    expect(genesisPinDefects(blob, genesis, baseHoldsFreeze(changeBase()))).toEqual([]);
 
-    const drifted = genesisPinDefects(Buffer.concat([blob, Buffer.from('{}\n')]), genesis);
-    expect(drifted.length).toBeGreaterThan(0);
-    for (const message of drifted) {
+    // Before the freeze lands: both the converter and the landing re-pin.
+    const drifted = Buffer.concat([blob, Buffer.from('{}\n')]);
+    const beforeFreeze = genesisPinDefects(drifted, genesis, false);
+    expect(beforeFreeze.length).toBeGreaterThan(0);
+    for (const message of beforeFreeze) {
       expect(message).toContain(GENESIS_REMEDY);
+      expect(message).toContain(BRANCH_REMEDY);
+    }
+    // Once the base froze it: the converter only. A re-pin would move a final segment.
+    const afterFreeze = genesisPinDefects(drifted, genesis, true);
+    expect(afterFreeze.length).toBeGreaterThan(0);
+    for (const message of afterFreeze) {
+      expect(message).not.toContain(GENESIS_REMEDY);
       expect(message).toContain(BRANCH_REMEDY);
     }
     // Both remedies exist under the names the message gives.
@@ -621,27 +682,7 @@ describe('MF-2 — the genesis pin and the per-finding event store', () => {
 
   it('T7 — every event file at the base is a byte prefix of itself here, and none is deleted', () => {
     expect(store.length).toBeGreaterThan(0);
-    const remote = spawnSync(
-      'git',
-      ['-C', REPO_ROOT, 'rev-parse', '--verify', '--quiet', 'origin/main'],
-      {
-        encoding: 'utf8',
-      },
-    );
-    if (remote.status !== 0) {
-      throw new Error(
-        'origin/main is not available: the append-only check compares against merge-base(HEAD, origin/main) (fetch-depth: 0)',
-      );
-    }
-    const head = git(['rev-parse', 'HEAD']).toString('utf8').trim();
-    const mergeBase = git(['merge-base', 'HEAD', 'origin/main']).toString('utf8').trim();
-    // On main itself the change under test is the last merge: judge it against its first parent.
-    const base =
-      mergeBase === head
-        ? git(['rev-parse', `${head}^1`])
-            .toString('utf8')
-            .trim()
-        : mergeBase;
+    const base = changeBase();
     const atBase = git(['ls-tree', '-r', '--name-only', base, '--', `${STORE_RELATIVE}/`])
       .toString('utf8')
       .split('\n')
@@ -654,6 +695,24 @@ describe('MF-2 — the genesis pin and the per-finding event store', () => {
       return now.subarray(0, before.length).equals(before)
         ? []
         : [`${rel}: rewritten since ${base.slice(0, 12)} (only appends are allowed)`];
+    });
+    expect(defects).toEqual([]);
+  });
+
+  it('T7 — once the base holds the freeze, genesis.json and findings.jsonl are byte-equal to the base', () => {
+    const base = changeBase();
+    // The cutover: a base with no genesis.json predates the freeze, so the segment may still
+    // move (a landing that merged origin/main re-pins). From the freeze on, nothing moves it.
+    if (!baseHoldsFreeze(base)) return;
+    const defects = [GENESIS_RELATIVE, SEGMENT_RELATIVE].flatMap((rel) => {
+      const file = path.join(REPO_ROOT, rel);
+      if (!fs.existsSync(file)) return [`${rel}: deleted since ${base.slice(0, 12)}`];
+      return fs.readFileSync(file).equals(git(['show', `${base}:${rel}`]))
+        ? []
+        : [
+            `${rel}: changed since ${base.slice(0, 12)} (the freeze is final: record a change to ` +
+              `a finding as an event, or restore the segment with \`ts-node ${BRANCH_REMEDY}\`)`,
+          ];
     });
     expect(defects).toEqual([]);
   });

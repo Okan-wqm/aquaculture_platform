@@ -165,10 +165,13 @@ append to the same file and conflict, which is the real conflict.
 ### The freeze and branches opened before it
 
 `findings.jsonl` must stay the blob `genesis.json` pins; `finding-registry
-verify` refuses anything else and names both remedies. A landing that merged
-`origin/main` before the freeze reached main re-pins with `npm run
-findings:genesis`. A branch that still appended or edited rows converts them
-with:
+verify` refuses anything else and names the remedy the base of the change
+allows. Before the freeze reached main, a landing that merged `origin/main`
+re-pins with `npm run findings:genesis`. Once the merge-base with `origin/main`
+holds `genesis.json` the freeze is final: `genesis` refuses to move the
+segment, the always-run integrity invariant (T7) holds `genesis.json` and
+`findings.jsonl` byte-equal to that base in every PR, and the only remedy named
+is the converter. A branch that appended or edited rows converts them with:
 
 ```bash
 npx ts-node --project tools/gates/tsconfig.json \

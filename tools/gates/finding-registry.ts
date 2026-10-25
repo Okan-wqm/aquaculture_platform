@@ -17,7 +17,9 @@
  *                           log's chain and anchors, the vocabulary, the row
  *                           contract on every row an event wrote; with
  *                           --base, every event log the base holds is a byte
- *                           prefix of itself here and the pin is unchanged.
+ *                           prefix of itself here, and once the base holds
+ *                           the freeze, genesis.json and findings.jsonl are
+ *                           unchanged.
  *   verify --stdin        — the chain of the registry bytes on stdin.
  *   genesis               — pin findings.jsonl in genesis.json
  *                           (`npm run findings:genesis`).
@@ -68,7 +70,9 @@ import {
   appendFindingEvents,
   appendOnlyDefects,
   type CreatedPayload,
+  currentFreeze,
   type FindingEventDraft,
+  freezeAt,
   type GitStateTarget,
   isCreatedState,
   pinGenesis,
@@ -350,8 +354,10 @@ function cmdVerify(args: readonly string[]): number {
     process.stderr.write('usage: finding-registry verify [--base=<rev>] | verify --stdin\n');
     return 2;
   }
+  // The base decides which remedy a pin mismatch may name: once it holds the freeze, none re-pins.
+  const freeze = base === undefined ? currentFreeze(REPO_ROOT) : freezeAt(REPO_ROOT, base);
   const defects = [
-    ...registryDefects(DEFAULT_LAYOUT),
+    ...registryDefects(DEFAULT_LAYOUT, freeze),
     ...(base === undefined ? [] : appendOnlyDefects(REPO_ROOT, base)),
   ];
   if (defects.length > 0) {
@@ -518,10 +524,11 @@ function cmdProject(args: readonly string[]): number {
 /**
  * `genesis` — pin findings.jsonl as the frozen genesis segment
  * (finding-registry-events.ts `pinGenesis`). The landing step reruns it by
- * name, `npm run findings:genesis`, after merging origin/main.
+ * name, `npm run findings:genesis`, after merging origin/main; it refuses once
+ * the base of this checkout holds the freeze and the pin would differ from it.
  */
 function cmdGenesis(lease: RegistryLockLease): number {
-  const { pin, reanchored } = pinGenesis(DEFAULT_LAYOUT, lease);
+  const { pin, reanchored } = pinGenesis(DEFAULT_LAYOUT, lease, currentFreeze(REPO_ROOT));
   writeOut(
     `Pinned ${pin.path}: ${pin.entries} entries, blob sha256 ${pin.blob_sha256}, ` +
       `tip ${pin.tip_content_hash}.`,

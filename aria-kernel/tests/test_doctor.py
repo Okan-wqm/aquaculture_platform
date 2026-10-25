@@ -728,6 +728,61 @@ class ToolsOrgan(unittest.TestCase):
         self.assertEqual(check.detail["degraded"][0]["latest_cycle_id"], f"cyc-{TOOL_DEGRADATION_HUMAN_REQUIRED_STREAK}")
 
 
+class DeclaredAdapterDependenciesResolve(unittest.TestCase):
+    """ARIA-MEDIUM-735 (PLAN-v2 F2.1) — the doctor names, before a night runs,
+    an adapter whose declared repo-local dependencies the workspace does not
+    provide. lint-rules-adapter needs ESLint's rule packs; a room whose
+    node_modules lacks `eslint-plugin-security` (HARNESS B5) ran it into a
+    crash and nothing read the cause beforehand. New API pinned here: the
+    check named ``adapter_dependencies``, a FAIL naming each adapter and each
+    missing path, ok once every declared path resolves."""
+
+    CHECK = "adapter_dependencies"
+    TOOL_ID = "lint-rules-adapter"
+    MANIFEST_REL = "tools/aria-adapters/lint-rules-adapter.tool.json"
+
+    def setUp(self) -> None:
+        from aria_kernel import register_tool
+
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name) / "work"
+        manifest_text = (_REPO_ROOT / self.MANIFEST_REL).read_text(encoding="utf-8")
+        (self.root / self.MANIFEST_REL).parent.mkdir(parents=True)
+        (self.root / self.MANIFEST_REL).write_text(manifest_text, encoding="utf-8")
+        track_existing(self.root, "tools")
+        # The ts-node every `npx ts-node` runner derives is present; the rule
+        # packs the lint-rules runner imports are not.
+        ts_node = self.root / "node_modules" / "ts-node" / "dist" / "bin.js"
+        ts_node.parent.mkdir(parents=True)
+        ts_node.write_text("", encoding="utf-8")
+        self.tools = Path(self._tmp.name) / "aria-tools"
+        ensure_tools_dir(self.tools)
+        register_tool(json.loads(manifest_text), base_dir=self.tools)
+
+    def _check(self) -> DoctorCheck:
+        checks = {check.name: check for check in run_doctor(base_dir=self.tools, workspace_root=self.root).checks}
+        self.assertIn(self.CHECK, sorted(checks), "the doctor has no declared-adapter-dependency check")
+        return checks[self.CHECK]
+
+    def test_a_missing_rule_pack_is_a_fail_naming_the_adapter_and_the_package(self) -> None:
+        check = self._check()
+        self.assertEqual(check.status, "fail", check)
+        self.assertIn(self.TOOL_ID, check.reason)
+        self.assertIn("eslint-plugin-security", check.reason + json.dumps(check.detail))
+
+    def test_every_declared_dependency_present_is_ok(self) -> None:
+        from aria_kernel.tool_registry import get_tool, runner_repo_local_dependencies
+
+        for rel in runner_repo_local_dependencies(get_tool(self.TOOL_ID, self.tools)["runner"]):
+            path = self.root / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if not path.exists():
+                path.write_text("", encoding="utf-8")
+        check = self._check()
+        self.assertEqual((check.status, check.reason), ("ok", ""), check)
+
+
 class CliSurface(unittest.TestCase):
     def test_doctor_parses_with_the_tools_dir_parent(self) -> None:
         args = build_parser().parse_args(["doctor", "--json", "--tools-dir", "/tmp/x"])

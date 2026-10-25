@@ -46,6 +46,7 @@ from .memory import (
 from .observability import generate_observability_dashboard, record_cycle_metrics
 from .runtime_artifacts import budget_projection, read_runs_for_cycle, verify_artifacts
 from .pressure import run_pressure
+from .pr_tracking import ChangeSubject, resolve_change_subject
 from .runtime_signal_bridge import quarantine_refused_runtime_signals
 from .genesis_policy import load_policy
 from .reflection import run_reflection
@@ -367,8 +368,14 @@ CYCLE_STAGES: tuple[PhaseStage, ...] = ("preflight", "discovery", "pre_tool", "t
 # was touched, so the action-bearing phases simply do not carry the
 # ``burn_in`` mode — the no-action property is a column of this table
 # rather than a promise in a docstring.
-CycleMode = Literal["standard", "burn_in"]
-CYCLE_MODES: tuple[CycleMode, ...] = ("standard", "burn_in")
+#
+# ``change_review`` (WP-D1) reviews ONE change ``(base, head)`` named by the
+# caller, against an explicit store and without GitHub: the room's entry,
+# which a decision-test script used to reach by importing private kernel
+# functions. Its set is the change owner plus the cycle's own close-out; no
+# GitHub phase carries the tag.
+CycleMode = Literal["standard", "burn_in", "change_review"]
+CYCLE_MODES: tuple[CycleMode, ...] = ("standard", "burn_in", "change_review")
 
 # What happens when a phase runner raises. These four are not a design
 # choice made here — they are the four behaviours the cycle body already
@@ -422,6 +429,10 @@ class PhaseContext:
     # Defaulted (and therefore last): pre-mode tests and callers build the
     # context without it, and "standard" is exactly what they meant.
     mode: str = "standard"
+    # WP-D1 — the one change a ``change_review`` cycle reviews; None in
+    # every other mode (``run_enterprise_cycle`` refuses either without the
+    # other).
+    change: ChangeSubject | None = None
 
     def result(self, phase_name: str) -> Any:
         """The payload a completed phase returned, or None if it did not run."""
@@ -584,6 +595,7 @@ def build_phase_context(
     defer_reflection: bool = False,
     snapshot_mode: str = "committed",
     mode: str = "standard",
+    change: ChangeSubject | None = None,
     cycle_started_at: datetime | None = None,
     started_monotonic: float | None = None,
 ) -> PhaseContext:
@@ -615,6 +627,7 @@ def build_phase_context(
         snapshot_mode=snapshot_mode,
         profile=get_profile(base_dir=base_dir),
         mode=mode,
+        change=change,
         cycle_started_at=cycle_started_at if cycle_started_at is not None else datetime.now(timezone.utc),
         started_monotonic=started_monotonic if started_monotonic is not None else time.monotonic(),
         results={},
@@ -634,6 +647,8 @@ def run_enterprise_cycle(
     plan_id: str | None = None,
     defer_reflection: bool = False,
     mode: str = "standard",
+    change_base: str | None = None,
+    change_head: str | None = None,
     **kwargs,
 ) -> dict[str, Any]:
     """Run one cycle by walking ``CYCLE_PHASES``.
@@ -669,6 +684,15 @@ def run_enterprise_cycle(
         raise GovernanceError(
             f"cycle_mode_unknown: {mode!r} (valid: {list(CYCLE_MODES)})"
         )
+    # WP-D1 — the change is resolved before the store is touched, so a
+    # missing or unreadable end is refused by name and no `started` row is
+    # left for a cycle that never ran. A subject outside its mode is refused
+    # too: it would otherwise be silently ignored by a standard cycle.
+    change: ChangeSubject | None = None
+    if mode == "change_review":
+        change = resolve_change_subject(workspace_root, change_base=change_base, change_head=change_head)
+    elif change_base is not None or change_head is not None:
+        raise GovernanceError(f"change_subject_outside_change_review_mode: mode={mode!r}")
     # Plan 025 §C — UTC wall-clock of cycle start. Bounds the
     # change_committed window for validation_matrix phase so the
     # gate runs only against changes landed inside this cycle (not
@@ -705,9 +729,10 @@ def run_enterprise_cycle(
     # Burn-in cycles stay out of the learning hooks by mode, mirroring the
     # pre-collapse burn-in loop, which never ran them: an observe burn-in
     # proves the repo-observation lane alone, and the learning pass's
-    # pressure-decay/prune writes are standard-lane bookkeeping.
-    if mode == "burn_in":
-        learning_pre = {"hooks": [], "skipped": "mode:burn_in"}
+    # pressure-decay/prune writes are standard-lane bookkeeping — which a
+    # change_review cycle (one named change) is not either.
+    if mode != "standard":
+        learning_pre = {"hooks": [], "skipped": f"mode:{mode}"}
     else:
         learning_pre = run_learning_pre_cycle(workspace, cycle_id=cycle_id, tools_root=root)
     learning = {
@@ -730,6 +755,7 @@ def run_enterprise_cycle(
         defer_reflection=defer_reflection,
         snapshot_mode=snapshot_mode,
         mode=mode,
+        change=change,
         cycle_started_at=cycle_started_at,
         started_monotonic=started,
     )
@@ -1903,9 +1929,25 @@ def _phase_change_intelligence(context: PhaseContext) -> dict[str, Any]:
 
     Per-step containment: an impact failure must not cost the mint, and the
     mint must not cost the cycle (`record_and_continue` on the row).
-    """
-    from .pr_tracking import dispatch_change_intelligence, plan_new_merge_impact
 
+    WP-D1 — in a ``change_review`` cycle the subject is the one change the
+    caller named, not ARIA's merges: that change is minted for, and the
+    payload names the subject's requests still open, which is what a settle
+    loop (``harness.py review-change``) waits on.
+    """
+    from .pr_tracking import dispatch_change_intelligence, plan_new_merge_impact, subject_open_request_ids
+
+    if context.change is not None:
+        dispatch = dispatch_change_intelligence(
+            cycle_id=context.cycle_id, base_dir=context.base_dir, subject=context.change,
+        )
+        return {
+            "status": "completed",
+            "subject_ref": context.change.ref,
+            "change_intelligence_requests_minted": len(dispatch["minted"]),
+            "skipped": dispatch["skipped"],
+            "subject_open_requests": subject_open_request_ids(context.change, base_dir=context.base_dir),
+        }
     blocked: list[dict[str, Any]] = []
     # Only a merge the impact ledger does not yet name is planned: the
     # planner appends a row unconditionally, so planning on an idle night
@@ -3731,6 +3773,7 @@ CYCLE_PHASES: tuple[CyclePhase, ...] = (
         "change_intelligence", "post_tool", _phase_change_intelligence,
         precondition=WRITES_PERMITTED, on_error="record_and_continue",
         state_key="change_intelligence",
+        modes=frozenset({"standard", "change_review"}),
     ),
     CyclePhase(
         "pressure", "post_tool", _phase_pressure, state_key="pressure",
@@ -3986,13 +4029,17 @@ CYCLE_PHASES: tuple[CyclePhase, ...] = (
         # In burn_in too: `_runtime_status` reads this phase's verdict, and
         # a per-cycle integrity read is a strengthening the observe lane
         # was missing — verification is read-only, so the no-action
-        # property holds.
-        modes=frozenset({"standard", "burn_in"}),
+        # property holds. In change_review for the same reason: the room's
+        # store must verify like any other.
+        modes=frozenset({"standard", "burn_in", "change_review"}),
     ),
     CyclePhase(
         "metrics", "post_tool", _phase_metrics,
         on_error="record_and_continue", state_key="cycle_metrics",
         error_payload=_observability_error_payload, closeout=True,
+        # change_review: the room reports each change's wall time and cost
+        # from the same metrics row the nightly writes.
+        modes=frozenset({"standard", "change_review"}),
     ),
     CyclePhase(
         "observability_dashboard", "post_tool", _phase_observability_dashboard,

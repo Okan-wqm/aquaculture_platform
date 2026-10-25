@@ -516,15 +516,12 @@ def emit_finding(
     # dimension comes from the paths the finding cites, attributed by the
     # one path -> project owner over this workspace's fingerprint-checked
     # map (SE-1), so this mint and the tool-finding mint stamp the same
-    # current names; the reviewing agents come from the Lane-A touch-map
-    # SSoT (imported, not copied) whenever the caller did not name them
-    # explicitly.
+    # current names; the reviewing agents come from the one path -> agent
+    # map, the orchestrator routing table of this repository (SE-2), whenever
+    # the caller did not name them explicitly.
+    from .agent_routing import load_routing_table, reviewing_agents_for_paths
     from .impact_graph import project_map
-    from .service_dimension import (
-        finding_dimension_paths,
-        finding_service_fields,
-        owning_agent_domains_for_paths,
-    )
+    from .service_dimension import finding_dimension_paths, finding_service_fields
 
     dimension_paths = finding_dimension_paths(
         {"evidences": evidences, "scope": {"files": list(scope_files)}}
@@ -534,8 +531,8 @@ def emit_finding(
         project_map(workspace_root=repo_path, base_dir=tools_root),
     )
     if not related_specialized_agent_domains:
-        related_specialized_agent_domains = owning_agent_domains_for_paths(
-            dimension_paths
+        related_specialized_agent_domains = reviewing_agents_for_paths(
+            dimension_paths, load_routing_table(repo_path)
         )
     findings_dir = _findings_dir(repo_path)
     findings_dir.mkdir(parents=True, exist_ok=True)

@@ -47,6 +47,8 @@ _KERNEL_ROOT = _REPO_ROOT / "aria-kernel"
 if str(_KERNEL_ROOT) not in sys.path:
     sys.path.insert(0, str(_KERNEL_ROOT))
 
+from aria_kernel.agent_routing import load_routing_table  # noqa: E402
+
 
 # Shared cycle-runner fakes (mirror v5 helpers).
 def _fake_cycle_runner(**kwargs):
@@ -347,12 +349,14 @@ class PhaseV6_1SpecialistGate(unittest.TestCase):
             touched_services=touched,
             pressures=pressures,
             profile="standard",
+            routing=load_routing_table(_REPO_ROOT),
             max_specialists_per_cycle=10,
         )
         out_b = select_specialist_agents(
             touched_services=touched,
             pressures=pressures,
             profile="standard",
+            routing=load_routing_table(_REPO_ROOT),
             max_specialists_per_cycle=10,
         )
         self.assertEqual(
@@ -474,6 +478,7 @@ class PhaseV6_1SpecialistGate(unittest.TestCase):
             touched_services=touched_all,
             pressures=[],
             profile="standard",
+            routing=load_routing_table(_REPO_ROOT),
             max_specialists_per_cycle=cap,
         )
         self.assertLessEqual(
@@ -488,6 +493,7 @@ class PhaseV6_1SpecialistGate(unittest.TestCase):
             touched_services=touched_all,
             pressures=[],
             profile="standard",
+            routing=load_routing_table(_REPO_ROOT),
             max_specialists_per_cycle=cap,
         )
         self.assertEqual(

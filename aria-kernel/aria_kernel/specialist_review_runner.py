@@ -52,10 +52,16 @@ from .agent_invocations import (
     create_agent_invocation_request,
     derive_request_state,
 )
+from .agent_routing import (
+    load_routing_table,
+    owning_agents_for_paths,
+    reviewing_agents_for_paths,
+    routing_domain_for_path,
+)
 from .agent_surface import TERMINAL_REQUEST_STATES
 from .must_satisfy import must_satisfy_item
 from .request_admission import admit_request
-from .tool_registry import ensure_tools_dir
+from .tool_registry import bound_workspace_root, ensure_tools_dir
 
 _SPECIALIST_ROLE = "specialist_domain_review"
 
@@ -123,53 +129,18 @@ def specialist_verdict_blocks_cycle(*, verdict: str, profile: str) -> bool:
     return str(profile) != _NON_WRITING_PROFILE
 
 
-# Plan ARIA-V6 §2c v2 — domain touch-map for pressure-driven
-# specialist selection. Each entry maps a workspace path prefix to
-# the Lane-A specialist agent(s) that own review duty for that
-# service / library. The map is deliberately conservative — operator
-# can extend via genesis_policy override.
-_DOMAIN_TOUCH_MAP: dict[str, tuple[str, ...]] = {
-    "apps/auth-service/": ("auth-security-expert", "compliance-expert"),
-    "apps/farm-service/": ("farm-expert",),
-    "apps/sensor-service/": ("sensor-expert",),
-    "apps/alert-engine/": ("alert-engine-expert",),
-    "apps/billing-service/": ("billing-expert",),
-    "apps/messaging-service/": ("messaging-expert",),
-    "apps/hr-service/": ("hr-expert",),
-    "apps/hydroponics-service/": ("farm-expert",),
-    "apps/ai-service/": ("ai-safety-auditor",),
-    "apps/admin-api-service/": ("admin-expert",),
-    "apps/gateway-api/": ("auth-security-expert", "performance-expert"),
-    "apps/event-store-service/": ("data-expert",),
-    "apps/observability-service/": ("observability-expert",),
-    "libs/backend-common/src/guards/": ("auth-security-expert",),
-    "libs/backend-common/src/security/": ("compliance-expert",),
-    "libs/backend-common/src/audit/": ("audit-trail-completeness-auditor",),
-    "libs/backend-common/src/nats/": ("platform-kernel-expert",),
-    "libs/event-contracts/": ("data-expert", "contract-parity-enforcer"),
-    "platform/libs/": ("platform-kernel-expert",),
-    "web/": ("frontend-expert", "accessibility-auditor"),
-    "web/apps/aquamobil/": ("frontend-mobile-development:mobile-developer",),
-    "sens-api-gateway/": ("edge-expert", "edge-industrial-auditor"),
-    "infrastructure/": ("infra-expert",),
-    "infrastructure/nats/": ("platform-kernel-expert",),
-    "tools/aria-poc/": ("mcp-expert",),
-    "tools/aria-adapters/": ("ai-safety-auditor",),
-    ".github/workflows/": ("infra-expert", "supply-chain-auditor"),
-    "aria-kernel/": ("platform-kernel-expert",),
-}
-
-
-def domain_touch_map() -> dict[str, tuple[str, ...]]:
-    """Public SSoT accessor (E15-a) — service_dimension imports the
-    ownership map through this seam instead of copying it; a copy would
-    fork the moment the operator extends the map."""
-    return dict(_DOMAIN_TOUCH_MAP)
+# SE-2 (service-expertise PLAN §2) — the domain specialists for a touched
+# path come from the ONE path -> agent map, the orchestrator routing table
+# read through ``agent_routing``. This module kept a second map in code (the
+# "domain touch-map") that disagreed with the table the orchestrator
+# dispatches from; it is deleted, and the agents only it named joined the
+# table first (DECISIONS.md Q4). The two sets below are not path-keyed and
+# stay (PLAN §2 item 3).
 
 
 # Plan ARIA-V6 §2c — cross-cutting specialists fired on multi-domain
-# pressures regardless of touch-map. Activated when pressure severity
-# ≥ HIGH AND multiple domains touched in cycle_diff.
+# pressures regardless of the routing table. Activated when pressure severity
+# ≥ HIGH AND multiple routing domains touched in cycle_diff.
 _CROSS_CUTTING_SPECIALISTS: tuple[str, ...] = (
     "circuit-breaker-auditor",
     "observability-expert",
@@ -250,20 +221,30 @@ def select_specialist_agents(
     touched_services: list[str],
     pressures: list[dict[str, Any]],
     profile: str,
+    routing: list[dict[str, Any]],
     max_specialists_per_cycle: int = 10,
 ) -> list[str]:
     """Plan ARIA-V6 §2c v2 — deterministic pressure-driven selection.
 
     Returns the specialist agent_names to dispatch this cycle, derived
     from:
-      1. Domain touch-map — which services / libs were modified
+      1. Routing table (``routing``, rows of
+         ``agent_routing.load_routing_table``) — the primary and
+         also-notify agents of every touched path
+         (``agent_routing.reviewing_agents_for_paths``)
       2. Cross-cutting — high-severity multi-domain pressures activate
          circuit-breaker-auditor + observability-expert + performance-
          expert + memory-leak-auditor
       3. Profile gate — ``observe`` strips Tier-1 specialists; other
          profiles keep them
-      4. Cost cap — sort by (tier asc, domain specificity desc); take
-         first ``max_specialists_per_cycle`` to honour token budget
+      4. Cost cap — sort by (owner first, tier asc, name asc); take
+         first ``max_specialists_per_cycle`` to honour token budget. An
+         owner is the primary of a row claiming the whole subtree a
+         touched path sits in (``agent_routing.owning_agents_for_paths``);
+         wildcard rows such as ``apps/*/src/gdpr/**`` reach every
+         ``apps/*`` path, so without owner-first ordering their Tier-1
+         reviewers displaced a touched service's own expert from a
+         multi-service plan (SE-2-C B1, DECISIONS.md Q4)
 
     Selection is deterministic — no randomness. Same inputs → same
     output. Enables I-V6.1-03 reproducibility invariant.
@@ -271,31 +252,27 @@ def select_specialist_agents(
     Why deterministic:
       Reproducible dispatch lets operators replay any cycle's
       specialist set from the seed (touched_services + pressures +
-      profile). Without determinism, debugging cycle behaviour
+      profile, routing table). Without determinism, debugging cycle behaviour
       requires inspecting transient agent-invocation envelopes;
       with it, the selection is recomputable.
     """
     candidates: set[str] = set()
 
-    # Step 1 — domain touch-map
-    for touched in touched_services:
-        for prefix, agents in _DOMAIN_TOUCH_MAP.items():
-            if touched.startswith(prefix):
-                candidates.update(agents)
+    # Step 1 — the routing table's reviewers of every touched path
+    candidates.update(reviewing_agents_for_paths(touched_services, routing))
 
     # Step 2 — cross-cutting (multi-domain HIGH severity)
     pressure_severity_max = "LOW"
-    multi_domain = False
-    distinct_service_prefixes = set()
+    distinct_domains = set()
     for p in pressures:
         sev = p.get("severity", "low").upper()
         if sev in ("HIGH", "CRITICAL"):
             pressure_severity_max = sev
         for ref in p.get("affected_files", []):
-            for prefix in _DOMAIN_TOUCH_MAP:
-                if ref.startswith(prefix):
-                    distinct_service_prefixes.add(prefix)
-    multi_domain = len(distinct_service_prefixes) >= 2
+            domain = routing_domain_for_path(ref, routing)
+            if domain is not None:
+                distinct_domains.add(domain)
+    multi_domain = len(distinct_domains) >= 2
     if pressure_severity_max in ("HIGH", "CRITICAL") and multi_domain:
         candidates.update(_CROSS_CUTTING_SPECIALISTS)
 
@@ -303,10 +280,13 @@ def select_specialist_agents(
     if profile == "observe":
         candidates -= _TIER_1_SPECIALISTS
 
-    # Step 4 — cost cap (deterministic sort: tier asc, name asc)
-    def _sort_key(agent: str) -> tuple[int, str]:
+    # Step 4 — cost cap (deterministic sort: owner first, tier asc, name asc)
+    owners = frozenset(owning_agents_for_paths(touched_services, routing))
+
+    def _sort_key(agent: str) -> tuple[int, int, str]:
+        owner_priority = 0 if agent in owners else 1
         tier_priority = 0 if agent in _TIER_1_SPECIALISTS else 1
-        return (tier_priority, agent)
+        return (owner_priority, tier_priority, agent)
 
     sorted_candidates = sorted(candidates, key=_sort_key)
     return sorted_candidates[:max_specialists_per_cycle]
@@ -534,10 +514,15 @@ def run_specialist_review_runner(
     """
     root = ensure_tools_dir(base_dir)
 
+    # The routing table of the repository under review: the workspace this
+    # cycle examines, or — when the cycle runs from the plan state alone
+    # (ARIA-HIGH-614, below) — the workspace the store is bound to.
+    routing_repo = Path(workspace_root) if workspace_root is not None else bound_workspace_root(root)
     selected = select_specialist_agents(
         touched_services=touched_services,
         pressures=pressures,
         profile=profile,
+        routing=load_routing_table(routing_repo),
         max_specialists_per_cycle=max_specialists_per_cycle,
     )
 

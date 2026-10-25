@@ -260,13 +260,17 @@ def dispatch_change_intelligence(
         # discretionary. A refused merge stays unasked and is walked again
         # next cycle; the refusal holds for this cycle, so the walk stops.
         # The operator's named change is the work itself (critical path).
+        # WP-D4 — either way the mint names its change, so the door counts the
+        # change's seats and refuses the one past the registered seats.
         admission = (
             admit_request(
                 "change_review.operator_subject", CHANGE_INTELLIGENCE_ROLE, base_dir=root, cycle_id=cycle_id,
+                subject_ref=offer.subject_ref,
             )
             if subject is not None
             else admit_request(
                 "change_review.merge_feed", CHANGE_INTELLIGENCE_ROLE, base_dir=root, cycle_id=cycle_id,
+                subject_ref=offer.subject_ref,
             )
         )
         if not admission.admitted:

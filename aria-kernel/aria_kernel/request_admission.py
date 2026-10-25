@@ -22,6 +22,12 @@ classified in ``PRODUCER_CLASSES``, per role, with no default:
   that is not cooled (``provider_outage``), and the claimable backlog stays
   within ``budget = max(backlog_floor, backlog_days_of_drain × drain/day)``.
 
+WP-D4 — a mint that names its change (``subject_ref``) is also counted: the
+seats a change subject holds are read off the request ledger, and one past
+``change_review.seats`` (``service_seats_per_change + lens_seats_per_change`` for
+a ``change_intelligence`` seat) is refused by name (``change_review_seat_cap``)
+whatever its class: the bound is per change, so it throttles no other work.
+
 A refusal is named (``request_admission_throttled:<reason>``), recorded on
 ``agent-invocations/admissions.jsonl`` once per (cycle, producer, role,
 reason), and disclosed on governance once per (cycle, role). An admission is
@@ -58,6 +64,7 @@ REASON_EXECUTOR_IDLE: Final = "executor_not_draining"
 REASON_PROVIDER_STATUS_UNREADABLE: Final = "provider_status_unreadable"
 REASON_PROVIDER_UNAVAILABLE: Final = "provider_unavailable"
 REASON_BUDGET: Final = "backlog_at_drain_budget"
+REASON_CHANGE_SEAT_CAP: Final = "change_review_seat_cap"
 
 # Review of #1833 (HIGH-1) — producers whose ask is honoured up to a fixed
 # number per cycle BEFORE the budget is consulted, while the executor drains
@@ -67,6 +74,14 @@ REASON_BUDGET: Final = "backlog_at_drain_budget"
 # and nothing would replace them, and planning is what closes findings. The
 # quota is policy (`plan_seeds_per_cycle`, minimum 1).
 SEED_QUOTA_PRODUCERS: Final = frozenset({"convergence_drainer.plan_seed"})
+
+# WP-D4 — the roles whose seats ONE change may take, and the ``change_review.seats``
+# keys whose sum is the most seats of that role a change subject may hold. A role
+# joins this table when its producer starts naming the change it serves; a call
+# naming a change for a role absent here is refused, never silently uncounted.
+CHANGE_SEAT_KEYS: Final[Mapping[str, tuple[str, ...]]] = {
+    "change_intelligence": ("service_seats_per_change", "lens_seats_per_change"),
+}
 
 
 @dataclass(frozen=True)
@@ -335,6 +350,45 @@ def _measure(root: Path, now: datetime) -> dict[str, Any]:
     return capacity
 
 
+def _change_seats_over_cap(root: Path, role: str, subject_ref: str, count: int) -> bool:
+    """Whether ``count`` more ``role`` seats would take the change ``subject_ref`` past its registered seats.
+
+    The seats a change holds are the requests of that role on the request
+    ledger that name it: derived there, never a second counter. The cap is the
+    strictly parsed ``change_review.seats`` of the workspace the store is bound
+    to (the place the spawn gate reads operator policy).
+    """
+    from .agent_invocations import list_agent_invocation_requests
+    from .genesis_policy import change_review_policy
+    from .tool_registry import bound_workspace_root
+
+    keys = CHANGE_SEAT_KEYS.get(role)
+    if keys is None:
+        raise GovernanceError(f"request_admission_change_seat_role_unclassified:{role}")
+    seats = change_review_policy(bound_workspace_root(root))["seats"]
+    held = sum(1 for row in list_agent_invocation_requests(base_dir=root, role=role)
+               if row.get("subject_ref") == subject_ref)
+    return held + count > sum(seats[key] for key in keys)
+
+
+def _record_refusal(root: Path, view: _CycleView, row: dict[str, Any], *, reason: str,
+                    capacity: Mapping[str, Any], backlog_now: int) -> None:
+    """Record a refusal once per (cycle, producer, role, reason) on admissions, once per (cycle, role) on governance."""
+    producer, role = row["producer"], row["role"]
+    if (producer, role, reason) in view.throttled_keys:
+        return
+    first_for_role = role not in view.throttled_roles
+    _append(root, view, {**row, "admitted": False, "reason": reason, "backlog_before": backlog_now})
+    if first_for_role:
+        append_tools_governance(root, GOVERNANCE_KIND, {
+            "cycle_key": row["cycle_key"], "role": role, "producer": producer, "reason": reason,
+            "backlog": backlog_now, "budget": capacity.get("budget"),
+            "drain_per_day": capacity.get("drain_per_day"), "executor_live": capacity.get("executor_live"),
+            "last_drain_at": capacity.get("last_drain_at"),
+            **({"subject_ref": row["subject_ref"]} if "subject_ref" in row else {}),
+        })
+
+
 def _discretionary_reason(producer: str, role: str, capacity: Mapping[str, Any], view: _CycleView,
                           count: int, now: datetime) -> tuple[bool, str]:
     from .provider_outage import provider_outage
@@ -369,11 +423,15 @@ def admit_request(
     cycle_id: str | None = None,
     count: int = 1,
     now: datetime | None = None,
+    subject_ref: str | None = None,
 ) -> Admission:
     """Decide whether ``producer`` may mint ``count`` new ``role`` requests now.
 
     Unknown producer or an unclassified (producer, role) is a refusal by
-    name, never a default class. Critical path is always admitted.
+    name, never a default class. Critical path is always admitted, except
+    past a change's seats: a mint that names its change (``subject_ref``) is
+    refused as ``change_review_seat_cap`` once the change holds its registered
+    seats, in either class (WP-D4).
     Discretionary is measured once per cycle and decided against that
     snapshot plus every request minted since; a refusal writes its admissions
     row once per (cycle, producer, role, reason) and its governance row once
@@ -396,7 +454,14 @@ def admit_request(
     row: dict[str, Any] = {
         "schema_version": 1, "row_type": "decision", "cycle_key": cycle_key, "producer": producer,
         "role": role, "purpose_class": purpose, "count": count, "decided_at": decided_at,
+        **({"subject_ref": subject_ref} if subject_ref is not None else {}),
     }
+    if subject_ref is not None and _change_seats_over_cap(root, role, subject_ref, count):
+        view = _view(root, cycle_key)
+        capacity = view.snapshot or {}
+        _record_refusal(root, view, row, reason=REASON_CHANGE_SEAT_CAP, capacity=capacity,
+                        backlog_now=int(capacity.get("backlog") or 0) + view.admitted_since_snapshot)
+        return Admission(producer, role, purpose, cycle_key, count, False, REASON_CHANGE_SEAT_CAP)
     if purpose == CRITICAL_PATH:
         # Nothing to measure or read: critical path is admitted, and the mint
         # records it if the identity is new.
@@ -408,16 +473,8 @@ def admit_request(
     capacity = view.snapshot or {}
     backlog_now = int(capacity.get("backlog") or 0) + view.admitted_since_snapshot
     admitted, reason = _discretionary_reason(producer, role, capacity, view, count, moment)
-    if not admitted and (producer, role, reason) not in view.throttled_keys:
-        first_for_role = role not in view.throttled_roles
-        _append(root, view, {**row, "admitted": False, "reason": reason, "backlog_before": backlog_now})
-        if first_for_role:
-            append_tools_governance(root, GOVERNANCE_KIND, {
-                "cycle_key": cycle_key, "role": role, "producer": producer, "reason": reason,
-                "backlog": backlog_now, "budget": capacity.get("budget"),
-                "drain_per_day": capacity.get("drain_per_day"), "executor_live": capacity.get("executor_live"),
-                "last_drain_at": capacity.get("last_drain_at"),
-            })
+    if not admitted:
+        _record_refusal(root, view, row, reason=reason, capacity=capacity, backlog_now=backlog_now)
     return Admission(producer, role, purpose, cycle_key, count, admitted, reason)
 
 
@@ -475,7 +532,8 @@ def require_admitted(admission: Admission) -> None:
 
 
 __all__ = [
-    "CRITICAL_PATH", "DISCRETIONARY", "GOVERNANCE_KIND", "PRODUCER_CLASSES", "SEED_QUOTA_PRODUCERS",
+    "CHANGE_SEAT_KEYS", "CRITICAL_PATH", "DISCRETIONARY", "GOVERNANCE_KIND", "PRODUCER_CLASSES",
+    "REASON_CHANGE_SEAT_CAP", "SEED_QUOTA_PRODUCERS",
     "THROTTLED_PREFIX", "Admission", "ProducerClass", "PurposeClass", "RequestAdmissionThrottled",
     "admissions_path", "admit_request", "check_admission_binding", "cycle_key_for", "inherits_critical_path",
     "ledger_stamp",

@@ -29,15 +29,14 @@ when it is read. Stored names of another layout are
 not trusted and not translated: a string mapping from old names would
 carry the old answer forward (SE-1 round 2, review-r1 B1).
 
-The specialist ownership map is NOT copied here — it is imported from
-``specialist_review_runner`` (the Lane-A touch-map SSoT) to name the
-reviewing agents for a path set.
+Which agents REVIEW a path is not a service question and is not answered
+here: the one path -> agent map is the orchestrator routing table, read by
+``agent_routing.reviewing_agents_for_paths`` (SE-2).
 """
 from __future__ import annotations
 
 from typing import Any, Iterable
 
-from .canonical_path import lexical_repo_path
 from .impact_graph import ProjectMap, project_for_path
 
 # The stamp a mint writes beside ``services``: the stored names were
@@ -127,23 +126,6 @@ def services_for_finding_row(row: dict[str, Any], project_roots: ProjectMap) -> 
         return [service for service in stored if isinstance(service, str)]
     document = row.get("finding") if isinstance(row.get("finding"), dict) else row
     return _attributed(finding_dimension_paths(document), project_roots)
-
-
-def owning_agent_domains_for_paths(paths: Iterable[object]) -> list[str]:
-    """Reviewing specialist agents for a path set — imported from the
-    Lane-A domain touch-map SSoT, never copied."""
-    from .specialist_review_runner import domain_touch_map
-
-    touch_map = domain_touch_map()
-    owners: set[str] = set()
-    for path in paths:
-        if not isinstance(path, str):
-            continue
-        clean = lexical_repo_path(path)
-        for prefix, agents in touch_map.items():
-            if clean.startswith(prefix):
-                owners.update(agents)
-    return sorted(owners)
 
 
 def finding_dimension_paths(doc: dict[str, Any]) -> list[str]:

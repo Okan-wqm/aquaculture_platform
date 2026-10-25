@@ -188,6 +188,25 @@ class FindingEmissionTests(unittest.TestCase):
                 scope_files=["missing/file.ts"],
             )
 
+    def test_evidence_is_verified_at_the_named_commit_not_head(self) -> None:
+        # F2.3 — a promoted consensus stands on the commit it was judged at.
+        judged = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=self.repo, check=True, capture_output=True, text=True,
+        ).stdout.strip()
+        later = self.repo / "apps" / "later.ts"
+        later.write_text("export const later = 1;\n", encoding="utf-8")
+        subprocess.run(["git", "add", "apps/later.ts"], cwd=self.repo, check=True)
+        subprocess.run(["git", "commit", "-q", "-m", "later"], cwd=self.repo, check=True)
+        arguments = dict(
+            repo_root=self.repo, base_dir=self.tools, claim_type="wrong_code",
+            claim_summary="a file committed after the judged commit", severity="MEDIUM",
+            evidences=[{"ref": "apps/later.ts:1"}], facts=["committed later"], scope_files=["apps/later.ts"],
+        )
+        with self.assertRaisesRegex(GovernanceError, "trust_grade='worktree_candidate'"):
+            emit_finding(**arguments, target_sha=judged)
+        record = emit_finding(**arguments)
+        self.assertNotEqual(record["evidences"][0]["evidence_envelope"]["target_sha"], judged)
+
     def test_show_replays_event_ledger_not_tampered_doc(self) -> None:
         record = emit_finding(
             repo_root=self.repo,

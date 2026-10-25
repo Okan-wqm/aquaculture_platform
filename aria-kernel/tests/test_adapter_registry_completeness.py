@@ -40,6 +40,7 @@ from aria_kernel.adapter_quarantine import (
 )
 from aria_kernel.registry_compiler import STUB_RUNNER_TOKENS, compile_registry
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir, list_tools
+from tests._helpers.registry_projection import project_registry_as_stored
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MANIFEST_DIR = REPO_ROOT / "tools" / "aria-adapters"
@@ -69,6 +70,7 @@ def _implementations() -> list[Path]:
 
 class CommittedAdaptersCompileAndRunTheirOwnCode(unittest.TestCase):
     def setUp(self) -> None:
+        project_registry_as_stored(self)
         self.manifests = _manifests()
 
     def test_the_four_portfolio_adapters_have_manifests(self) -> None:
@@ -143,6 +145,7 @@ class CommittedAdaptersCompileAndRunTheirOwnCode(unittest.TestCase):
 
 class ManifestSyncRegistersEveryAdapter(unittest.TestCase):
     def setUp(self) -> None:
+        project_registry_as_stored(self)
         self.tmp = Path(tempfile.mkdtemp(prefix="aria-378-sync-"))
         self.addCleanup(shutil.rmtree, self.tmp, True)
         self.tools = ensure_tools_dir(self.tmp / "aria-tools")

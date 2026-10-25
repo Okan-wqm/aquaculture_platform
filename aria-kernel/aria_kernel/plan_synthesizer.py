@@ -566,8 +566,8 @@ def scan_orphan_findings(workspace_root: str | Path) -> list[dict[str, Any]]:
 
     ARIA-MEDIUM-249 — OPEN is read from the finding registry, the SSoT of a
     finding's lifecycle (``docs/reviews/_registry/README.md``), through the
-    one registry view every kernel reader uses (``read_registry_view``, delta
-    rows folded). This scanner used to parse the markdown for
+    one registry view every kernel reader uses (``read_registry_view``, the
+    registry CLI's projection). This scanner used to parse the markdown for
     ``^## ORPHAN-<SEV>-<n>$`` followed by a ``Status: OPEN`` line: the
     register's headings read ``## ORPHAN-HIGH-811 — <title> — OPEN``, so the
     pattern matched none of its 721 headings and the source never produced a
@@ -615,9 +615,9 @@ def scan_orphan_findings(workspace_root: str | Path) -> list[dict[str, Any]]:
         return heading_lines[document]
 
     candidates: list[dict[str, Any]] = []
-    # Tolerant mode: a corrupt or refused row is skipped WITH a
-    # ledger_row_corrupt diagnostic / malformed record, not silently swallowed.
-    for row in read_registry_view(root, strict=False).rows:
+    # The projection (MF-1): a finding a merged trailer closed is RESOLVED
+    # here, so it is no plan candidate the moment its fix merges.
+    for row in read_registry_view(root).rows:
         finding_id = row.get("id")
         if (
             not isinstance(finding_id, str)

@@ -58,10 +58,10 @@ import { join, posix, relative, resolve, sep } from 'node:path';
 import * as ts from 'typescript';
 
 import { isUnresolvedFindingState } from '../../tools/gates/finding-registry-chain';
+import { projectRegistry } from '../../tools/gates/finding-registry-projection';
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const WEB_ROOT = resolve(REPO_ROOT, 'web');
-const REGISTRY_PATH = resolve(REPO_ROOT, 'docs/reviews/_registry/findings.jsonl');
 
 /** The preview module: defines `definePreviewData` and `MockPreview`. */
 const PREVIEW_MODULE_DIR = 'web/shared-ui/src/preview/';
@@ -99,18 +99,19 @@ function toPosix(path: string): string {
   return path.split(sep).join('/');
 }
 
+/**
+ * The registry as every reader sees it: the projection, where a merged
+ * `Closes:` trailer makes a finding RESOLVED the moment it merges. The stored
+ * `state` is not refreshed by any workflow (MF-1, PROC-HIGH-039), so a gate
+ * that read it would keep a preview alive past its finding's closure.
+ */
 function readRegistry(): Registry {
-  const rows = new Map<string, RegistryRow>();
-  for (const line of readFileSync(REGISTRY_PATH, 'utf8').split('\n')) {
-    if (line.trim() === '') continue;
-    const entry = JSON.parse(line) as { id?: unknown; state?: unknown; review_file?: unknown };
-    if (typeof entry.id !== 'string' || typeof entry.state !== 'string') continue;
-    rows.set(entry.id, {
-      state: entry.state,
-      reviewFile: typeof entry.review_file === 'string' ? entry.review_file : null,
-    });
-  }
-  return rows;
+  return new Map(
+    projectRegistry(REPO_ROOT).map((row) => [
+      row.id,
+      { state: row.state, reviewFile: row.review_file ?? null },
+    ]),
+  );
 }
 
 /** Every source file under web/, as a repo-relative POSIX path. */

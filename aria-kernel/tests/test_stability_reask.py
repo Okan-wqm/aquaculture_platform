@@ -263,7 +263,19 @@ class PromotionBarTests(StabilityBase):
             severity="high", note="AI consensus", source_type="ai_consensus",
             judge_id="aria-consensus-arbiter", confidence=0.9,
             judgment_group_id=_GROUP, finding_fingerprint=fingerprint,
-            evidence_refs=["apps/target.ts:1"], judge_count=2, judges_voted=2,
+            evidence_refs=["apps/target.ts:1"],
+            # F2.3 — only an anchor minted at a commit can promote (the one
+            # acceptance bar); the flip table is what this suite varies.
+            judge_count=3, judges_voted=3,
+            observers=[
+                {"judge_id": "aria-evidence-judge", "model": "m1"},
+                {"judge_id": "aria-adversarial-judge", "model": "m2"},
+                {"judge_id": "aria-consensus-arbiter", "model": "m3"},
+            ],
+            target_sha=subprocess.run(
+                ["git", "-C", str(self.repo), "rev-parse", "HEAD"],
+                check=True, capture_output=True, text=True,
+            ).stdout.strip(),
             base_dir=self.tools,
         )
         return fingerprint

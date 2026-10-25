@@ -542,6 +542,29 @@ class TierRoutingTest(unittest.TestCase):
             self.assertTrue(any(kw["sample"]["items"] for kw in calls))
 
 
+_JUDGE_LAW_REF = ".claude/knowledge/layer-2-judge-law.md"
+
+
+def _kernel_checkout(tmp: str) -> Path:
+    """The fixture KERNEL checkout: where the executor renders every judge
+    seat's contract from (ARIA-HIGH-146), apart from the workspace. The
+    evidence judge cites a knowledge file, inlined into its contract."""
+    from aria_kernel.agent_surface import JUDGE_ROLES, ROLE_TARGET_PAIRING
+
+    kernel = Path(tmp) / "kernel"
+    if not kernel.exists():
+        (kernel / "aria-kernel").mkdir(parents=True)
+        agents = kernel / ".claude" / "agents"
+        agents.mkdir(parents=True)
+        for agent in {agent for role in JUDGE_ROLES for agent in ROLE_TARGET_PAIRING[role]}:
+            cites = f"\nWeigh per @{_JUDGE_LAW_REF}\n" if agent == "aria-evidence-judge" else ""
+            (agents / f"{agent}.md").write_text(
+                f"---\nname: {agent}\n---\n{agent} contract v1\n{cites}", encoding="utf-8")
+        (kernel / _JUDGE_LAW_REF).parent.mkdir(parents=True)
+        (kernel / _JUDGE_LAW_REF).write_text("judge law v1\n", encoding="utf-8")
+    return kernel
+
+
 class JudgmentCacheTest(unittest.TestCase):
     """A settled verdict over identical cited code is reused, never re-paid."""
 
@@ -550,7 +573,8 @@ class JudgmentCacheTest(unittest.TestCase):
 
         _os.environ.setdefault("ARIA_CONSENSUS_PROMOTION_ACK", "operator-approved-tests")
 
-    def _night(self, tmp: str, items: list[dict], *, mutate: bool = False):
+    def _night(self, tmp: str, items: list[dict], *, mutate: bool = False,
+               edit: dict[str, str] | None = None, kernel_edit: dict[str, str] | None = None):
         import json
         import subprocess
 
@@ -583,6 +607,15 @@ class JudgmentCacheTest(unittest.TestCase):
             (repo / "src" / "a.py").write_text("x = 2  # changed\n", encoding="utf-8")
             git("add", "-A")
             git("commit", "-q", "-m", "code change")
+        if edit:
+            for rel, text in edit.items():
+                (repo / rel).parent.mkdir(parents=True, exist_ok=True)
+                (repo / rel).write_text(text, encoding="utf-8")
+            git("add", "-A")
+            git("commit", "-q", "-m", "edit")
+        kernel = _kernel_checkout(tmp)
+        for rel, text in (kernel_edit or {}).items():
+            (kernel / rel).write_text(text, encoding="utf-8")
         head = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"],
                               check=True, capture_output=True, text=True).stdout.strip()
         # Each night starts 24h apart: the finding-opener gate admits one
@@ -612,7 +645,8 @@ class JudgmentCacheTest(unittest.TestCase):
                    return_value={"consensus": []}), \
              patch("aria_kernel.request_drain_capacity._request_ledgers",
                    return_value=_seed_ledgers(drained=91, now=datetime(2026, 10, 20, 3, 0, tzinfo=timezone.utc))), \
-             patch("aria_kernel.workspace_view.workspace_head_sha", return_value=head):
+             patch("aria_kernel.workspace_view.workspace_head_sha", return_value=head), \
+             patch("aria_kernel.claude_settings.kernel_code_root", return_value=kernel / "aria-kernel"):
             result = cycle_mod._phase_judgment_pipeline(ctx)
         return result, calls, ctx
 
@@ -666,6 +700,54 @@ class JudgmentCacheTest(unittest.TestCase):
             _r3, calls3, _ctx3 = self._night(tmp, [item3], mutate=True)
             self.assertTrue(any(kw["sample"]["items"] for kw in calls3),
                             "a blob change must invalidate the cache")
+
+    def test_a_judge_contract_edit_invalidates_the_cached_verdict(self) -> None:
+        # J2 (SEPT-HARVEST §2) — no cached verdict outlives the judge that
+        # gave it. The judge's identity has ONE owner: the contract the
+        # executor DELIVERS (agent_contract_delivery.render_agent_contract —
+        # agent body + inlined knowledge + validator contract), rendered
+        # from the KERNEL checkout (ARIA-HIGH-146), the same hash
+        # score_judges scopes calibration on. The workspace tree at
+        # target_sha is not where a judge's contract comes from: a cited
+        # knowledge-file edit, or an agent edit in the kernel checkout with
+        # the workspace sha unchanged, is a new judge and a miss.
+        from aria_kernel.agent_contract_delivery import render_agent_contract
+        from aria_kernel.judge_fanout import _group_id
+
+        fingerprint = "fp-same-claim"
+        item = {"finding_id": "F-1", "tool_id": "adapter-a", "run_id": "r",
+                "rule": "rule-a", "path": "src/a.py", "severity": "MEDIUM",
+                "finding_fingerprint": fingerprint}
+        judge_body = ".claude/agents/aria-evidence-judge.md"
+        cases = {
+            "cited knowledge file": {_JUDGE_LAW_REF: "judge law v2: rule X\n"},
+            "agent body in the kernel checkout only": {judge_body: (
+                "---\nname: aria-evidence-judge\n---\naria-evidence-judge contract v2\n"
+                f"\nWeigh per @{_JUDGE_LAW_REF}\n")},
+        }
+        for label, kernel_edit in cases.items():
+            with self.subTest(edit=label), TemporaryDirectory() as tmp:
+                self._nights = 0
+                _r1, calls1, ctx = self._night(tmp, [dict(item)])
+                self.assertTrue(any(kw["sample"]["items"] for kw in calls1))
+                self._seed_consensus(ctx, fingerprint=fingerprint, group=_group_id(item))
+
+                # Night 2: an unrelated workspace commit — same code, same judges.
+                _r2, calls2, _ctx2 = self._night(
+                    tmp, [dict(item, finding_id="F-2")], edit={"docs/notes.md": "unrelated\n"})
+                self.assertFalse(any(kw["sample"]["items"] for kw in calls2),
+                                 "an unrelated commit must not invalidate the cache")
+
+                kernel = _kernel_checkout(tmp)
+                before = render_agent_contract("aria-evidence-judge", repo_root=kernel).contract_hash
+                # Night 3: the judge changed in the kernel checkout; the
+                # workspace (and its target_sha) did not.
+                _r3, calls3, _ctx3 = self._night(
+                    tmp, [dict(item, finding_id="F-3")], kernel_edit=kernel_edit)
+                after = render_agent_contract("aria-evidence-judge", repo_root=kernel).contract_hash
+                self.assertNotEqual(before, after)
+                self.assertTrue(any(kw["sample"]["items"] for kw in calls3),
+                                "a delivered judge contract edit must invalidate the cached verdict")
 
     def test_unknown_blob_state_is_a_miss_never_a_hit(self) -> None:
         # Tri-state law at the cache boundary: no anchor, no verdict.

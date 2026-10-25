@@ -152,8 +152,9 @@ _IMPLEMENTER_READONLY_ANCHORS: tuple[str, ...] = (
     # ARIA-HIGH-260 — report_ingestion mints `report_ingestion:external_pr`
     # findings, which the loop guards treat as NOT ARIA's own, from this
     # registry. Its writers are the operator's sessions and the governed
-    # finding-state-sweep / finding-closure-reconcile workflows; an ARIA plan
-    # that could add a row would launder its own finding as external.
+    # finding-state-sweep workflow (closure is derived, never written: MF-1);
+    # an ARIA plan that could add a row would launder its own finding as
+    # external.
     "docs/reviews/_registry/",
 )
 

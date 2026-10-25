@@ -79,7 +79,7 @@ const SANCTIONED_SITES: readonly SanctionedSite[] = [
       'a BLOCKED row already carries one and a STALE row is already stale',
   },
   {
-    file: 'tools/gates/finding-registry.ts',
+    file: 'tools/gates/finding-registry-projection.ts',
     site: 'applyClosureRejection',
     why:
       'override-reopen transition source; tools/gates/finding-traceability.spec.ts pins its ' +

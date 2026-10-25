@@ -652,6 +652,38 @@ def _check_tools(tools_dir: Path) -> DoctorCheck:
     return DoctorCheck("tools", "ok", "", detail)
 
 
+def _check_adapter_dependencies(tools_dir: Path, workspace: Path) -> DoctorCheck:
+    """ARIA-MEDIUM-735 (PLAN-v2 F2.1) — every registered tool's declared and
+    derived repo-local dependencies resolve in the workspace, named before a
+    night runs. The runner refuses such a run as ``environment_unavailable``
+    (``tool_runner``); this organ says beforehand which tool the room cannot
+    run and which installed path it lacks (the room's node_modules without
+    ``eslint-plugin-security`` crashed lint-rules-adapter, HARNESS B5). One
+    predicate answers here, in the runner and in the fixture suite:
+    ``tool_registry.missing_repo_local_dependencies``."""
+    from .tool_registry import list_tools, missing_repo_local_dependencies
+
+    missing: dict[str, list[str]] = {}
+    checked = 0
+    for tool in list_tools(base_dir=tools_dir):
+        # A tool with no runner yet (its lifecycle state does not require
+        # one) has nothing to execute, so nothing to resolve.
+        if "runner" not in tool:
+            continue
+        checked += 1
+        absent = missing_repo_local_dependencies(tool["runner"], workspace_root=workspace)
+        if absent:
+            missing[str(tool["tool_id"])] = absent
+    detail = {"tools_checked": checked, "missing": missing, "workspace": str(workspace)}
+    if missing:
+        return DoctorCheck(
+            "adapter_dependencies", "fail",
+            "adapter_dependencies_missing:" + ";".join(f"{tool_id}={','.join(paths)}" for tool_id, paths in sorted(missing.items())),
+            detail,
+        )
+    return DoctorCheck("adapter_dependencies", "ok", "", detail)
+
+
 def _check_economy(tools_dir: Path) -> DoctorCheck:
     """Plan 032 Faz 032i — a standing effort downgrade is information; no accepted
     result across a busy agent is a warning."""
@@ -847,6 +879,7 @@ def run_doctor(
         _guarded("learning_funnel", lambda: _check_learning_funnel(tools_dir, workspace)),
         _guarded("orchestrator", lambda: _check_orchestrator(tools_dir)),
         _guarded("tools", lambda: _check_tools(tools_dir)),
+        _guarded("adapter_dependencies", lambda: _check_adapter_dependencies(tools_dir, workspace)),
         _guarded("deadlines", lambda: _check_deadlines(tools_dir, workspace)),
         _guarded("finding_backlog", lambda: _check_finding_backlog(workspace)),
         _guarded("calibration_gate", lambda: _check_calibration_gate(tools_dir)),

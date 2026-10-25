@@ -158,6 +158,24 @@ def _service_repo(root: Path, *, extra_head_file: str | None = None) -> tuple[Pa
     return repo, base, _git(repo, "rev-parse", "HEAD")
 
 
+MAIN_SIDE = "docs/main-side.txt"
+
+
+def _merged_change_repo(root: Path) -> tuple[Path, str, str]:
+    """The service fixture with a real merge: the feature commit changes the core constant, the
+    mainline commit adds a file only mainline touched, and the merge commit joins them.
+    ``merge^1`` is the mainline (so ``merge^1..merge`` is what the merge brought) and ``merge^2``
+    the feature head. Returns ``(repo, merge_sha, feature_head)``."""
+    repo, base, feature_head = _service_repo(root)
+    _git(repo, "checkout", "-q", "-b", "mainline", base)
+    (repo / MAIN_SIDE).parent.mkdir(parents=True, exist_ok=True)
+    (repo / MAIN_SIDE).write_text("main-side-only\n", encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "mainline: a file only mainline touches")
+    _git(repo, "merge", "-q", "--no-ff", "-m", "merge the feature", feature_head)
+    return repo, _git(repo, "rev-parse", "HEAD"), feature_head
+
+
 class _Fixture(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = Path(tempfile.mkdtemp(prefix="aria-d2-envelope-"))
@@ -271,6 +289,87 @@ class ChangeEnvelopeTests(_Fixture):
                 prompt = self._one_prompt()
                 self.assertNotIn(INJECTED, _outside(prompt), "the planted instruction escaped its data tag")
                 self.assertTrue(_inside(prompt, INJECTED), f"the {planted} row was dropped, not rendered as data")
+
+
+class MergeFeedTests(_Fixture):
+    """R3 — the merge feed names its change (``merge_sha^1..merge_sha``) and both feeds hand the workspace."""
+
+    def _record(self, repo: Path, *, merge_sha: str | None, head_sha: str) -> Any:
+        from aria_kernel.merge_record import MERGED_BY_MERGE_LANE, record_merge
+        from aria_kernel.workspace import ensure_workspace, workspace_paths
+
+        record_merge(
+            pr={"number": 77, "head_sha": head_sha, "base_branch": "main", "changed_files": [CHANGED]},
+            merged_by=MERGED_BY_MERGE_LANE, base_dir=self.tools, head_lineage="delivered",
+            **({"merge_sha": merge_sha} if merge_sha else {}),
+        )
+        paths = workspace_paths(repo, self.workspace_base)
+        ensure_workspace(paths)
+        return paths
+
+    def _the_merge_prompt(self) -> str:
+        [row] = list_agent_invocation_requests(base_dir=self.tools, role=CHANGE_INTELLIGENCE_ROLE)
+        return render_invocation_prompt(row)
+
+    @staticmethod
+    def _diff_text(prompt: str) -> str:
+        return "\n".join(
+            text for tag, body in _UNTRUSTED.findall(prompt) if tag == "untrusted_diff" for text in _readings(body)
+        )
+
+    def test_the_merge_feed_reads_what_the_merge_brought_from_its_first_parent(self) -> None:
+        repo, merge_sha, feature_head = _merged_change_repo(self.tmp)
+        paths = self._record(repo, merge_sha=merge_sha, head_sha=feature_head)
+        with facts_without_contract_edges():
+            dispatch = dispatch_change_intelligence(cycle_id="d2-merge", base_dir=self.tools, workspace=paths)
+        self.assertEqual(len(dispatch["minted"]), 1)
+        diff = self._diff_text(self._the_merge_prompt())
+        self.assertIn("+export const x = 2;", diff, "the hunk the merge brought is not in <untrusted_diff>")
+        self.assertNotIn("main-side-only", diff, "the diff is not merge^1..merge: it holds the mainline's own change")
+
+    def test_the_merge_feed_attaches_the_impacted_services_and_their_roots(self) -> None:
+        from aria_kernel import pr_tracking as pt
+
+        repo, merge_sha, feature_head = _merged_change_repo(self.tmp)
+        paths = self._record(repo, merge_sha=merge_sha, head_sha=feature_head)
+        with facts_without_contract_edges():
+            dispatch_change_intelligence(cycle_id="d2-merge", base_dir=self.tools, workspace=paths)
+        [row] = list_agent_invocation_requests(base_dir=self.tools, role=CHANGE_INTELLIGENCE_ROLE)
+        self.assertIn("change_context", row, "the merge feed's envelope carries no change_context")
+        self.assertTrue(hasattr(pt, "envelope_file_set"), "pr_tracking.envelope_file_set does not exist")
+        self.assertEqual(row["change_context"]["impacted_roots"], ["libs/zz-core", "libs/mm-mid", "apps/aa-edge"])
+        self.assertEqual(pt.envelope_file_set(row), sorted({CHANGED, "libs/zz-core", "libs/mm-mid", "apps/aa-edge"}))
+
+    def test_a_merged_row_without_a_merge_sha_says_why_no_hunks_are_attached(self) -> None:
+        repo, _merge_sha, feature_head = _merged_change_repo(self.tmp)
+        paths = self._record(repo, merge_sha=None, head_sha=feature_head)
+        with facts_without_contract_edges():
+            dispatch_change_intelligence(cycle_id="d2-merge", base_dir=self.tools, workspace=paths)
+        diff = self._diff_text(self._the_merge_prompt())
+        self.assertIn("hunks not attached: the merged row records no merge_sha", diff)
+        self.assertNotIn("diff --git", diff)
+
+    def test_the_standard_cycle_hands_its_workspace_to_the_merge_feed(self) -> None:
+        from aria_kernel import cycle as cycle_mod
+
+        repo, merge_sha, feature_head = _merged_change_repo(self.tmp)
+        paths = self._record(repo, merge_sha=merge_sha, head_sha=feature_head)
+        phase = next(phase for phase in cycle_mod.CYCLE_PHASES if phase.name == "change_intelligence")
+        self.assertIn("standard", phase.modes)
+        context = cycle_mod.build_phase_context(
+            cycle_id="d2-standard", workspace_root=repo, base_dir=self.tools, workspace=paths,
+        )
+        self.assertIsNone(context.change, "the standard cycle names no change: it takes the merge feed")
+        with facts_without_contract_edges():
+            outcome = phase.runner(context)
+        self.assertEqual(outcome["change_intelligence_requests_minted"], 1)
+        prompt = self._the_merge_prompt()
+        self.assertIn("+export const x = 2;", self._diff_text(prompt))
+        self.assertTrue(
+            any("mm-mid" in text for tag, body in _UNTRUSTED.findall(prompt)
+                if tag == "untrusted_change_impact" for text in _readings(body)),
+            "the standard cycle's merge feed read no impact: it was handed no workspace",
+        )
 
 
 class ChangedPathTrustTests(_Fixture):
@@ -413,6 +512,36 @@ class ContextRecallTests(unittest.TestCase):
     def test_no_cases_measure_nothing(self) -> None:
         result = self._recall()([])
         self.assertEqual((result["n"], result["hits"], result["share"], result["wilson_lower"]), (0, 0, None, None))
+        self.assertEqual(result["recall_floor"], change_review_policy()["context"]["recall_floor"])
+        self.assertIsNone(result["meets_floor"], "no case is neither above nor below the floor")
+
+    def test_the_verdict_is_decided_against_the_pre_registered_floor_on_both_sides(self) -> None:
+        recall = self._recall()
+        floor = change_review_policy()["context"]["recall_floor"]
+        n = 100  # puts the default floor exactly on a case count: the share at the floor meets it
+        meeting = next(hits for hits in range(n + 1) if hits / n >= floor)
+
+        def verdict(hits: int) -> dict[str, Any]:
+            cases = [
+                {"case_id": f"c{index:03d}", "envelope_files": ["a/x.ts"],
+                 "fix_files": ["a/x.ts" if index < hits else "z/other.ts"]}
+                for index in range(n)
+            ]
+            return recall(cases)
+
+        at_floor, below = verdict(meeting), verdict(meeting - 1)
+        self.assertEqual((at_floor["hits"], below["hits"]), (meeting, meeting - 1))
+        self.assertEqual((at_floor["recall_floor"], below["recall_floor"]), (floor, floor))
+        self.assertIs(at_floor["meets_floor"], True)
+        self.assertIs(below["meets_floor"], False, "a share below the floor still meets it")
+
+    def test_an_envelope_directory_holds_the_files_under_it_and_only_at_a_directory_boundary(self) -> None:
+        result = self._recall()([
+            {"case_id": "under-root", "envelope_files": ["libs/zz-core"], "fix_files": ["libs/zz-core/src/i.ts"]},
+            {"case_id": "nested", "envelope_files": ["libs/zz-core/"], "fix_files": ["libs/zz-core/src/deep/i.ts"]},
+            {"case_id": "sibling", "envelope_files": ["libs/zz-core"], "fix_files": ["libs/zz-core-extra/i.ts"]},
+        ])
+        self.assertEqual((result["hits"], result["missed"]), (2, ["sibling"]))
 
     def test_the_floor_is_pre_registered_and_parsed_strictly(self) -> None:
         policy = change_review_policy()

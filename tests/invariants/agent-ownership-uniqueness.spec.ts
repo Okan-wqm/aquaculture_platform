@@ -206,19 +206,17 @@ describe('agent ownership uniqueness invariant', () => {
  * `.claude/agents/product-audit/orchestrator.md`).
  */
 
+// The Lane-A table is named on its own so the ADR-050 checks read it by name, not by array position.
+const LANE_A_ROUTING_TABLE = {
+  label: 'Lane-A orchestrator-routing-table.md',
+  path: path.join(REPO_ROOT, '.claude', 'shared', 'orchestrator-routing-table.md'),
+} as const;
+
 const ROUTING_TABLE_FILES: readonly { label: string; path: string }[] = [
-  {
-    label: 'Lane-A orchestrator-routing-table.md',
-    path: path.join(REPO_ROOT, '.claude', 'shared', 'orchestrator-routing-table.md'),
-  },
+  LANE_A_ROUTING_TABLE,
   {
     label: 'Lane-B product-audit-orchestrator-routing.md',
-    path: path.join(
-      REPO_ROOT,
-      '.claude',
-      'shared',
-      'product-audit-orchestrator-routing.md',
-    ),
+    path: path.join(REPO_ROOT, '.claude', 'shared', 'product-audit-orchestrator-routing.md'),
   },
 ];
 
@@ -269,7 +267,9 @@ describe('routing-table glob-uniqueness invariant (CLAUDE-HIGH-007)', () => {
 
   const byGlob = new Map<string, RoutingRow[]>();
   for (const row of allRows) {
-    const key = normalizeGlob(row.glob).replace(/\s*\(.*\)\s*$/, '').trim();
+    const key = normalizeGlob(row.glob)
+      .replace(/\s*\(.*\)\s*$/, '')
+      .trim();
     const existing = byGlob.get(key) ?? [];
     existing.push(row);
     byGlob.set(key, existing);
@@ -284,8 +284,7 @@ describe('routing-table glob-uniqueness invariant (CLAUDE-HIGH-007)', () => {
       // Tolerance: if any row contains "delegated from" / "secondary reviewer"
       // in the raw line, treat that row as a non-primary claim.
       const untagged = rows.filter(
-        (r) =>
-          !/\b(secondary reviewer|delegated from|delegated-from)\b/i.test(r.rawLine),
+        (r) => !/\b(secondary reviewer|delegated from|delegated-from)\b/i.test(r.rawLine),
       );
       const untaggedPrimaries = new Set(untagged.map((r) => r.primary));
       if (untaggedPrimaries.size >= 2) {
@@ -301,5 +300,89 @@ describe('routing-table glob-uniqueness invariant (CLAUDE-HIGH-007)', () => {
       throw new Error(`Routing-table glob conflicts:\n  - ${conflicts.join('\n  - ')}\n\n${hint}`);
     }
     expect(conflicts).toEqual([]);
+  });
+});
+
+/**
+ * Ratified routing rows (ADR-050, ARIA-HIGH-874).
+ *
+ * A routing row's primary owner is an ownership decision: it is recorded and
+ * ratified before it lands, and the arbiter does not ratify rows that name it.
+ * ADR-050's "Ratified rows" table is that record. This block pins:
+ *   1. every ratified glob has the ADR's primary in the routing table, so a
+ *      later change of owner has to supersede the ADR, not edit the table; and
+ *   2. no agent prompt (any lane, `_maintenance/` included) claims an untagged
+ *      primary on a ratified glob for an agent other than the table's primary,
+ *      so the table stays the one owner of "who reviews this path".
+ * The ADR is read, not copied: the expected owners live only there.
+ */
+
+const RATIFIED_ROWS_ADR = path.join(
+  REPO_ROOT,
+  'docs',
+  'adr',
+  '050-routing-table-ownership-of-agent-knowledge-skill-research-paths.md',
+);
+
+function ratifiedRows(adr: string): Map<string, string> {
+  const start = adr.search(/^### Ratified rows\b/m);
+  if (start === -1) throw new Error('ADR-050 has no "### Ratified rows" section');
+  const rest = adr.slice(start + 1);
+  const end = rest.search(/\n#{2,3} /);
+  const section = end === -1 ? rest : rest.slice(0, end);
+  const rows = new Map<string, string>();
+  for (const line of section.split('\n')) {
+    const cells = line.split('|').map((c) => c.trim());
+    const globCell = cells[1];
+    const after = cells[4]?.match(/^([a-z][a-z0-9-]+)$/)?.[1];
+    if (!globCell || !after) continue;
+    for (const m of globCell.matchAll(/`([^`]+)`/g)) {
+      if (m[1]) rows.set(m[1], after);
+    }
+  }
+  return rows;
+}
+
+function agentFilesRecursive(dir: string): { agent: string; content: string }[] {
+  return fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+    const full = path.join(dir, e.name);
+    if (e.isDirectory()) return agentFilesRecursive(full);
+    if (!e.name.endsWith('.md') || e.name === 'README.md') return [];
+    return [{ agent: e.name.replace(/\.md$/, ''), content: fs.readFileSync(full, 'utf8') }];
+  });
+}
+
+describe('ratified routing rows (ADR-050, ARIA-HIGH-874)', () => {
+  const ratified = ratifiedRows(fs.readFileSync(RATIFIED_ROWS_ADR, 'utf8'));
+  const table = new Map(
+    extractRoutingRows(
+      LANE_A_ROUTING_TABLE.label,
+      fs.readFileSync(LANE_A_ROUTING_TABLE.path, 'utf8'),
+    ).map((r) => [normalizeGlob(r.glob), r.primary]),
+  );
+
+  it('ADR-050 records the seven ratified rows (eight globs)', () => {
+    expect(ratified.size).toBe(8);
+  });
+
+  it('the routing table names the ratified primary for every ratified glob', () => {
+    const drift = [...ratified]
+      .filter(([glob, owner]) => table.get(glob) !== owner)
+      .map(([glob, owner]) => `${glob}: ADR-050 ${owner}, table ${table.get(glob) ?? '(no row)'}`);
+    expect(drift).toEqual([]);
+  });
+
+  it('no agent prompt claims a ratified glob for an agent other than the table primary', () => {
+    const contradictions: string[] = [];
+    for (const { agent, content } of agentFilesRecursive(AGENTS_DIR)) {
+      const section = extractPrimaryOwnershipSection(content);
+      if (!section) continue;
+      for (const claim of extractClaims(agent, section)) {
+        const owner = table.get(normalizeGlob(claim.pathGlob));
+        if (claim.hasDelegationTag || !ratified.has(normalizeGlob(claim.pathGlob))) continue;
+        if (owner !== agent) contradictions.push(`${agent}: ${claim.rawBullet} (table: ${owner})`);
+      }
+    }
+    expect(contradictions).toEqual([]);
   });
 });

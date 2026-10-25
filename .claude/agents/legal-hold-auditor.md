@@ -29,13 +29,13 @@ Tenant scoping, outbox pattern, messaging retention + legal hold audit trail str
 ## Primary Ownership
 
 - `libs/backend-common/src/compliance/legal-hold/**` (new) — primary (hold state registry, precedence-check middleware, hold lifecycle events)
-- Cross-service destructive paths (cross-cutting secondary reviewer; primary remains the destructive handler's owner):
+- Cross-service destructive paths — secondary reviewer. The primary is the destructive handler's owner, and `.claude/shared/orchestrator-routing-table.md` names it (ADR-050); do not restate it here:
   - retention cleanup jobs (all per-tenant services)
-  - manual delete controllers (admin-api-service primary)
-  - partition DROP migrations (data-expert primary)
-  - outbox GC workers (platform/libs/outbox — platform-kernel-expert primary)
-  - GDPR erasure cascade (gdpr-erasure-executor primary)
-  - messaging anonymization + retention (messaging-expert primary)
+  - manual delete controllers (admin-api-service)
+  - partition DROP migrations
+  - outbox GC workers (platform/libs/outbox)
+  - GDPR erasure cascade (the per-service gdpr handlers)
+  - messaging anonymization + retention
 
 **Out of scope:** hold application UI (admin-expert), hold lifecycle legal review (human workflow), content of held data (domain expert).
 

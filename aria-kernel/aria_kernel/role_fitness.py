@@ -14,14 +14,27 @@ an active goldset:
 
 * the adapter: its version in force (``tool_health.current_emission_scope``,
   the latest ok run's fingerprints) against the goldset's labelled items —
-  precision over the labelled findings it emits, recall over the true
-  positives it should emit;
+  precision over the labelled findings it emits, and its
+  adapter retention rate (stored under ``recall``): the share of the goldset's
+  true positives it still emits. That is one adapter's memory of its own gold
+  findings, not the stage-2 discovery recall, which the discovery block below
+  measures;
 * each judge: its verdicts on that tool's replay groups
   (``judge_calibration.score_judges`` over ``replay:<tool>:``) — precision,
-  recall and expected calibration error.
+  recall and expected calibration error;
+* ARIA's own discovery (WP-D9, ``measure_discovery_recall``): over DEV cases
+  and the subject-keyed reports any mechanism made on them, the share of known
+  defects reported (a hit is a report on the same change in the same file whose
+  lines overlap the gold hunk window and that names the defect's class, however
+  it was found) and the share of clean control commits that drew any report,
+  each with ``n`` and a Wilson interval from ``judge_calibration.wilson_lower``.
+  The DEV-train misses are fed to memory as ``missed_signal`` rows
+  (``feed_dev_misses``); a DEV-check case never writes memory.
 
 A role with nothing to be scored against is ``unmeasured:<why>``, never a
-score: no active goldset, no ok run, no labelled emission, no replay verdict.
+score: no active goldset, no ok run, no labelled emission, no replay verdict,
+no discovery cases.
+
 The nightly fitness report (``fitness.generate_fitness_report``) records the
 measurement, named by the goldset it read (``goldset_hash``), after the judge
 replay that minted that night's replay verdicts.
@@ -37,7 +50,12 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Iterable
+from typing import TYPE_CHECKING, Any, Iterable, Sequence
+
+from .digest import sha256_hex
+
+if TYPE_CHECKING:
+    from .workspace import WorkspacePaths
 
 ROLE_FITNESS_SCHEMA = "aria/role-fitness/v1"
 MEASURED = "measured"
@@ -51,6 +69,14 @@ UNMEASURED_NO_REPLAY_VERDICT = "unmeasured:no_replay_verdict"
 # panel verdicts yet is a canary lane that has not drained, not a finding.
 UNMEASURED_NO_CANARY_CORPUS = "unmeasured:no_registered_canary_corpus"
 UNMEASURED_NO_CANARY_VERDICTS = "unmeasured:no_canary_verdicts"
+# WP-D9 — the discovery block is scored on DEV cases handed to it; without any
+# it is unmeasured, never a zero recall.
+UNMEASURED_NO_DISCOVERY_CASES = "unmeasured:no_discovery_cases"
+
+# WP-D9 — the two sides of the DEV split. DEV-train feeds memory; DEV-check only
+# gates what memory produced and never writes it.
+DEV_TRAIN = "dev_train"
+DEV_CHECK = "dev_check"
 
 # The blockers the read side names; each is the reason an autonomous lane
 # refuses (``adapter_fitness_blocker``).
@@ -95,6 +121,8 @@ def _adapter_row(
     hits = len(emitted & true_positives)
     labelled = len(emitted & (true_positives | false_positives))
     precision = _ratio(hits, labelled)
+    # The adapter retention rate (stored under ``recall``): this adapter's own
+    # gold true positives it still emits, not ARIA's discovery recall.
     recall = _ratio(hits, len(true_positives))
     status = (
         UNMEASURED_NO_OK_RUN if scope.run_id is None
@@ -232,11 +260,16 @@ def measure_role_fitness(
     *,
     base_dir: str | Path | None = None,
     runs: list[dict[str, Any]] | None = None,
+    discovery_cases: Sequence[dict[str, Any]] = (),
+    discovery_reports: Sequence[dict[str, Any]] = (),
 ) -> dict[str, Any]:
-    """Per adapter and per judge, precision and recall against the gold corpus.
+    """Per adapter and per judge, precision and recall against the gold corpus,
+    and ARIA's own discovery recall over the DEV cases handed in.
 
     ``runs`` is the run ledger the caller already read (the fitness report
     reads it once for every dimension); without it the ledger is read here.
+    ``discovery_cases`` and ``discovery_reports`` are :func:`measure_discovery_recall`'s
+    inputs; without cases the discovery block is unmeasured.
     """
     from .goldset import load_active_goldset
     from .runs_reader import read_runs_rows
@@ -266,7 +299,173 @@ def measure_role_fitness(
         # WP-J D-2 — the panel's canary self-exam, beside the per-adapter
         # rows: precision/recall against a corpus whose labels nobody judged.
         "mutation_canary": _canary_row(root),
+        # WP-D9 — ARIA's own discovery, subject-keyed and mechanism-independent.
+        "discovery_recall": measure_discovery_recall(discovery_cases, discovery_reports),
     }
+
+
+def _wilson_interval(successes: int, trials: int) -> tuple[float | None, float | None]:
+    """The Wilson interval of ``successes`` / ``trials``; (None, None) without trials.
+
+    The lower bound is ``judge_calibration.wilson_lower``, the one owner. The
+    interval is symmetric under complement, so the upper bound is one minus the
+    lower bound of the failures: no second formula.
+    """
+    from .judge_calibration import wilson_lower
+
+    lower = wilson_lower(successes, trials)
+    complement = wilson_lower(trials - successes, trials)
+    if lower is None or complement is None:
+        return None, None
+    return lower, round(1 - complement, 4)
+
+
+def _reports_by_subject(reports: Iterable[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    by_subject: dict[str, list[dict[str, Any]]] = {}
+    for report in reports:
+        by_subject.setdefault(str(report["subject_ref"]), []).append(report)
+    return by_subject
+
+
+def _reports_hit(defect: dict[str, Any], reports_on_change: Iterable[dict[str, Any]]) -> bool:
+    """The matcher: the gold hunk window plus the defect class, nothing else.
+
+    A report hits a known defect when it is on the same file, its lines
+    overlap the defect's hunk window (both ends inclusive) and it names the
+    same defect class. Which mechanism reported (an adapter, a model claim, a
+    drift seeder) is not read: the block scores ARIA, not its parts.
+    """
+    return any(
+        report["path"] == defect["path"]
+        and report["defect_class"] == defect["defect_class"]
+        and report["start_line"] <= defect["end_line"]
+        and defect["start_line"] <= report["end_line"]
+        for report in reports_on_change
+    )
+
+
+def _known_misses(
+    cases: Sequence[dict[str, Any]], by_subject: dict[str, list[dict[str, Any]]],
+) -> list[tuple[dict[str, Any], dict[str, Any]]]:
+    """Every ``(case, defect)`` whose known defect no report on its change hits.
+
+    The one owner of what a miss is: the block counts these and the DEV miss
+    feed mints one ``missed_signal`` for each, so the two cannot disagree.
+    """
+    return [
+        (case, defect)
+        for case in cases
+        for defect in case["defects"]
+        if not _reports_hit(defect, by_subject.get(case["subject_ref"], ()))
+    ]
+
+
+def measure_discovery_recall(
+    cases: Sequence[dict[str, Any]], reports: Sequence[dict[str, Any]],
+) -> dict[str, Any]:
+    """ARIA's own discovery over DEV cases: defects found, clean commits alarmed.
+
+    ``cases`` are ``{"subject_ref", "x_sha", "defects": [{"defect_id", "path",
+    "start_line", "end_line", "defect_class"}, ...]}``; a case with no defects is
+    a clean control commit. ``reports`` are ``{"subject_ref", "path",
+    "start_line", "end_line", "defect_class"}`` rows from any mechanism, keyed
+    by the change they were made on (a report on a change with no case is
+    ignored). Per known defect: a hit or a miss (many reports on one defect are
+    one hit). Per clean commit: a false alarm when any report was made on it
+    (a report on a bug commit is never a false alarm). Each part carries ``n``,
+    its rate and a Wilson interval; a part with nothing to score has no rate and
+    no interval.
+    """
+    if not cases:
+        return {"status": UNMEASURED_NO_DISCOVERY_CASES}
+    by_subject = _reports_by_subject(reports)
+    defects = sum(len(case["defects"]) for case in cases)
+    misses = len(_known_misses(cases, by_subject))
+    hits = defects - misses
+    clean = [by_subject.get(case["subject_ref"], []) for case in cases if not case["defects"]]
+    alarmed = sum(1 for on_change in clean if on_change)
+    recall_lower, recall_upper = _wilson_interval(hits, defects)
+    alarm_lower, alarm_upper = _wilson_interval(alarmed, len(clean))
+    return {
+        "status": MEASURED,
+        "defects": {
+            "n": defects,
+            "hits": hits,
+            "misses": misses,
+            "recall": _ratio(hits, defects),
+            "wilson_lower": recall_lower,
+            "wilson_upper": recall_upper,
+        },
+        "clean_commits": {
+            "n": len(clean),
+            "false_alarms": alarmed,
+            "false_alarm_rate": _ratio(alarmed, len(clean)),
+            "reports": sum(len(on_change) for on_change in clean),
+            "wilson_lower": alarm_lower,
+            "wilson_upper": alarm_upper,
+        },
+    }
+
+
+def dev_split(x_sha: str, seed: str) -> str:
+    """Which side of DEV a case is on: ``DEV_TRAIN`` or ``DEV_CHECK``.
+
+    A pure function of the case's X sha and the seed recorded before the first
+    DEV run (DESIGN-discovery §c): no file is read and no case id is listed
+    anywhere, so the split cannot drift from the rule or be edited per case.
+    Half the shas fall on each side; the seed moves which half.
+    """
+    return DEV_TRAIN if int(sha256_hex(f"{seed}\x1f{x_sha}".encode("utf-8")), 16) % 2 else DEV_CHECK
+
+
+def feed_dev_misses(
+    paths: WorkspacePaths,
+    cases: Sequence[dict[str, Any]],
+    reports: Sequence[dict[str, Any]],
+    *,
+    seed: str,
+    tools: Sequence[dict[str, Any]],
+) -> int:
+    """Mint one ``missed_signal`` (source ``replay_dev``) per known DEV-train miss.
+
+    ``paths`` is the workspace whose memory learns. A DEV-check case is never
+    scored into it, so memory cannot hold a lesson the activation gate will
+    later be asked to confirm. Each row carries the defect's class, the hunk
+    (``refs`` is ``path:start_line``, ``hunk`` the whole window) and its
+    ``miss_class``, minted here once against ``tools`` (the live registry rows)
+    by ``observation_coverage.miss_class`` and never re-derived. A miss already
+    in memory (same change, same defect) is not minted again. Returns the number
+    of rows minted.
+    """
+    from .feedback import add_feedback, list_feedback
+    from .observation_coverage import miss_class
+
+    train = [case for case in cases if dev_split(case["x_sha"], seed) == DEV_TRAIN]
+    minted = {
+        (row.get("subject_ref"), row.get("defect_id"))
+        for row in list_feedback(paths, kind="missed_signal")
+        if row.get("source") == "replay_dev"
+    }
+    count = 0
+    for case, defect in _known_misses(train, _reports_by_subject(reports)):
+        key = (case["subject_ref"], defect["defect_id"])
+        if key in minted:
+            continue
+        add_feedback(paths, {
+            "kind": "missed_signal",
+            "source": "replay_dev",
+            "refs": [f"{defect['path']}:{defect['start_line']}"],
+            "summary": f"{defect['defect_class']} defect at {defect['path']}:{defect['start_line']}-{defect['end_line']} "
+                       f"was not reported on {case['subject_ref']}",
+            "subject_ref": case["subject_ref"],
+            "defect_id": defect["defect_id"],
+            "defect_class": defect["defect_class"],
+            "miss_class": miss_class(defect["path"], tools),
+            "hunk": {"path": defect["path"], "start_line": defect["start_line"], "end_line": defect["end_line"]},
+        })
+        minted.add(key)
+        count += 1
+    return count
 
 
 def _parse_stamp(value: Any) -> datetime | None:
@@ -290,8 +489,8 @@ def adapter_fitness_blocker(
     otherwise), be no older than the tool's freshness window and describe
     its current version, manifest and active goldset (``fitness_stale``),
     and put its precision at or above its ``precision_min``
-    (``fitness_below_threshold``). Recall is reported beside it and not
-    gated: no recall floor has been set for any adapter.
+    (``fitness_below_threshold``). The retention rate (``recall``) is reported
+    beside it and not gated: no retention floor has been set for any adapter.
     """
     from .fitness import list_fitness_reports
     from .fixture_runner import tool_manifest_hash
@@ -325,6 +524,8 @@ def adapter_fitness_blocker(
 
 
 __all__ = [
+    "DEV_CHECK",
+    "DEV_TRAIN",
     "FITNESS_BELOW_THRESHOLD",
     "FITNESS_STALE",
     "FITNESS_UNMEASURED",
@@ -332,11 +533,15 @@ __all__ = [
     "ROLE_FITNESS_SCHEMA",
     "UNMEASURED_NO_CANARY_CORPUS",
     "UNMEASURED_NO_CANARY_VERDICTS",
+    "UNMEASURED_NO_DISCOVERY_CASES",
     "UNMEASURED_NO_GOLDSET",
     "UNMEASURED_NO_LABELLED_EMISSION",
     "UNMEASURED_NO_OK_RUN",
     "UNMEASURED_NO_REPLAY_VERDICT",
     "adapter_fitness_blocker",
+    "dev_split",
+    "feed_dev_misses",
     "goldset_hash",
+    "measure_discovery_recall",
     "measure_role_fitness",
 ]

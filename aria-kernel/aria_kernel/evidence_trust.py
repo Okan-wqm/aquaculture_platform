@@ -423,9 +423,25 @@ def quote_matches_at(quote: Any, *, excerpt_content: Any) -> bool | None:
 # colon, so the excerpt became part of the path and a synthesized plan's own
 # evidence was graded missing (agent_evidence_not_repo_verified). One grammar
 # now, defined here and imported by the validator and compliance; the
-# synthesizer emits ``path:line``. The path class excludes whitespace and
-# ``:`` and nothing else repeats, so matching stays linear (ORPHAN-HIGH-081).
-EVIDENCE_REF_RE = re.compile(r"^(?P<path>[^\s:]+)(?::(?P<line>\d+))?$")
+# synthesizer emits ``path:line``. The path class repeats once and nothing
+# else does, so matching stays linear (ORPHAN-HIGH-081).
+#
+# ARIA-MEDIUM-826 — a ref is QUOTED into a prompt: in a code span, inside the
+# block that lists the evidence. What it cannot hold is whatever ends that
+# quotation: whitespace (``\s`` is every character Python splits lines on; a
+# line break starts a line of the prompt's own text), ``<`` and ``>`` (a path
+# holding ``</evidence_payload>`` ended the block, and the rest of the path
+# became the prompt's own text), and the backtick (ends the code span). A file
+# system admits all of these in a name, so a ref that holds one is refused by
+# name (``agent_evidence_ref_malformed``) at every layer that reads this
+# grammar, instead of being quoted: a producer keeps such a path as provenance
+# (``pressure_evidence.split_citable_refs``), and a change's paths stay visible
+# to its reader in the escaped, untrusted block. ``:`` separates the line
+# number. ``REF_TOKEN_RE`` is the same class without ``:``: what follows a
+# kernel pointer's prefix, so a pointer cannot spell what a path cannot.
+_REF_BARE_CLASS = r"\s<>`"
+EVIDENCE_REF_RE = re.compile(rf"^(?P<path>[^{_REF_BARE_CLASS}:]+)(?::(?P<line>\d+))?$")
+REF_TOKEN_RE = re.compile(rf"[^{_REF_BARE_CLASS}]+")
 
 
 def parse_evidence_ref(ref: str) -> tuple[str, int | None] | None:
@@ -669,6 +685,7 @@ __all__ = [
     "stat_evidence_path",
     "GitProbeSession",
     "EVIDENCE_REF_RE",
+    "REF_TOKEN_RE",
     "SELF_OUTPUT_PREFIXES",
     "is_self_output_ref",
     "parse_evidence_ref",

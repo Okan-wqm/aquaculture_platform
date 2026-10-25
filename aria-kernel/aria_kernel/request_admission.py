@@ -26,7 +26,11 @@ WP-D4 — a mint that names its change (``subject_ref``) is also counted: the
 seats a change subject holds are read off the request ledger, and one past
 ``change_review.seats`` (``service_seats_per_change + lens_seats_per_change`` for
 a ``change_intelligence`` seat) is refused by name (``change_review_seat_cap``)
-whatever its class: the bound is per change, so it throttles no other work.
+whatever its class: the bound is per change, so it throttles no other work. The
+decision records the change it was made for (``Admission.subject_ref``) and the
+mint of such a seat accepts only an admission decided for that change
+(``check_admission_binding``): a seat minted under a decision that did not name
+its change would take a seat nothing counted.
 
 A refusal is named (``request_admission_throttled:<reason>``), recorded on
 ``agent-invocations/admissions.jsonl`` once per (cycle, producer, role,
@@ -238,6 +242,8 @@ class Admission:
     count: int
     admitted: bool
     reason: str
+    # WP-D4 — the change the decision was made for; None when the caller named none.
+    subject_ref: str | None = None
 
     @property
     def refusal(self) -> str:
@@ -461,11 +467,11 @@ def admit_request(
         capacity = view.snapshot or {}
         _record_refusal(root, view, row, reason=REASON_CHANGE_SEAT_CAP, capacity=capacity,
                         backlog_now=int(capacity.get("backlog") or 0) + view.admitted_since_snapshot)
-        return Admission(producer, role, purpose, cycle_key, count, False, REASON_CHANGE_SEAT_CAP)
+        return Admission(producer, role, purpose, cycle_key, count, False, REASON_CHANGE_SEAT_CAP, subject_ref)
     if purpose == CRITICAL_PATH:
         # Nothing to measure or read: critical path is admitted, and the mint
         # records it if the identity is new.
-        return Admission(producer, role, purpose, cycle_key, count, True, CRITICAL_PATH)
+        return Admission(producer, role, purpose, cycle_key, count, True, CRITICAL_PATH, subject_ref)
     view = _view(root, cycle_key)
     if view.snapshot is None:
         _append(root, view, {"schema_version": 1, "row_type": "snapshot", "cycle_key": cycle_key,
@@ -475,7 +481,7 @@ def admit_request(
     admitted, reason = _discretionary_reason(producer, role, capacity, view, count, moment)
     if not admitted:
         _record_refusal(root, view, row, reason=reason, capacity=capacity, backlog_now=backlog_now)
-    return Admission(producer, role, purpose, cycle_key, count, admitted, reason)
+    return Admission(producer, role, purpose, cycle_key, count, admitted, reason, subject_ref)
 
 
 def inherits_critical_path(dead: Mapping[str, Any]) -> bool:
@@ -517,12 +523,22 @@ def note_minted(root: Path, row: dict[str, Any], *, stamp_before: tuple[int, int
     view.stamp = ledger_stamp(root)
 
 
-def check_admission_binding(admission: Admission, *, role: str) -> None:
-    """The mint's first check, for every call: an Admission, decided for this role."""
+def check_admission_binding(admission: Admission, *, role: str, subject_ref: str | None) -> None:
+    """The mint's first check, for every call: an Admission, decided for this role and this change.
+
+    A role with change seats (``CHANGE_SEAT_KEYS``) is also bound to its
+    subject: the door counts a change's seats from the subject a decision
+    names, so a seat minted naming one change under a decision made without it,
+    or for another change, would hold a seat the cap never counted (WP-D4). A
+    role without seats is not bound: its producers name a subject the door
+    never counts (``goldset.curation``).
+    """
     if not isinstance(admission, Admission):
         raise GovernanceError(f"request_admission_missing:{type(admission).__name__}")
     if admission.role != role:
         raise GovernanceError(f"request_admission_role_mismatch:{admission.role}!={role}")
+    if role in CHANGE_SEAT_KEYS and admission.subject_ref != subject_ref:
+        raise GovernanceError(f"request_admission_subject_mismatch:{admission.subject_ref}!={subject_ref}")
 
 
 def require_admitted(admission: Admission) -> None:

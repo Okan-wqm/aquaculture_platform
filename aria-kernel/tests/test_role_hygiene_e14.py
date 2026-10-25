@@ -489,7 +489,8 @@ class SubjectIdempotencySeamTest(_ToolsDirTest):
             subject_ref="merged-pr:1:abc",
             cycle_id="cyc-1",
             base_dir=self.tools,
-            admission=admit_request("operator_cli.request", CHANGE_INTELLIGENCE_ROLE, base_dir=self.tools),
+            admission=admit_request(
+                "operator_cli.request", CHANGE_INTELLIGENCE_ROLE, base_dir=self.tools, subject_ref="merged-pr:1:abc"),
         )
         second = create_agent_invocation_request(
             target_agent=CHANGE_INTELLIGENCE_AGENT,
@@ -500,7 +501,8 @@ class SubjectIdempotencySeamTest(_ToolsDirTest):
             subject_ref="merged-pr:1:abc",
             cycle_id="cyc-2",
             base_dir=self.tools,
-            admission=admit_request("operator_cli.request", CHANGE_INTELLIGENCE_ROLE, base_dir=self.tools),
+            admission=admit_request(
+                "operator_cli.request", CHANGE_INTELLIGENCE_ROLE, base_dir=self.tools, subject_ref="merged-pr:1:abc"),
         )
 
         self.assertNotEqual(first["request_id"], second["request_id"])

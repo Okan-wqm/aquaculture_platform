@@ -1429,7 +1429,7 @@ def create_agent_invocation_request(
         raise GovernanceError(f"unknown invocation role: {role}")
     if not target_agent.strip():
         raise GovernanceError("target_agent is required")
-    check_admission_binding(admission, role=role)
+    check_admission_binding(admission, role=role, subject_ref=subject_ref)
     # WP-J B-1 — one law at the one mint: a judgment-lane seat practices the
     # method its role names in the registry, unless the caller explicitly
     # stamps another. Deriving here (never at read time) is what makes an

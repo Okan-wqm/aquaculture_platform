@@ -16,14 +16,21 @@
  *
  * ## What it owns
  *
- *   - the store layout: `readRegistryRows` (the rows as stored) and
- *     `projectRegistry` (the rows as they are at a commit);
+ *   - the store layout (MF-2): `findings.jsonl` is the frozen genesis segment
+ *     `genesis.json` pins, and every later change is an event in one file per
+ *     finding, `findings/<PREFIX>/<ID>.jsonl` (`registryLayout`,
+ *     `eventLogRelativePath`, `readRegistryStore`). This module is the one
+ *     reader of that layout; the writer (finding-registry-events.ts) appends
+ *     through it;
+ *   - the fold: a genesis row, or a CREATED event's payload, with its events
+ *     applied in version order (`foldRegistry`, `applyFindingEvent`), giving
+ *     the rows as recorded (`readRegistryRows`);
  *   - closure derivation: the oldest commit reachable from the ref whose
  *     message closes the finding exactly (`messageClosesFinding`, aliases
  *     resolved by `withFindingAliases`), a closer an override reopen
  *     rejected excluded; `closed_at` is the committer date of the first
  *     first-parent commit of the ref that contains the closer — the merge that
- *     brought it into the ref;
+ *     brought it into the ref (`projectRegistry`);
  *   - closure admission: the names a trailer may close each row by
  *     (`findingTrailerTargets`), the one predicate "does this message close
  *     this finding" (`messageClosesFinding`), the rejection decision
@@ -47,11 +54,12 @@
  * ts-node start-up included).
  */
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { join, relative, resolve, sep } from 'node:path';
 
 import { loadAliasReviewFiles, loadCanonicalToAliases } from './finding-id-aliases';
 import { type Finding, parseRegistryJsonl } from './finding-registry-chain';
+import type { FindingEventLine } from './finding-registry-events';
 import { rowContractViolations } from './finding-registry-rows';
 import {
   closureAdmissible,
@@ -64,43 +72,315 @@ import {
 } from './finding-traceability';
 import { commitReachableFrom, repoPinnedEnv } from './git-reachability';
 
-/** The registry file, relative to the repository root. */
+/** The registry directory, relative to the repository root. */
+export const REGISTRY_DIR_RELATIVE_PATH = 'docs/reviews/_registry';
+/** The frozen genesis segment, relative to the repository root. */
 export const REGISTRY_RELATIVE_PATH = 'docs/reviews/_registry/findings.jsonl';
-const SCHEMA_RELATIVE_PATH = 'docs/reviews/_registry/findings.jsonl.schema.json';
+/** The pin of the genesis segment (`finding-registry genesis`), relative to the repository root. */
+export const GENESIS_PIN_RELATIVE_PATH = 'docs/reviews/_registry/genesis.json';
+/** The per-finding event store, relative to the repository root. */
+export const EVENT_STORE_RELATIVE_PATH = 'docs/reviews/_registry/findings';
 const GIT_LOG_MAX_BUFFER_BYTES = 512 * 1024 * 1024;
 /** Unit and record separators: safe inside commit bodies, unlike newlines. */
 const FIELD_SEP = '\x1f';
 const RECORD_SEP = '\x1e';
 const FULL_SHA = /^[0-9a-f]{40}$/;
+/** `<PREFIX>/<ID>.jsonl` under the store: the prefix is the id's leading segment. */
+const EVENT_LOG_PATH = /^([A-Z][A-Z0-9]*)\/([A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+)\.jsonl$/;
 
-/** The absolute path of the registry file in `repoRoot`'s working tree. */
+/** Every file of one registry directory, by role. */
+export interface RegistryLayout {
+  readonly dir: string;
+  /** findings.jsonl: the frozen genesis segment. */
+  readonly genesisPath: string;
+  /** genesis.json: the segment's pin. */
+  readonly pinPath: string;
+  /** findings/: one append-only event log per finding. */
+  readonly storeDir: string;
+  /** The row contract. */
+  readonly rowSchemaPath: string;
+  /** The event line contract. */
+  readonly eventSchemaPath: string;
+}
+
+/** The layout of the registry directory `dir`. */
+export function registryLayout(dir: string): RegistryLayout {
+  return {
+    dir,
+    genesisPath: join(dir, 'findings.jsonl'),
+    pinPath: join(dir, 'genesis.json'),
+    storeDir: join(dir, 'findings'),
+    rowSchemaPath: join(dir, 'findings.jsonl.schema.json'),
+    eventSchemaPath: join(dir, 'finding-event.schema.json'),
+  };
+}
+
+/** The absolute path of `repoRoot`'s registry directory. */
+export function registryDir(repoRoot: string): string {
+  return resolve(repoRoot, REGISTRY_DIR_RELATIVE_PATH);
+}
+
+/** The absolute path of the genesis segment in `repoRoot`'s working tree. */
 export function registryPath(repoRoot: string): string {
   return resolve(repoRoot, REGISTRY_RELATIVE_PATH);
 }
 
-/**
- * The rows as stored in `repoRoot`'s working tree; none when the checkout
- * carries no registry. No closure is derived: a reader that needs only the
- * ids and their review files (commit-msg-validator, banned-phrase-excuse)
- * pays for no history walk.
- */
-export function readRegistryRows(repoRoot: string): Finding[] {
-  const path = registryPath(repoRoot);
-  if (!existsSync(path)) return [];
-  return parseRegistryJsonl(readFileSync(path, 'utf8'));
+/** A finding's event log, relative to the store directory: `<PREFIX>/<ID>.jsonl`. */
+export function eventLogRelativePath(findingId: string): string {
+  const [prefix = ''] = findingId.split('-');
+  return `${prefix}/${findingId}.jsonl`;
 }
 
-function git(repoRoot: string, args: readonly string[]): string {
-  return execFileSync('git', ['-C', repoRoot, ...args], {
-    encoding: 'utf8',
-    env: repoPinnedEnv(),
-    maxBuffer: GIT_LOG_MAX_BUFFER_BYTES,
+/** The finding id a store-relative path names, or null when it is not `<PREFIX>/<ID>.jsonl`. */
+export function eventLogFindingId(storeRelativePath: string): string | null {
+  const match = EVENT_LOG_PATH.exec(storeRelativePath);
+  const [, prefix, id] = match ?? [];
+  return prefix !== undefined && id !== undefined && id.split('-')[0] === prefix ? id : null;
+}
+
+/** One event log as stored: its store-relative path, its bytes and its lines. */
+export interface EventLog {
+  readonly path: string;
+  readonly findingId: string;
+  readonly bytes: Buffer;
+  readonly events: readonly FindingEventLine[];
+}
+
+/** The registry as stored: the genesis rows and every event log, keyed by finding id. */
+export interface RegistryStore {
+  readonly genesis: readonly Finding[];
+  readonly logs: ReadonlyMap<string, EventLog>;
+}
+
+/** Parse one event log strictly: a line that is not JSON fails the read. */
+export function parseEventLog(path: string, bytes: Buffer): EventLog {
+  const findingId = eventLogFindingId(path);
+  if (findingId === null) {
+    throw new Error(`registry store: ${path} is not <PREFIX>/<ID>.jsonl`);
+  }
+  const events = bytes
+    .toString('utf8')
+    .split('\n')
+    .filter((line) => line.trim() !== '')
+    .map((line, index) => {
+      try {
+        return JSON.parse(line) as FindingEventLine;
+      } catch (error) {
+        throw new Error(
+          `registry store: ${path}:${index + 1} is not JSON (${error instanceof Error ? error.message : String(error)})`,
+        );
+      }
+    });
+  return { path, findingId, bytes, events };
+}
+
+function walkFiles(dir: string): string[] {
+  return readdirSync(dir).flatMap((name) => {
+    const full = join(dir, name);
+    return statSync(full).isDirectory() ? walkFiles(full) : [full];
   });
 }
 
-/** The rows as the commit `ref` stores them. */
-function readRegistryRowsAt(repoRoot: string, ref: string): Finding[] {
-  return parseRegistryJsonl(git(repoRoot, ['show', `${ref}:${REGISTRY_RELATIVE_PATH}`]));
+/** The event logs under `storeDir` of a working tree; none when the store does not exist. */
+export function readEventLogs(storeDir: string): Map<string, EventLog> {
+  const logs = new Map<string, EventLog>();
+  if (!existsSync(storeDir)) return logs;
+  for (const full of walkFiles(storeDir).sort()) {
+    const path = relative(storeDir, full).split(sep).join('/');
+    const log = parseEventLog(path, readFileSync(full));
+    logs.set(log.findingId, log);
+  }
+  return logs;
+}
+
+/** The registry stored in the registry directory `dir` of a working tree. */
+export function readRegistryStoreIn(dir: string): RegistryStore {
+  const layout = registryLayout(dir);
+  const genesis = existsSync(layout.genesisPath)
+    ? parseRegistryJsonl(readFileSync(layout.genesisPath, 'utf8'))
+    : [];
+  return { genesis, logs: readEventLogs(layout.storeDir) };
+}
+
+function git(repoRoot: string, args: readonly string[], input?: string | Buffer): Buffer {
+  return execFileSync('git', ['-C', repoRoot, ...args], {
+    env: repoPinnedEnv(),
+    maxBuffer: GIT_LOG_MAX_BUFFER_BYTES,
+    ...(input === undefined ? {} : { input }),
+  });
+}
+
+function gitText(repoRoot: string, args: readonly string[]): string {
+  return git(repoRoot, args).toString('utf8');
+}
+
+/** The event logs the commit `ref` stores, read in one `git cat-file --batch`. */
+function readEventLogsAt(repoRoot: string, ref: string): Map<string, EventLog> {
+  const listed = gitText(repoRoot, [
+    'ls-tree',
+    '-r',
+    '-z',
+    '--name-only',
+    ref,
+    '--',
+    `${EVENT_STORE_RELATIVE_PATH}/`,
+  ])
+    .split('\0')
+    .filter(Boolean)
+    .sort();
+  const logs = new Map<string, EventLog>();
+  if (listed.length === 0) return logs;
+  const batch = git(
+    repoRoot,
+    ['cat-file', '--batch'],
+    listed.map((path) => `${ref}:${path}\n`).join(''),
+  );
+  let offset = 0;
+  for (const path of listed) {
+    const headerEnd = batch.indexOf(0x0a, offset);
+    const header = batch.subarray(offset, headerEnd).toString('utf8');
+    const [, type, size] = header.split(' ');
+    if (type !== 'blob' || size === undefined) {
+      throw new Error(`registry store: ${ref}:${path} is not a blob (${header})`);
+    }
+    const start = headerEnd + 1;
+    const end = start + Number.parseInt(size, 10);
+    const log = parseEventLog(
+      path.slice(EVENT_STORE_RELATIVE_PATH.length + 1),
+      batch.subarray(start, end),
+    );
+    logs.set(log.findingId, log);
+    offset = end + 1;
+  }
+  return logs;
+}
+
+/** The registry as the commit `ref` stores it. */
+export function readRegistryStoreAt(repoRoot: string, ref: string): RegistryStore {
+  return {
+    genesis: parseRegistryJsonl(gitText(repoRoot, ['show', `${ref}:${REGISTRY_RELATIVE_PATH}`])),
+    logs: readEventLogsAt(repoRoot, ref),
+  };
+}
+
+/**
+ * The fields an AMENDED event may change: non-identity, non-state, non-chain
+ * (MF-DESIGN §4.2). The event schema admits exactly these.
+ */
+export const AMENDABLE_FIELDS = ['owner_user', 'evidence', 'notes', 'title', 'narrative'] as const;
+
+function present(value: unknown): boolean {
+  return typeof value === 'string' && value.trim() !== '';
+}
+
+/**
+ * One finding's row after `event`. The fold refuses an event its row cannot
+ * take (a transition from a state the row is not in, an assignment that would
+ * change a value, a second CREATED): the store is append-only and its writer
+ * checks every event against the fold before it appends, so such an event is
+ * a store defect, and reading past it would hand every reader a row no writer
+ * produced.
+ */
+export function applyFindingEvent(row: Finding, event: FindingEventLine): Finding {
+  const next: Finding = { ...row, content_hash: event.content_hash };
+  const refuse = (why: string): never => {
+    throw new Error(
+      `registry fold: ${event.finding_id} v${event.version} ${event.event_type}: ${why}`,
+    );
+  };
+  switch (event.event_type) {
+    case 'CREATED':
+      return refuse('the finding already exists');
+    case 'STATE_TRANSITIONED': {
+      const { from_state: from, to_state: to } = event.payload;
+      if (from !== row.state) refuse(`from_state ${from}, but the row is ${row.state}`);
+      if (to === row.state) refuse(`to_state ${to} is the row's state`);
+      if (row.closing_commits.length > 0) {
+        refuse('a finding a commit closed leaves RESOLVED only by CLOSURE_REJECTED');
+      }
+      return { ...next, state: to, closed_at: null };
+    }
+    case 'CLOSURE_REJECTED': {
+      const rejected = [...(row.rejected_closing_commits ?? []), ...event.payload.shas];
+      const target = { id: row.id, rejected_closing_commits: rejected };
+      const closing = row.closing_commits.filter((sha) => !findingRejectsClosure(target, sha));
+      const reopened = row.state === 'RESOLVED' && closing.length === 0;
+      return {
+        ...next,
+        rejected_closing_commits: rejected,
+        closing_commits: closing,
+        ...(reopened ? { state: 'OPEN' as const, closed_at: null } : {}),
+      };
+    }
+    case 'OWNER_ASSIGNED': {
+      const filled: Partial<Finding> = {};
+      for (const field of ['owner_user', 'deadline'] as const) {
+        const value = event.payload[field];
+        if (value === undefined) continue;
+        if (present(row[field]) && row[field] !== value) {
+          refuse(`${field} is already ${String(row[field])}; an assignment fills, never changes`);
+        }
+        filled[field] = value;
+      }
+      return { ...next, ...filled };
+    }
+    case 'AMENDED':
+      return { ...next, ...event.payload.fields };
+    case 'SUPERSEDED':
+      // The successor carries `override_of`; the superseded row's fields stay
+      // as they were, and the relation is the event itself.
+      return next;
+  }
+}
+
+/** A finding born after the freeze: its CREATED payload, chained where the event is. */
+function createdRow(log: EventLog): Finding {
+  const [created] = log.events;
+  if (created?.event_type !== 'CREATED') {
+    throw new Error(
+      `registry fold: ${log.path} holds no genesis row and does not start with CREATED`,
+    );
+  }
+  if (created.payload.id !== log.findingId) {
+    throw new Error(`registry fold: ${log.path} creates ${created.payload.id}`);
+  }
+  // The payload is the row body the writer held to the row contract; the
+  // chain fields are the event's own.
+  return {
+    ...created.payload,
+    closing_commits: [...created.payload.closing_commits],
+    prev_hash: created.prev_hash,
+    content_hash: created.content_hash,
+  } as Finding;
+}
+
+/**
+ * The rows as recorded: every genesis row, then every finding born after the
+ * freeze (in store order), each with its events applied in version order. A
+ * folded row's `content_hash` is the head of its own chain: its last event's,
+ * or the genesis row's when it has none. No closure is derived here.
+ */
+export function foldRegistry(store: RegistryStore): Finding[] {
+  const ids = new Set(store.genesis.map((row) => row.id));
+  const rows: Finding[] = store.genesis.map((row) => {
+    const log = store.logs.get(row.id);
+    return (log?.events ?? []).reduce(applyFindingEvent, { ...row });
+  });
+  for (const log of store.logs.values()) {
+    if (ids.has(log.findingId)) continue;
+    rows.push(log.events.slice(1).reduce(applyFindingEvent, createdRow(log)));
+  }
+  return rows;
+}
+
+/**
+ * The rows as recorded in `repoRoot`'s working tree (genesis and events
+ * folded); none when the checkout carries no registry. No closure is
+ * derived: a reader that needs only the ids and their review files
+ * (commit-msg-validator, banned-phrase-excuse) pays for no history walk.
+ */
+export function readRegistryRows(repoRoot: string): Finding[] {
+  return foldRegistry(readRegistryStoreIn(registryDir(repoRoot)));
 }
 
 /**
@@ -189,11 +469,11 @@ const historyByCommit = new Map<string, readonly MergedCommit[]>();
  * registry provisions full history (`fetch-depth: 0`) instead.
  */
 function readMergedCommits(repoRoot: string, ref: string): readonly MergedCommit[] {
-  const tip = git(repoRoot, ['rev-parse', '--verify', `${ref}^{commit}`]).trim();
+  const tip = gitText(repoRoot, ['rev-parse', '--verify', `${ref}^{commit}`]).trim();
   const key = `${resolve(repoRoot)}\0${tip}`;
   const known = historyByCommit.get(key);
   if (known !== undefined) return known;
-  const shallow = git(repoRoot, ['rev-parse', '--is-shallow-repository']).trim();
+  const shallow = gitText(repoRoot, ['rev-parse', '--is-shallow-repository']).trim();
   if (shallow === 'true') {
     throw new Error(
       `projection: ${resolve(repoRoot)} is a shallow clone; closures cannot be derived from ` +
@@ -205,7 +485,7 @@ function readMergedCommits(repoRoot: string, ref: string): readonly MergedCommit
       `projection: git did not say whether ${resolve(repoRoot)} is a shallow clone (${shallow})`,
     );
   }
-  const raw = git(repoRoot, [
+  const raw = gitText(repoRoot, [
     'log',
     tip,
     `--format=%H${FIELD_SEP}%P${FIELD_SEP}%cI${FIELD_SEP}%B${RECORD_SEP}`,
@@ -368,37 +648,46 @@ function introducingCommits(commits: readonly MergedCommit[]): Map<string, Merge
   return introducedBy;
 }
 
-/** Which commit's history derives closures, and which rows are projected. */
+/** Which commit's history derives closures, and which store is projected. */
 export interface ProjectionRequest {
-  /** The commit whose merged history closes findings; HEAD when absent. */
+  /**
+   * The commit whose merged history closes findings; HEAD when absent. When
+   * given, the store is the one the commit holds; when absent, the working
+   * tree's (the tree under test).
+   */
   readonly ref?: string;
   /**
-   * The rows to project. Absent: the rows stored at `ref` when a ref is
-   * given, else the working tree's rows (the tree under test).
+   * A genesis segment the caller read from a Git tree (`project --stdin`): it
+   * replaces the stored findings.jsonl, and the event logs are still read
+   * where `ref` says.
    */
-  readonly rows?: readonly Finding[];
+  readonly genesis?: readonly Finding[];
+}
+
+function requestedStore(repoRoot: string, request: ProjectionRequest): RegistryStore {
+  const stored =
+    request.ref === undefined
+      ? readRegistryStoreIn(registryDir(repoRoot))
+      : readRegistryStoreAt(repoRoot, request.ref);
+  return request.genesis === undefined ? stored : { ...stored, genesis: request.genesis };
 }
 
 /**
- * The registry at `request.ref`: every row as stored, except that a row not
- * recorded RESOLVED is RESOLVED when merged history closes it, with
- * `closing_commits: [closer]` and `closed_at` the merge of the closer into
- * the ref. Writes nothing. A derived row is held to the row contract
- * (findings.jsonl.schema.json), as every written row is.
+ * The registry at `request.ref`: every row as recorded (genesis and events
+ * folded), except that a row not recorded RESOLVED is RESOLVED when merged
+ * history closes it, with `closing_commits: [closer]` and `closed_at` the
+ * merge of the closer into the ref. Writes nothing. A derived row is held to
+ * the row contract (findings.jsonl.schema.json), as every written row is.
  */
 export function projectRegistry(repoRoot: string, request: ProjectionRequest = {}): Finding[] {
   const ref = request.ref ?? 'HEAD';
-  const rows =
-    request.rows ??
-    (request.ref === undefined
-      ? readRegistryRows(repoRoot)
-      : readRegistryRowsAt(repoRoot, request.ref));
+  const rows = foldRegistry(requestedStore(repoRoot, request));
   const open = rows.filter((row) => row.state !== 'RESOLVED');
   if (open.length === 0) return rows.map((row) => ({ ...row }));
   const commits = readMergedCommits(repoRoot, ref);
   const closers = closersByTarget(commits, withFindingAliases(repoRoot, open));
   const introducedBy = introducingCommits(commits);
-  const schemaPath = resolve(repoRoot, SCHEMA_RELATIVE_PATH);
+  const schemaPath = registryLayout(registryDir(repoRoot)).rowSchemaPath;
   return rows.map((row) => {
     const closer = row.state === 'RESOLVED' ? undefined : closers.get(row.id)?.[0];
     if (closer === undefined) return { ...row };
@@ -502,6 +791,8 @@ export interface ClosureRejection {
 export interface ClosureRejectionOutcome {
   readonly ok: boolean;
   readonly reason?: string;
+  /** The closers this decision rejects, in the order a CLOSURE_REJECTED event records them. */
+  readonly rejected?: readonly string[];
 }
 
 /**
@@ -571,5 +862,5 @@ export function applyClosureRejection(
   entry.notes =
     String(entry.notes ?? '') +
     ` [override reopen ${stamp}: closer ${rejected.map((sha) => sha.slice(0, 12)).join(', ')} rejected — ${rejection.reason.trim()}]`;
-  return { ok: true };
+  return { ok: true, rejected };
 }

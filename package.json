@@ -107,6 +107,7 @@
     "findings:list": "ts-node --project tools/gates/tsconfig.json tools/gates/finding-registry.ts list --state OPEN",
     "findings:list:all": "ts-node --project tools/gates/tsconfig.json tools/gates/finding-registry.ts list",
     "findings:verify": "ts-node --project tools/gates/tsconfig.json tools/gates/finding-registry.ts verify",
+    "findings:genesis": "ts-node --project tools/gates/tsconfig.json tools/gates/finding-registry.ts genesis",
     "findings:add": "ts-node --project tools/gates/tsconfig.json tools/gates/finding-registry.ts add",
     "findings:sweep": "ts-node --project tools/gates/tsconfig.json tools/gates/finding-registry.ts sweep",
     "findings:export": "ts-node --project tools/gates/tsconfig.json tools/gates/finding-registry.ts project --format=csv",

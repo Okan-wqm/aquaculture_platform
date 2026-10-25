@@ -88,7 +88,7 @@ All agents use `opus` with `effort: xhigh` per platform policy. This table is th
 | security-reviewer | ALL files — cross-cutting security quality gate |
 | test-runner | ALL test files — build and test quality gate |
 | context-manager | docs/reviews/*/, .full-review/ — meta-reviewer for Phase 3.5 (compaction, dependency graph, systemic patterns) |
-| architectural-arbiter | docs/reviews/*/ + source code (read-only) — cross-agent conflict resolution, ADR authoring |
+| architectural-arbiter | primary of its rows in `.claude/shared/orchestrator-routing-table.md` (ADR-050) + docs/reviews/*/ and source code (read-only) — cross-agent conflict resolution, ADR authoring; never ratifies a change to its own rows |
 | multi-tenant-saas-expert | Cross-cutting SaaS tenancy — isolation, lifecycle, plan gating, quotas, noisy-neighbor, impersonation, portability, per-tenant observability, onboarding/offboarding. Single source of truth for tenant concerns; other agents delegate here |
 | mcp-expert | mcp/ — MCP servers, tool registry, session/auth context, prompt and knowledge safety |
 | root-cause-auditor | Phase 4.5 — author-authored tier-claim verification + prior-cycle arbiter-ruling implementation check. Emits `AUDIT-*` findings |

@@ -153,18 +153,18 @@ _CROSS_CUTTING_SPECIALISTS: tuple[str, ...] = (
 # Plan ARIA-V6 §2b — Tier-1 specialists (security-critical) listed
 # explicitly for profile-gating. `observe` profile strips these;
 # `standard` requires `convergence_verdict == "converged"` to
-# dispatch them.
+# dispatch them. It only strips or orders the reviewers the routing table
+# and the cross-cutting set select, so it names reviewers only: a writer or
+# `_maintenance` agent is never selected (ADR-050).
 _TIER_1_SPECIALISTS: frozenset[str] = frozenset({
     "auth-security-expert",
     "compliance-expert",
     "supply-chain-auditor",
     "frontend-expert",
     "legal-hold-auditor",
-    "security-architecture-writer",
     "security-reviewer",
     "comprehensive-review:security-auditor",
     "comprehensive-review:code-reviewer",
-    "gdpr-erasure-executor",
 })
 
 

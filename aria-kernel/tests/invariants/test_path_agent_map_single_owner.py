@@ -81,6 +81,7 @@ from pathlib import Path
 
 from aria_kernel import agent_genesis, service_dimension, specialist_review_runner
 from aria_kernel.agent_routing import load_routing_table, recommended_agents_for_project
+from aria_kernel.runtime_profiles import FILE_WRITE_TOOLS, frontmatter_tools
 from aria_kernel.surface_manifest_validator import validate_maintenance_agent_isolation
 from tests._helpers.routing_fixture import write_routing_table
 
@@ -487,10 +488,37 @@ class TheCostCapNeverCutsATouchedPathsOwner(unittest.TestCase):
 
 
 # -- writer and maintenance agents are never reviewers -------------------------
-def _write_agent(repo: Path, rel: str, tools: str) -> None:
+def _write_agent(repo: Path, rel: str, tools: str, body: str = "body") -> None:
     path = repo / ".claude" / "agents" / rel
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(f"---\nname: {path.stem}\ndescription: d\ntools: {tools}\n---\nbody\n", encoding="utf-8")
+    path.write_text(f"---\nname: {path.stem}\ndescription: d\ntools: {tools}\n---\n{body}\n", encoding="utf-8")
+
+
+def _agent_prompts(repo: Path) -> list[Path]:
+    return sorted(p for p in (repo / ".claude" / "agents").rglob("*.md") if p.name != "README.md")
+
+
+def _writer_or_maintenance_agents(repo: Path) -> frozenset[str]:
+    """Agents that never review: under ``_maintenance/``, or a ``tools:`` line
+    with a file-editing tool (``runtime_profiles.FILE_WRITE_TOOLS``)."""
+    return frozenset(
+        p.stem for p in _agent_prompts(repo)
+        if p.parent.name == "_maintenance"
+        or FILE_WRITE_TOOLS & frontmatter_tools(p.read_text(encoding="utf-8")))
+
+
+def writer_primary_claims(repo: Path) -> list[str]:
+    """Agent-prompt lines that name a writer or maintenance agent as a path's
+    ``primary`` (``<agent> primary`` or ``primary: <agent>``). The routing
+    table is the one owner of "who reviews a path" and names none of them
+    (ADR-050, ARIA-LOW-856)."""
+    names = "|".join(re.escape(n) for n in sorted(_writer_or_maintenance_agents(repo)))
+    if not names:
+        return []
+    claim = re.compile(rf"(?<![\w-])(?:{names})\s+primary\b|\bprimary:\s*(?:{names})(?![\w-])")
+    return [f"{p.relative_to(repo).as_posix()}:{n}"
+            for p in _agent_prompts(repo)
+            for n, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1) if claim.search(line)]
 
 
 class TheReviewersAreNeverWritersOrMaintenanceAgents(unittest.TestCase):
@@ -524,6 +552,29 @@ class TheReviewersAreNeverWritersOrMaintenanceAgents(unittest.TestCase):
         ]
         self.assertEqual(reviewer_failures, [],
                          "a writer or _maintenance agent is a primary or also-notify reviewer")
+
+    def test_the_prose_rule_flags_a_writer_named_primary(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            repo = Path(td)
+            _write_agent(repo, "patch-author.md", "Read, Edit, Write")
+            _write_agent(repo, "_maintenance/upkeep-tool.md", "Read, Grep")
+            _write_agent(repo, "careful-reviewer.md", "Read, Grep", body=(
+                "- erasure cascade (patch-author primary)\n"
+                "- audit rows (primary: upkeep-tool)\n"
+                "- careful-reviewer primary; patch-author writes the handlers\n"
+                "- not-patch-author primary"))
+            self.assertEqual(writer_primary_claims(repo), [
+                ".claude/agents/careful-reviewer.md:6", ".claude/agents/careful-reviewer.md:7"])
+
+    def test_no_agent_prompt_names_a_writer_or_maintenance_agent_as_primary(self) -> None:
+        self.assertEqual(writer_primary_claims(_REPO_ROOT), [],
+                         "agent prose names a writer as a path's primary; the routing table is the one owner")
+
+    def test_the_tier_one_gate_holds_no_writer_or_maintenance_agent(self) -> None:
+        never_reviewers = _writer_or_maintenance_agents(_REPO_ROOT)
+        self.assertIn("gdpr-erasure-executor", never_reviewers)
+        self.assertEqual(sorted(specialist_review_runner._TIER_1_SPECIALISTS & never_reviewers), [],
+                         "the Tier-1 gate strips or orders reviewers; a writer is never one (ADR-050)")
 
 
 if __name__ == "__main__":

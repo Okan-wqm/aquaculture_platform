@@ -32,7 +32,6 @@ from aria_kernel.service_dimension import (
     SERVICE_VOCABULARY,
     finding_dimension_paths,
     finding_service_fields,
-    owning_agent_domains_for_paths,
     services_for_finding_row,
 )
 
@@ -171,24 +170,6 @@ class TheMapIsAProjectMap(unittest.TestCase):
         self.assertEqual(same.fingerprint, ROOTS.fingerprint)
         self.assertNotEqual(renamed.fingerprint, ROOTS.fingerprint)
         self.assertNotEqual(moved.fingerprint, ROOTS.fingerprint)
-
-
-class OwnershipMapTests(unittest.TestCase):
-    def test_owners_come_from_the_touch_map_ssot(self) -> None:
-        owners = owning_agent_domains_for_paths(
-            ["apps/farm-service/src/batch/batch.service.ts"]
-        )
-        self.assertIn("farm-expert", owners)
-
-    def test_accessor_returns_a_copy(self) -> None:
-        from aria_kernel.specialist_review_runner import domain_touch_map
-
-        snapshot = domain_touch_map()
-        snapshot["apps/farm-service/"] = ("tampered",)
-        self.assertIn(
-            "farm-expert",
-            owning_agent_domains_for_paths(["apps/farm-service/src/x.ts"]),
-        )
 
 
 class ToolFindingMintTests(unittest.TestCase):

@@ -52,6 +52,7 @@ import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
+import { projectRegistry } from '../../tools/gates/finding-registry-projection';
 import { ORPHAN_MD_HEADING_REGEX } from '../../tools/gates/finding-registry-store';
 import { callEsmExport, esmExportResult } from './helpers/esm-export';
 import { nxProjectRoot, nxProjects } from './helpers/nx';
@@ -64,7 +65,6 @@ const POLICY_LIB = join(REPO_ROOT, 'scripts/ci/lib/affected-target-policy.mjs');
 const MEASURE_PATH = join(REPO_ROOT, 'scripts/ci/lint-debt-measure.mjs');
 const LINT_DEBT_LIB = join(REPO_ROOT, 'scripts/ci/lib/lint-debt.mjs');
 const ESLINT_CONFIG = join(REPO_ROOT, 'eslint.config.mjs');
-const REGISTRY_PATH = join(REPO_ROOT, 'docs/reviews/_registry/findings.jsonl');
 const ORPHAN_MD_PATH = join(REPO_ROOT, 'docs/reviews/orphan-findings.md');
 
 /**
@@ -135,12 +135,16 @@ function isEntry(value: unknown): value is QuarantineEntry {
   );
 }
 
-/** Finding ids that still represent open debt: registry rows not RESOLVED, or orphan-store headings. */
+/**
+ * Finding ids that still represent open debt: registry rows the projection
+ * does not resolve, or orphan-store headings. The projection, not the stored
+ * `state`: a merged `Closes:` trailer resolves a finding the moment it merges
+ * and no workflow refreshes the stored copy (MF-1, PROC-HIGH-039), so the
+ * stored state would keep a quarantine alive past its closed finding.
+ */
 function unresolvedFindingIds(): Set<string> {
   const ids = new Set<string>();
-  for (const line of readFileSync(REGISTRY_PATH, 'utf8').split('\n')) {
-    if (line.trim().length === 0) continue;
-    const row = JSON.parse(line) as { id: string; state: string };
+  for (const row of projectRegistry(REPO_ROOT)) {
     if (row.state !== 'RESOLVED') ids.add(row.id);
   }
   for (const line of readFileSync(ORPHAN_MD_PATH, 'utf8').split('\n')) {

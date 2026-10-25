@@ -36,9 +36,10 @@ from aria_kernel.agent_invocations import (
 from aria_kernel.agent_surface import allowed_targets_for_role
 from aria_kernel.evidence_validator import agent_ref_shape_refusal
 from aria_kernel.request_admission import admit_request
-from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
+from aria_kernel.tool_registry import GovernanceError, bound_workspace_root, ensure_tools_dir
 from aria_kernel import human_required_adjudication as hra
 from tests._helpers.declared_fixtures import append_declared_fixture
+from tests._helpers.routing_fixture import write_routing_table
 from tests.test_decision_questioning import _QuestioningFixture
 from tests.test_y7_self_adjudication import _PanelCase
 
@@ -278,6 +279,8 @@ class ReviewEnvelopesCarryTheirCycleOnItsField(_Store):
         from aria_kernel.specialist_review_runner import run_specialist_review_runner
 
         self._start_reviewed_plan("plan-385")
+        # The store's workspace routes the touched service to its specialist (SE-2).
+        write_routing_table(bound_workspace_root(self.tools), {"apps/farm-service/**": ("farm-expert", "")})
         run_specialist_review_runner(
             cycle_id="cyc-385", base_dir=self.tools, workspace_root=None, plan_id="plan-385",
             convergence_id="plan-385", touched_services=["apps/farm-service/"], pressures=[],

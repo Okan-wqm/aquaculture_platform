@@ -54,13 +54,13 @@ import { join, resolve } from 'node:path';
 import yaml from 'js-yaml';
 
 import { isUnresolvedFindingState } from '../../tools/gates/finding-registry-chain';
+import { projectRegistry } from '../../tools/gates/finding-registry-projection';
 // The Docker reference grammar has one owner, shared with ARIA's infrastructure-policy
 // adapter (ARIA-HIGH-012): `.registry` is null exactly when the CLI resolves to Docker Hub,
 // `.name` is the reference without tag or digest (the image family).
 import { parseImageReference } from '../../tools/gates/infra-policy/image-reference';
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
-const FINDINGS_REGISTRY_PATH = join(REPO_ROOT, 'docs', 'reviews', '_registry', 'findings.jsonl');
 const CI_IMAGES_MANIFEST = '.github/manifests/ci-images.json';
 const MIRROR_WORKFLOW = '.github/workflows/ci-image-mirror.yml';
 const ORG_REGISTRY = 'ghcr.io/okan-wqm/aquaculture_platform';
@@ -183,18 +183,17 @@ function rustManifestConsumers(): ImageReference[] {
   });
 }
 
-/** Finding ids whose latest registry row is still owed (the registry's one predicate). */
+/**
+ * Finding ids whose latest registry row is still owed (the registry's one
+ * predicate), as the projection reports it: a merged `Closes:` trailer
+ * resolves a finding the moment it merges and no workflow refreshes the
+ * stored `state` (MF-1, PROC-HIGH-039), so the stored state would keep a
+ * Docker Hub exception alive past its closed finding.
+ */
 function unresolvedFindingIds(): Set<string> {
   const unresolved = new Set<string>();
-  for (const line of readFileSync(FINDINGS_REGISTRY_PATH, 'utf8').split('\n')) {
-    if (line.trim().length === 0) {
-      continue;
-    }
-    const row = JSON.parse(line) as { id?: unknown; state?: unknown };
-    if (typeof row.id !== 'string') {
-      continue;
-    }
-    if (typeof row.state === 'string' && isUnresolvedFindingState(row.state)) {
+  for (const row of projectRegistry(REPO_ROOT)) {
+    if (isUnresolvedFindingState(row.state)) {
       unresolved.add(row.id);
     } else {
       unresolved.delete(row.id);

@@ -27,27 +27,49 @@ Landed 2026-04-16 as Phase 6 of `/root/.claude/plans/abstract-brewing-mochi.md`.
    └── arbiter ruling / override tracked ──► BLOCKED
 ```
 
+### Closure is derived, never written
+
+`RESOLVED` is derived from merged history when the registry is read
+(`tools/gates/finding-registry-projection.ts`, MF-1). A row the registry does
+not record `RESOLVED` is `RESOLVED` at a ref exactly when a commit reachable
+from that ref carries a `Closes:` trailer naming the finding (aliases resolved,
+the anchored review file bound to the finding's own); `closing_commits` is that
+commit and `closed_at` is the date of the merge that brought it into the ref.
+No workflow writes `RESOLVED`, and no command records a closure it read from
+history: a fix PR carries its own closure in its trailer, so `main` is
+consistent the moment it merges. (`add` and `add-explicit` still accept a stub
+registered `RESOLVED`; the write side, MF-2, refuses it.) Rows recorded
+`RESOLVED` before the derivation keep their recorded closure.
+
+Read the registry as readers see it with `finding-registry project`
+(`--ref=<rev>`, `--ids <ID>...`, `--format=jsonl|csv|json-array|closures`);
+`list`, `sweep`, `reopen`, the debt-plan truth table, the gates and the ARIA
+kernel all read through it. The stored `state` is not a finding's state: a
+gate that compares it with `RESOLVED` fails open for every closure made by a
+merged trailer, so `tests/invariants/finding-registry-projection.spec.ts`
+fails any file under `tools/`, `tests/`, `libs/`, `aria-kernel/` or `scripts/`
+that reaches the rows file and decides on a state without the projection.
+
 ### Reopening
 
-`RESOLVED` is derived from merged history: `finding-registry reconcile` (and the
-`finding-registry-closure-drift` gate) treat any `origin/main` commit whose `Closes:` trailer names
-the finding as closure evidence. Two reopen paths exist, and they differ in what they say about that
+Two reopen paths exist, and they differ in what they say about the closure
 evidence:
 
 - `finding-registry reopen <id>` — registration repair. Only for a row registered `RESOLVED` at
-  birth in error (no `closing_commits`). Clears the close fields; the real fix commit closes it later
-  through `close`.
-- `finding-registry reopen <id> --reject-closure=<sha> --reason=<why>` — override reopen. The row was
-  closed through the ceremony, but the change did not actually close it (a version-gated tracking
-  finding swept shut, a partial fix). The SHA moves from `closing_commits` to
-  `rejected_closing_commits`; `close`, `reconcile` and the drift gate refuse it from then on, so the
-  finding stays open until a NEW commit carries its trailer. Every closer must be rejected in the
-  same decision: the recorded `closing_commits`, and every other `origin/main` commit whose trailer
-  names the finding (`--reject-closure` may be repeated; the command lists what is still standing
-  and refuses to write until nothing is). It also works on a row that is already OPEN, when the
-  drift gate reports a merged commit as closing it. A free-text "[REOPENED ...]" note carries no such
-  weight: the next reconcile would re-close the row from the same old commit, which is exactly what
-  happened to PLAT-MEDIUM-901 on 2026-09-04.
+  birth in error (no `closing_commits`). Clears the close fields; the real fix commit closes it
+  through its merged trailer. A finding a commit closed — recorded in `closing_commits`, or derived
+  by the projection from a merged trailer while the row is stored OPEN — is refused with exit 1,
+  naming the closer and the override below.
+- `finding-registry reopen <id> --reject-closure=<sha> --reason=<why>` — override reopen. A commit
+  closed the finding, but the change did not actually close it (a version-gated tracking finding
+  swept shut, a partial fix). The SHA moves to `rejected_closing_commits`; the projection refuses
+  it from then on, so the finding stays open until a NEW commit carries its trailer. Every closer
+  must be rejected in the same decision: the recorded `closing_commits`, and every other
+  `origin/main` commit whose trailer names the finding (`--reject-closure` may be repeated; the
+  command lists what is still standing and refuses to write until nothing is). It also works on a
+  row that is stored OPEN while the projection derives a closure for it. A free-text
+  "[REOPENED ...]" note carries no such weight: the next read would re-close the row from the same
+  old commit, which is exactly what happened to PLAT-MEDIUM-901 on 2026-09-04.
 
 ## How to append a finding
 
@@ -70,8 +92,8 @@ npx ts-node --project tools/gates/tsconfig.json \
   tools/gates/finding-registry.ts add-explicit /tmp/historical-finding.json
 ```
 
-All mutating subcommands (`add`, `add-explicit`, `import-narrative`, `close`,
-`reopen`, `assign`, `sweep`, `reconcile`, `rechain-from`, and `dedupe`) share one
+All mutating subcommands (`add`, `add-explicit`, `import-narrative`, `reopen`,
+`assign`, `canonicalize-owner`, `sweep`, `rechain-from`, and `dedupe`) share one
 lock in Git's common directory, so every worktree of the same repository is
 serialized. Lock acquisition is bounded. A
 stale lock is taken over only when its metadata is valid, it belongs to this
@@ -123,8 +145,8 @@ turning rechain into a way to bless edits to canonical history.
 
 ### Merged-row mutators and the write sink
 
-Only these commands change an already-merged row: `close` and `reconcile` (to
-RESOLVED), `reopen` (to OPEN), `sweep` (to STALE or BLOCKED), `assign` (fills a
+Only these commands change an already-merged row: `reopen` (to OPEN, or
+records a rejected closer), `sweep` (to STALE or BLOCKED), `assign` (fills a
 missing `owner_user` or `deadline`), `canonicalize-owner` (rewrites an
 `owner_user` spelling to its CODEOWNERS handle) and `dedupe` (drops a
 duplicate). Each one
@@ -184,7 +206,8 @@ still awaits that decision; it only shrinks.
 - `content_hash = SHA-256-hex( canonical JSON of this entry WITH content_hash field removed )`.
 - Canonical JSON = key-sorted, no-whitespace serialization.
 
-**Verification:** CI job `.github/workflows/closes-footer-check.yml` (Phase 6 deliverable) re-computes the chain on every PR; drift fails the build.
+**Verification:** CI job `.github/workflows/closes-footer-check.yml` (Phase 6 deliverable)
+runs `finding-registry verify` on every PR; a break fails the build.
 
 ## Finding ID format
 

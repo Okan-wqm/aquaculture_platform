@@ -113,6 +113,7 @@ const REQUIRED_SURFACES: readonly string[] = [
   'web/modules/admin-panel',
   'web/modules/tenant-admin',
   'web/modules/hydroponics-module',
+  'web/modules/messaging-module',
   'web/apps/aquamobil',
   // platform/
   'platform/configs',

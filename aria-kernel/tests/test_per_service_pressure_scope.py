@@ -16,6 +16,7 @@ if str(_KERNEL) not in sys.path:
     sys.path.insert(0, str(_KERNEL))
 
 import aria_kernel.impact_graph as ig  # noqa: E402
+from tests._helpers.service_facts import NO_CONTRACT_FACTS  # noqa: E402
 
 
 def _mini_repo(td: Path) -> Path:
@@ -39,7 +40,7 @@ class PressureScopeTests(unittest.TestCase):
     def _examine(self, root: Path, tools: Path, pressures: list[dict]) -> dict:
         return ig.cycle_service_examination(
             workspace_root=root, base_dir=tools,
-            changed_files=["libs/shared/src/i.ts"], pressures=pressures,
+            changed_files=["libs/shared/src/i.ts"], pressures=pressures, service_facts=NO_CONTRACT_FACTS,
         )
 
     def test_pressures_scope_to_evidence_service_and_order_by_dependency(self) -> None:

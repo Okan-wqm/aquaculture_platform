@@ -44,6 +44,7 @@ from tests.test_implementation_lifecycle_continuity import (
     seed_reviewer_agent,
 )
 from tests._helpers.operator_acts import operator_set_profile
+from tests._helpers.service_facts import facts_without_contract_edges  # noqa: E402
 
 
 def _call_name(call: ast.Call) -> str:
@@ -221,6 +222,8 @@ class ImplementationEnvelopeValidatesTests(unittest.TestCase):
     contract — obligations, schema, required fields and all."""
 
     def setUp(self) -> None:
+        # SE-4 — a fixture workspace has no TypeScript toolchain; its subject is not contract edges.
+        self.enterContext(facts_without_contract_edges())
         self.tmp = tempfile.TemporaryDirectory()
         root = Path(self.tmp.name)
         self.tools = root / "aria-tools"

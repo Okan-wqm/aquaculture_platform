@@ -52,7 +52,7 @@ from typing import Any, Iterable, Iterator
 import yaml
 
 from tests._helpers.kernel_lane import KERNEL_SURFACE_MANIFEST, kernel_lane_surface, kernel_surface_entries
-from tests._helpers.witness_sources import REGISTRY_CLI_DATA, registry_cli_tool_paths, witness_tool_paths
+from tests._helpers.witness_sources import REGISTRY_CLI_DATA, plan_coverage_tool_paths, registry_cli_tool_paths
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _KERNEL_WORKFLOW = ".github/workflows/aria-kernel.yml"
@@ -279,10 +279,11 @@ class KernelSurfaceManifestTest(unittest.TestCase):
 
 class KernelToolInputsTest(unittest.TestCase):
     def test_the_plan_coverage_witness_and_its_imports_are_on_the_surface(self) -> None:
-        # The kernel runs the witness (aria_kernel/plan_coverage.py) and the
-        # suite copies its import closure into fixture repos; a change to any
-        # of those files must run the suite on its PR.
-        self.assertEqual(uncovered(witness_tool_paths(), kernel_lane_surface()), [])
+        # The kernel runs the witness and the two code-fact entries its closure
+        # is computed over (aria_kernel/plan_coverage.py), and the suite copies
+        # their import closure into fixture repos; a change to any of those
+        # files must run the suite on its PR.
+        self.assertEqual(uncovered(plan_coverage_tool_paths(), kernel_lane_surface()), [])
 
     def test_the_registry_cli_its_imports_and_its_data_are_on_the_surface(self) -> None:
         # The kernel's only registry reader is the registry CLI, run by

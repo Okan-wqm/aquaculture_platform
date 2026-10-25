@@ -135,7 +135,7 @@ class AStoreTheCopyAlreadyServed(_Store):
 
     def test_a_merge_asked_about_from_the_copy_is_not_asked_again(self) -> None:
         # The request the copy-reading dispatcher minted: same producer, same subject.
-        admission = admit_request("pr_tracking.change_intelligence", CHANGE_INTELLIGENCE_ROLE,
+        admission = admit_request("change_review.merge_feed", CHANGE_INTELLIGENCE_ROLE,
                                   base_dir=self.tools, cycle_id="cyc-legacy")
         self.assertTrue(admission.admitted)
         create_agent_invocation_request(

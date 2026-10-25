@@ -489,16 +489,8 @@ def prove_red_first(
     The subject checkout is never written: the worktrees live in a private
     scratch directory and are removed, registration included, afterwards.
     """
-    files, command, signature = admit_pin(pin)
+    files, command, signature, shas = admit_red_first(red_at, green_at, pin, workspace_root=workspace_root)
     root = Path(workspace_root).resolve()
-    shas: dict[str, str] = {}
-    for side, rev in (("red_at", red_at), ("green_at", green_at)):
-        resolved = _rev_parse(root, rev) if isinstance(rev, str) and rev.strip() else None
-        if resolved is None:
-            raise GovernanceError(f"red_first_commit_unresolvable:{side}:{rev!r}")
-        shas[side] = resolved
-    if shas["red_at"] == shas["green_at"]:
-        raise GovernanceError(f"red_first_same_commit:{shas['red_at']}")
     # implementation_delivery imports this module; the sandbox owner is read
     # at call time.
     from .implementation_delivery import validation_sandbox_for
@@ -526,10 +518,30 @@ def prove_red_first(
     }
 
 
-def admit_pin(pin: Any) -> tuple[dict[str, str], str, str]:
+def admit_red_first(
+    red_at: str, green_at: str, pin: Any, *, workspace_root: str | Path,
+) -> tuple[dict[str, str], str, str, dict[str, str]]:
+    """The ONE red-first admission, for the prover and for every caller that
+    must refuse a proof before it registers anything for it: the pin's files
+    (canonical test paths), command and failure signature, and ``{red_at,
+    green_at}`` resolved to two distinct commits of ``workspace_root`` — or
+    a named refusal, before any worktree, run or ledger row exists."""
+    files, command, signature = _admit_pin(pin)
+    root = Path(workspace_root).resolve()
+    shas: dict[str, str] = {}
+    for side, rev in (("red_at", red_at), ("green_at", green_at)):
+        resolved = _rev_parse(root, rev) if isinstance(rev, str) and rev.strip() else None
+        if resolved is None:
+            raise GovernanceError(f"red_first_commit_unresolvable:{side}:{rev!r}")
+        shas[side] = resolved
+    if shas["red_at"] == shas["green_at"]:
+        raise GovernanceError(f"red_first_same_commit:{shas['red_at']}")
+    return files, command, signature, shas
+
+
+def _admit_pin(pin: Any) -> tuple[dict[str, str], str, str]:
     """The pin's files (canonical test paths), command and failure signature,
-    or a named refusal: the ONE pin admission, for the prover and for every
-    caller that must refuse a pin before it registers anything for it."""
+    or a named refusal."""
     if type(pin) is not dict or set(pin) != PIN_KEYS:
         raise GovernanceError(f"red_first_pin_shape_invalid: keys must be {sorted(PIN_KEYS)}")
     command, signature, expectation = pin["command"], pin["failure_signature"], pin["expectation_ref"]
@@ -577,7 +589,7 @@ def lift_sandbox_pin(
     SHAs the kernel chooses. Each path passes the pin's own admission before
     its file is read, so a source edit, a ``conftest.py`` or a deletion is
     refused by name and the seat can only ADD tests, never change the code
-    under proof; ``admit_pin`` then refuses a command off the allowlist.
+    under proof; ``_admit_pin`` then refuses a command off the allowlist.
 
     The seat wrote the tree, so the kernel reads it as untrusted: git runs
     hermetic (no caller ``GIT_*``, no fsmonitor) with no external diff, paths
@@ -614,7 +626,7 @@ def lift_sandbox_pin(
             raise GovernanceError(f"red_first_pin_content_not_text: {path!r}") from exc
     pin = {"files": files, "command": command, "failure_signature": failure_signature,
            "expectation_ref": expectation_ref}
-    admit_pin(pin)
+    _admit_pin(pin)
     return pin
 
 

@@ -57,7 +57,7 @@ from .validation import (
     PROOF_VERDICTS,
     _canonical_input_scope,
     _input_metadata_within_limit,
-    admit_pin,
+    admit_red_first,
     prove_red_first,
     run_validation_commands,
 )
@@ -95,6 +95,16 @@ _ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$")
 # Upper bound on a recipe's own timeout. A recipe that may run for an
 # unbounded time is not a deterministic experiment, it is a hang.
 MAX_RECIPE_TIMEOUT_MS = 3_600_000
+
+# D6-R1-SEC-B1 — the recipe ``prove_candidate_pin`` registers for a
+# reproduction seat's pin carries ``origin: "seat_pin"``: its command is
+# seat-chosen text the kernel runs for that one proof, so it is never
+# plan-declarable (``plan_contract.validation_command_catalog``) and never
+# rendered into a prompt's trusted contract section. A recipe declared through
+# ``register_recipe`` (the operator, the kernel's own authoring) keeps the row
+# shape it always had, without the field (§12.12: an omitted option keeps the
+# previous row shape). ``is_seat_pin_recipe`` is the one reader.
+SEAT_PIN_RECIPE_ORIGIN = "seat_pin"
 
 
 def recipes_path(base_dir: str | Path | None = None) -> Path:
@@ -134,6 +144,35 @@ def register_recipe(
     time by ``validation.run_validation_commands``, which is the only
     place that decides what may execute.
     """
+    return _append_recipe(
+        seat_pin=False, recipe_id=recipe_id, command=command, timeout_ms=timeout_ms,
+        deterministic=deterministic, description=description, base_dir=base_dir,
+        cycle_id=cycle_id, input_scope=input_scope,
+    )
+
+
+def is_seat_pin_recipe(row: dict[str, Any]) -> bool:
+    """Whether the recipe row is a seat pin's (``SEAT_PIN_RECIPE_ORIGIN``);
+    a row carrying any other ``origin`` is a named refusal."""
+    if "origin" not in row:
+        return False
+    if row["origin"] != SEAT_PIN_RECIPE_ORIGIN:
+        raise GovernanceError(f"experiment_recipe_origin_invalid: {row.get('recipe_id')!r} origin={row['origin']!r}")
+    return True
+
+
+def _append_recipe(
+    *,
+    seat_pin: bool,
+    recipe_id: str,
+    command: str,
+    timeout_ms: int,
+    deterministic: bool,
+    description: str | None,
+    base_dir: str | Path | None,
+    cycle_id: str | None,
+    input_scope: dict[str, Any] | None,
+) -> dict[str, Any]:
     _assert_identifier("recipe_id", recipe_id)
     if not isinstance(command, str) or not command.strip():
         raise GovernanceError("experiment_recipe_command_required")
@@ -164,6 +203,8 @@ def register_recipe(
     }
     if input_scope is not None:
         row["input_scope"] = _validated_recipe_input_scope(input_scope)
+    if seat_pin:
+        row["origin"] = SEAT_PIN_RECIPE_ORIGIN
     return append_declared_jsonl(
         recipes_path(base_dir), row, expected_surface="experiment_recipes",
     )
@@ -462,11 +503,13 @@ def prove_candidate_pin(
     """D6 — the kernel proves a seat's pin and records it for its candidate.
 
     A reproduction seat never certifies its own red (DESIGN-discovery row
-    D6). The kernel admits the pin first (``validation.admit_pin``: test
-    files only, an allowlisted command — refused before anything is
-    registered), then registers a recipe for the pin's command and an
+    D6). The kernel admits the proof first (``validation.admit_red_first``:
+    test files only, an allowlisted command, two distinct commits it resolves
+    itself — a refusal registers nothing), then registers a ``seat_pin``
+    recipe for the pin's command (``SEAT_PIN_RECIPE_ORIGIN``: never
+    plan-declarable, never in a prompt's contract section) and an
     experiment bound to ``candidate_ref`` AT REGISTRATION, runs
-    ``validation.prove_red_first`` at the SHAs it chose, and appends one
+    ``validation.prove_red_first`` at those resolved commits, and appends one
     observation carrying ``candidate_ref``, the verdict, both SHAs and both
     run ids. The observation is ``matched`` only when the verdict is
     ``proven``, and its ``run_status`` and ``validation_run_id`` are the
@@ -488,22 +531,23 @@ def prove_candidate_pin(
     """
     if not isinstance(candidate_ref, str) or not candidate_ref.strip():
         raise GovernanceError("experiment_candidate_ref_required")
-    _files, command, _signature = admit_pin(pin)
+    _files, command, _signature, shas = admit_red_first(red_at, green_at, pin, workspace_root=workspace_root)
     token = secrets.token_hex(8)
-    recipe = register_recipe(
-        recipe_id=f"pin-{token}", command=command, timeout_ms=PIN_PROOF_TIMEOUT_MS,
+    recipe = _append_recipe(
+        seat_pin=True, recipe_id=f"pin-{token}", command=command, timeout_ms=PIN_PROOF_TIMEOUT_MS,
         deterministic=True, description=f"red-first pin for candidate {candidate_ref}",
-        base_dir=base_dir, cycle_id=cycle_id,
+        base_dir=base_dir, cycle_id=cycle_id, input_scope=None,
     )
     contract = {"comparator": PROOF_VERDICT_COMPARATOR, "expected": "proven"}
     experiment = register_experiment(
         experiment_id=f"pin-proof-{token}",
-        hypothesis=f"the pin is red at {red_at} and green at {green_at}, as {pin['expectation_ref']} expects",
+        hypothesis=(f"the pin is red at {shas['red_at']} and green at {shas['green_at']},"
+                    f" as {pin['expectation_ref']} expects"),
         recipe_ref=recipe["recipe_id"], observation_contract=contract,
         candidate_ref=candidate_ref, base_dir=base_dir, cycle_id=cycle_id,
     )
     proof = prove_red_first(
-        red_at, green_at, pin, workspace_root=workspace_root, runner_identity=runner_identity,
+        shas["red_at"], shas["green_at"], pin, workspace_root=workspace_root, runner_identity=runner_identity,
         base_dir=base_dir, timeout_ms=PIN_PROOF_TIMEOUT_MS,
     )
     red = find_validation_run_by_id(proof["red_run_id"], base_dir=base_dir)
@@ -643,6 +687,7 @@ __all__ = [
     "experiments_path",
     "get_experiment",
     "get_recipe",
+    "is_seat_pin_recipe",
     "list_experiment_observations",
     "list_experiments",
     "list_recipes",

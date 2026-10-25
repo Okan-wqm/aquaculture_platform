@@ -44,9 +44,9 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
+import { resolveGitFindingAllocationAuthority } from './finding-registry';
 import { canonicalJson, type Finding, parseRegistryJsonl } from './finding-registry-chain';
 import {
-  type AmendedFields,
   appendFindingEvents,
   type CreatedPayload,
   type FindingEventDraft,
@@ -66,7 +66,6 @@ import {
   registryLayout,
   type RegistryStore,
 } from './finding-registry-projection';
-import { resolveGitFindingAllocationAuthority } from './finding-registry';
 import { RegistryWriteRefused } from './finding-registry-rows';
 import {
   atomicWriteFileWithRegistryLease,
@@ -204,7 +203,7 @@ function changedFindingEvents(current: Finding, forked: Finding, branch: Finding
   }
   if (Object.keys(amended).length > 0) {
     // The event schema holds each amended field to the row contract's shape.
-    drafts.push({ event_type: 'AMENDED', payload: { fields: amended as AmendedFields } });
+    drafts.push({ event_type: 'AMENDED', payload: { fields: amended } });
   }
   return drafts;
 }

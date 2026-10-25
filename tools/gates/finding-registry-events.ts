@@ -369,8 +369,16 @@ export function genesisPin(blob: Buffer): GenesisPin {
   };
 }
 
+/**
+ * genesis.json's bytes: one field per line, two-space indent, as Prettier
+ * formats a flat JSON object, so the file `genesis` writes is the file the
+ * format gate accepts and the bytes the converter compares.
+ */
 export function serializeGenesisPin(pin: GenesisPin): string {
-  return `${JSON.stringify(pin, null, 2)}\n`;
+  const fields = Object.entries(pin).map(
+    ([key, value]) => `  ${JSON.stringify(key)}: ${JSON.stringify(value)}`,
+  );
+  return `{\n${fields.join(',\n')}\n}\n`;
 }
 
 /**
@@ -412,7 +420,7 @@ function reanchor(events: readonly FindingEventLine[], anchor: string): FindingE
   const lines: FindingEventLine[] = [];
   for (const event of events) {
     const { event_id: _id, version: _v, prev_hash: _p, content_hash: _c, ...draft } = event;
-    lines.push(chainEvent(draft as FindingEventDraft, lines, anchor));
+    lines.push(chainEvent(draft, lines, anchor));
   }
   return lines;
 }

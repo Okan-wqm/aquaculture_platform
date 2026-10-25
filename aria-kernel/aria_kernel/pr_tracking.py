@@ -4,7 +4,7 @@ import fnmatch
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, Mapping
 
 # ARIA-HIGH-189 — findings.jsonl is feedback_store's declared ledger; it is
 # read and rewritten through the owner's primitives, never the raw ledger
@@ -18,6 +18,9 @@ from .ledger import (
 )
 from .memory import latest_beliefs
 from .tool_registry import GovernanceError, ensure_tools_dir, list_tools, utc_now
+
+if TYPE_CHECKING:
+    from .workspace import WorkspacePaths
 
 
 # E14 — the change-intelligence agent the `change_intelligence` role always
@@ -159,6 +162,11 @@ class _ChangeOffer:
     head_sha: str
     changed_files: list[str]
     header: str
+    # WP-D2 — the two commits whose diff is the change: the operator's
+    # (base, head), a merge's (merge_sha^1, merge_sha). None names why the
+    # hunks cannot be read.
+    diff_range: tuple[str, str] | None
+    diff_unavailable: str | None = None
     # The merge feed's PR number; None for an operator-named change.
     pr_number: Any = None
 
@@ -173,12 +181,14 @@ def _operator_offer(subject: ChangeSubject) -> _ChangeOffer:
             f"change_base: {subject.base}\n"
             f"change_head: {subject.head}\n"
         ),
+        diff_range=(subject.base, subject.head),
     )
 
 
 def _merge_offer(merge: dict[str, Any]) -> _ChangeOffer:
     pr_number = merge.get("pr_number")
     head_sha = str(merge.get("head_sha"))
+    merge_sha = merge.get("merge_sha")
     return _ChangeOffer(
         subject_ref=change_intelligence_subject_ref(pr_number=pr_number, head_sha=head_sha),
         head_sha=head_sha,
@@ -190,8 +200,54 @@ def _merge_offer(merge: dict[str, Any]) -> _ChangeOffer:
             f"pr_number: {pr_number}\n"
             f"head_sha: {head_sha}\n"
         ),
+        diff_range=(f"{merge_sha}^1", str(merge_sha)) if merge_sha else None,
+        diff_unavailable=None if merge_sha else "the merged row records no merge_sha",
         pr_number=pr_number,
     )
+
+
+def _change_hunks(workspace_root: Path, offer: _ChangeOffer) -> str:
+    """WP-D2 step 1 — the change's unified diff, or the named reason it is not attached.
+
+    Local git only, through the probe session ``resolve_change_subject``
+    uses, so the entry never touches a remote; ``--end-of-options`` keeps a
+    recorded commit name from ever being read as an option.
+    """
+    from .evidence_probe import GitProbeSession
+
+    if offer.diff_range is None:
+        return f"hunks not attached: {offer.diff_unavailable}"
+    base, head = offer.diff_range
+    diff = GitProbeSession().run(
+        ["git", "diff", "--no-color", "--no-ext-diff", "--no-renames", "--end-of-options", base, head],
+        cwd=workspace_root,
+    )
+    if not diff.answered or diff.returncode != 0:
+        return (f"hunks not attached: git diff {base} {head} gave no answer "
+                f"({diff.unavailable_reason or diff.stderr.strip()[:200]})")
+    return diff.stdout.decode("utf-8", errors="replace")
+
+
+def _change_impact(workspace_root: Path, changed_files: list[str], *, root: Path, service_facts: Mapping[str, Any]) -> str:
+    """WP-D2 step 3 — the services the change reaches, upstream first, from
+    ``impact_graph.cycle_service_examination`` (the one closure owner); a held
+    closure is rendered as its named hold."""
+    from .impact_graph import cycle_service_examination
+
+    examination = cycle_service_examination(
+        workspace_root=workspace_root, changed_files=changed_files, service_facts=service_facts, base_dir=root,
+    )
+    if "hold" in examination:
+        return "impact closure held: " + json.dumps(examination["hold"], sort_keys=True, ensure_ascii=False)
+    lines = ["Impacted services in dependency order (upstream first):"]
+    for entry in examination["examination_order"]:
+        detail = f"layer {entry['layer']}; {entry['reason']}"
+        if entry["changed_files"]:
+            detail += f"; {entry['changed_files']} changed file(s)"
+        if entry["evidence"]:
+            detail += "; edge evidence " + json.dumps(entry["evidence"], sort_keys=True, ensure_ascii=False)
+        lines.append(f"- {entry['project']} ({detail})")
+    return "\n".join(lines)
 
 
 def dispatch_change_intelligence(
@@ -199,6 +255,7 @@ def dispatch_change_intelligence(
     cycle_id: str | None = None,
     base_dir: str | Path | None = None,
     subject: ChangeSubject | None = None,
+    workspace: WorkspacePaths | None = None,
     max_requests: int = DEFAULT_MAX_CHANGE_INTELLIGENCE_REQUESTS,
 ) -> dict[str, Any]:
     """Mint ONE change-intelligence envelope per subject. Idempotent.
@@ -219,10 +276,22 @@ def dispatch_change_intelligence(
     night's LLM bill. The remainder is not lost — it is minted by later runs,
     oldest surviving last, which is also the order in which the answers still
     matter.
+
+    WP-D2 — the envelope carries the change as DATA (PLAN-v2 F4.0,
+    ARIA-MEDIUM-826): its paths and hunks in ``<untrusted_diff>``, the
+    services it reaches in ``<untrusted_change_impact>``, and the area's
+    memory (with ``workspace``: past findings and missed signals too) in the
+    established-knowledge block, each escaped by
+    ``text_safety.untrusted_block``, so no path, hunk or memory row can plant
+    a line outside its tag. The hunks and the impact are read from
+    ``workspace``, whose tree the closure reads as the change's (the room's
+    tree is cut at the head, HARNESS §3.1; the nightly's checkout holds the
+    merge); a dispatch without one says so inside the blocks.
     """
     from .agent_invocations import create_agent_invocation_request, minted_subject_refs
     from .pressure_evidence import split_citable_refs
     from .request_admission import admit_request
+    from .text_safety import untrusted_block
 
     root = ensure_tools_dir(base_dir)
     # One ledger pass for the whole merge backlog: the merge list only grows,
@@ -236,6 +305,9 @@ def dispatch_change_intelligence(
     minted: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
     offers: list[_ChangeOffer] = []
+    # The workspace's code facts, computed once per dispatch and only when an
+    # envelope is minted: they are the closure's contract edges (SE-3/SE-4).
+    service_facts: Mapping[str, Any] | None = None
     if subject is not None:
         offers.append(_operator_offer(subject))
     else:
@@ -275,12 +347,27 @@ def dispatch_change_intelligence(
             break
         already_asked.add(offer.subject_ref)
         changed_files = offer.changed_files
+        if workspace is None:
+            hunks = "hunks not attached: this dispatch was given no workspace to read the change from"
+            impact = "impact not computed: this dispatch was given no workspace to read the change from"
+        else:
+            if service_facts is None:
+                from .plan_coverage import compute_service_facts_at_head
+
+                service_facts = compute_service_facts_at_head(workspace_root=workspace.repo_root)
+            hunks = _change_hunks(workspace.repo_root, offer)
+            impact = _change_impact(workspace.repo_root, changed_files, root=root, service_facts=service_facts)
+        listed = json.dumps(changed_files[:_MAX_CHANGED_FILE_REFS], ensure_ascii=False)
         prompt = (
             offer.header
-            + f"changed_file_count: {len(changed_files)}\n"
-            f"changed_files (first {_MAX_CHANGED_FILE_REFS}): "
-            f"{', '.join(changed_files[:_MAX_CHANGED_FILE_REFS]) or '(none recorded)'}\n"
-            "Return details.impact_map with beliefs_needs_revalidation, "
+            + f"changed_file_count: {len(changed_files)}\n\n"
+            "The change itself follows as data: its paths (the first "
+            f"{_MAX_CHANGED_FILE_REFS}) and hunks in the diff block, the services "
+            "it reaches in the change impact block.\n\n"
+            + untrusted_block("untrusted_diff", f"changed_files: {listed}\n\n{hunks}")
+            + "\n"
+            + untrusted_block("untrusted_change_impact", impact)
+            + "\nReturn details.impact_map with beliefs_needs_revalidation, "
             "findings_needs_revalidation, fixtures_requires_rerun and "
             "confirmed_unchanged. Ground every entry in the change's commits, "
             "not in its description."
@@ -305,6 +392,7 @@ def dispatch_change_intelligence(
             target_sha=offer.head_sha,
             base_dir=root,
             admission=admission,
+            change_review_workspace=workspace,
         )
         minted.append({
             "pr_number": offer.pr_number, "subject_ref": offer.subject_ref, "request_id": request.get("request_id"),

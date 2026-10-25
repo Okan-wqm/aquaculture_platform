@@ -20,6 +20,7 @@ from aria_kernel.impact_graph import (  # noqa: E402
     build_service_analysis_order,
     plan_service_analysis_order,
 )
+from tests._helpers.service_facts import NO_CONTRACT_FACTS  # noqa: E402
 
 
 def _is_topological(plan: dict) -> bool:
@@ -95,6 +96,8 @@ class PlanFromRepoTests(unittest.TestCase):
             plan = plan_service_analysis_order(
                 workspace_root=root,
                 changed_files=["libs/shared/src/index.ts"],
+                service_facts=NO_CONTRACT_FACTS,
+                base_dir=Path(td) / "tools",
             )
             order = [e["project"] for e in plan["order"]]
             self.assertIn("shared", order)

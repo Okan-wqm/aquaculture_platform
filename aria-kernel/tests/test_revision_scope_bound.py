@@ -56,6 +56,7 @@ from aria_kernel.tool_registry import GovernanceError
 from aria_kernel.request_admission import admit_request
 from tests._helpers.git_fixtures import make_local_git_repo
 from tests._helpers.operator_acts import operator_set_profile
+from tests._helpers.service_facts import NO_CONTRACT_FACTS, facts_without_contract_edges
 from tests.test_implementation_lifecycle_continuity import (
     converging_plan_content,
     drive_plan_to_converged,
@@ -119,6 +120,8 @@ class _ScopeBoundFixture(unittest.TestCase):
     """The four-project workspace and the plan moves the bound is tested through."""
 
     def setUp(self) -> None:
+        # SE-4 — a fixture workspace has no TypeScript toolchain; its subject is not contract edges.
+        self.enterContext(facts_without_contract_edges())
         self.tmp = tempfile.TemporaryDirectory(prefix="aria-scope-bound-")
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name) / "workspace"
@@ -218,7 +221,9 @@ class RevisionScopeBoundTests(_ScopeBoundFixture):
         seed = _seed(self.root, "f_finding", "F-007", [SHARED])
         plan_id = self._start(dict(seed, admission_scope={"closure_roots": ["apps"]}))
         scope = self._scope(plan_id)
-        impact = plan_downstream_impact(changed_files=[SHARED], workspace_root=self.root, base_dir=self.tools)
+        impact = plan_downstream_impact(
+            changed_files=[SHARED], workspace_root=self.root, base_dir=self.tools, service_facts=NO_CONTRACT_FACTS,
+        )
         self.assertEqual(scope["admitted_surfaces"], [SHARED])
         self.assertEqual(scope["closure_projects"], sorted([*impact["changed_projects"], *impact["downstream_projects"]]))
         self.assertEqual(scope["closure_projects"], ["farm-service", "gateway", "shared-lib"])
@@ -260,6 +265,8 @@ class RevisionScopeBoundTests(_ScopeBoundFixture):
 
 class ImplementationScopeNeverExceedsTheBoundTests(unittest.TestCase):
     def setUp(self) -> None:
+        # SE-4 — a fixture workspace has no TypeScript toolchain; its subject is not contract edges.
+        self.enterContext(facts_without_contract_edges())
         self.tmp = tempfile.TemporaryDirectory(prefix="aria-scope-impl-")
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name) / "workspace"

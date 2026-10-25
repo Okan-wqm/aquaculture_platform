@@ -2251,6 +2251,7 @@ def record_consensus_uncertainty(
     finding_id: str,
     group_id: str,
     reason: str,
+    arbiter_reason: str | None = None,
     cycle_id: str | None = None,
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
@@ -2265,9 +2266,18 @@ def record_consensus_uncertainty(
     of the kernel minting an outcome its own law refuses. The fix is one
     producer: the same row shape, the same ledger, the same idempotent
     escalation_id, so the arbiter lane reads BOTH lanes off one ledger.
+
+    ``arbiter_reason`` is the reason an arbiter STATED when the recorded
+    ``reason`` is the arbiter lane's terminal one (F0.7,
+    ``record_arbiter_uncertainty``); it rides beside the row and is held to
+    the same closed vocabulary, so every reason that reaches the ledger
+    passes this one check.
     """
     _require_registered_uncertainty_reason(reason)
     row = _consensus_uncertainty(tool_id, run_id, finding_id, group_id, reason)
+    if arbiter_reason is not None:
+        _require_registered_uncertainty_reason(arbiter_reason)
+        row["arbiter_reason"] = arbiter_reason
     return _append_consensus_uncertainty(row, tool_id=tool_id, cycle_id=cycle_id, base_dir=base_dir)
 
 
@@ -2291,11 +2301,22 @@ def record_arbiter_uncertainty(
     here would leave the group owed to an arbiter that already answered at
     the same inputs: held forever with no route. The stated reason is kept
     beside it as ``arbiter_reason``.
+
+    This is arbiter POLICY over the one producer (ORPHAN-CRITICAL-735), never
+    a second writer: the vocabulary check, row shape, idempotent
+    escalation_id and ledger append all stay in
+    ``record_consensus_uncertainty``.
     """
-    _require_registered_uncertainty_reason(stated_reason)
-    row = {**_consensus_uncertainty(tool_id, run_id, finding_id, group_id, TERMINAL_UNCERTAINTY_REASON),
-           "arbiter_reason": stated_reason}
-    return _append_consensus_uncertainty(row, tool_id=tool_id, cycle_id=cycle_id, base_dir=base_dir)
+    return record_consensus_uncertainty(
+        tool_id=tool_id,
+        run_id=run_id,
+        finding_id=finding_id,
+        group_id=group_id,
+        reason=TERMINAL_UNCERTAINTY_REASON,
+        arbiter_reason=stated_reason,
+        cycle_id=cycle_id,
+        base_dir=base_dir,
+    )
 
 
 def _require_registered_uncertainty_reason(reason: str) -> None:

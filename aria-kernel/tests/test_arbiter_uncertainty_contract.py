@@ -106,6 +106,36 @@ class ArbiterUncertaintyIsAValidOutcome(unittest.TestCase):
         total = sum(len(r["uncertainties"]) for r in rows)
         self.assertEqual(total, 1)
 
+    def test_the_arbiters_fold_goes_through_the_one_producer(self) -> None:
+        # ORPHAN-CRITICAL-735 — one producer, one vocabulary, one ledger.
+        # F0.7's terminal mapping is arbiter policy layered ON the producer,
+        # never a second writer with its own reason check and append (the
+        # closure-reachability gate caught exactly that: the one producer
+        # left with no production caller).
+        from unittest import mock
+
+        from aria_kernel import feedback_store
+
+        with mock.patch.object(
+            feedback_store, "record_consensus_uncertainty",
+            wraps=feedback_store.record_consensus_uncertainty,
+        ) as producer:
+            jb.record_judge_verdict_from_response(request=_request(), response=_uncertain_response(), base_dir=self.base)
+        producer.assert_called_once()
+        self.assertEqual(
+            (producer.call_args.kwargs["reason"], producer.call_args.kwargs["arbiter_reason"]),
+            ("unverifiable", "judge_disagreement"),
+        )
+
+    def test_an_unregistered_arbiter_reason_is_refused_by_the_one_producer(self) -> None:
+        with self.assertRaises(GovernanceError) as ctx:
+            record_consensus_uncertainty(
+                tool_id="t", run_id="r", finding_id="f", group_id="g",
+                reason="unverifiable", arbiter_reason="i_made_this_up", base_dir=self.base,
+            )
+        self.assertIn("unregistered_consensus_uncertainty_reason", str(ctx.exception))
+        self.assertFalse((self.base / "feedback-consensus-uncertainties.jsonl").exists())
+
     def test_an_unbound_arbiter_envelope_is_refused_by_name(self) -> None:
         # J4 — an envelope minted before the binding can prove nothing about
         # what it was asked; its answer writes nothing.

@@ -15,7 +15,9 @@ from pathlib import Path
 
 from aria_kernel.feedback_store import UNVERIFIABLE_RATE_CEILING, _consensus_uncertainty
 from aria_kernel.human_required import (
+    CONSENSUS_ESCALATION_KIND,
     list_human_required,
+    record_human_required,
     sweep_consensus_uncertainties_for_human_required,
 )
 from aria_kernel.tool_registry import ensure_tools_dir, utc_now
@@ -41,6 +43,17 @@ class ConsensusEscalationTests(unittest.TestCase):
         path = self.tools / "feedback-consensus-uncertainties.jsonl"
         with path.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(line, sort_keys=True) + "\n")
+
+    def _governance_rows(self, kind: str | None = None) -> list[dict]:
+        path = self.tools / "governance.jsonl"
+        rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+        return [row for row in rows if kind is None or row.get("kind") == kind]
+
+    def _unverifiable_groups(self, start: int, stop: int) -> None:
+        self._write_uncertainties(*(
+            _consensus_uncertainty("tool-x", f"run-{i}", f"F-{i}", f"g{i}", "unverifiable")
+            for i in range(start, stop)
+        ))
 
     def test_no_file_is_a_noop(self) -> None:
         result = sweep_consensus_uncertainties_for_human_required(base_dir=self.tools)
@@ -74,6 +87,44 @@ class ConsensusEscalationTests(unittest.TestCase):
         second = sweep_consensus_uncertainties_for_human_required(base_dir=self.tools)
         self.assertEqual(first, second)
         self.assertEqual(list_human_required(base_dir=self.tools).rows, [])
+
+    def test_a_rerun_adds_nothing_to_the_governance_ledger(self) -> None:
+        # The sweep's only writes are its two disclosures: a legacy record it
+        # routes to the arbiter, and a tool's unverifiable rate over its
+        # ceiling (six distinct groups: Wilson lower bound 0.6097 > 0.25). A
+        # re-run over the same state must add neither.
+        self._unverifiable_groups(1, 7)
+        record_human_required(
+            request_id="HR-consensus-legacy", severity="high", reason="pre-F0.7 consensus escalation",
+            context={"kind": CONSENSUS_ESCALATION_KIND, "tool_id": "tool-x", "run_id": "run-1",
+                     "finding_id": "F-1", "judgment_group_id": "g1"},
+            base_dir=self.tools)
+
+        first = sweep_consensus_uncertainties_for_human_required(base_dir=self.tools)
+        self.assertEqual(first["routed_records"], ["HR-consensus-legacy"])
+        [breach] = first["unverifiable_rate_ceiling"]
+        self.assertEqual((breach["tool_id"], breach["unverifiable"]), ("tool-x", 6))
+        ledger = self._governance_rows()
+        self.assertEqual([row["kind"] for row in ledger
+                          if row["kind"] in ("consensus_escalation_routed_to_arbiter", "unverifiable_rate_ceiling")],
+                         ["consensus_escalation_routed_to_arbiter", "unverifiable_rate_ceiling"])
+
+        second = sweep_consensus_uncertainties_for_human_required(base_dir=self.tools)
+
+        self.assertEqual(second["routed_records"], [])
+        self.assertEqual(second["unverifiable_rate_ceiling"], first["unverifiable_rate_ceiling"])  # still reported
+        self.assertEqual(self._governance_rows(), ledger)  # and not said again
+
+    def test_a_changed_unverifiable_count_is_a_new_disclosure_and_a_standing_one_is_not(self) -> None:
+        self._unverifiable_groups(1, 7)
+        sweep_consensus_uncertainties_for_human_required(base_dir=self.tools)
+        sweep_consensus_uncertainties_for_human_required(base_dir=self.tools)
+        self.assertEqual([row["details"]["unverifiable"] for row in self._governance_rows("unverifiable_rate_ceiling")], [6])
+
+        self._unverifiable_groups(7, 8)  # a seventh group: a changed count is a new fact
+        sweep_consensus_uncertainties_for_human_required(base_dir=self.tools)
+        sweep_consensus_uncertainties_for_human_required(base_dir=self.tools)
+        self.assertEqual([row["details"]["unverifiable"] for row in self._governance_rows("unverifiable_rate_ceiling")], [6, 7])
 
 
 if __name__ == "__main__":

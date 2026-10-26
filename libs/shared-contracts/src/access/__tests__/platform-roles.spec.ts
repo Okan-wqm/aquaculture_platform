@@ -108,6 +108,17 @@ describe('platform roles (the one hierarchy)', () => {
     expect(accountRoleOf([])).toBeNull();
   });
 
+  it.each([
+    ['a string containing a role name', 'NOT_A_SUPER_ADMIN_ROLE'],
+    ['a bare role string', 'SUPER_ADMIN'],
+    ['an object', { 0: 'SUPER_ADMIN', length: 1 }],
+    ['null', null],
+    ['a role inside an entry', ['NOT_A_TENANT_ADMIN_ROLE', ['SUPER_ADMIN']]],
+  ])('holds no role when the roles claim is %s (exact match on an array only)', (_name, roles) => {
+    expect(highestPlatformRole(roles)).toBeNull();
+    expect(accountRoleOf(roles)).toBeNull();
+  });
+
   it('is frozen at every level', () => {
     for (const value of [
       PLATFORM_ROLES_BY_PRIVILEGE,

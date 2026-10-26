@@ -113,12 +113,13 @@ describe('INVARIANT (ORPHAN-087): shared-contracts declares no domain enums', ()
       './modules/platform-modules',
       // The access vocabulary (RBAC-MEDIUM-024; ADR-051 §1): the platform roles and their one
       // hierarchy, the tenant capabilities and the one capability check, ModuleScope, the
-      // access kinds and callers, and decideAccess — read by the backend guards and the web
-      // alike. Frozen objects, not enums.
+      // access kinds, the member caller and its claims, and decideAccess — read by the backend
+      // guards and the web alike. Frozen objects, not enums.
       './access/platform-roles',
       './access/tenant-capabilities',
       './access/module-scope',
       './access/access-spec',
+      './access/user-caller',
       './access/decide-access',
     ]);
     const index = readFileSync(resolve(REPO_ROOT, 'libs/shared-contracts/src/index.ts'), 'utf8');

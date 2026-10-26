@@ -29,10 +29,14 @@
  *
  * Callers and roles:
  *   - A member (UserCaller) fails `service`; a service caller (ServiceCaller) fails every other
- *     kind.
+ *     kind. A member caller `userCaller` did not build (a spread, literal or JSON copy of one)
+ *     fails every kind, so no caller passes on claims nobody validated (user-caller.ts).
  *   - @Roles is checked by kind, within the one hierarchy: MODULE_MANAGER and MODULE_USER only by
  *     the caller's role in the spec's module; TENANT_ADMIN and SUPER_ADMIN only by the caller's
  *     account role. So a farm MODULE_MANAGER fails a farm operation gated to TENANT_ADMIN.
+ *     company, self and account read no @Roles: a request for them that names roles is denied,
+ *     never decided as though the roles were absent.
+ *   - Only a module role counts as a grant: a claim value that is none grants nothing.
  *   - A missing claim means no grants. The global role never grants module access: a member's
  *     `users.role` of MODULE_MANAGER or MODULE_USER counts for nothing here.
  *   - TENANT_ADMIN keeps full access: its claim lists every module enabled for the tenant (the
@@ -47,31 +51,36 @@ import type {
   AccessKind,
   AccessRequest,
   Caller,
-  ModuleAccess,
   NatsServiceName,
   ScopedKind,
   ServiceAccessSpec,
   ServiceCaller,
   ServiceIntent,
   SubjectAccess,
-  UserCaller,
 } from './access-spec';
 import { ALL_MODULES_SCOPE, moduleScopeOf, type ModuleScope } from './module-scope';
 import {
   isAccountRole,
+  isModuleRole,
   platformRoleSatisfies,
   type ModuleRole,
   type PlatformRole,
 } from './platform-roles';
 import { COMPANY_VIEW_CAPABILITY, holdsTenantCapabilities } from './tenant-capabilities';
+import { isUserCaller, type ModuleAccess, type UserCaller } from './user-caller';
 
 /** Why a decision denied. The deny metric is labelled by kind; reasons serve tests and logs. */
 export type AccessDenyReason =
   /** A service caller on a member kind, or a member on `service`. */
   | 'caller-kind'
+  /** A member caller `userCaller` did not build. */
+  | 'unverified-caller'
   /** module(m): the caller holds no grant in m. */
   | 'no-grant'
-  /** module(m): the grant or the account role does not satisfy @Roles. */
+  /**
+   * module(m): the grant or the account role does not satisfy @Roles; company, self, account: the
+   * request names @Roles, which these kinds do not read.
+   */
   | 'roles'
   /** scoped: no grant satisfies @Roles. */
   | 'empty-scope'
@@ -111,11 +120,18 @@ export function decideAccess(caller: Caller, request: AccessRequest): AccessDeci
       : deny('service', 'caller-kind');
   }
   if (caller.kind === 'service') return deny(request.spec.kind, 'caller-kind');
+  if (!isUserCaller(caller)) return deny(request.spec.kind, 'unverified-caller');
   return decideMember(caller, request);
+}
+
+/** The kinds whose decision reads @Roles (see AccessRequest). */
+function readsRoles(kind: AccessKind): boolean {
+  return kind === 'module' || kind === 'scoped';
 }
 
 function decideMember(caller: UserCaller, request: AccessRequest): AccessDecision {
   const { spec } = request;
+  if (!readsRoles(spec.kind) && rolesOf(request).length > 0) return deny(spec.kind, 'roles');
   switch (spec.kind) {
     case 'module':
       return decideModule(caller, spec.module, rolesOf(request));
@@ -137,9 +153,9 @@ function decideMember(caller: UserCaller, request: AccessRequest): AccessDecisio
   }
 }
 
-/** The request's @Roles; the kinds that do not read @Roles carry none (see AccessRequest). */
+/** The request's @Roles; `[]` when it names none. */
 function rolesOf(request: AccessRequest): readonly PlatformRole[] {
-  return 'roles' in request ? request.roles : [];
+  return request.roles ?? [];
 }
 
 /**
@@ -160,8 +176,10 @@ function rolesSatisfied(
   });
 }
 
+/** The caller's role in `module`; a value that is no module role is no grant (fail closed). */
 function grantIn(moduleAccess: ModuleAccess, module: OwnerModuleCode): ModuleRole | undefined {
-  return moduleAccess[module];
+  const grant: unknown = moduleAccess[module];
+  return isModuleRole(grant) ? grant : undefined;
 }
 
 function decideModule(

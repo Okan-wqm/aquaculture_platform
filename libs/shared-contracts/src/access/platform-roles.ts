@@ -110,18 +110,23 @@ function inheritedBy(role: PlatformRole): readonly PlatformRole[] {
 
 /**
  * The most privileged platform role among the role strings a verified identity carries
- * (`users.role` and `roles[]`), or null when none is one. Exact match: a role in another case or
- * an unknown name holds nothing (fail closed).
+ * (`users.role` and `roles[]`), or null when none is one. Roles reach this from token claims, so
+ * it takes them as `unknown`: anything but an array holds nothing, and each element must equal a
+ * role exactly. A role in another case, an unknown name, or a string that merely contains a role
+ * name (`'NOT_A_SUPER_ADMIN_ROLE'`, which `String.prototype.includes` would match) holds nothing
+ * (fail closed).
  */
-export function highestPlatformRole(roles: readonly string[]): PlatformRole | null {
-  return PLATFORM_ROLES_BY_PRIVILEGE.find((role) => roles.includes(role)) ?? null;
+export function highestPlatformRole(roles: unknown): PlatformRole | null {
+  if (!Array.isArray(roles)) return null;
+  const held: readonly unknown[] = roles;
+  return PLATFORM_ROLES_BY_PRIVILEGE.find((role) => held.some((entry) => entry === role)) ?? null;
 }
 
 /**
  * The account role among the roles a verified identity carries, or null for a member: the
  * legacy global MODULE_MANAGER and MODULE_USER carry no account power (ADR-051 §1).
  */
-export function accountRoleOf(roles: readonly string[]): AccountRole | null {
+export function accountRoleOf(roles: unknown): AccountRole | null {
   const highest = highestPlatformRole(roles);
   return isAccountRole(highest) ? highest : null;
 }

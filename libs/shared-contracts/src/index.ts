@@ -138,12 +138,14 @@ export {
   narrowModuleScope,
 } from './access/module-scope';
 export type { ModuleScope, NonEmptyReadonlyArray } from './access/module-scope';
-export {
-  NATS_SERVICE_NAMES,
-  isModuleAccess,
-  userCaller,
-  serviceCaller,
-} from './access/access-spec';
+export { NATS_SERVICE_NAMES, serviceCaller } from './access/access-spec';
+export { MalformedCallerError, isModuleAccess, userCaller } from './access/user-caller';
+export type {
+  CallerClaim,
+  ModuleAccess,
+  UserCaller,
+  VerifiedMemberIdentity,
+} from './access/user-caller';
 export type {
   AccessIntent,
   ServiceIntent,
@@ -158,12 +160,9 @@ export type {
   AccessSpec,
   AccessKind,
   AccessRequest,
-  ModuleAccess,
   NatsServiceName,
-  UserCaller,
   ServiceCaller,
   Caller,
-  VerifiedMemberIdentity,
   UserSubjectAccess,
   ServiceSubjectAccess,
   SubjectAccess,

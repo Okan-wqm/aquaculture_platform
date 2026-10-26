@@ -1,18 +1,29 @@
 import { OWNER_MODULE_CODES } from '../../modules/platform-modules';
 import {
   NATS_SERVICE_NAMES,
-  isModuleAccess,
   serviceCaller,
-  userCaller,
+  type AccessIntent,
   type AccessRequest,
+  type AccountAccessSpec,
   type Caller,
-  type ModuleAccess,
+  type CompanyAccessSpec,
+  type SelfAccessSpec,
   type ServiceSubjectAccess,
   type SubjectAccess,
-  type UserCaller,
 } from '../access-spec';
 import { decideAccess, deriveServiceGrants, type AccessDecision } from '../decide-access';
 import { ALL_MODULES_SCOPE } from '../module-scope';
+import type { PlatformRole } from '../platform-roles';
+import {
+  MalformedCallerError,
+  isModuleAccess,
+  isUserCaller,
+  userCaller,
+  type CallerClaim,
+  type ModuleAccess,
+  type UserCaller,
+  type VerifiedMemberIdentity,
+} from '../user-caller';
 
 /**
  * decideAccess (RBAC-MEDIUM-024; ADR-051 §1, §4) — every viewer of ADR-051 §4 against every
@@ -241,6 +252,31 @@ function outcome(decision: AccessDecision): Expected {
   return decision.scope.kind === 'all' ? 'ALL' : decision.scope.modules;
 }
 
+/**
+ * Typed code cannot hand decideAccess a copied caller or a request that names @Roles for a kind
+ * that reads none (the compile-time rows below). A type predicate is unchecked, though: one that
+ * reads fields only, as a payload validator or a guard reading handler metadata could write it,
+ * lets either through. These are such predicates; the rows that use them prove that decideAccess
+ * still refuses what they let through.
+ */
+function looksLikeUserCaller(value: unknown): value is UserCaller {
+  return typeof value === 'object' && value !== null && 'kind' in value && value.kind === 'user';
+}
+
+function looksLikeAccessRequest(value: unknown): value is AccessRequest {
+  return typeof value === 'object' && value !== null && 'spec' in value && 'intent' in value;
+}
+
+function fieldCheckedCaller(value: unknown): UserCaller {
+  if (!looksLikeUserCaller(value)) throw new Error('the fixture does not look like a caller');
+  return value;
+}
+
+function fieldCheckedRequest(value: unknown): AccessRequest {
+  if (!looksLikeAccessRequest(value)) throw new Error('the fixture does not look like a request');
+  return value;
+}
+
 describe('decideAccess — the ADR-051 §4 viewer matrix', () => {
   const cells = SURFACES.flatMap((surface) =>
     VIEWER_NAMES.map((viewer) => [surface.name, viewer, surface] as const),
@@ -308,6 +344,59 @@ describe('decideAccess — claim shapes', () => {
     ).toEqual({ allowed: false, kind: 'module', reason: 'no-grant' });
   });
 
+  /** Every malformed shape of each claim (ADR-051 §2: malformed is 400), and the claim it names. */
+  const MALFORMED: readonly (readonly [string, Partial<VerifiedMemberIdentity>, CallerClaim])[] = [
+    ['a grant of an account role', { moduleAccess: { farm: 'SUPER_ADMIN' } }, 'moduleAccess'],
+    ['a grant that is no role', { moduleAccess: { hr: 'x' } }, 'moduleAccess'],
+    ['a grant in a module no one owns', { moduleAccess: { alert: 'MODULE_USER' } }, 'moduleAccess'],
+    ['a grant in a lower-case role', { moduleAccess: { farm: 'module_manager' } }, 'moduleAccess'],
+    ['a grant with no value', { moduleAccess: { farm: undefined } }, 'moduleAccess'],
+    [
+      'a JSON claim naming __proto__',
+      { moduleAccess: JSON.parse('{"__proto__":{"sensor":"MODULE_MANAGER"}}') },
+      'moduleAccess',
+    ],
+    ['a null claim', { moduleAccess: null }, 'moduleAccess'],
+    ['a string claim', { moduleAccess: 'farm' }, 'moduleAccess'],
+    ['an array claim', { moduleAccess: ['farm'] }, 'moduleAccess'],
+    ['roles as a string', { roles: 'NOT_A_SUPER_ADMIN_ROLE' }, 'roles'],
+    ['roles as one role string', { roles: 'SUPER_ADMIN' }, 'roles'],
+    ['roles with a non-string entry', { roles: ['MODULE_USER', 1] }, 'roles'],
+    ['roles missing', { roles: undefined }, 'roles'],
+    ['capabilities as a string', { capabilities: 'users:view' }, 'capabilities'],
+    ['capabilities with a non-string entry', { capabilities: [{}] }, 'capabilities'],
+    ['a null capabilities claim', { capabilities: null }, 'capabilities'],
+  ];
+
+  it.each(MALFORMED)('a malformed claim never becomes a caller: %s', (_name, claims, claim) => {
+    const identity: VerifiedMemberIdentity = {
+      userId: 'u',
+      tenantId: TENANT,
+      roles: ['MODULE_USER'],
+      ...claims,
+    };
+    let thrown: unknown;
+    try {
+      userCaller(identity);
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(MalformedCallerError);
+    expect(thrown).toMatchObject({ name: 'MalformedCallerError', claim });
+  });
+
+  it('a well-formed claim of every owner module is accepted', () => {
+    const everyModule: ModuleAccess = Object.fromEntries(
+      OWNER_MODULE_CODES.map((module) => [module, 'MODULE_USER']),
+    );
+    const caller = member('all', ['MODULE_USER'], everyModule);
+    for (const module of OWNER_MODULE_CODES) {
+      expect(
+        decideAccess(caller, { spec: { kind: 'module', module }, intent: 'read', roles: [] }),
+      ).toEqual({ allowed: true, kind: 'module' });
+    }
+  });
+
   it('a reserved module is gated like any other (hydroponics, D3)', () => {
     const grower = member('g', ['MODULE_USER'], { hydroponics: 'MODULE_USER' });
     const request: AccessRequest = {
@@ -362,6 +451,41 @@ describe('decideAccess — @Roles checked by kind', () => {
         roles: ['MODULE_MANAGER'],
       }),
     ).toEqual({ allowed: true, kind: 'scoped', scope: { kind: 'modules', modules: ['farm'] } });
+  });
+
+  /** A request for a kind that reads no @Roles, but naming roles: not an AccessRequest. */
+  type WithRoles<Spec> = {
+    readonly spec: Spec;
+    readonly intent: AccessIntent;
+    readonly roles: readonly PlatformRole[];
+  };
+
+  it('company, self and account requests cannot name @Roles (compile time)', () => {
+    const selfWithRoles: [WithRoles<SelfAccessSpec>] extends [AccessRequest] ? true : false = false;
+    const companyWithRoles: [WithRoles<CompanyAccessSpec>] extends [AccessRequest] ? true : false =
+      false;
+    const accountWithRoles: [WithRoles<AccountAccessSpec>] extends [AccessRequest] ? true : false =
+      false;
+    expect([selfWithRoles, companyWithRoles, accountWithRoles]).toEqual([false, false, false]);
+  });
+
+  // Typed code cannot build these requests (the row above); a field-checked one arrives anyway.
+  it.each([
+    ['self', '{"spec":{"kind":"self"},"intent":"write","roles":["TENANT_ADMIN"]}'],
+    ['company', '{"spec":{"kind":"company"},"intent":"read","roles":["TENANT_ADMIN"]}'],
+    [
+      'account',
+      '{"spec":{"kind":"account","capability":"users:view"},"intent":"read","roles":["SUPER_ADMIN"]}',
+    ],
+  ])('a %s request that names @Roles is denied, never decided without them', (kind, json) => {
+    const request = fieldCheckedRequest(JSON.parse(json));
+    for (const viewer of VIEWER_NAMES) {
+      expect(decideAccess(VIEWERS[viewer], request)).toEqual({
+        allowed: false,
+        kind,
+        reason: 'roles',
+      });
+    }
   });
 
   it('an hr grant gives ALL for workforce only when it satisfies @Roles', () => {
@@ -486,10 +610,10 @@ describe('deriveServiceGrants (SERVICE_GRANTS is derived, never written by hand)
 });
 
 describe('the caller vocabulary', () => {
-  /** The fields of a UserCaller without its private brand: what a hand-written literal can hold. */
-  type HandWritten = { readonly [K in Exclude<keyof UserCaller, symbol>]: UserCaller[K] };
+  /** The public fields of a UserCaller: all a hand-written literal can hold. */
+  type HandWritten = { readonly [K in keyof UserCaller]: UserCaller[K] };
 
-  it('builds a member caller only through userCaller, frozen, from a copy of the claim', () => {
+  it('builds a member caller through userCaller, frozen, from a copy of the claim', () => {
     const claim: { farm?: 'MODULE_MANAGER' | 'MODULE_USER' } = { farm: 'MODULE_MANAGER' };
     const caller = member('u', ['MODULE_USER', 'TENANT_ADMIN'], claim, ['users:view']);
     claim.farm = 'MODULE_USER';
@@ -506,9 +630,66 @@ describe('the caller vocabulary', () => {
     expect(Object.isFrozen(caller.capabilities)).toBe(true);
     // The global MODULE_MANAGER is no account role.
     expect(member('m', ['MODULE_MANAGER'], {}).accountRole).toBeNull();
-    // A hand-written object of the same fields is not a UserCaller: the brand is private.
+    expect(isUserCaller(caller)).toBe(true);
+    // A hand-written object of the same fields is not a UserCaller: the brand is an ES private
+    // field, which no literal can hold.
     const handWrittenIsCaller: [HandWritten] extends [UserCaller] ? true : false = false;
     expect(handWrittenIsCaller).toBe(false);
+  });
+
+  describe('a copy of a real caller is no caller', () => {
+    const real = member('real', ['MODULE_USER']);
+    const unchanged = { ...real };
+    const widened = {
+      ...real,
+      accountRole: 'TENANT_ADMIN' as const,
+      moduleAccess: { hr: 'MODULE_MANAGER' as const },
+    };
+    const hr: AccessRequest = { spec: { kind: 'module', module: 'hr' }, intent: 'read', roles: [] };
+
+    it('a spread, unchanged or widened, does not compile as a UserCaller', () => {
+      const unchangedIsCaller: [typeof unchanged] extends [UserCaller] ? true : false = false;
+      const widenedIsCaller: [typeof widened] extends [UserCaller] ? true : false = false;
+      expect([unchangedIsCaller, widenedIsCaller]).toEqual([false, false]);
+    });
+
+    /** The caller's class prototype, so a copy can pass an `instanceof` check too. */
+    function callerPrototype(): object | null {
+      const prototype: unknown = Object.getPrototypeOf(real);
+      if (typeof prototype !== 'object') throw new Error('a caller has an object prototype');
+      return prototype;
+    }
+
+    // Typed code cannot pass these copies (the row above); a field-checked copy arrives anyway.
+    it.each([
+      ['an unchanged spread', (): unknown => ({ ...unchanged })],
+      ['a widened spread', (): unknown => ({ ...widened })],
+      [
+        'a widened spread given the caller prototype',
+        (): unknown => Object.setPrototypeOf({ ...widened }, callerPrototype()),
+      ],
+      [
+        'a JSON copy (a caller sent over the wire)',
+        (): unknown => JSON.parse(JSON.stringify(real)),
+      ],
+    ])('%s is denied on every kind a member can ask', (_name, copy) => {
+      const copied = copy();
+      expect(isUserCaller(copied)).toBe(false);
+      const forged = fieldCheckedCaller(copied);
+      for (const request of [hr, ...SURFACES.map((surface) => surface.request)]) {
+        expect(decideAccess(forged, request)).toEqual({
+          allowed: false,
+          kind: request.spec.kind,
+          reason: 'unverified-caller',
+        });
+      }
+      expect(isUserCaller(real)).toBe(true);
+      expect(decideAccess(real, hr)).toEqual({
+        allowed: false,
+        kind: 'module',
+        reason: 'no-grant',
+      });
+    });
   });
 
   it('names a service caller by its services.yaml identity', () => {

@@ -36,6 +36,7 @@ from .request_admission import (
     minted_row,
     note_minted,
     require_admitted,
+    require_change_seat,
 )
 from .ledger import (
     SEGMENTED_LEDGERS,
@@ -1578,7 +1579,7 @@ def create_agent_invocation_request(
         raise GovernanceError(f"unknown invocation role: {role}")
     if not target_agent.strip():
         raise GovernanceError("target_agent is required")
-    check_admission_binding(admission, role=role)
+    check_admission_binding(admission, role=role, subject_ref=subject_ref)
     # WP-J B-1 — one law at the one mint: a judgment-lane seat practices the
     # method its role names in the registry, unless the caller explicitly
     # stamps another. Deriving here (never at read time) is what makes an
@@ -2031,12 +2032,19 @@ def create_agent_invocation_request(
     stamp_before = ledger_stamp(root)
     with state_transaction([contexts_path, prompts_path, requests_path, admissions_path(root),
                             root / CONTEXT_AUDITS_FILENAME, root / "governance.jsonl"]) as txn:
+        locked_requests = txn.load_segments(root, "agent_invocation_requests")
         existing_locked = next(
-            (item for item in reversed(txn.load_segments(root, "agent_invocation_requests"))
-             if item.get("request_id") == request_id), None,
+            (item for item in reversed(locked_requests) if item.get("request_id") == request_id), None,
         )
         if existing_locked is not None:
             return existing_locked
+        # WP-D4 — the change's seats are counted HERE, under the request
+        # ledger's lock and before any row is written (a refusal leaves nothing
+        # behind): the admission above is the door's forecast, and one admission
+        # reused, or many decided before the first mint, would otherwise take
+        # the change past its registered seats. The rows the seat is appended
+        # to are the rows it is counted against.
+        require_change_seat(root, role=role, subject_ref=subject_ref, requests=locked_requests)
         budget_audit = _persist_context_audit(
             prepared_audit, base_dir=root, transaction=txn, enforce=enforce_context_budget,
         )

@@ -23,14 +23,10 @@ Depends on: `layer-1-core.md`, `layer-1-nestjs.md`. Shared schema + tenant patte
 
 - **Generator-driven** — `nx run <svc>:migration:generate --name=<descriptive>`. Never hand-edit checked-in migrations; always generate a new one on top.
 - **Reversible `down()`** — every migration implements its inverse. Destructive migrations (DROP COLUMN / DROP TABLE) require a pre-migration `pg_dump` artifact path verified as present (W6 pre-migration-restore-test skill — D12 finding).
-- **Blue-green 3-step dance** for NOT NULL on a non-empty table:
-  1. Migration A — add column as nullable
-  2. Migration B — backfill existing rows
-  3. Migration C — `ALTER … SET NOT NULL`
-  The `add-entity-field` skill (W5) enforces this — single-step NOT NULL on existing data is banned by `migration-sql-lint.ts` (W5 deliverable).
+- **Blue-green safety** for NOT NULL on a non-empty table — the rule lives in the Blue-green safety item and anti-pattern table of `docs/runbooks/migration-authoring.md` and in ADR-053. The `add-entity-field` skill (W5) applies it; `migration-sql-lint.ts` rejects every other shape (R2, R13, R14).
 - **Lock management** — every DDL transaction sets `SET LOCAL lock_timeout = '5s'; SET LOCAL statement_timeout = '30s';` before running. Session-scope `SET search_path` (without `LOCAL`) was the 2026-04-07 pool-contamination incident root cause. Multiple migrations still carry session-scope `search_path` (DATA-HIGH-003 — exact set enumerated there) — W5 fix.
 - **Concurrent indexes** — `CREATE INDEX CONCURRENTLY` on tables > 10k rows. Blocks writes otherwise. Detected by `migration-sql-lint.ts`.
-- **Volatile defaults** — `ADD COLUMN … DEFAULT now()` / `DEFAULT gen_random_uuid()` triggers a full table rewrite. Use nullable + backfill instead.
+- **Volatile defaults** — `ADD COLUMN … DEFAULT gen_random_uuid()` (and the other rewriting defaults ADR-053 Decision 2 lists) triggers a full table rewrite. Use nullable + backfill instead. `now()`, `CURRENT_TIMESTAMP` and `CURRENT_DATE` are stable, not volatile, and do not rewrite (ADR-053 Decision 1).
 
 ## SchemaDriftValidator + MigrationRunner (ADR-011 + ADR-012)
 

@@ -1,0 +1,31 @@
+{
+  "name": "include-tests-zero-byte",
+  "lane": "semantic_regression",
+  "input": {
+    "roots": [
+      "tools/aria-adapters/fixtures/lint-rules-adapter/workspaces/include-tests-zero-byte/apps/sample-service/src"
+    ],
+    "includeTests": true
+  },
+  "expected": {
+    "status": "ok",
+    "required_findings": ["sonarjs/no-empty-test-file", "security/detect-eval-with-expression"],
+    "required_observations": ["lint_rules_summary"],
+    "required_observation_values": [
+      {
+        "type": "lint_rules_summary",
+        "details.files": 3,
+        "details.ruleHistogram.sonarjs/no-empty-test-file": 1,
+        "details.ruleHistogram.security/detect-eval-with-expression": 1
+      }
+    ]
+  },
+  "curation": {
+    "curator": "claude/DET-lint1 B08 r2 (2026-10-26)",
+    "gold_set": {
+      "true_positive_count": 2,
+      "known_false_positive_count": 0,
+      "false_positive_rules": []
+    }
+  }
+}

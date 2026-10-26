@@ -246,6 +246,116 @@ async function main(): Promise<void> {
     );
   }
 
+  // DET-lint1 review r1 (non-blocking 1 and 2), pinned independently so one
+  // red does not hide the other.
+  const pins: string[] = [];
+  const pin = async (name: string, body: () => Promise<void>): Promise<void> => {
+    try {
+      await body();
+    } catch (error: unknown) {
+      pins.push(`${name}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
+
+  // A file of ZERO bytes has no line 1 (the evidence validator counts
+  // `read_text().splitlines()` = 0 lines and answers `evidence_line_missing`
+  // for any positive line), so clamping its file-level finding to line 1
+  // still turns the WHOLE run into `evidence_error`. Pinned outcome: the
+  // finding is KEPT (a zero-byte spec is the true positive of
+  // no-empty-test-file, and dropping it would hide the rule's clearest case)
+  // and it cites the FILE: evidence `[{path}]` without a `line`, which the
+  // validator accepts for an existing file. The finding carries no line
+  // either, and every other finding of the run survives.
+  await pin('a zero-byte spec cannot be cited at line 1', async () => {
+    const zero = makeFixtureTree('aria-lint-rules-zero-byte-');
+    const zeroSrc = join(zero, 'apps/sample-service/src');
+    mkdirSync(zeroSrc, { recursive: true });
+    writeFileSync(join(zeroSrc, 'zero.spec.ts'), '', 'utf8');
+    writeFileSync(
+      join(zeroSrc, 'covered.spec.ts'),
+      "describe('covered', () => {\n  it('reads a number', () => {\n    expect(Number('2')).toBe(2);\n  });\n});\n",
+      'utf8',
+    );
+    writeFileSync(
+      join(zeroSrc, 'genuine.ts'),
+      [
+        'export function run(expression: string): unknown {',
+        "  const wrapped = '(' + expression + ')';",
+        '  return eval(wrapped);',
+        '}',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+    const zeroPath = 'apps/sample-service/src/zero.spec.ts';
+    const zeroRun = await analyzeLintRules({ roots: ['apps'], includeTests: true }, zero);
+    const zeroFinding = zeroRun.findings.find((finding) => finding.path === zeroPath);
+    assert.equal(zeroFinding?.rule, 'sonarjs/no-empty-test-file', 'the zero-byte spec is kept');
+    assert.deepEqual(
+      zeroFinding?.evidence,
+      [{ path: zeroPath }],
+      'a file with no line is cited by path alone, not at a line it does not have',
+    );
+    assert.equal(zeroFinding?.line, undefined, 'the finding names no line of a file without lines');
+    for (const finding of zeroRun.findings) {
+      for (const ref of finding.evidence) {
+        assert.ok(
+          ref.line === undefined || ref.path !== zeroPath,
+          `${finding.id}: no evidence ref cites a line of the zero-byte file`,
+        );
+      }
+    }
+    const eval7 = zeroRun.findings.find(
+      (finding) => finding.rule === 'security/detect-eval-with-expression',
+    );
+    assert.equal(eval7?.line, 3, 'the other findings of the run survive, unmoved');
+    assert.deepEqual(eval7?.evidence, [{ path: 'apps/sample-service/src/genuine.ts', line: 3 }]);
+  });
+
+  // The clamp must not make two different messages one finding: a file-level
+  // message (line 0) and a genuine line-1 message of the same rule, path and
+  // column both clamp to line 1, and the id (rule:path:line:column) is the
+  // finding's identity everywhere downstream.
+  await pin('a clamped line-0 message and a genuine line-1 message keep distinct ids', async () => {
+    const clash = await analyzeLintRules({ roots: ['apps'], includeTests: true }, fileLevel, () =>
+      Promise.resolve({
+        lintFiles: (files) =>
+          Promise.resolve([
+            {
+              filePath: files[0] ?? '',
+              messages: [
+                {
+                  ruleId: 'sonarjs/shared-rule',
+                  severity: 2,
+                  message: 'whole file',
+                  line: 0,
+                  column: 1,
+                },
+                {
+                  ruleId: 'sonarjs/shared-rule',
+                  severity: 2,
+                  message: 'first line',
+                  line: 1,
+                  column: 1,
+                },
+              ],
+            },
+          ]),
+        getRulesMetaForResults: () => ({}),
+      }),
+    );
+    assert.equal(clash.findings.length, 2, 'both messages are findings');
+    assert.equal(
+      new Set(clash.findings.map((finding) => finding.id)).size,
+      2,
+      `finding ids are unique, got ${clash.findings.map((finding) => finding.id).join(' | ')}`,
+    );
+  });
+
+  if (pins.length > 0) {
+    throw new Error(`pinned expectations failed:\n- ${pins.join('\n- ')}`);
+  }
+
   process.stdout.write('lint-rules-adapter tests passed\n');
 }
 

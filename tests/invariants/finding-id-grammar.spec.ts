@@ -31,9 +31,15 @@
  * The exemptions are the two owners, their two table tests, and this file
  * (which spells the shapes it looks for). A site that is not a finding id by
  * the registry's grammar (a dialect with a severity the registry does not
- * have, such as the `NIT` of the deferral matcher) does not match the shapes
- * and is not on a list: the shapes are the registry's four severities and the
- * domain-classifier-sequence segments.
+ * have, such as the `NIT` of the deferral matcher) does not match the shapes.
+ * The shapes are not a list of spellings: any two or more hyphen-joined
+ * segments (a letter class, a word run, a word list, a literal word, an
+ * interpolated field) followed by a digit count of its own are a restatement,
+ * in a regex literal, a RegExp source or a Python raw or f-string, and so are
+ * the padding and slicing forms that hold the same width. A reader that takes
+ * ANY width (`\d+`) has no count of its own to restate; the ones that stay are
+ * decided in DECIDED_WIDTH_AGNOSTIC_READERS, each with its reason, and that
+ * table is held honest.
  */
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
@@ -185,37 +191,157 @@ const EXEMPT = new Set([OWNER_TS, OWNER_PY, TABLE_TEST_TS, TABLE_TEST_PY, THIS_S
 const SCANNED_ROOTS = ['tools', 'tests', 'aria-kernel'];
 const SCANNED_EXTENSION = /\.(?:ts|mjs|js|py)$/;
 
-/** A digit class (`\d` or `[0-9]`) and any quantifier on it: a count of the sequence's own. */
-const DIGITS = String.raw`(?:\\d|\[0-9\])(?:\{\d+(?:,\d*)?\}|\+|\*)`;
+/** A digit class, `\d` or `[0-9]`, as a regex source types it. */
+const DIGIT = String.raw`(?:\\d|\[0-9\])`;
+
+/** A digit class and any quantifier on it: a count of the sequence's own. */
+const DIGITS = String.raw`${DIGIT}(?:\{\d+(?:,\d*)?\}|\+|\*)`;
 
 /**
- * The shapes a restated finding-id grammar takes, each as it is typed in a
+ * One segment of an id as a regex source types it: a letter class (`[A-Z]+`,
+ * `[A-Z0-9]+`, `[A-Z][A-Z0-9]*`), a word run (`\w+`), a word list (the four
+ * severities, `CI|CVE`, a subset of either) or a literal upper-case word
+ * (`RUST`, `ORPHAN`). A word list that names a severity the registry does not
+ * have (`NIT`, the dialect of the deferral matchers in tools/gates/banned-phrase.ts)
+ * is not a segment of a registry id, so a line that spells one is another
+ * grammar and stays clean.
+ */
+const COUNT = String.raw`(?:[+*]|\{\d+(?:,\d*)?\})`;
+const ID_SEGMENT =
+  String.raw`(?:\[A-Z(?:0-9)?\]${COUNT}?|\[A-Z\]\[A-Z0-9\]${COUNT}|\\w${COUNT}` +
+  // a word list, in parentheses or, once a group has opened, bare: `(?P<sev>HIGH|LOW)`
+  String.raw`|\((?:\?:)?(?![^)]*\bNIT\b)[A-Z][A-Z0-9]*(?:\|[A-Z][A-Z0-9]*)*\)` +
+  String.raw`|(?![A-Z0-9|]*\bNIT\b)[A-Z][A-Z0-9]*(?:\|[A-Z][A-Z0-9]*)+` +
+  String.raw`|[A-Z][A-Z0-9]+)`;
+/** The groups a segment or the digits may be wrapped in: `(`, `(?:`, `(?P<name>`, `(?<name>`. */
+const GROUP_OPEN = String.raw`(?:\((?:\?:|\?P<\w+>|\?<\w+>)?)*`;
+const GROUP_END = String.raw`[)*+?]*`;
+
+/**
+ * Two or more segments, each followed by its hyphen, then digits, which may open
+ * with `[1-9]` as the owner's own sequence does. Groups: the digit class's
+ * lower count, its comma, its upper count (all absent for `+` and `*`), and the
+ * digit class typed out three or more times (`\d\d\d`). One
+ * segment is not enough: `ADR-\d{3}`, `F-\d{3}` and `RUSTSEC-\d{4}-\d{4}` are
+ * other families with one word before their digits.
+ */
+const SEGMENTS_THEN_DIGITS = new RegExp(
+  String.raw`(?:${GROUP_OPEN}${ID_SEGMENT}${GROUP_END}-${GROUP_END}){2,}` +
+    String.raw`${GROUP_OPEN}(?:\[1-9\])?(?:${DIGIT}(?:\{(\d+)(?:(,)(\d*))?\}|[+*])|(${DIGIT}{3,}))`,
+  'g',
+);
+
+/** The smallest width of a sequence the owner spells (`001`): a count at or above it is a width of its own. */
+const SMALLEST_SEQUENCE_WIDTH = 3;
+
+/**
+ * `line` as the regex it builds: a backslash escaped by a template or string
+ * literal is one backslash, a Python f-string's doubled brace is one brace, and
+ * an interpolated or formatted field (`${domain}`, `{domain}`, `{}`, `%s`, or a
+ * string cut open for a variable: `"^[A-Z]+-" + severity + "-"`) stands for a segment.
+ */
+function asRegexSource(line: string): string {
+  return line
+    .replace(/\\\\/g, '\\')
+    .replace(/\{\{/g, '{')
+    .replace(/\}\}/g, '}')
+    .replace(/\$\{[^}]*\}/g, '[A-Z]+')
+    .replace(/(?<![\]\d)])\{[A-Za-z_]\w*\}/g, '[A-Z]+')
+    .replace(/(?<![\]\d)])\{\}/g, '[A-Z]+')
+    .replace(/%s/g, '[A-Z]+')
+    .replace(/(['"\x60])\s*\+\s*[A-Za-z_][\w.]*\s*\+\s*\1/g, '[A-Z]+')
+    .replace(/\(\?:-/g, '-(?:');
+}
+
+/**
+ * Whether a digit class states a width of its own: `{n}` with n at least 3,
+ * `{a,b}` with b at least 3, `{a,}` with a at least 3. `+`, `*`, `{1,}` and `{2,}`
+ * read any width: a reader that accepts every sequence cannot refuse one the
+ * registry issues (it is decided, not detected: DECIDED_WIDTH_AGNOSTIC_READERS).
+ */
+function statesAWidth(
+  lower: string | undefined,
+  comma: string | undefined,
+  upper: string | undefined,
+): boolean {
+  if (lower === undefined) return false;
+  if (comma !== undefined && upper !== undefined && upper !== '') {
+    return Number(upper) >= SMALLEST_SEQUENCE_WIDTH;
+  }
+  return Number(lower) >= SMALLEST_SEQUENCE_WIDTH;
+}
+
+function segmentsThenDigits(line: string): boolean {
+  for (const match of asRegexSource(line).matchAll(SEGMENTS_THEN_DIGITS)) {
+    if (match[4] !== undefined || statesAWidth(match[1], match[2], match[3])) return true;
+  }
+  return false;
+}
+
+interface RestatementShape {
+  readonly name: string;
+  readonly test: (line: string) => boolean;
+}
+
+const spelled = (name: string, pattern: RegExp): RestatementShape => ({
+  name,
+  test: (line) => pattern.test(line),
+});
+
+/** Words that make a padded number an id's sequence rather than a counter. */
+const ID_CONTEXT = String.raw`domain|sequence|severity|finding|ARIA-|ORPHAN|-HIGH-|-LOW-|-CRITICAL-|-MEDIUM-`;
+
+/**
+ * The shapes a restated finding-id grammar takes. The first three are the
+ * spellings the repository carried when REG-ID began, as they are typed in a
  * regex source: the registry's four severities closed by `)` and followed by
  * the sequence; a `[A-Z0-9]+` classifier segment followed by it; the ORPHAN
- * heading's optional classifier followed by it. `NIT`-style dialects do not
- * close the four severities, so they are not these shapes.
+ * heading's optional classifier followed by it. The fourth is the one an author
+ * writes next whatever the segments are called: any two or more segments joined
+ * by hyphens to a digit count of its own, in a regex literal, a RegExp built
+ * from a string or a template literal, or a Python raw or f-string. The rest
+ * are the other ways to hold the width: padding a sequence to three digits,
+ * reading it as the last three characters of an id, or the last hyphen segment,
+ * and holding it to a limit written out (`next > 999`, the allocator's old
+ * bound). `NIT`-style dialects do not close the four severities and are not segments,
+ * so they are not these shapes.
  */
-const RESTATEMENT_SHAPES: ReadonlyArray<{ readonly name: string; readonly test: RegExp }> = [
-  {
-    name: 'the four severities, then a digit count',
-    test: new RegExp(String.raw`CRITICAL\|HIGH\|MEDIUM\|LOW\)\??-[^'"\x60\n]{0,14}?${DIGITS}`),
-  },
-  {
-    name: 'a classifier segment, then a digit count',
-    test: new RegExp(String.raw`\[A-Z0-9\]\+\)?-\(?${DIGITS}`),
-  },
-  {
-    name: 'the ORPHAN heading form, then a digit count',
-    test: new RegExp(String.raw`ORPHAN-\(\?:\[A-Z\]\+-\)\?\(${DIGITS}`),
-  },
-  {
-    name: 'a sequence padded to three digits',
-    test: /padStart\(3\b(?=.*(?:domain|sequence|severity|finding|ARIA-|ORPHAN|-HIGH-|-LOW-|-CRITICAL-|-MEDIUM-))|(?<=(?:domain|sequence|severity|finding|ARIA-|ORPHAN|-HIGH-|-LOW-|-CRITICAL-|-MEDIUM-).*)padStart\(3\b/,
-  },
-  {
-    name: 'a sequence read as the last three characters of an id',
-    test: /parseInt\([^)]*slice\(-3\)/,
-  },
+const RESTATEMENT_SHAPES: readonly RestatementShape[] = [
+  spelled(
+    'the four severities, then a digit count',
+    new RegExp(String.raw`CRITICAL\|HIGH\|MEDIUM\|LOW\)\??-[^'"\x60\n]{0,14}?${DIGITS}`),
+  ),
+  spelled(
+    'a classifier segment, then a digit count',
+    new RegExp(String.raw`\[A-Z0-9\]\+\)?-\(?${DIGITS}`),
+  ),
+  spelled(
+    'the ORPHAN heading form, then a digit count',
+    new RegExp(String.raw`ORPHAN-\(\?:\[A-Z\]\+-\)\?\(${DIGITS}`),
+  ),
+  { name: 'segments joined by hyphens, then a digit count of its own', test: segmentsThenDigits },
+  spelled(
+    'a sequence padded to three digits',
+    new RegExp(
+      String.raw`(?:padStart|zfill)\(\s*3\b(?=.*(?:${ID_CONTEXT}))|(?<=(?:${ID_CONTEXT}).*)(?:padStart|zfill)\(\s*3\b`,
+    ),
+  ),
+  spelled(
+    'the last segment of an id padded to three digits',
+    /split\((['"])-\1\)[^;]*?(?:padStart|zfill)\(\s*3\b/,
+  ),
+  spelled(
+    'a sequence read as the last three characters of an id',
+    /(?:parseInt|parseFloat|Number(?:\.parseInt)?|int)\([^)]*(?:slice\(\s*-3\s*\)|\[\s*-3\s*:\s*\]|substr\(\s*-3\s*\))/,
+  ),
+  spelled(
+    'a sequence formatted to three digits between two fields',
+    /\{[^{}]*\}-\{[^{}]*\}-\{[^{}:]*:0?3d\}/,
+  ),
+  spelled(
+    'a sequence held to a limit of its own',
+    /\b(?:\w*(?:[Ss]equence|SEQUENCE|[Ff]inding|FINDING)\w*|next|seq)\s*(?:>=?|<=?|[:=]=?=?)\s*(?:999|1000|9999)\b|\b(?:999|1000|9999)\s*(?:>=?|<=?)\s*(?:\w*(?:[Ss]equence|SEQUENCE|[Ff]inding|FINDING)\w*|next|seq)\b/,
+  ),
 ];
 
 const COMMENT_LINE = /^\s*(?:\/\/|\*|\/\*|#)/;
@@ -223,7 +349,7 @@ const COMMENT_LINE = /^\s*(?:\/\/|\*|\/\*|#)/;
 /** The shapes `line` restates, none for a comment line. */
 function restatementsIn(line: string): string[] {
   if (COMMENT_LINE.test(line)) return [];
-  return RESTATEMENT_SHAPES.filter((shape) => shape.test.test(line)).map((shape) => shape.name);
+  return RESTATEMENT_SHAPES.filter((shape) => shape.test(line)).map((shape) => shape.name);
 }
 
 function scannedFiles(): string[] {
@@ -496,5 +622,178 @@ describe('REG-ID — the scripts CI runs under plain node spell no finding-id gr
         restated: true,
       });
     }
+  });
+});
+
+// -----------------------------------------------------------------------------
+// ARIA-MEDIUM-1001 — the boundaries of the broader detector, in lines of its own
+// (the lists above are the audit's probe and the sites the first scan missed).
+// -----------------------------------------------------------------------------
+
+describe('REG-ID — the broader detector keeps its boundaries', () => {
+  const ALSO_RESTATEMENTS: readonly QuotedLine[] = [
+    {
+      why: 'a bounded sequence after a word list',
+      line: String.raw`const E = /^[A-Z]+-(?:HIGH|LOW)-\d{3,4}$/;`,
+    },
+    {
+      why: 'a Python f-string with two fields and a doubled-brace range',
+      line: String.raw`PAT = re.compile(rf"^{domain}-{severity}-(?P<n>[0-9]{{3,4}})$")`,
+    },
+    {
+      why: 'the owner-shaped sequence after two segments',
+      line: String.raw`const F = /^[A-Z]+-[A-Z]+-(?:[1-9][0-9]{3}|[0-9]{3})$/;`,
+    },
+    {
+      why: 'a template literal that formats the sequence',
+      line: 'const id = `${domain}-${severity}-${String(next).padStart(3, "0")}`;',
+    },
+    {
+      why: 'a Python f-string that formats the sequence between two fields',
+      line: 'return f"{domain}-{severity}-{sequence:03d}"',
+    },
+    {
+      why: 'a sequence parsed from the last three characters, with a radix',
+      line: 'const n = Number.parseInt(id.slice(-3), 10);',
+    },
+    {
+      why: 'a sequence zero-filled next to a finding variable',
+      line: 'padded = str(finding_sequence).zfill(3)',
+    },
+    {
+      why: 'a severity word list in a named group, Python',
+      line: String.raw`FID = re.compile(r"(?P<domain>[A-Z][A-Z0-9]*)-(?P<sev>HIGH|LOW)-(?P<seq>[0-9]{3})")`,
+    },
+    {
+      why: 'a severity word list in a named group, JavaScript',
+      line: String.raw`const R = /^(?<domain>[A-Z]+)-(?<sev>HIGH|LOW)-(?<seq>\d{3})$/;`,
+    },
+    {
+      why: 'a string cut open for the severity',
+      line: String.raw`const R = new RegExp("^[A-Z]+-" + severity + "-\\d{3}$");`,
+    },
+    {
+      why: 'a bounded letter class for the domain',
+      line: String.raw`const R = /^[A-Z][A-Z0-9]{1,8}-[A-Z]+-\d{3}$/;`,
+    },
+    {
+      why: 'the digit class typed out three times',
+      line: String.raw`const R = /^[A-Z]+-[A-Z]+-\d\d\d$/;`,
+    },
+    {
+      why: 'a Python %-format of two fields and a counted sequence',
+      line: String.raw`PAT = re.compile("^%s-%s-[0-9]{3}$" % (domain, severity))`,
+    },
+    {
+      why: 'the allocator bound written out, as the exhaustion check once was',
+      line: 'if (next > 999) throw new Error(`space exhausted for ${domain}`);',
+    },
+    {
+      why: 'the allocator bound written out, Python',
+      line: 'if finding_sequence >= 1000: raise OverflowError',
+    },
+  ];
+
+  const ALSO_OTHER_GRAMMARS: readonly string[] = [
+    // A reader that takes any width has no count of its own (decided below).
+    String.raw`const LOOSE = /^[A-Z]+-[A-Z]+-\d+$/;`,
+    String.raw`const HEADING = /^## (ORPHAN|INFRA)-[A-Z]+-\d+/gm;`,
+    // The NIT dialect with a bounded count, a review id and a Tailwind class.
+    String.raw`const T = /(#?[A-Z][A-Z0-9]+-(HIGH|LOW|NIT)-\d{2,3})/i;`,
+    String.raw`const REVIEW_ID = /^REV-\d{4}-\d{2}-\d{2}-\d{3}$/;`,
+    String.raw`const COLOUR = /bg-(?:red|blue)-\d{3}/;`,
+    'const column = String(retryCount).padStart(3, " ");',
+    'label = str(retry_count).zfill(3)',
+    'return f"{prefix}-{index:03d}.log"',
+    // The NIT dialect in a named group, a bound that is not a sequence's, a counter and a phone number.
+    String.raw`DEFERRAL = re.compile(r"(?P<d>[A-Z]+)-(?P<s>HIGH|LOW|NIT)-(?P<n>\d{2,3})")`,
+    'if (page > 999) throw new RangeError("page");',
+    'const limit = 1000;',
+    'if retry_count >= 1000: raise',
+    String.raw`const PHONE = /^\d\d\d-\d\d\d-\d{4}$/;`,
+    'const file = "%s-%s.log" % (prefix, name)',
+  ];
+
+  it('sees these further spellings', () => {
+    const missed = ALSO_RESTATEMENTS.filter(({ line }) => restatementsIn(line).length === 0);
+    expect(missed).toEqual([]);
+  });
+
+  it('leaves these lines alone', () => {
+    const flagged = ALSO_OTHER_GRAMMARS.map((line) => ({
+      line,
+      shapes: restatementsIn(line),
+    })).filter(({ shapes }) => shapes.length > 0);
+    expect(flagged).toEqual([]);
+  });
+});
+
+// -----------------------------------------------------------------------------
+// ARIA-LOW-1004 — the readers that stay loose are decided, not forgotten.
+// -----------------------------------------------------------------------------
+
+describe('REG-ID — the readers that take any width are decided, each with its reason', () => {
+  interface DecidedReader {
+    readonly file: string;
+    /** The text of the loose pattern as the file spells it: the entry holds only while the file still reads that way. */
+    readonly reads: string;
+    readonly reason: string;
+  }
+
+  const REGISTER_HEADINGS =
+    'a heading of the ORPHAN register is read as written, whatever its classifier or width; the register holds `ORPHAN-INFO-363`, `ORPHAN-LOW-337b` and pre-severity `ORPHAN-001`, and a reader that only locates headings must not drop one the registry grammar refuses. The allocator, which claims sequences, is on the owner (tools/gates/finding-registry-store.ts ORPHAN_MD_HEADING_REGEX)';
+  const NIT_DIALECT =
+    'the deferral matchers decide whether a deferral points at a tracked item, not whether an id is valid: their dialect has the severity `NIT` the registry does not have and accepts two and three digit tracking numbers, so it is another grammar and not a spelling of the registry id';
+
+  const DECIDED_WIDTH_AGNOSTIC_READERS: readonly DecidedReader[] = [
+    {
+      file: 'aria-kernel/aria_kernel/closure_reachability.py',
+      reads: String.raw`(ORPHAN-[A-Z]+-\d+)`,
+      reason: REGISTER_HEADINGS,
+    },
+    {
+      file: 'aria-kernel/aria_kernel/plan_synthesizer.py',
+      reads: String.raw`(ORPHAN-[A-Z]+-\d+)`,
+      reason: REGISTER_HEADINGS,
+    },
+    {
+      file: 'tests/invariants/orphan-ledger-append-only.spec.ts',
+      reads: String.raw`)-[A-Z]+-\d+/gm`,
+      reason: `${REGISTER_HEADINGS}; this guard only asks that no heading present at the base is gone at the head, so it must read every heading the file carries`,
+    },
+    {
+      file: 'tools/gates/banned-phrase.ts',
+      reads: String.raw`#[A-Z]+-[A-Z]+-\d+`,
+      reason: NIT_DIALECT,
+    },
+    {
+      file: 'tools/gates/banned-phrase-excuse.ts',
+      reads: String.raw`|NIT)-\d{2,}`,
+      reason: NIT_DIALECT,
+    },
+  ];
+
+  it('each decided reader still reads the way its reason says, so the list stays honest', () => {
+    const stale = DECIDED_WIDTH_AGNOSTIC_READERS.filter(
+      ({ file, reads }) => !readFileSync(resolve(REPO_ROOT, file), 'utf8').includes(reads),
+    ).map(({ file }) => file);
+    expect(stale).toEqual([]);
+  });
+
+  it('gives every decision a reason long enough to be an argument', () => {
+    const short = DECIDED_WIDTH_AGNOSTIC_READERS.filter(({ reason }) => reason.length < 60);
+    expect(short).toEqual([]);
+  });
+
+  it('is not a way round the scan: no decided reader states a width of its own', () => {
+    const restated: string[] = [];
+    for (const { file } of DECIDED_WIDTH_AGNOSTIC_READERS) {
+      readFileSync(resolve(REPO_ROOT, file), 'utf8')
+        .split('\n')
+        .forEach((line, index) => {
+          if (restatementsIn(line).length > 0) restated.push(`${file}:${index + 1}`);
+        });
+    }
+    expect(restated).toEqual([]);
   });
 });

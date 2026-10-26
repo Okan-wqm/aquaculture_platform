@@ -43,6 +43,9 @@ SINGLE_OWNER = {
     "dispatch_failure_classification": "tools/aria-poc/dispatch_failure.py",
     # The one Python-source parse the import graph and the atlas share (PLAN-v2 F0.9: no fourth engine).
     "python_source_facts": f"{_KERNEL}source_facts.py",
+    # F1.2 — a learning mechanism's contribution over a window of cycles: autonomy_evidence computes it, the scorecard
+    # and every other reader (fitness included) take it from there.
+    "mechanism_contribution": f"{_KERNEL}autonomy_evidence.py",
 }
 
 # One planted second owner per family: a second writer of the family's ledger
@@ -66,6 +69,11 @@ _PLANTED = {
     "python_source_facts": (
         "def module_name(path):\n    return path.removesuffix('.py').replace('/', '.')\n",
         "def chain_runs(operands):\n    return []\n",
+    ),
+    # A second computation under the owner's name, in the signature the owner has and in a keyword-only one.
+    "mechanism_contribution": (
+        "def mechanism_contribution(rows, cycle_ids):\n    return {}\n",
+        "def mechanism_contribution(*, base_dir, cycle_ids):\n    return {}\n",
     ),
 }
 

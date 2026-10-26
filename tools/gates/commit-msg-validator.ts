@@ -110,6 +110,12 @@ const REQUIRE_CLOSES_TYPES = /^(fix|security|refactor\(agentic,phase-|feat)/;
  *
  * Routing based on path prefix happens in `validateCommit` so the gate
  * never fakes-validates an ARIA ID against the registry or vice versa.
+ *
+ * The kernel mints this trailer (aria-kernel/aria_kernel/plan_origin.py,
+ * CLOSES_TRAILER_RE), and aria-kernel/tests/test_closes_trailer_frame.py
+ * compares that pattern with this template literal, the owner's id source in
+ * `${FINDING_ID_SOURCE}`. Keep it one `new RegExp(` template literal: the test
+ * reads it from this source.
  */
 const CLOSES_TRAILER_REGEX = new RegExp(
   `^Closes:\\s+(\\S+?)#(${FINDING_ID_SOURCE}|F-\\d{3}|F-AUTO-V\\d+\\.\\d+(?:-[A-Z0-9-]+)+|DEBT-\\d{4}-\\d{2}-\\d{2}-\\d{3})\\s*$`,

@@ -25,8 +25,11 @@ WHAT. Three facts, all derived and none asked of the agent:
   types the gate does not require one for. The rules are the gate's own
   (``REQUIRE_CLOSES_TYPES``, ``CLOSES_TRAILER_REGEX``). The first is mirrored
   here and pinned against the TypeScript source by
-  ``tests/test_plan_origin_commit_contract.py``; the registry id in the second
-  is the grammar's (``finding_id_grammar``), held to the gate's by one table
+  ``tests/test_plan_origin_commit_contract.py``; the second is mirrored too,
+  with the registry id in it the grammar's (``finding_id_grammar``): the whole
+  pattern is compared with the gate's template literal, the owner's id source
+  in its placeholder, by ``tests/test_closes_trailer_frame.py``, and the id is
+  held to the gate's by one table
   (``tests/test_registry_finding_id_four_digits.py``).
 
 The contract rides on the implementation envelope as a structured field
@@ -65,7 +68,10 @@ REQUIRE_CLOSES_SUBJECT_RE = re.compile(r"^(fix|security|refactor\(agentic,phase-
 # tools/gates/commit-msg-validator.ts — CLOSES_TRAILER_REGEX, the hard
 # format of one trailer line. The registry id inside it is the grammar's
 # (finding_id_grammar), as it is the gate's (finding-id-grammar.ts); the F and
-# DEBT forms are other grammars and are mirrored verbatim.
+# DEBT forms are other grammars and are mirrored verbatim. The whole pattern is
+# held to the gate's template literal by tests/test_closes_trailer_frame.py: an
+# edit of the frame, the F-NNN, F-AUTO-V or DEBT form or the closing ``\s*$`` on
+# either side turns it red.
 CLOSES_TRAILER_RE = re.compile(
     rf"^Closes:\s+(\S+?)#({FINDING_ID_SOURCE}"
     r"|F-\d{3}|F-AUTO-V\d+\.\d+(?:-[A-Z0-9-]+)+|DEBT-\d{4}-\d{2}-\d{2}-\d{3})\s*$"

@@ -7,7 +7,11 @@ columns keep a reading width while panels, tables and dashboards fill the page; 
 moves to Inter too. Verified against the deploy checkout (HEAD `5852fe55`, no code
 difference from the production images in `web/`) and `origin/main` `33de2433b`.
 
-## FE-MEDIUM-378 — The console sets its text in Barlow, fetches its faces from a font host the CSP refuses, and caps the page width
+## FE-MEDIUM-378 — Barlow text, a font host the CSP refuses, a frozen page
+
+The console sets its text in Barlow, fetches its faces from a font host the production CSP
+refuses, and caps the page column at 1520px (and the stack at 1920px), so a widened window
+leaves the page frozen.
 
 **Where:** `web/shared-ui/src/styles/theme.css`, `suderra.css`, `web/shell/index.html`,
 `web/shell/src/console/ConsoleShell.tsx`, six sensor pages, the CSP policy and its four
@@ -48,7 +52,9 @@ frame), `web/shell/src/layouts/__tests__/MainLayout.spec.tsx` and
 **Not verifiable on the host:** Inter is wider than Barlow Condensed, so rail labels, table
 headers and uppercase display text need a look at 390 to 3440px in staging.
 
-## FE-LOW-379 — 366 `font-mono` usages still set figures and readings in the mono face
+## FE-LOW-379 — font-mono still sets figures and readings
+
+366 `font-mono` usages still set figures and readings in the mono face.
 
 **Where:** about 170 files: `web/modules/sensor-module/src` (61), `web/apps/aquamobil/src`
 (51), `web/modules/admin-panel/src` (21), `web/modules/farm-module/src` (13), and a few in

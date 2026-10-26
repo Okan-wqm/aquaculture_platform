@@ -145,7 +145,7 @@ function gateOf(operation: BackendResolverField): Gate {
   if (roles) {
     // A @Roles that names no `Role.X` (empty, or a spread constant) is not a gate this scan can
     // read, and RolesGuard treats an empty list as "any authenticated user": refuse it.
-    const named = roles[1]?.match(/\bRole\.[A-Z_]+/g) ?? [];
+    const named: string[] = roles[1]?.match(/\bRole\.[A-Z_]+/g) ?? [];
     if (named.length === 0) return 'none';
     return named.includes('Role.MODULE_USER') ? 'any-staff' : 'manager';
   }

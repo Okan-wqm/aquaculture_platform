@@ -4,6 +4,12 @@ import { relative } from 'node:path';
 import ts from 'typescript';
 
 import {
+  declaresNatsConnectionFactory,
+  NATS_CREDENTIAL_ENV_VARS,
+  NATS_CREDENTIAL_FIELDS,
+} from '../gates/nats-connection-owner';
+
+import {
   collectFiles,
   filterFilesBySnapshot,
   normalizeWorkspacePath,
@@ -18,7 +24,9 @@ type FindingRule =
   | 'mutation_missing_role_boundary'
   | 'controller_missing_guard_boundary'
   | 'dangerous_html_without_sanitizer'
-  | 'raw_security_sensitive_import';
+  | 'raw_security_sensitive_import'
+  | 'nats_credential_set_outside_auth_mode_branch'
+  | 'nats_credential_env_read_outside_factory';
 
 interface AdapterInput {
   readonly roots?: readonly string[];
@@ -174,6 +182,7 @@ function analyzeSecurityUnit(
   analyzeEndpoints(unit, result, allowlisted, context);
   analyzeDangerousHtml(unit, result, allowlisted);
   analyzeRawSecurityImports(unit, result, allowlisted);
+  analyzeNatsCredentials(unit, result, allowlisted);
   analyzeExistingGates(unit, result);
 }
 
@@ -486,6 +495,170 @@ function analyzeRawSecurityImports(
       });
     }
   });
+}
+
+const NATS_CREDENTIAL_ENV_NAMES: ReadonlySet<string> = new Set(NATS_CREDENTIAL_ENV_VARS);
+const NATS_CREDENTIAL_FIELD_NAMES: ReadonlySet<string> = new Set(NATS_CREDENTIAL_FIELDS);
+const EQUALITY_OPERATORS: ReadonlySet<ts.SyntaxKind> = new Set([
+  ts.SyntaxKind.EqualsEqualsToken,
+  ts.SyntaxKind.EqualsEqualsEqualsToken,
+  ts.SyntaxKind.ExclamationEqualsToken,
+  ts.SyntaxKind.ExclamationEqualsEqualsToken,
+]);
+
+/**
+ * ADR-015: under mTLS no user, pass or token reaches the CONNECT frame. The module that declares
+ * `buildNatsConnectionOptions` (found by what it declares, never by path) may write a credential
+ * onto its options only inside a branch on `authMode`; any other module may not read the
+ * credential variables at all, because it would rebuild credentials around the factory without
+ * looking at the mode.
+ */
+function analyzeNatsCredentials(
+  unit: SourceUnit,
+  result: AnalysisResult,
+  allowlisted: boolean,
+): void {
+  if (allowlisted) {
+    return;
+  }
+  if (declaresNatsConnectionFactory(unit.sourceFile)) {
+    visit(unit.sourceFile, (node) => {
+      const field = credentialFieldWritten(node);
+      if (field === undefined || sitsInAuthModeBranch(node)) {
+        return;
+      }
+      const line = lineOf(unit.sourceFile, node);
+      result.findings.push({
+        id: `nats-credential-set-outside-auth-mode-branch:${unit.relativePath}:${line}:${field}`,
+        rule: 'nats_credential_set_outside_auth_mode_branch',
+        severity: 'high',
+        path: unit.relativePath,
+        line,
+        message: `The NATS connection factory writes options.${field} outside a branch on authMode, so it can reach the CONNECT frame under mTLS (ADR-015).`,
+        evidence: [{ path: unit.relativePath, line }],
+        details: { field },
+      });
+    });
+    return;
+  }
+  const firstRead = firstCredentialEnvRead(unit.sourceFile);
+  if (firstRead === undefined) {
+    return;
+  }
+  const line = lineOf(unit.sourceFile, firstRead.node);
+  result.findings.push({
+    id: `nats-credential-env-read-outside-factory:${unit.relativePath}:${line}`,
+    rule: 'nats_credential_env_read_outside_factory',
+    severity: 'medium',
+    path: unit.relativePath,
+    line,
+    message: `${firstRead.variable} is read outside the NATS connection factory, so this module can build connection options that carry a credential whatever the auth mode (ADR-015).`,
+    evidence: [{ path: unit.relativePath, line }],
+    details: { variable: firstRead.variable },
+  });
+}
+
+interface CredentialEnvRead {
+  readonly node: ts.Node;
+  readonly variable: string;
+}
+
+/** The first read of a credential variable in source order: one finding per module, at its first read. */
+function firstCredentialEnvRead(node: ts.Node): CredentialEnvRead | undefined {
+  const variable = credentialEnvVarRead(node);
+  return variable === undefined
+    ? ts.forEachChild(node, firstCredentialEnvRead)
+    : { node, variable };
+}
+
+/** The credential field an assignment writes (`x.user = ...`, `x['pass'] = ...`), if it writes one. */
+function credentialFieldWritten(node: ts.Node): string | undefined {
+  if (!ts.isBinaryExpression(node) || node.operatorToken.kind !== ts.SyntaxKind.EqualsToken) {
+    return undefined;
+  }
+  const target = node.left;
+  const field = ts.isPropertyAccessExpression(target)
+    ? target.name.text
+    : ts.isElementAccessExpression(target) && ts.isStringLiteralLike(target.argumentExpression)
+      ? target.argumentExpression.text
+      : undefined;
+  return field !== undefined && NATS_CREDENTIAL_FIELD_NAMES.has(field) ? field : undefined;
+}
+
+/** The credential variable a node reads (`process.env[..]`, `process.env.X`, `config.get(..)`), if it reads one. */
+function credentialEnvVarRead(node: ts.Node): string | undefined {
+  let name: string | undefined;
+  if (ts.isElementAccessExpression(node) && isProcessEnv(node.expression)) {
+    name = ts.isStringLiteralLike(node.argumentExpression)
+      ? node.argumentExpression.text
+      : undefined;
+  } else if (ts.isPropertyAccessExpression(node) && isProcessEnv(node.expression)) {
+    name = node.name.text;
+  } else if (
+    ts.isCallExpression(node) &&
+    ts.isPropertyAccessExpression(node.expression) &&
+    ['get', 'getOrThrow'].includes(node.expression.name.text)
+  ) {
+    const key = node.arguments[0];
+    name = key !== undefined && ts.isStringLiteralLike(key) ? key.text : undefined;
+  }
+  return name !== undefined && NATS_CREDENTIAL_ENV_NAMES.has(name) ? name : undefined;
+}
+
+function isProcessEnv(node: ts.Expression): boolean {
+  return (
+    ts.isPropertyAccessExpression(node) &&
+    ts.isIdentifier(node.expression) &&
+    node.expression.text === 'process' &&
+    node.name.text === 'env'
+  );
+}
+
+/** Is `node` inside an `if` whose test compares `authMode` with a literal, or a `case` of `switch (authMode)`? */
+function sitsInAuthModeBranch(node: ts.Node): boolean {
+  for (let child = node, parent = node.parent; parent; child = parent, parent = parent.parent) {
+    if (
+      ts.isIfStatement(parent) &&
+      child !== parent.expression &&
+      comparesAuthModeWithLiteral(parent.expression)
+    ) {
+      return true;
+    }
+    if (
+      ts.isCaseClause(parent) &&
+      ts.isStringLiteralLike(parent.expression) &&
+      isAuthMode(parent.parent.parent.expression)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** `authMode === 'x'` (any equality operator, either side), alone, in `&&` with anything, or in `||` with all alternatives. */
+function comparesAuthModeWithLiteral(test: ts.Expression): boolean {
+  if (ts.isParenthesizedExpression(test)) {
+    return comparesAuthModeWithLiteral(test.expression);
+  }
+  if (!ts.isBinaryExpression(test)) {
+    return false;
+  }
+  const operator = test.operatorToken.kind;
+  if (operator === ts.SyntaxKind.AmpersandAmpersandToken) {
+    return comparesAuthModeWithLiteral(test.left) || comparesAuthModeWithLiteral(test.right);
+  }
+  if (operator === ts.SyntaxKind.BarBarToken) {
+    return comparesAuthModeWithLiteral(test.left) && comparesAuthModeWithLiteral(test.right);
+  }
+  return (
+    EQUALITY_OPERATORS.has(operator) &&
+    ((isAuthMode(test.left) && ts.isStringLiteralLike(test.right)) ||
+      (isAuthMode(test.right) && ts.isStringLiteralLike(test.left)))
+  );
+}
+
+function isAuthMode(node: ts.Expression): boolean {
+  return ts.isIdentifier(node) && node.text === 'authMode';
 }
 
 function analyzeExistingGates(unit: SourceUnit, result: AnalysisResult): void {

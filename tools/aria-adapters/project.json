@@ -54,6 +54,7 @@
           "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/rust-source.test.ts",
           "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/rust-test-files.test.ts",
           "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/security-boundary-adapter.test.ts",
+          "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/security-boundary-adapter.nats.test.ts",
           "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/shell-script.test.ts",
           "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/sql-migration-safety-adapter.test.ts",
           "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/tenant-scoping-adapter.test.ts",

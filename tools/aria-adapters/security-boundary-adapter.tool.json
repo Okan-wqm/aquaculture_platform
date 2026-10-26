@@ -1,7 +1,7 @@
 {
   "tool_id": "security-boundary-adapter",
   "kind": "adapter",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "status": "SHADOW",
   "security_class": true,
   "declared_scope": [
@@ -87,6 +87,24 @@
       "premises": [
         "The cited file imports the named SDK directly.",
         "The file is runtime code outside the approved wrapper, not a test, a type-only import or the wrapper itself."
+      ]
+    },
+    "nats_credential_set_outside_auth_mode_branch": {
+      "claim_type": "wrong_code",
+      "severity_cap": "HIGH",
+      "defect_claim": "The NATS connection factory writes a user, pass or token onto its options outside a branch on the chosen auth mode, so a credential from the environment can reach the CONNECT frame next to the client certificate, where ADR-015 lets only the certificate identify the service.",
+      "premises": [
+        "The cited assignment writes the user, pass or token field of the connection options in the module that declares and exports buildNatsConnectionOptions, and no enclosing if or switch compares authMode with a literal.",
+        "The value written is a NATS credential (NATS_AUTH_USER, NATS_AUTH_PASS, NATS_AUTH_TOKEN or a value derived from them), so with a client certificate configured it would be sent in the CONNECT frame."
+      ]
+    },
+    "nats_credential_env_read_outside_factory": {
+      "claim_type": "wrong_code",
+      "severity_cap": "MEDIUM",
+      "defect_claim": "A module other than the NATS connection factory reads NATS_AUTH_USER, NATS_AUTH_PASS or NATS_AUTH_TOKEN, so it can build connection options that carry a credential whatever auth mode the factory chose, including when a client certificate is configured (ADR-015).",
+      "premises": [
+        "The cited line reads one of the NATS_AUTH_USER, NATS_AUTH_PASS or NATS_AUTH_TOKEN variables, through process.env or a config service, in runtime code outside the module that declares buildNatsConnectionOptions.",
+        "The value is put onto the options of a NATS connection that this module builds itself, instead of the options coming from buildNatsConnectionOptions, which sets no credential under mTLS."
       ]
     }
   },

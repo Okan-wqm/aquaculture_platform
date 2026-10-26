@@ -123,6 +123,17 @@ export function severityFor(ruleId: string, meta: RuleMeta | undefined): Severit
   return 'low';
 }
 
+// The one owner of a message's line. ESLint lines are 1-based, but a rule
+// about the whole file reports `line: 0` (eslint-plugin-sonarjs does for
+// no-empty-test-file S2187, max-lines S104, file-header S1451, file-name-differ
+// S3317). The evidence validator refuses a ref whose line is not positive and
+// one refused ref turns the WHOLE run into `evidence_error`, so a file-level
+// message is a finding on the file's first line, and a message that names no
+// line already was.
+function messageLine(message: LintMessage): number {
+  return Math.max(1, message.line ?? 1);
+}
+
 export function selectFiles(input: AdapterInput, workspaceRoot: string): readonly string[] {
   const roots = requireScanRoots('lint-rules-adapter', input.roots);
   const files: string[] = [];
@@ -176,7 +187,7 @@ export async function analyzeLintRules(
     for (const result of results) {
       const rel = normalizeWorkspacePath(relative(workspaceRoot, result.filePath));
       for (const message of result.messages) {
-        const line = message.line ?? 1;
+        const line = messageLine(message);
         if (message.fatal === true) {
           parseErrors += 1;
           observations.push({

@@ -102,11 +102,18 @@ def run_graphql_operations(repo_root: Path, supergraph: str | None = None) -> di
     (a node that crashed on a missing dependency exits 1 with nothing on stdout, and a missing
     supergraph is the owner's own fatal). The owner is the tree's own copy: it finds the FE sources of
     the tree it sits in, so a recheck at a merge commit runs that commit's check.
+
+    Only a supergraph the caller GIVES is judged against. The owner's own default is
+    ``dist/graphql/supergraph.graphql``, an artifact of unknown age that any earlier compose left in
+    the tree: reading it could mint HIGH findings for a schema the gateway no longer serves, so without
+    a given path the owner is not run at all (the same named result as a path that is not a file).
     """
+    if not supergraph:
+        return _graphql_section("unavailable", "supergraph_not_given")
     owner = repo_root / GRAPHQL_OPERATIONS_OWNER
     if not owner.is_file():
         return _graphql_section("unavailable", "owner_not_found")
-    command = ["node", str(owner), "--json", *(["--schema", supergraph] if supergraph else [])]
+    command = ["node", str(owner), "--json", "--schema", supergraph]
     try:
         run = subprocess.run(command, cwd=repo_root, capture_output=True, text=True,
                              timeout=GRAPHQL_OWNER_TIMEOUT_SECONDS)
@@ -490,7 +497,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--limit", type=int, default=20, help="Max findings to seed")
     parser.add_argument(
         "--supergraph", default=None,
-        help="Composed supergraph SDL passed to poc.py (default: its dist/graphql path).",
+        help=("Composed supergraph SDL passed to poc.py (default: its dist/graphql path). The FE GraphQL "
+              "operation check runs only with a path given here, never on a default."),
     )
     parser.add_argument(
         "--recheck-subject", default=None,

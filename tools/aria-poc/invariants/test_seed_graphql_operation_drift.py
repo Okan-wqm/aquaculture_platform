@@ -20,12 +20,19 @@ Pinned here (all red at the base, for the defect's reason):
 * the seeder consumes the owner's output: a drift the owner names is minted although the tree holds
   no real drift, a real drift the owner does not name is not (no second validator in the seeder);
 * an absent supergraph is a NAMED observation (``wire_unverifiable``), never findings;
+* a supergraph that was not GIVEN is the same observation: the owner's own default, an artifact of
+  unknown age under ``dist/``, is never read, so a stale artifact cannot mint findings;
+* every other way the owner cannot answer (a crash, unreadable or wrongly shaped stdout, an exit
+  code that is not a verdict, a timeout, a tree without the owner) is a NAMED unavailable result,
+  never an empty list read as "no drift";
 * the recheck of a finding of this class reproduces while the owner reports it, is absent only
   once the owner at the merged revision no longer does, and is unverifiable without the supergraph
   (never "absent": that would close an unfixed drift on the strength of a missing artifact).
 """
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import os
 import shutil
@@ -324,6 +331,167 @@ class GraphqlOperationDriftSeedTests(_TreeCase):
                 ]
                 self.assertEqual(len(named), 1, run.stdout)
                 self.assertEqual(tree.findings(), [])
+
+
+AMBIENT_SUPERGRAPH = "dist/graphql/supergraph.graphql"
+
+
+class GraphqlOperationUnavailableTests(_TreeCase):
+    """Every way the owner cannot answer is a NAMED unavailable result, never an empty list or ``ok``.
+
+    "No drift listed" is only evidence when the check ran to a verdict. Each tree here holds a real
+    drift (the Z38 hook), so a seeder that turned an unanswered owner into an empty, ``ok`` list
+    would print no observation and look clean: the assertions are the status, the reason, the one
+    observation line the operator reads, and that nothing is minted.
+    """
+
+    def _tree_with_owner(self, owner_js: str | None) -> _Tree:
+        """The failing document beside an owner replaced by ``owner_js`` (None: no owner at all)."""
+        tree = self.tree({HOOK: document("Chemical", "shelfLifeDays")})
+        self._replace_owner(tree, owner_js)
+        return tree
+
+    @staticmethod
+    def _replace_owner(tree: _Tree, owner_js: str | None) -> None:
+        if owner_js is None:
+            (tree.repo / OWNER).unlink()
+        else:
+            tree.write(OWNER, owner_js)
+
+    def _seed_in_process(self, tree: _Tree, *args: str, timeout: int | None = None) -> str:
+        """The seeder's own ``main`` with its stdout, so a module constant can be lowered for one run."""
+        out = io.StringIO()
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(mock.patch.dict(os.environ, tree.env, clear=True))
+            if timeout is not None:
+                stack.enter_context(mock.patch.object(seeder, "GRAPHQL_OWNER_TIMEOUT_SECONDS", timeout))
+            stack.enter_context(contextlib.redirect_stdout(out))
+            self.assertEqual(seeder.main(["--repo-root", str(tree.repo), *args]), 0)
+        return out.getvalue()
+
+    def _assert_named_unavailable(self, tree: _Tree, reason: str, *, timeout: int | None = None) -> None:
+        supergraph = str(tree.supergraph)
+        limit = timeout or seeder.GRAPHQL_OWNER_TIMEOUT_SECONDS
+        with mock.patch.object(seeder, "GRAPHQL_OWNER_TIMEOUT_SECONDS", limit):
+            section = seeder.run_graphql_operations(tree.repo, supergraph)
+        self.assertEqual(section, {"status": "unavailable", "reason": reason, "drifts": []})
+        stdout = self._seed_in_process(tree, "--supergraph", supergraph, timeout=timeout)
+        named = [line for line in stdout.splitlines() if DRIFT_CLASS in line and f"wire_unverifiable:{reason}" in line]
+        self.assertEqual(len(named), 1, stdout)
+        self.assertEqual(tree.findings(), [], stdout)
+
+    def test_an_owner_that_crashes_is_unavailable_not_an_empty_list(self) -> None:
+        # What node does on a missing dependency: exit 1, nothing on stdout.
+        tree = self._tree_with_owner(
+            "process.stderr.write(\"Error: Cannot find package 'graphql'\\n\");\nprocess.exitCode = 1;\n"
+        )
+        self._assert_named_unavailable(tree, "owner_exit_1")
+
+    def test_an_owner_whose_stdout_is_not_json_is_unavailable(self) -> None:
+        tree = self.tree({HOOK: document("Chemical", "shelfLifeDays")})
+        for label, exit_code in (("exit 0", 0), ("exit 1", 1)):
+            with self.subTest(label):
+                self._replace_owner(
+                    tree, f"process.stdout.write('no drift found\\n');\nprocess.exitCode = {exit_code};\n"
+                )
+                self._assert_named_unavailable(tree, f"owner_exit_{exit_code}")
+
+    def test_an_owner_whose_stdout_is_json_but_not_its_array_is_unavailable(self) -> None:
+        wrong_shapes = (
+            ("an object", '{"drifts": []}'),
+            ("null", "null"),
+            ("a string", '"[]"'),
+            ("an array of non-objects", "[1]"),
+            ("an entry without its fields", '[{"key": "k"}]'),
+            ("an array followed by text", "[] done"),
+        )
+        tree = self.tree({HOOK: document("Chemical", "shelfLifeDays")})
+        for label, printed in wrong_shapes:
+            with self.subTest(label):
+                self._replace_owner(tree, f"process.stdout.write({json.dumps(printed)});\nprocess.exitCode = 1;\n")
+                self._assert_named_unavailable(tree, "owner_exit_1")
+
+    def test_an_exit_code_that_is_not_a_verdict_is_unavailable_even_when_an_array_is_printed(self) -> None:
+        # The array would mint a finding; the owner's exit codes are 0 and 1 (verdict) and 2 (no schema).
+        named = f"{HOOKS}/useStub.ts"
+        canned = [{
+            "key": f"{named}::Stub", "file": named, "op": "Stub", "category": "MISSING-FIELD",
+            "messages": ['Cannot query field "ghostField" on type "ChemicalResponse".'],
+        }]
+        tree = self._tree_with_owner(
+            f"process.stdout.write({json.dumps(json.dumps(canned))});\nprocess.exitCode = 3;\n"
+        )
+        self._assert_named_unavailable(tree, "owner_exit_3")
+
+    def test_an_owner_that_does_not_finish_in_time_is_unavailable(self) -> None:
+        tree = self._tree_with_owner("setTimeout(() => {}, 60000);\n")
+        self._assert_named_unavailable(tree, "owner_unrunnable:TimeoutExpired", timeout=1)
+
+    def test_a_tree_without_the_owner_is_unavailable(self) -> None:
+        self._assert_named_unavailable(self._tree_with_owner(None), "owner_not_found")
+
+
+class GraphqlOperationAmbientSupergraphTests(_TreeCase):
+    """Only a supergraph that was GIVEN is read: the owner's own default is an artifact of unknown age."""
+
+    def _with_stale_artifact(self, *, tracked: bool = False) -> _Tree:
+        tree = self.tree({HOOK: document("Chemical", "shelfLifeDays")})
+        tree.write(AMBIENT_SUPERGRAPH, SUPERGRAPH)
+        if tracked:
+            tree.commit("a supergraph artifact of unknown age")
+        return tree
+
+    def test_a_stale_artifact_at_the_owners_default_path_mints_nothing_and_is_named(self) -> None:
+        tree = self._with_stale_artifact()
+        run = tree.seed()
+        self.assertEqual(run.returncode, 0, run.stderr)
+        named = [
+            line for line in run.stdout.splitlines()
+            if DRIFT_CLASS in line and "wire_unverifiable:supergraph_not_given" in line
+        ]
+        self.assertEqual(len(named), 1, run.stdout)
+        self.assertEqual(tree.findings(), [], run.stdout)
+        self.assertEqual(
+            seeder.run_graphql_operations(tree.repo),
+            {"status": "unavailable", "reason": "supergraph_not_given", "drifts": []},
+        )
+
+    def test_the_owner_is_not_run_at_all_without_a_given_supergraph(self) -> None:
+        tree = self._with_stale_artifact()
+        marker = tree.base / "owner-ran"
+        tree.write(
+            OWNER,
+            f"import {{ writeFileSync }} from 'node:fs';\nwriteFileSync({json.dumps(str(marker))}, 'ran');\n"
+            "process.stdout.write('[]');\n",
+        )
+        tree.commit("an owner that says when it ran")
+        for label, supergraph in (("None", None), ("an empty path", "")):
+            with self.subTest(label):
+                section = seeder.run_graphql_operations(tree.repo, supergraph)
+                self.assertEqual(section["status"], "unavailable", section)
+                self.assertEqual(section["reason"], "supergraph_not_given")
+                self.assertFalse(marker.exists())
+        # A given path is what makes it run: the marker is the owner's proof, not an absent file.
+        seeder.run_graphql_operations(tree.repo, str(tree.supergraph))
+        self.assertTrue(marker.exists())
+
+    def test_the_recheck_never_reads_an_artifact_of_unknown_age_either(self) -> None:
+        # A recheck gets no supergraph when the fetched one is not exact for the revision; the revision
+        # itself holds an artifact at the owner's default path. It must be unverifiable, not reproduces.
+        tree = self._with_stale_artifact(tracked=True)
+        run = tree.seed("--supergraph", str(tree.supergraph))
+        self.assertEqual(run.returncode, 0, run.stderr)
+        records = tree.findings()
+        self.assertEqual(len(records), 1, run.stdout)
+        key = finding_subject_key(records[0])
+        self.assertIsNotNone(key)
+        with mock.patch.dict(os.environ, tree.env, clear=True):
+            verdict = seeder.recheck_subject(
+                tree.repo, subject_key=str(key), drift_class=DRIFT_CLASS, at_sha=tree.git("rev-parse", "HEAD"),
+                supergraph=None,
+            )
+        self.assertEqual(verdict["verdict"], seeder.VERDICT_UNVERIFIABLE, verdict)
+        self.assertIn("supergraph_not_given", verdict["reason"])
 
 
 class GraphqlOperationDriftRecheckTests(_TreeCase):

@@ -216,7 +216,7 @@ class ClaimsNoFileIsSpelledLike(ChangeReviewCase):
 
     def test_a_spelling_git_normalizes_is_refused_not_scope_checked_as_written(self) -> None:
         secret = "secrets/prod.key"
-        head = commit_files(self.change.repo, {secret: "STRIPE_SECRET_KEY=sk_live_NOT_A_REAL_KEY\n"}, message="head: add a key")
+        head = commit_files(self.change.repo, {secret: "STRIPE_SECRET_KEY=sk_live_fake_not_a_real_key\n"}, message="head: add a key")
         change = dataclasses.replace(self.change, head=head)
         for index, spelling in enumerate((f"./x/../{secret}", f".//{secret}", "secrets//prod.key")):
             request_id = f"AIR-aria-change-intelligence-spelling-{index}"

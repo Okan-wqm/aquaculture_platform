@@ -17,6 +17,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { deriveEventId } from '@platform/event-contracts';
 import type {
   FeedTypeTransitionedEvent,
   FeedingWindowReadinessEvent,
@@ -38,9 +39,19 @@ export class FeedingExecutionAlertService {
     @InjectRepository(AlertHistory)
     private readonly historyRepository: Repository<AlertHistory>,
     @Inject(FarmSignalIncidentService)
-    private readonly farmSignalIncident: Pick<FarmSignalIncidentService, 'ensureIncident'>,
+    private readonly farmSignalIncident: Pick<
+      FarmSignalIncidentService,
+      'ensureIncident' | 'raise'
+    >,
   ) {}
 
+  /**
+   * Once per unit per day. The alarm's key is the unit's DAY PLAN: the first
+   * underfed signal of a plan (an underfed meal, or the day total) raises the
+   * alarm; later signals of the same plan, and any redelivery, are
+   * acknowledged without a second alarm. The next day's plan has a new key, so
+   * the next day is evaluated afresh on the weight the fed amount produced.
+   */
   async recordMealUnderfed(event: MealUnderfedEvent): Promise<void> {
     const ruleId = `system:meal-underfed:${event.unitId}`;
     const ruleName = 'Meal Underfed';
@@ -51,11 +62,14 @@ export class FeedingExecutionAlertService {
       `altında beslendi (planlanan ${event.plannedKg} kg, atılan ${event.actualKg} kg, ` +
       `eşik %${event.thresholdPercent})`;
 
-    const history = await this.historyRepository.save(
-      this.historyRepository.create({
-        ruleId,
+    await this.farmSignalIncident.raise({
+      tenantId: event.tenantId,
+      ruleId,
+      dedupeKey: deriveEventId(
+        ['meal-underfed', event.tenantId, event.unitId, event.dayPlanId].join('\u0000'),
+      ),
+      history: {
         ruleName,
-        tenantId: event.tenantId,
         ...farmOrigin(event.siteId),
         severity: AlertSeverity.WARNING,
         message,
@@ -73,19 +87,13 @@ export class FeedingExecutionAlertService {
           correlationId: event.correlationId,
         },
         triggeredAt,
-      }),
-    );
-
-    await this.farmSignalIncident.ensureIncident({
-      tenantId: event.tenantId,
-      ruleId,
+      },
       title: `${ruleName}: ${event.unitCode}`,
       description: message,
       severity: AlertSeverity.WARNING,
       triggeredAt,
       signalLabel: 'meal-underfed',
       triggerData: {
-        historyId: history.id,
         unitId: event.unitId,
         dayPlanId: event.dayPlanId,
         mealId: event.mealId ?? null,
@@ -96,6 +104,7 @@ export class FeedingExecutionAlertService {
     });
   }
 
+  /** Once per missed meal: a redelivery of the same sweep event raises nothing twice. */
   async recordMealMissed(event: MealMissedEvent): Promise<void> {
     const ruleId = `system:meal-missed:${event.unitId}`;
     const ruleName = 'Meal Missed';
@@ -104,11 +113,14 @@ export class FeedingExecutionAlertService {
       `${event.unitCode} ünitesinin ${event.scheduledAt} öğünü hiç kaydedilmedi — ` +
       `pencere kapandı, öğün missed işaretlendi`;
 
-    const history = await this.historyRepository.save(
-      this.historyRepository.create({
-        ruleId,
+    await this.farmSignalIncident.raise({
+      tenantId: event.tenantId,
+      ruleId,
+      dedupeKey: deriveEventId(
+        ['meal-missed', event.tenantId, event.unitId, event.mealId].join('\u0000'),
+      ),
+      history: {
         ruleName,
-        tenantId: event.tenantId,
         ...farmOrigin(event.siteId),
         severity: AlertSeverity.WARNING,
         message,
@@ -122,19 +134,13 @@ export class FeedingExecutionAlertService {
           correlationId: event.correlationId,
         },
         triggeredAt,
-      }),
-    );
-
-    await this.farmSignalIncident.ensureIncident({
-      tenantId: event.tenantId,
-      ruleId,
+      },
       title: `${ruleName}: ${event.unitCode}`,
       description: message,
       severity: AlertSeverity.WARNING,
       triggeredAt,
       signalLabel: 'meal-missed',
       triggerData: {
-        historyId: history.id,
         unitId: event.unitId,
         mealId: event.mealId,
         scheduledAt: event.scheduledAt,

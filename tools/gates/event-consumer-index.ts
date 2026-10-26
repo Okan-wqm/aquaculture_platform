@@ -39,6 +39,14 @@
  *     is never re-implemented here. A value that does not fold is reported as `unresolved`, which
  *     the plan-coverage witness turns into an uncovered node: an unknown consumer is a gap, never a
  *     silent pass.
+ *   - `ValueFolder` is the one owner of that fold and is exported: it needs only a `TypeChecker`,
+ *     so a reader that relates string keys across files (a Redis key written in one file and
+ *     invalidated in another) folds with it instead of keeping a second folder. Its second
+ *     constructor argument is the mode. `exact` (the default, and the only mode the scans here
+ *     use) leaves a template with a runtime part unresolved. `shape` replaces each template part
+ *     that does not fold with `*` and keeps every part that does, so `subscription:${tenantId}`
+ *     has the shape `subscription:*`; only a template becomes a shape, and a bare parameter, a
+ *     property access or a call stays unresolved in both modes.
  *   - FORWARDING_SITES are the bus's and the transport's own forwarding layers (a `subscribe` that
  *     only passes its caller's value on); they are listed explicitly, and the spec pins that every
  *     entry still holds a site, so the list cannot go stale.
@@ -199,6 +207,8 @@ const SUBJECT_BUILDERS: ReadonlySet<string> = new Set([
   'buildRoutedWildcardSubject',
 ]);
 const MAX_FOLD_DEPTH = 8;
+/** What a template part that does not fold becomes in shape mode. */
+const SHAPE_WILDCARD = '*';
 /** The one event constructor (libs/event-contracts/src/base-event.ts) and where it is declared. */
 const EVENT_CONSTRUCTOR = 'createBaseEvent';
 const EVENT_CONTRACTS_DECLARATION = /[\\/]libs[\\/]event-contracts[\\/]src[\\/]/;
@@ -486,9 +496,18 @@ function stringLiteralValues(type: ts.Type): string[] | null {
   return values;
 }
 
+/**
+ * How a template part that does not fold is treated: `exact` leaves the whole template unresolved,
+ * `shape` replaces the part with `*` (see the module header).
+ */
+export type FoldMode = 'exact' | 'shape';
+
 /** Static values of subscription arguments, through the type checker (see the module header). */
-class ValueFolder {
-  constructor(private readonly checker: ts.TypeChecker) {}
+export class ValueFolder {
+  constructor(
+    private readonly checker: ts.TypeChecker,
+    private readonly mode: FoldMode = 'exact',
+  ) {}
 
   fold(expression: ts.Expression, depth = 0): Folded | null {
     if (depth > MAX_FOLD_DEPTH) return null;
@@ -513,15 +532,22 @@ class ValueFolder {
   private foldTemplate(node: ts.TemplateExpression, depth: number): Folded | null {
     let combos: string[] = [node.head.text];
     for (const span of node.templateSpans) {
-      const part = this.fold(span.expression, depth + 1);
-      if (part === null || part.eventTypes) return null;
+      const part = this.foldPart(span.expression, depth + 1);
+      if (part === null) return null;
       const next: string[] = [];
       for (const prefix of combos) {
-        for (const value of part.values) next.push(`${prefix}${value}${span.literal.text}`);
+        for (const value of part) next.push(`${prefix}${value}${span.literal.text}`);
       }
       combos = next;
     }
     return plain(combos);
+  }
+
+  /** The values of one template part; a part that does not fold is `*` in shape mode, else null. */
+  private foldPart(expression: ts.Expression, depth: number): readonly string[] | null {
+    const folded = this.fold(expression, depth);
+    if (folded !== null && !folded.eventTypes) return folded.values;
+    return this.mode === 'shape' ? [SHAPE_WILDCARD] : null;
   }
 
   private declarationOf(node: ts.Node): ts.Declaration | undefined {

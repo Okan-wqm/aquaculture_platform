@@ -28,6 +28,14 @@
  * scripts/ci/lib/reviewed-exception.mjs are data and plain ESM that cannot call
  * a function; the same table pins what each of them admits.
  *
+ * ## Plain node imports this file
+ *
+ * scripts/ci/check-advisory-ignore-sync.ts runs under `node` alone (CI's
+ * rust-ci job has no `npm ci`) and imports this file, so it stays erasable
+ * TypeScript: no enum, namespace or constructor parameter property, which node's
+ * type stripping refuses. tests/invariants/finding-id-advisory-ignore-sync.spec.ts
+ * runs that script, so a file that stopped being importable fails there.
+ *
  * Widening the space again is one constant, FINDING_SEQUENCE_DIGITS, and the
  * table.
  */
@@ -56,8 +64,23 @@ export const FINDING_DOMAIN_SOURCE = '[A-Z][A-Z0-9]*';
 export const FINDING_SEQUENCE_SOURCE =
   `(?:[1-9][0-9]{${FINDING_SEQUENCE_MIN_DIGITS},${FINDING_SEQUENCE_DIGITS - 1}}` +
   `|[0-9]{${FINDING_SEQUENCE_MIN_DIGITS}})(?![0-9])`;
-export const FINDING_SEVERITY_SOURCE = `(?:${FINDING_SEVERITIES.join('|')})`;
-export const FINDING_ID_SOURCE = `${FINDING_DOMAIN_SOURCE}-${FINDING_SEVERITY_SOURCE}-${FINDING_SEQUENCE_SOURCE}`;
+/**
+ * The id as regex source for a reader whose classifiers are not only the four
+ * severities (an advisory comment's `EDGE-CI-010` and `RUST-CVE-002` name a
+ * finding too). The domain and the sequence are still the grammar's; only the
+ * classifier alternation is the caller's, and each classifier is upper-case
+ * alphanumeric so it cannot carry regex syntax.
+ */
+export function findingIdSourceOf(classifiers: readonly string[]): string {
+  if (classifiers.length === 0 || !classifiers.every((value) => /^[A-Z][A-Z0-9]*$/.test(value))) {
+    throw new TypeError(
+      `Finding classifiers are non-empty upper-case words: ${classifiers.join(',')}`,
+    );
+  }
+  return `${FINDING_DOMAIN_SOURCE}-(?:${classifiers.join('|')})-${FINDING_SEQUENCE_SOURCE}`;
+}
+
+export const FINDING_ID_SOURCE = findingIdSourceOf(FINDING_SEVERITIES);
 
 /** A domain on its own. */
 export const FINDING_DOMAIN_REGEX = new RegExp(`^${FINDING_DOMAIN_SOURCE}$`);
@@ -148,10 +171,20 @@ export function compareFindingIds(left: string, right: string): number {
   );
 }
 
-/** The sequences of `domain` ran out: the allocator cannot name a next id. */
+/**
+ * The sequences of `domain` ran out: the allocator cannot name a next id.
+ *
+ * The field is declared and assigned, not a constructor parameter property:
+ * scripts/ci/check-advisory-ignore-sync.ts imports this file and CI runs it
+ * with plain `node`, whose type stripping refuses parameter properties (and
+ * enums and namespaces) as not erasable. The owner stays erasable TypeScript.
+ */
 export class FindingIdSpaceExhaustedError extends RangeError {
-  public constructor(public readonly domain: string) {
+  public readonly domain: string;
+
+  public constructor(domain: string) {
     super(`Finding ID space exhausted for domain ${domain} (maximum ${FINDING_SEQUENCE_MAX}).`);
     this.name = 'FindingIdSpaceExhaustedError';
+    this.domain = domain;
   }
 }

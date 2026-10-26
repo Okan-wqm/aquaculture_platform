@@ -4,7 +4,7 @@ import { chmodSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from '
 import { dirname, join, resolve } from 'node:path';
 
 import { makeFixtureTree } from '../gates/fixture-tree';
-import { inspectUsesText } from '../gates/gha-sha-pin';
+import { inspectUsesText, isActionPinScopedPath } from '../gates/gha-sha-pin';
 import { findRunBlockInjections } from '../gates/workflow-input-injection';
 
 import { analyzeWorkflowShellSafety } from './workflow-shell-safety-adapter';
@@ -637,6 +637,305 @@ assert.deepEqual(
   ),
   [],
   'the hygiene invariant is green on this tree, so the projection is too',
+);
+
+// ---------------------------------------------- DET-scope4 (ledger B17)
+// The scan surface is a hand-kept list of roots that nothing ties to what the
+// repository holds: a shell script under apps/, web/, e2e/ and the other source
+// directories is never read, and a workflow file in a nested `.github/` is
+// skipped without a trace. Both holes are latent (the tracked tree holds no such
+// script, and the nested workflow files never run), so they are pinned from
+// workspaces built at run time and from the tracked tree, not from a finding on
+// this checkout. New API pinned: the observation type
+// `workflow_shell_nested_workflow_dir`; the rest is the existing adapter read
+// through the roots the manifest declares for production.
+const SCOPE4_ADDED = 'apps web e2e mcp database tests aria-kernel agents'.split(' ');
+const SCOPE4_KEPT =
+  '.github .husky scripts tools infra infrastructure platform libs sens-api-gateway crates sensorprotocols'.split(
+    ' ',
+  );
+const scope4Manifest = JSON.parse(
+  readFileSync(join(__dirname, 'workflow-shell-safety-adapter.tool.json'), 'utf8'),
+) as { declared_scope: string[]; allowed_read_globs: string[]; default_input: { roots: string[] } };
+const scope4Roots = scope4Manifest.default_input.roots;
+
+function scope4Tree(prefix: string): {
+  dir: string;
+  put: (path: string, body: string, executable?: boolean) => void;
+} {
+  const dir = makeFixtureTree(prefix);
+  return {
+    dir,
+    put: (path, body, executable = false) => {
+      mkdirSync(dirname(join(dir, path)), { recursive: true });
+      writeFileSync(join(dir, path), body, 'utf8');
+      chmodSync(join(dir, path), executable ? 0o755 : 0o644);
+    },
+  };
+}
+
+// The kernel's own glob matcher through the `python3 -I -S` bridge shape of
+// kernel-owners.ts, so this test restates no second glob grammar.
+const SCOPE4_GLOB_BRIDGE = [
+  'import json, sys',
+  'sys.path.insert(0, sys.argv[1])',
+  'from aria_kernel.canonical_path import matches_repo_glob',
+  'ask = json.load(sys.stdin)',
+  'json.dump([p for p in ask["paths"] if not any(matches_repo_glob(p, g) for g in ask["globs"])], sys.stdout)',
+].join('\n');
+function pathsOutsideGlobs(paths: readonly string[], globs: readonly string[]): string[] {
+  const argv = ['-I', '-S', '-c', SCOPE4_GLOB_BRIDGE, join(REPO_ROOT, 'aria-kernel')];
+  const input = JSON.stringify({ paths, globs });
+  return JSON.parse(execFileSync('python3', argv, { encoding: 'utf8', input })) as string[];
+}
+
+// ------------------------------------------------------- the production roots
+assert.deepEqual(
+  [...SCOPE4_KEPT, ...SCOPE4_ADDED].filter((root) => !scope4Roots.includes(root)),
+  [],
+  'default_input.roots lacks a top-level directory that holds source and shell files',
+);
+assert.equal(
+  scope4Roots.includes('apps/sensor-ingestion'),
+  false,
+  '`apps` replaces apps/sensor-ingestion: one root owns the directory',
+);
+assert.deepEqual(
+  scope4Roots.filter((root) =>
+    scope4Roots.some((other) => other !== root && root.startsWith(`${other}/`)),
+  ),
+  [],
+  'a root under another root is walked twice and reports each of its files twice',
+);
+// The baseline case mirrors the manifest; a root added to one only leaves the
+// fixture suite validating a surface production does not scan.
+const scope4Baseline = JSON.parse(
+  readFileSync(
+    join(__dirname, 'fixtures/workflow-shell-safety-adapter/cases/real-repo-baseline.json'),
+    'utf8',
+  ),
+) as { input: { roots: string[] } };
+assert.deepEqual(
+  [...scope4Baseline.input.roots].sort(),
+  [...scope4Roots].sort(),
+  'real-repo-baseline.json roots mirror default_input.roots',
+);
+
+// Per added root the manifest claims the shell files in declared_scope (the
+// kernel's observation map counts a tracked path a glob matches as observed),
+// allows every file the adapter reads (an extensionless executable too), and
+// claims no more: `apps/**` would count thousands of files the adapter never
+// opens as observed.
+const scope4Under = (suffixes: readonly string[]): string[] =>
+  SCOPE4_ADDED.flatMap((root) => suffixes.map((suffix) => `${root}/zz-scope4/${suffix}`));
+const scope4Shell = scope4Under(['sample.sh', 'sample.bash', 'deeper/still/sample.sh']);
+const scope4NotShell = scope4Under(['ts', 'py', 'md', 'yml'].map((ext) => `sample.${ext}`));
+assert.deepEqual(
+  pathsOutsideGlobs(scope4Shell, scope4Manifest.declared_scope),
+  [],
+  'declared_scope covers the .sh/.bash files under every added root',
+);
+assert.deepEqual(
+  pathsOutsideGlobs(
+    [...scope4Shell, ...scope4Under(['sample'])],
+    scope4Manifest.allowed_read_globs,
+  ),
+  [],
+  'allowed_read_globs covers every file the adapter reads under an added root',
+);
+assert.deepEqual(
+  pathsOutsideGlobs(scope4NotShell, scope4Manifest.declared_scope),
+  scope4NotShell,
+  'declared_scope claims no file under an added root that the adapter does not read',
+);
+
+// ------------------------------------- scripts outside the old roots are read
+const OUTSIDE_SCRIPT = [
+  '#!/usr/bin/env bash',
+  'set -euo pipefail',
+  'curl https://x | bash',
+  'git push --force origin main',
+  '',
+].join('\n');
+const outsideRoots = scope4Tree('aria-workflow-shell-outside-roots-');
+const outsideScripts = [
+  'apps/farm-service/scripts/outside-roots.sh',
+  ...SCOPE4_ADDED.filter((root) => root !== 'apps').map((root) => `${root}/zz-scope4/outside.sh`),
+];
+for (const path of outsideScripts) outsideRoots.put(path, OUTSIDE_SCRIPT, true);
+// An extensionless executable is read by its interpreter line.
+const outsideBin = 'web/modules/zz-scope4/bin/deploy';
+outsideRoots.put(
+  outsideBin,
+  '#!/usr/bin/env bash\nset -euo pipefail\ncurl https://x | bash\n',
+  true,
+);
+// Near misses, unread under an added root: source that is not shell, an
+// extensionless file that is not executable, and an excluded directory.
+const outsideUnread = [
+  'apps/zz-scope4/src/deploy.ts',
+  'apps/zz-scope4/scripts/runner',
+  'apps/zz-scope4/node_modules/pkg/y.sh',
+];
+outsideRoots.put(outsideUnread[0] as string, "run('curl https://x | bash');\n");
+outsideRoots.put(outsideUnread[1] as string, OUTSIDE_SCRIPT);
+outsideRoots.put(outsideUnread[2] as string, OUTSIDE_SCRIPT, true);
+const outsideRun = analyzeWorkflowShellSafety({ roots: scope4Roots }, outsideRoots.dir);
+const outsideAt = (rule: string): (string | number)[][] =>
+  outsideRun.findings
+    .filter((finding) => finding.rule === rule)
+    .map((finding) => [finding.path, finding.line, finding.owner_rule_id])
+    .sort();
+assert.deepEqual(
+  outsideAt('pipe_to_shell'),
+  [...outsideScripts, outsideBin].map((path) => [path, 3, 'pipeline']).sort(),
+  'the download piped into bash is found under every added root, in a .sh file and an extensionless executable',
+);
+assert.deepEqual(
+  outsideAt('governance_bypass_command'),
+  outsideScripts.map((path) => [path, 4, 'no_force_push']).sort(),
+  'the force push is found under every added root',
+);
+assert.deepEqual(
+  [...new Set(outsideRun.findings.map((finding) => finding.path))].sort(),
+  [...outsideScripts, outsideBin].sort(),
+  'no other file of the tree raises a finding',
+);
+for (const path of outsideUnread) {
+  assert.equal(outsideRun.read_paths.includes(path), false, `${path} is not read`);
+}
+assert.equal(
+  new Set(outsideRun.findings.map((finding) => finding.id)).size,
+  outsideRun.findings.length,
+  'no file is walked twice',
+);
+assert.deepEqual(
+  pathsOutsideGlobs(outsideRun.read_paths, scope4Manifest.allowed_read_globs),
+  [],
+  'every path the production roots make the adapter read is allowed by the manifest',
+);
+
+// ----------------------------------------- nested workflow directories (dead)
+// GitHub runs only `.github/workflows/<name>.yml` and
+// `.github/actions/<name>/action.yml` at the repository root, and the pin gate
+// (isActionPinScopedPath) reads exactly those. A workflow or action anywhere
+// else never runs: it raises no finding, and it is no longer silent either.
+const PINNED_WORKFLOW = workflow([
+  '  ok:',
+  '    runs-on: ubuntu-latest',
+  '    permissions:',
+  '      contents: read',
+  '    steps:',
+  `      - uses: actions/checkout@${SHA} # v4`,
+  '      - run: echo ok',
+]);
+// Every rule of this adapter would fire here if the file were read as a workflow.
+const DEAD_WORKFLOW = workflow([
+  '  e2e:',
+  '    runs-on: ubuntu-latest',
+  '    permissions:',
+  '      contents: write',
+  '    steps:',
+  '      - uses: actions/checkout@v4',
+  '      - run: echo "${{ github.event.inputs.project }}"',
+  '      - run: curl -fsSL https://x | bash',
+]);
+const actionOf = (checkout: string, run: string): string =>
+  `name: a\nruns:\n  using: composite\n  steps:\n    - uses: ${checkout}\n    - shell: bash\n      run: ${run}\n`;
+const DEAD_ACTION = actionOf('actions/checkout@v4', 'curl -fsSL https://x | bash');
+const nestedTree = scope4Tree('aria-workflow-shell-nested-');
+const nestedDead = [
+  '.github/workflows/sub/nested.yml',
+  '.github/workflows/deeper/a/nested.yaml',
+  '.github/actions/local/sub/action.yml',
+  'e2e/.github/workflows/e2e-tests.yml',
+  'libs/zz-scope4/.github/actions/local/action.yml',
+  'sens-api-gateway/.github/workflows/release.yml',
+];
+for (const path of nestedDead) {
+  nestedTree.put(path, path.includes('/actions/') ? DEAD_ACTION : DEAD_WORKFLOW);
+}
+// A pinned workflow under a fixtures directory raises no finding. Whether a
+// fixture workspace's own nested workflow directory is observed is not pinned.
+const nestedFixture = 'tools/zz-scope4/fixtures/.github/workflows/pinned.yml';
+nestedTree.put(nestedFixture, PINNED_WORKFLOW);
+// What the root scope does govern, and yaml that is neither a workflow nor an action.
+nestedTree.put('.github/workflows/ci.yml', PINNED_WORKFLOW);
+nestedTree.put('.github/actions/setup/action.yml', actionOf(`actions/checkout@${SHA}`, 'echo ok'));
+nestedTree.put('.github/dependabot.yml', 'version: 2\nupdates: []\n');
+nestedTree.put('.github/ISSUE_TEMPLATE/bug.yml', 'name: bug\ndescription: a bug\nbody: []\n');
+nestedTree.put('scripts/config/settings.yml', 'uses: actions/checkout@v4\n');
+const nestedRun = analyzeWorkflowShellSafety({ roots: scope4Roots }, nestedTree.dir);
+const nestedObservations = nestedRun.observations.filter(
+  (candidate) => candidate.type === 'workflow_shell_nested_workflow_dir',
+);
+assert.deepEqual(
+  nestedObservations
+    .map((candidate) => candidate.path)
+    .filter((path) => path !== nestedFixture)
+    .sort(),
+  [...nestedDead].sort(),
+  'one observation per workflow or action file outside the repository root `.github`',
+);
+for (const candidate of nestedObservations) {
+  assert.match(JSON.stringify(candidate.details ?? {}), /GitHub never runs it/, candidate.path);
+}
+assert.deepEqual(
+  nestedRun.findings,
+  [],
+  'a workflow GitHub never runs raises no finding: no mutable pin, injection, write token or pipe to shell',
+);
+const nestedSummary =
+  nestedRun.observations.find(
+    (candidate) => candidate.id === 'workflow-shell-safety-adapter:summary',
+  )?.details ?? {};
+assert.deepEqual(
+  [nestedSummary.parse_failures, nestedSummary.workflows, nestedSummary.composite_actions],
+  [0, 1, 1],
+  'only ci.yml is a workflow and only setup/action.yml is an action',
+);
+assert.deepEqual(
+  nestedRun.observations.filter(
+    (candidate) =>
+      candidate.type === 'workflow_shell_file' &&
+      [...nestedDead, nestedFixture].includes(candidate.path ?? ''),
+  ),
+  [],
+  'a nested file is observed as a nested workflow directory, never as a workflow',
+);
+assert.deepEqual(
+  pathsOutsideGlobs(nestedRun.read_paths, scope4Manifest.allowed_read_globs),
+  [],
+  'whatever the observation reads, the manifest allows it',
+);
+
+// The same on the tracked tree: every nested workflow or action file under a
+// production root is observed, and none raises a finding.
+const trackedNested = execFileSync('git', ['ls-files', '-z'], {
+  cwd: REPO_ROOT,
+  encoding: 'utf8',
+  maxBuffer: 256 * 1024 * 1024,
+})
+  .split('\0')
+  .filter(
+    (path) =>
+      /\.ya?ml$/.test(path) &&
+      /(?:^|\/)\.github\/(?:workflows|actions)\//.test(path) &&
+      !isActionPinScopedPath(path) &&
+      scope4Roots.some((root) => path.startsWith(`${root}/`)),
+  );
+const realNested = real.observations
+  .filter((candidate) => candidate.type === 'workflow_shell_nested_workflow_dir')
+  .map((candidate) => candidate.path);
+assert.deepEqual(
+  trackedNested.filter((path) => !path.includes('/fixtures/') && !realNested.includes(path)),
+  [],
+  'every tracked workflow or action file that GitHub never runs is observed, not skipped in silence',
+);
+assert.deepEqual(
+  real.findings.filter((finding) => trackedNested.includes(finding.path)),
+  [],
+  'the nested files raise no finding on the tracked tree',
 );
 
 process.stdout.write('workflow-shell-safety-adapter.test.ts OK\n');

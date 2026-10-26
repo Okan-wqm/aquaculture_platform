@@ -92,7 +92,7 @@ class JudgmentPipelinePhaseTest(unittest.TestCase):
                  patch("aria_kernel.feedback_store.generate_judgment_sample", fake_sample), \
                  patch("aria_kernel.judge_fanout.dispatch_judges_for_sample", fake_fanout), \
                  patch("aria_kernel.feedback_store.generate_ai_consensus", fake_consensus), \
-                 patch("aria_kernel.convergence_drainer._resolve_workspace_head_sha", return_value="a" * 40):
+                 patch("aria_kernel.workspace_view.workspace_head_sha", return_value="a" * 40):
                 result = cycle_mod._phase_judgment_pipeline(ctx)
             return result, calls
 
@@ -168,7 +168,7 @@ class JudgmentPipelinePhaseTest(unittest.TestCase):
                  patch("aria_kernel.judge_fanout.dispatch_judges_for_sample",
                        return_value={"minted": []}), \
                  patch("aria_kernel.feedback_store.generate_ai_consensus", fake_consensus), \
-                 patch("aria_kernel.convergence_drainer._resolve_workspace_head_sha", return_value="a" * 40):
+                 patch("aria_kernel.workspace_view.workspace_head_sha", return_value="a" * 40):
                 cycle_mod._phase_judgment_pipeline(ctx)
 
             weights = calls["consensus_kw"]["judge_weights"]
@@ -201,7 +201,7 @@ class JudgeReplayPhaseTest(unittest.TestCase):
                        return_value={"status": "no_active_goldset", "replayed_items": 0}) as rep, \
                  patch("aria_kernel.judge_replay.compute_replay_recall",
                        return_value={"judged_judges": 0}) as rec, \
-                 patch("aria_kernel.convergence_drainer._resolve_workspace_head_sha", return_value="b" * 40):
+                 patch("aria_kernel.workspace_view.workspace_head_sha", return_value="b" * 40):
                 result = cycle_mod._phase_judge_replay(ctx)
 
             rep.assert_called_once()

@@ -152,6 +152,8 @@ def production_converged_plan(
     ``<workspace_root>/.claude/agents``; the critique path resolves reviewer
     identity against the repository, so the caller's workspace needs one.
     """
+    from aria_kernel.tool_registry import bound_workspace_root
+    from aria_kernel.workspace_view import workspace_head_sha
     from aria_kernel.plan_convergence import (
         content_hash as plan_content_hash,
         evaluate_plan,
@@ -196,7 +198,11 @@ def production_converged_plan(
             {"cmd": "nx affected --target=lint", "timeout_ms": 600_000},
             {"cmd": "nx affected --target=test", "timeout_ms": 1_800_000},
         ],
-        "evidence_refs": evidence_refs if evidence_refs is not None else ["docs/aria/SPEC.md"],
+        # The default cites a finding, not a file: a cited file must be a file
+        # of the reviewed commit (PV-R4 R21), and the checkouts this helper runs
+        # over hold only what each caller commits. A caller whose plan cites a
+        # file passes ``evidence_refs`` naming one its checkout holds.
+        "evidence_refs": evidence_refs if evidence_refs is not None else ["ORPHAN-CRITICAL-727"],
         # The tier claim staging refuses to invent. Tier 1 ("make it
         # impossible") is the fixture's claim about its own change; the point
         # of the field is that SOMEONE claimed it, and the change ledger
@@ -248,6 +254,9 @@ def production_converged_plan(
             "risks": [],
             "critique_content_hash": plan_content_hash({"reviewer": reviewer, "risks": []}),
         },
+        # The commit the critic reviewed: HEAD of the checkout the store serves, the
+        # anchor the drainer mints a request at.
+        reviewed_commit_sha=workspace_head_sha(bound_workspace_root(tools_dir)),
         workspace_root=workspace_root,
         base_dir=tools_dir,
     )

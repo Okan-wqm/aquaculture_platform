@@ -24,6 +24,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from aria_kernel.workspace_view import workspace_head_sha
 from aria_kernel import convergence_drainer as cd
 from aria_kernel.ledger import load_segments
 from aria_kernel.agent_invocations import render_invocation_prompt
@@ -166,7 +167,9 @@ class CarriedDataMintsThroughTheRealBridge(unittest.TestCase):
                 plan_id="plan-1",
                 review={"task_packet_hash": task["task_packet_hash"], "target_revision_id": task["target_revision_id"],
                         "target_plan_content_hash": task["target_plan_content_hash"], "reviewer_agent": reviewer,
-                        "review_direction": direction, "risks": [], "review_content_hash": content_hash({"r": reviewer})},
+                        "review_direction": direction, "risks": [], "verdict": "agreed",
+                        "review_content_hash": content_hash({"r": reviewer})},
+                reviewed_commit_sha=workspace_head_sha(self.root),
                 workspace_root=self.root, base_dir=self.tools,
             )
         self.assertEqual(plan_status(plan_id="plan-1", base_dir=self.tools)["state"], "CROSS_REVIEWED")

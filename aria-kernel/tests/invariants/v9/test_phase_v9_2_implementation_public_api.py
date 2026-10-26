@@ -87,6 +87,10 @@ def _start_and_converge(workspace: str, plan_id: str = "v92-test-plan") -> dict:
             "risks_rollup_summary": {},
             "gate_decisions": [],
             "reason_codes": ["converged_clean"],
+            # PV P3 — the row evaluate_plan writes names the commit it was
+            # reached at (null: the store's checkout has none); a verdict
+            # without the field predates the binding and is refused.
+            "reviewed_commit_sha": _pc.workspace_head_sha(tools_dir),
         },
         idempotency_key=_pc._idempotency_key(plan_id, "evaluate", {"round_number": 1}),
     )

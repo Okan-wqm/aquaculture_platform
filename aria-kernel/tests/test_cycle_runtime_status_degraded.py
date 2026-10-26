@@ -111,6 +111,23 @@ class RuleTests(unittest.TestCase):
             RUNTIME_FAILED,
         )
 
+    def test_a_held_phase_is_degraded_never_ok_and_never_failed(self) -> None:
+        # PV SC3: a phase that held its work on a checkout git cannot read did
+        # not run, but nothing failed and the other phases ran. A failed phase
+        # or a deadline cut still outranks it.
+        self.assertEqual(
+            runtime_status(phase_failed=False, integrity_valid=True, non_ok=[], phase_held=True),
+            RUNTIME_DEGRADED,
+        )
+        self.assertEqual(
+            runtime_status(phase_failed=True, integrity_valid=True, non_ok=[], phase_held=True),
+            RUNTIME_FAILED,
+        )
+        self.assertEqual(
+            runtime_status(phase_failed=False, integrity_valid=False, non_ok=[], phase_held=True),
+            RUNTIME_INTEGRITY_FAILED,
+        )
+
     def test_degraded_records_name_the_tool_and_its_class(self) -> None:
         records = degraded_tool_records([EVIDENCE_ERROR_RUN, ARTIFACT_LOST_RUN])
         self.assertEqual(

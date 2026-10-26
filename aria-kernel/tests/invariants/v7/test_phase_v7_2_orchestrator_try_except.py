@@ -72,7 +72,7 @@ def _v7_fake_plan_synthesizer_valid(**kwargs):
         "summary": "v7 fixture", "affected_surfaces": ["fixture.py"],
         "key_changes": [{"id": "c1", "description": "x", "paths": ["fixture.py"]}],
         "validation_commands": [{"cmd": "echo ok", "timeout_ms": 1000, "expected_exit": 0}],
-        "evidence_refs": ["fixture.py:1:line"],
+        "evidence_refs": ["fixture.py:1"],
     }
 
 

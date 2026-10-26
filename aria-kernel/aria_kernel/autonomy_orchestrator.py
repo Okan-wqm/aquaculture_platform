@@ -94,6 +94,7 @@ from .provider_hold import (
 from .reflection import run_reflection
 from .reflection_inputs import pedagogy_lint_snapshot, producer_reflection_kwargs
 from .tool_registry import GovernanceError
+from .workspace_view import WORKSPACE_HEAD_UNREADABLE, WorkspaceViewRefused
 
 if TYPE_CHECKING:
     # Plan ARIA-V3.1-0 — cycle_phases Protocol typing for the 5 new
@@ -262,7 +263,6 @@ def _drain_next_cycle_queue(
     # A queue item is consumed only after its agent request is appended.
     import json
 
-    from .convergence_drainer import _resolve_workspace_head_sha
     from .pressure import explain_pressure
     from .pressure_evidence import (
         PROMPT_PROVENANCE_REFS_KEY,
@@ -286,10 +286,15 @@ def _drain_next_cycle_queue(
     # every one of them a real file the agent had genuinely read. One lane
     # carried the baseline and the other did not; the same helper now serves
     # both.
-    target_sha = _resolve_workspace_head_sha(workspace_root)
-    # The tree the agent law reads refs in: the checkout `target_sha` was
-    # resolved from (the resolver's own fallback is the working directory).
+    #
+    # The tree the agent law reads refs in is the checkout `target_sha` is
+    # read from (the working directory when no workspace is named), through
+    # the kernel's one HEAD owner, before any queue item is consumed: a
+    # checkout git cannot read raises here (PV R12).
+    from .workspace_view import workspace_head_sha
+
     projection_root = Path(workspace_root) if workspace_root else Path.cwd()
+    target_sha = workspace_head_sha(projection_root)
 
     from .agent_invocations import (
         create_agent_invocation_request,
@@ -732,6 +737,70 @@ def _reflect_on_failed_cycle(
         return refusal
 
 
+def _end_cycle_on_unreadable_workspace(
+    *,
+    root: Path,
+    cycle_id: str,
+    profile: str,
+    refusal: WorkspaceViewRefused,
+    cycle_summary: dict[str, Any],
+    cycle_result: dict[str, Any] | None,
+    pedagogy_snapshot: dict[str, Any] | None,
+    workspace_root: str | Path | None,
+    per_cycle_results: list[dict[str, Any]],
+    cycle_sealed: bool,
+) -> None:
+    """PV SC3 — a started cycle whose checkout git cannot read ends BY NAME.
+
+    ``workspace_view.workspace_head_sha`` raises ``WorkspaceViewRefused`` when
+    git cannot answer (a broken ``gitdir``, dubious ownership, a timeout); the
+    plan lanes behind the cycle step bind their requests, verdicts and
+    evidence to that commit and refuse to guess it. Left uncaught the raise
+    ended the process with ``cycle_started`` on the ledger and no terminal row
+    (a quarantined store, no notice, no reflection). This is the ONE handling
+    of it for the orchestrator: every site that reads the commit beyond the
+    cycle step's own containment (the queue drain, the plan provider, the
+    convergence step) calls it, then leaves the loop on ``cycle_failed``.
+
+    A cycle the cycle step already sealed keeps its ``cycle_completed`` row
+    (``cycle_sealed``); one that never got to run is sealed ``failed`` here.
+    Either way the refusal is a named autonomy-state row, the operator gets
+    the one failed-cycle notice, and the failed night's reflection runs
+    (ARIA-HIGH-420). It is not retried: the next cycle meets the same
+    checkout.
+    """
+    reason = published_text(str(refusal), store_root=root, limit=_CYCLE_FAILURE_REASON_MAX_CHARS)
+    cycle_summary[WORKSPACE_HEAD_UNREADABLE] = {"error_class": type(refusal).__name__, "error_message": reason}
+    if not cycle_sealed:
+        cycle_summary["cycle"] = {
+            "schema_version": 2,
+            "cycle_id": cycle_id,
+            "status": "failed",
+            "runtime_status": "failed",
+            "error": reason,
+            "cycle_lifecycle": {
+                "valid": False,
+                "incomplete_count": 0,
+                "incomplete_cycles": [],
+                "lifecycle_read_error": f"cycle ended before it ran: {WORKSPACE_HEAD_UNREADABLE}",
+            },
+        }
+        AutonomyStateReducer.transition(
+            root, cycle_id=cycle_id, phase="cycle_completed", status="failed", profile=profile,
+            details={"summary": cycle_summary["cycle"]},
+        )
+    AutonomyStateReducer.transition(
+        root, cycle_id=cycle_id, phase=WORKSPACE_HEAD_UNREADABLE, status="failed", profile=profile,
+        details={"error_class": type(refusal).__name__, "error_message": reason, "cycle_sealed_before": cycle_sealed},
+    )
+    _notify_cycle_failed(root, cycle_id=cycle_id, exit_reason=EXIT_CYCLE_FAILED, reason=reason)
+    cycle_summary["reflection"] = _reflect_on_failed_cycle(
+        root=root, cycle_id=cycle_id, profile=profile, workspace_root=workspace_root,
+        cycle_summary=cycle_summary, cycle_result=cycle_result, pedagogy_snapshot=pedagogy_snapshot,
+    )
+    per_cycle_results.append(cycle_summary)
+
+
 def _bounded_cycle_summary(cycle_result: dict[str, Any]) -> dict[str, Any]:
     tool_runs = cycle_result.get("tool_run_summary") if isinstance(cycle_result.get("tool_run_summary"), list) else []
     artifact_refs = [
@@ -975,13 +1044,13 @@ def _calibration_reporter_and_auto_promotion(
             # ARIA-HIGH-004 — the report names the commit this cycle ran at
             # (the checkout HEAD every other phase resolves), so a SHADOW ->
             # ACTIVE transition can bind it; no workspace, no commit.
-            from .convergence_drainer import _resolve_workspace_head_sha
+            from .workspace_view import workspace_head_sha
 
             calibration_result = generate_adapter_calibration_report(
                     tool_ids=_v7_calibration_tool_ids,
                     base_dir=root,
                     cycle_id=cycle_id,
-                    target_sha=_resolve_workspace_head_sha(workspace_root) if workspace_root else None,
+                    target_sha=workspace_head_sha(workspace_root) if workspace_root else None,
                 )
             cycle_summary["calibration_reporter"] = calibration_result
         except Exception as _v7_calib_exc:
@@ -1718,21 +1787,33 @@ def run_autonomy_orchestrator(
                 )
 
                 # Phase: drain next_cycle_queue (§F.2)
-                drained = _drain_next_cycle_queue(
-                    base_dir=root,
-                    daemon_agent_id=daemon_agent_id,
-                    limit=max_iterations_per_phase,
-                    # The same fallback every sibling call site in this function
-                    # applies. This one passed the raw value through, and
-                    # workspace_root defaults to None — so the head-SHA resolve
-                    # ran against the daemon's cwd and minted requests with
-                    # target_sha=null, which grades every real evidence ref
-                    # baseline_unavailable. Diagnosed by the autonomy planner
-                    # itself in its first accepted response (RC-2,
-                    # AIR-aria-autonomy-planner-5636a540ccaa).
-                    workspace_root=Path(workspace_root) if workspace_root else root,
-                    cycle_id=cycle_id,
-                )
+                try:
+                    drained = _drain_next_cycle_queue(
+                        base_dir=root,
+                        daemon_agent_id=daemon_agent_id,
+                        limit=max_iterations_per_phase,
+                        # The same fallback every sibling call site in this function
+                        # applies. This one passed the raw value through, and
+                        # workspace_root defaults to None — so the head-SHA resolve
+                        # ran against the daemon's cwd and minted requests with
+                        # target_sha=null, which grades every real evidence ref
+                        # baseline_unavailable. Diagnosed by the autonomy planner
+                        # itself in its first accepted response (RC-2,
+                        # AIR-aria-autonomy-planner-5636a540ccaa).
+                        workspace_root=Path(workspace_root) if workspace_root else root,
+                        cycle_id=cycle_id,
+                    )
+                except WorkspaceViewRefused as refusal:
+                    # PV SC3 — nothing was consumed (the read precedes the
+                    # first item); the started cycle ends by name.
+                    _end_cycle_on_unreadable_workspace(
+                        root=root, cycle_id=cycle_id, profile=profile_snapshot, refusal=refusal,
+                        cycle_summary={"cycle_id": cycle_id, "cycle_index": cycle_n},
+                        cycle_result=None, pedagogy_snapshot=None, workspace_root=workspace_root,
+                        per_cycle_results=per_cycle_results, cycle_sealed=False,
+                    )
+                    exit_reason = EXIT_CYCLE_FAILED
+                    break
                 AutonomyStateReducer.transition(
                     root,
                     cycle_id=cycle_id,
@@ -2127,33 +2208,46 @@ def run_autonomy_orchestrator(
                 # field carries `_pressure_source_type` for downstream
                 # cost-attribution (V3.1-D consumes via
                 # cost_telemetry_hook).
-                _v7_plan_envelope = plan_content_provider.synthesize(
-                    cycle_id=cycle_id,
-                    workspace_root=Path(workspace_root) if workspace_root else root,
-                    base_dir=root,
-                    profile=profile,
-                )
                 _v7_plan_content: dict[str, Any] | None
                 _v7_pressure_source_type: str
-                if _v7_plan_envelope is not None:
-                    _v7_plan_content = _v7_plan_envelope.content
-                    _v7_pressure_source_type = str(
-                        _v7_plan_envelope.metadata.get(
-                            "_pressure_source_type", "git_diff",
-                        )
-                    )
-                else:
-                    # Plan ARIA-V3.1-A — Protocol returned None
-                    # (NoOp default OR V9 provider with empty results).
-                    # Fall through to the legacy plan_synthesizer kwarg
-                    # (V8 backward compat path; tests don't install a
-                    # Protocol).
-                    _v7_plan_content = plan_synthesizer(
+                try:
+                    _v7_plan_envelope = plan_content_provider.synthesize(
                         cycle_id=cycle_id,
                         workspace_root=Path(workspace_root) if workspace_root else root,
                         base_dir=root,
+                        profile=profile,
                     )
-                    _v7_pressure_source_type = "git_diff"
+                    if _v7_plan_envelope is not None:
+                        _v7_plan_content = _v7_plan_envelope.content
+                        _v7_pressure_source_type = str(
+                            _v7_plan_envelope.metadata.get(
+                                "_pressure_source_type", "git_diff",
+                            )
+                        )
+                    else:
+                        # Plan ARIA-V3.1-A — Protocol returned None
+                        # (NoOp default OR V9 provider with empty results).
+                        # Fall through to the legacy plan_synthesizer kwarg
+                        # (V8 backward compat path; tests don't install a
+                        # Protocol).
+                        _v7_plan_content = plan_synthesizer(
+                            cycle_id=cycle_id,
+                            workspace_root=Path(workspace_root) if workspace_root else root,
+                            base_dir=root,
+                        )
+                        _v7_pressure_source_type = "git_diff"
+                except WorkspaceViewRefused as refusal:
+                    # PV SC3 — the evidence ground (or the legacy synthesizer)
+                    # could not read the checkout's commit: no plan is minted;
+                    # the cycle ends by name.
+                    _end_cycle_on_unreadable_workspace(
+                        root=root, cycle_id=cycle_id, profile=profile_snapshot, refusal=refusal,
+                        cycle_summary=cycle_summary, cycle_result=cycle_result,
+                        pedagogy_snapshot=pedagogy_snapshot, workspace_root=workspace_root,
+                        per_cycle_results=per_cycle_results, cycle_sealed=True,
+                    )
+                    exit_reason = EXIT_CYCLE_FAILED
+                    break
                 # Surface the resolved pressure source on the cycle
                 # summary so V10.4 cost-attribution rollup attributes
                 # correctly even when the legacy fallback path fired.
@@ -2317,6 +2411,19 @@ def run_autonomy_orchestrator(
                         plan_seed=_v7_plan_content,
                         max_rounds=max_rounds,
                     )
+                except WorkspaceViewRefused as refusal:
+                    # PV SC3 — the convergence step reads the commit it binds
+                    # its requests and verdicts to; an unreadable checkout is
+                    # not an invalid plan, so it takes the cycle's named
+                    # failed exit instead of the plan-invalid verdict below.
+                    _end_cycle_on_unreadable_workspace(
+                        root=root, cycle_id=cycle_id, profile=profile_snapshot, refusal=refusal,
+                        cycle_summary=cycle_summary, cycle_result=cycle_result,
+                        pedagogy_snapshot=pedagogy_snapshot, workspace_root=workspace_root,
+                        per_cycle_results=per_cycle_results, cycle_sealed=True,
+                    )
+                    exit_reason = EXIT_CYCLE_FAILED
+                    break
                 except GovernanceError as _v7_exc:
                     # Plan ARIA-V7 §2g v2 — invalid plan_content surface.
                     AutonomyStateReducer.transition(

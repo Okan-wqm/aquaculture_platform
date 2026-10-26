@@ -35,6 +35,7 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import Mock
 
+from aria_kernel.workspace_view import workspace_head_sha
 from aria_kernel.agent_invocations import create_agent_invocation_request
 from aria_kernel.autonomy_orchestrator import run_autonomy_orchestrator
 from aria_kernel.convergence_drainer import ConvergenceRunner, run_convergence_drainer
@@ -181,8 +182,9 @@ class _TwoCandidateCycle(unittest.TestCase):
                 "affected_files": [FARM], "recommendation": "Add the divergence test",
                 "evidence_refs": [FARM + ":1"],
             }] if index == 0 else []
+            review["verdict"] = "material_risks_present" if review["risks"] else "agreed"
             review["review_content_hash"] = content_hash(review)
-            record_cross_review(plan_id=PLAN_ID, review=review, workspace_root=self.root, base_dir=self.tools)
+            record_cross_review(plan_id=PLAN_ID, review=review, reviewed_commit_sha=workspace_head_sha(self.root), workspace_root=self.root, base_dir=self.tools)
         self.assertEqual(fold_plan_state(plan_id=PLAN_ID, base_dir=self.tools)["state"], "CROSS_REVIEWED")
 
     # -- assertions ----------------------------------------------------------

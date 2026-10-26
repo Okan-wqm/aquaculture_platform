@@ -360,7 +360,7 @@ def _dispatch_cross_review(
     Fallback order: agent-supplied → request.target_agent
     (kernel-trustworthy) → hardcoded canonical name.
     """
-    from .plan_convergence import submit_cross_review_v8
+    from .plan_convergence import answered_request_reviewed_commit, submit_cross_review_v8
 
     review_payload = details.get("review") or details.get("cross_review") or details
     workspace_root = request.get("workspace_root") or response.get("workspace_root") or "."
@@ -373,10 +373,14 @@ def _dispatch_cross_review(
                 or "aria-cross-reviewer"
             ),
         }
+    # PV P3 (R2, R10) — the commit the reviewer reviewed is the one its
+    # request was anchored at (the executor ran it at `target_sha`); the
+    # kernel's request row says so, never the agent's envelope.
     return submit_cross_review_v8(
         plan_id=plan_id,
         review=review_payload,
         workspace_root=workspace_root,
+        reviewed_commit_sha=answered_request_reviewed_commit(request),
         base_dir=base_dir,
     )
 

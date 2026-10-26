@@ -103,7 +103,7 @@ class AutonomyLaneThreadsTheBaselineTest(unittest.TestCase):
         # to disagree in the first place.
         source = inspect.getsource(autonomy_orchestrator._drain_next_cycle_queue)
 
-        self.assertIn("_resolve_workspace_head_sha", source)
+        self.assertIn("workspace_head_sha(projection_root)", source)
         self.assertIn("target_sha=target_sha", source)
 
 

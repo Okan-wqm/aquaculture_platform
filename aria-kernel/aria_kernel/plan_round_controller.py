@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .agent_invocations import create_agent_invocation_request, list_agent_invocation_requests
+from .cross_review_bridge import _cross_review_suggested_prompt
 from .ledger import sha256_digest_of_canonical_json
 from .plan_contract import render_plan_contract
 from .request_admission import admit_request
@@ -15,14 +16,18 @@ from .plan_convergence import (
     evaluate_plan,
     fold_plan_state,
     force_plan_human_required,
+    plan_verdict_anchor,
+    prior_review_risks,
     request_cross_review,
     submit_challenger_plan,
 )
 from .plan_round_scope import plan_round_contract
+from .round_independence import plan_texts_from_state
 from .step_request import MAX_STEP_REQUEST_REMINTS, step_request_disposition
 from .planner_lessons import planner_lesson_obligations
 from .system_one_points import rank_candidate_files
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
+from .workspace_view import workspace_head_sha
 
 
 DEFAULT_PLANNER_AGENTS = {
@@ -132,7 +137,8 @@ def _ensure_planner_request(root: Path, state: dict[str, Any], *, role: str, rou
         return {"kind": "planner_request_remint_exhausted", "role": role, "request_id": disposition.request_id}
     if disposition.kind == "remint":
         remint_of = disposition.request_id
-    from .convergence_drainer import _resolve_workspace_head_sha
+    # The evidence anchor is read before anything below may write (PV R12).
+    target_sha = workspace_head_sha(workspace_root) if workspace_root is not None else None
     source_refs, revision_hash, context_paths = _planning_source_context(state, [revision_id])
     # ARIA-LOW-319 — R4's ranked candidate files; [] unless R4 runs in order mode. Ranked
     # from the STARTING body, the source context both planners share: never a primary's revision,
@@ -141,7 +147,6 @@ def _ensure_planner_request(root: Path, state: dict[str, Any], *, role: str, rou
         plan=lambda: (state.get("plan_started") or {}).get("plan_content"), workspace_root=workspace_root,
         base_dir=root,
     )
-    target_sha = _resolve_workspace_head_sha(workspace_root) if workspace_root is not None else None
     # ARIA-HIGH-345 — the scope and key-change obligations are THIS plan's
     # (`plan_round_scope.plan_round_contract`); the hard-coded kernel scope
     # this replaced named no file of a plan outside aria-kernel.
@@ -187,6 +192,27 @@ def _ensure_cross_review_round(root: Path, state: dict[str, Any], *,
     target_hash = str(latest.get("content_hash") or "")
     if not target_revision_id or not target_hash:
         raise GovernanceError("plan_round_controller_missing_latest_revision")
+    # PV P3 (R11, R12) — the round's anchor (the commit its verdict is bound
+    # to) is HEAD of the store's checkout, the one staleness compares in, and
+    # it is read BEFORE the round is requested: a checkout git cannot read
+    # raises here and leaves the plan CHALLENGER_DRAFTED, never requested
+    # with no request row an answer could be recorded against.
+    target_sha = plan_verdict_anchor(root)
+    # PV R17 — one cross-review prompt owner: the drainer's renderer, with the
+    # round's plans (``round_independence.plan_texts_from_state``, the texts
+    # the drainer hands it) and the prior risks this reviewer must answer.
+    # Rendered before anything is written, like the anchor above.
+    primary_text, _primary_real, challenger_revision_id, challenger_text, _challenger_real = (
+        plan_texts_from_state(state, plan_id=plan_id, round_number=round_number)
+    )
+    suggested_prompt = _cross_review_suggested_prompt(
+        round_number=round_number,
+        primary_revision_id=target_revision_id,
+        primary_plan_text=primary_text,
+        challenger_revision_id=challenger_revision_id,
+        challenger_plan_text=challenger_text,
+        prior_risks=prior_review_risks(state, round_number),
+    )
     payload = {
         "round_number": round_number,
         "target_revision_id": target_revision_id,
@@ -210,9 +236,7 @@ def _ensure_cross_review_round(root: Path, state: dict[str, Any], *,
     }
     event = request_cross_review(plan_id=plan_id, request=payload, base_dir=root)
     actions = [{"kind": "cross_review_event", "event_appended": event.get("event_appended")}]
-    from .convergence_drainer import _resolve_workspace_head_sha
     source_refs, revision_hash, context_paths = _planning_source_context(state, [target_revision_id])
-    target_sha = _resolve_workspace_head_sha(workspace_root) if workspace_root is not None else None
     contract = plan_round_contract(state)
     for task in payload["tasks"]:
         request = create_agent_invocation_request(
@@ -220,12 +244,16 @@ def _ensure_cross_review_round(root: Path, state: dict[str, Any], *,
             role="cross_review",
             convergence_id=plan_id,
             round_number=round_number,
-            suggested_prompt=json.dumps({"task": task, "plan_id": plan_id}, sort_keys=True),
+            suggested_prompt=suggested_prompt,
             must_satisfy=[
                 {
                     "id": "cross_review_direction",
                     "description": f"Answer {task['review_direction']} with risks and required revisions.",
                     "required": True,
+                    # The direction this request answers and the task it
+                    # answers, as obligation data the agent is shown.
+                    "review_direction": task["review_direction"],
+                    "task_packet_hash": task["task_packet_hash"],
                 },
                 *contract.must_satisfy,
             ],

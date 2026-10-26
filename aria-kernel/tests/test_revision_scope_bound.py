@@ -25,6 +25,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
 
+from aria_kernel.workspace_view import workspace_head_sha
 from aria_kernel.bridge_exceptions import BridgeContractViolation
 from aria_kernel.cross_review_bridge import issue_implementation_envelope
 from aria_kernel.finding_grounding import FindingAdmission
@@ -52,7 +53,7 @@ from aria_kernel.plan_origin import (
     paths_outside_admission_scope,
 )
 from aria_kernel.plan_synthesizer import PlanEvidenceGround, convert_candidate_to_plan_content
-from aria_kernel.tool_registry import GovernanceError
+from aria_kernel.tool_registry import GovernanceError, bound_workspace_root
 from aria_kernel.request_admission import admit_request
 from tests._helpers.git_fixtures import make_local_git_repo
 from tests._helpers.operator_acts import operator_set_profile
@@ -150,7 +151,7 @@ class _ScopeBoundFixture(unittest.TestCase):
             "task_packet_hash": task["task_packet_hash"], "target_revision_id": latest["revision_id"],
             "target_plan_content_hash": latest["content_hash"], "reviewer": "farm-expert", "risks": [],
             "critique_content_hash": content_hash({"reviewer": "farm-expert", "risks": []}),
-        }, workspace_root=self.root, base_dir=self.tools)
+        }, reviewed_commit_sha=workspace_head_sha(bound_workspace_root(self.tools)), workspace_root=self.root, base_dir=self.tools)
 
     def _revise(self, plan_id: str, body: dict, revision_id: str = "r1") -> dict:
         state = plan_status(plan_id=plan_id, base_dir=self.tools)

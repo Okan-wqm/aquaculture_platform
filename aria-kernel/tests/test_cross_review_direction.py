@@ -19,6 +19,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from aria_kernel.workspace_view import workspace_head_sha
 from aria_kernel.plan_convergence import (
     fold_plan_state,
     start_plan,
@@ -39,7 +40,9 @@ def _risk(risk_id: str, direction: str | None = None) -> dict:
         "summary": f"{risk_id} summary",
         "recommendation": f"{risk_id} recommendation",
         "affected_files": ["aria-kernel/aria_kernel/plan_convergence.py"],
-        "evidence_refs": ["aria-kernel/aria_kernel/plan_convergence.py:1"],
+        # The workspace has no commit, so the reviewer reviewed the empty tree:
+        # an evidence ref there can name no file (PV-R4 R21), only a finding.
+        "evidence_refs": ["ORPHAN-HIGH-629"],
     }
     if direction is not None:
         row["applies_to_direction"] = direction
@@ -99,6 +102,7 @@ class CrossReviewDirectionTests(unittest.TestCase):
             review=review,
             workspace_root=self.root,
             base_dir=self.tools_dir,
+            reviewed_commit_sha=workspace_head_sha(self.root),
         )
         return fold_plan_state(plan_id="plan-dir", base_dir=self.tools_dir)
 

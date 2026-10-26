@@ -720,10 +720,14 @@ def _check_learning_funnel(tools_dir: Path, workspace: Path) -> DoctorCheck:
     reads plans; this one reads what a finding must pass to change what ARIA
     trusts. With no HEAD there is no target to bind the join to, and that is
     said, not guessed."""
-    from .convergence_drainer import _resolve_workspace_head_sha
     from .funnel_health import derive_learning_funnel_health
+    from .workspace_view import WorkspaceViewRefused, workspace_head_sha
 
-    head = _resolve_workspace_head_sha(workspace)
+    try:
+        head = workspace_head_sha(workspace)
+    except WorkspaceViewRefused as exc:
+        # A checkout git cannot read is not "no HEAD": the doctor names why.
+        return DoctorCheck("learning_funnel", "warn", exc.reason, {"workspace": str(workspace)})
     if head is None:
         return DoctorCheck("learning_funnel", "warn", "learning_funnel_target_unresolved", {"workspace": str(workspace)})
     health = derive_learning_funnel_health(base_dir=tools_dir, target_sha=head)

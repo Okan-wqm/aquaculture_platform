@@ -1236,9 +1236,10 @@ _FINDING_EVIDENCE_CAP = 50
 class PlanEvidenceGround:
     """Where a plan's evidence is judged: the checkout, at the commit its planning envelopes name.
 
-    ORPHAN-HIGH-519 — ``target_sha`` is resolved by the drainer's own resolver,
-    the value every challenger request carries, so a ref admitted here is
-    admitted again when the challenger cites it at the submit.
+    ORPHAN-HIGH-519 — ``target_sha`` is read by the kernel's one HEAD owner
+    (``workspace_view.workspace_head_sha``) as the drainer reads the value
+    every challenger request carries, so a ref admitted here is admitted
+    again when the challenger cites it at the submit.
     """
 
     repo_root: Path
@@ -1246,10 +1247,10 @@ class PlanEvidenceGround:
 
     @classmethod
     def of(cls, workspace_root: str | Path) -> "PlanEvidenceGround":
-        from .convergence_drainer import _resolve_workspace_head_sha
+        from .workspace_view import workspace_head_sha
 
         root = Path(workspace_root).resolve()
-        return cls(root, _resolve_workspace_head_sha(root))
+        return cls(root, workspace_head_sha(root))
 
 
 @dataclass(frozen=True)

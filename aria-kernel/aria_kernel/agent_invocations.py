@@ -1757,6 +1757,12 @@ def create_agent_invocation_request(
             **({"context_source_paths": context_source_paths} if context_source_paths is not None else {}),
             **({"context_source_paths_status": context_source_paths_status} if context_source_paths_status is not None else {}),
             **({"evidence_scope": evidence_scope} if evidence_scope else {}),
+            # ARIA-LOW-785 — the staged ids are facts the row carries (its
+            # `base_sha` is read from them): a re-mint for a new proposal or
+            # branch is a new request, never the old row handed back.
+            **({"implementation_ids": dict(implementation_ids)} if implementation_ids else {}),
+            # F0.7 + J4 — what an arbiter envelope was minted over: a group
+            # re-offered at new inputs is a new request.
             **({"arbiter_inputs": arbiter_inputs} if arbiter_inputs is not None else {}),
         },
     )
@@ -3608,7 +3614,7 @@ def _anchor_refusal_reason(
     """Why this request must not be claimed, or whether that could be decided.
 
     ORPHAN-MEDIUM-492. ``target_sha`` is the commit the request's evidence and
-    plan are grounded at (see ``convergence_drainer._resolve_workspace_head_sha``)
+    plan are grounded at (see ``workspace_view.workspace_head_sha``)
     — it is already minted, persisted and hashed into the context envelope, and
     until now nothing on the selection path read it.
 

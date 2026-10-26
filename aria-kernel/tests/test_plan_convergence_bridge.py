@@ -212,6 +212,7 @@ class RecordPlanResultDispatchTests(unittest.TestCase):
             "plan_id": "plan-cr1",
             "role": "cross_review",
             "workspace_root": "/tmp/workspace",
+            "target_sha": "a" * 40,
         }
         response = {
             "role": "cross_review",
@@ -241,6 +242,8 @@ class RecordPlanResultDispatchTests(unittest.TestCase):
         self.assertEqual(kwargs["review"]["reviewer_agent"], "aria-cross-reviewer")
         self.assertEqual(kwargs["review"]["verdict"], "agreed")
         self.assertEqual(kwargs["workspace_root"], "/tmp/workspace")
+        # PV P3 (R2) — the reviewed commit is the request's anchor.
+        self.assertEqual(kwargs["reviewed_commit_sha"], "a" * 40)
         self.assertEqual(result["event_type"], "cross_review_recorded")
 
     def test_non_planner_role_returns_none(self) -> None:

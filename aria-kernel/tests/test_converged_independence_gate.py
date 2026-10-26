@@ -108,8 +108,9 @@ class SelfAgreementIsNeverDelivered(_ReviewedCase):
         payload = self.last_evaluation()
         self.assertEqual(payload["reason_codes"], [CROSS_REVIEW_SELF_AGREEMENT_REASON])
         self.assertIn(
+            # PV R6 — the row names every round it judged (here the converging one).
             {"gate": CROSS_REVIEW_INDEPENDENCE_GATE, "passed": False,
-             "violation_reasons": ["cross_review_echoes_primary"]},
+             "violation_reasons": ["cross_review_echoes_primary"], "judged_rounds": [1], "failed_rounds": [1]},
             payload["gate_decisions"],
         )
         runner = _runner()
@@ -220,11 +221,18 @@ class LegacyConvergedPlan(_ReviewedCase):
         self.assertEqual(summary["delivery"]["withheld"], WITHHELD_NOT_INDEPENDENT)
         self.assertEqual(self.state(), "HUMAN_REQUIRED")
 
-    def test_a_legacy_plan_that_passes_stays_converged_and_is_offered(self) -> None:
+    def test_a_legacy_plan_that_passes_reaches_the_next_door_which_parks_its_unbound_verdict(self) -> None:
+        # PV P3 — a verdict written before the independence gate predates the
+        # reviewed-commit binding as well (no reviewed_commit_sha): passing
+        # the independence judgment takes it on to the freshness door, which
+        # parks it plan_verdict_unbound instead of offering it. It used to be
+        # offered here, on a verdict nobody could tie to the bytes it judged.
         runner = _runner()
-        self.sweep(runner, _CLEAN)
-        runner.run.assert_called_once()
-        self.assertEqual(self.state(), "CONVERGED")
+        report = self.sweep(runner, _CLEAN)
+        runner.run.assert_not_called()
+        self.assertEqual(report["independence_failed"], [])
+        self.assertEqual(self.state(), "HUMAN_REQUIRED")
+        self.assertEqual(self.last_evaluation()["reason_codes"], ["plan_verdict_unbound"])
 
 
 class CleanRoundStillDelivers(_ReviewedCase):
@@ -233,7 +241,8 @@ class CleanRoundStillDelivers(_ReviewedCase):
         self.assertEqual(result["arbiter_verdict"], "converged")
         self.assertEqual(self.state(), "CONVERGED")
         self.assertIn(
-            {"gate": CROSS_REVIEW_INDEPENDENCE_GATE, "passed": True, "violation_reasons": []},
+            {"gate": CROSS_REVIEW_INDEPENDENCE_GATE, "passed": True, "violation_reasons": [],
+             "judged_rounds": [1], "failed_rounds": []},
             self.last_evaluation()["gate_decisions"],
         )
         runner = _runner()

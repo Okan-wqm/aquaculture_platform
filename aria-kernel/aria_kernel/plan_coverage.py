@@ -53,10 +53,10 @@ DEFAULT_TIMEOUT_SECONDS = 180
 PLAN_CLOSURE_DEPTH = 1
 TREE_STATUS_TIMEOUT_SECONDS = 60
 COVERAGE_DIR = "coverage"
-# Severity is "material" (not "blocking"): a coverage gap must block
-# convergence via the material gate AND remain addressable through the
-# normal revision loop (addresses_review_risk_ids), exactly like a
-# reviewer-raised material risk.
+# Severity is "material" (not "blocking"): a coverage gap blocks
+# convergence via the material gate, and the next revision addresses it
+# like a reviewer-raised material risk. Nobody's claim clears it: the next
+# round recomputes coverage, and only that machine verdict does (PV P1).
 SYNTHETIC_RISK_SEVERITY = "material"
 SYNTHETIC_RISK_CATEGORY = "coverage_gap"
 
@@ -127,10 +127,10 @@ def run_ts_json_entry(
 def build_synthetic_risk(node: dict[str, Any], *, round_number: int, closure_manifest_path: str) -> dict[str, Any]:
     """Shape one uncovered closure node as a CROSS_REVIEW_RISK-schema risk.
 
-    The risk_id is ROUND-SCOPED (``COV-R{N}-<hash>``): resolved_review_risk_ids
-    accumulates globally across rounds, so a stable id would let round N's
-    "addressed" claim mask the SAME still-uncovered node re-detected in round
-    N+1. A fresh id per round keeps machine verification authoritative.
+    The risk_id is ROUND-SCOPED (``COV-R{N}-<hash>``), the law reviewer risks
+    follow too (``CR-R{N}-…``): a stable id would let an answer about round N
+    mask the SAME still-uncovered node re-detected in round N+1. A fresh id
+    per round keeps machine verification authoritative.
     """
     node_id = str(node.get("node_id"))
     digest = hashlib.sha256(node_id.encode("utf-8")).hexdigest()[:8]
@@ -374,7 +374,19 @@ def compute_plan_coverage(
 
     # The checkout the witness reads, through the kernel's one hermetic HEAD reader: an inherited
     # GIT_DIR never names another repository's commit as the one the closure was computed at.
-    computed_at_sha = workspace_head_sha(workspace) or "unknown"
+    # A checkout git cannot read is an environment that cannot compute the closure, never "unknown".
+    try:
+        computed_at_sha = workspace_head_sha(workspace) or "unknown"
+    except WorkspaceViewRefused as exc:
+        return environment_unable_payload(
+            round_number=round_number,
+            target_revision_id=target_revision_id,
+            target_plan_content_hash=target_plan_content_hash,
+            manifest_relpath=manifest_relpath,
+            manifest_hash=sha256_digest(b""),
+            computed_at_sha="unknown",
+            witness={"error": exc.reason},
+        )
 
     # SE-4 — the closure has one owner, `impact_graph.impact_closure`, over the code facts of the
     # tree the witness reads (computed through the same runner); the witness reports gaps against
@@ -456,6 +468,11 @@ def _service_facts_unavailable(base_sha: str, witness: dict[str, Any]) -> dict[s
     return {"verdict": "environment_unable", "base_sha": base_sha, "witness": witness}
 
 
+def _head_unreadable_error(refused: WorkspaceViewRefused) -> str:
+    """The named error of a checkout whose HEAD git could not answer (``workspace_head_sha`` raised)."""
+    return f"head_unreadable: {refused.reason}"
+
+
 def _base_tree_error(workspace: Path, base_sha: str) -> str | None:
     """None when the disk the entries read is the content of ``base_sha``; otherwise the named error.
 
@@ -480,7 +497,10 @@ def _base_tree_error(workspace: Path, base_sha: str) -> str | None:
     text the change's author chose. Ignored paths (``node_modules``, build output) are outside the
     tracked set, so they do not make the tree unclean.
     """
-    head_sha = workspace_head_sha(workspace)
+    try:
+        head_sha = workspace_head_sha(workspace)
+    except WorkspaceViewRefused as exc:
+        return _head_unreadable_error(exc)
     if head_sha is None:
         return "head_unreadable: the base tree has no readable HEAD commit"
     if head_sha != base_sha:
@@ -572,6 +592,12 @@ def compute_service_facts(
 def compute_service_facts_at_head(*, workspace_root: str | Path, runner: Runner | None = None) -> dict[str, Any]:
     """The code facts of a checkout's own HEAD (`compute_service_facts`): the base of every closure
     the kernel computes over its own workspace (`impact_graph.impact_closure`; SE-4), where the
-    change subject is the workspace rather than a diff. An unreadable HEAD is ``head_unreadable``."""
+    change subject is the workspace rather than a diff. An unreadable HEAD is ``head_unreadable``:
+    a checkout git cannot read (``workspace_head_sha`` raises) and a tree with no commit are held by
+    name, never raised, because every caller holds the change on the facts' verdict."""
     workspace = Path(workspace_root)
-    return compute_service_facts(workspace_root=workspace, base_sha=workspace_head_sha(workspace) or "", runner=runner)
+    try:
+        head_sha = workspace_head_sha(workspace)
+    except WorkspaceViewRefused as exc:
+        return _service_facts_unavailable("", {"error": _head_unreadable_error(exc)})
+    return compute_service_facts(workspace_root=workspace, base_sha=head_sha or "", runner=runner)

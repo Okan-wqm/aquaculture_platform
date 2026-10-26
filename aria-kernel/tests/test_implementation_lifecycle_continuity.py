@@ -19,6 +19,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from aria_kernel.tool_registry import bound_workspace_root
+from aria_kernel.workspace_view import workspace_head_sha
 from aria_kernel.implementation_reconciler import (
     _pr_number_from_url,
     reconcile_recorded_implementations,
@@ -94,7 +96,10 @@ def converging_plan_content(title: str = "E2 plan", **fields: object) -> dict:
         # The plan contract admits the canonical suite and requires the tier
         # claim of every body that converges through the real gate.
         "validation_commands": [{"cmd": "nx affected --target=test"}],
-        "evidence_refs": ["docs/aria/SPEC.md"],
+        # A finding, not a file: a cited file must be a file of the reviewed
+        # commit (PV-R4 R21), and each fixture's checkout holds only what it
+        # commits. A body that cites a file overrides this with one it holds.
+        "evidence_refs": ["ARIA-HIGH-103"],
         "architectural_tier": 2,
         **fields,
     }
@@ -186,6 +191,7 @@ def drive_plan_to_converged(
             "critique_content_hash": "sha256:" + "b" * 64,
             "status_after": "ANSWERED",
         },
+        reviewed_commit_sha=workspace_head_sha(bound_workspace_root(tools)),
         workspace_root=workspace_root,
         base_dir=tools,
     )

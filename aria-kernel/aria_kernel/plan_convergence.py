@@ -21,12 +21,15 @@ from .ledger import (
 from .tool_registry import (
     GovernanceError,
     append_tools_governance,
+    bound_workspace_root,
     ensure_tools_dir,
     ensure_tools_dir_readonly,
     parse_utc_stamp,
     utc_now,
 )
 from .digest import is_sha256_digest, sha256_digest, sha256_digest_text
+from .git_object_id import ANY_OBJECT_FORMAT, is_object_id
+from .workspace_view import WorkspaceViewRefused, commit_blob_paths, hermetic_git, workspace_head_sha
 
 if TYPE_CHECKING:
     from .provider_clock import ProviderClock
@@ -163,6 +166,65 @@ CROSS_REVIEW_RISK_REQUIRED = (
 # kept SEPARATE from KNOWN_SEVERITIES (the finding-severity vocabulary) so
 # the two vocabularies can evolve independently; the accept-set unions both.
 RISK_SEVERITY_VALUES = frozenset({"blocking", "material", "nice_to_have"})
+# The severities (case-folded, both vocabularies) that block convergence
+# while a risk carrying one is open: the material gate's one definition.
+MATERIAL_RISK_SEVERITIES = frozenset({"blocking", "material", "critical", "high"})
+# PV P1 (ARIA-HIGH-779) — a reviewer-raised risk id is ROUND-SCOPED at
+# `cross_review_recorded`: `CR-R{N}-<the reviewer's id>`, the law `COV-R{N}`
+# and `IMP-R{N}` already follow. Reviewers restart at CR-001 every round, so
+# an unscoped id let a claim on round 1's CR-001 hide round 2's NEW CR-001.
+# The prefix is also what marks a risk as reviewer-raised (the machine's
+# coverage and import risks are re-derived every round and never carried).
+REVIEW_RISK_ID_PREFIX = "CR-R"
+# PV P1 — what the round N+1 reviewer says about each prior reviewer risk.
+# Only the reviewer's answer moves a prior risk; the plan author's
+# `addresses_review_risk_ids` is a stored claim the reviewer is shown.
+#   resolved  — the fix landed (cited); the risk is resolved.
+#   open      — it still stands; a material one keeps blocking.
+#   withdrawn — the objection was wrong (cited); it no longer blocks.
+PRIOR_RISK_DISPOSITIONS = ("resolved", "open", "withdrawn")
+CITED_PRIOR_RISK_DISPOSITIONS = frozenset({"resolved", "withdrawn"})
+# PV P5 — the cross-reviewer's verdict vocabulary, closed: a submitted
+# verdict outside it is refused (R7). `agreed` is the only assenting verdict;
+# the others say the plan is NOT acceptable as is, and the duel ledger reads
+# them as "the reviewer's scrutiny landed" (`genesis_superiority`). On fold
+# the dissent gate treats every verdict other than `agreed` (a legacy null
+# included) as dissent, so a replayed history fails closed.
+ASSENTING_REVIEW_VERDICT = "agreed"
+CROSS_REVIEW_VERDICTS = (ASSENTING_REVIEW_VERDICT, "material_risks_present", "partial_coverage")
+DISSENTING_REVIEW_VERDICTS = frozenset(CROSS_REVIEW_VERDICTS) - {ASSENTING_REVIEW_VERDICT}
+REVIEWER_DISSENT_GATE = "reviewer_dissent"
+REVIEWER_DISSENT_REASON = "reviewer_dissent_without_material_risk"
+PRIOR_REVIEW_RISKS_GATE = "prior_review_risks_cleared"
+PRIOR_REVIEW_RISKS_OPEN_REASON = "prior_review_risks_open"
+# PV P3 — the refusals of an implementation request whose CONVERGED verdict
+# no longer describes the repository: a later commit changed a file the plan
+# names (`plan_verdict_stale:<path>`), the verdict predates the binding and
+# names no reviewed tree (`plan_verdict_unbound`), or the checkout cannot
+# answer for its commit or HEAD (`plan_verdict_unverifiable:<why>`).
+# PV-R4 R20, R21 — a recorded value the record law refuses, or an evidence
+# ref whose path names no file of the reviewed commit, is a fact of the
+# ledger, the same on every offer (`plan_verdict_path_refused:<value>`); it is
+# never the checkout-state token, whose remedy is to wait for a checkout that
+# can answer.
+PLAN_VERDICT_STALE = "plan_verdict_stale"
+PLAN_VERDICT_UNBOUND = "plan_verdict_unbound"
+PLAN_VERDICT_UNVERIFIABLE = "plan_verdict_unverifiable"
+PLAN_VERDICT_PATH_REFUSED = "plan_verdict_path_refused"
+# PV R16 — the record law's refusal of a path text a plan, a risk or a prior-risk
+# answer names (`_plan_path_reading`, `_plan_ref_reading`). PV-R4 R21 — the
+# refusal of a reviewer's evidence ref (a risk's, or a clearing answer's)
+# whose path names no file of the commit its reviewer reviewed.
+PLAN_PATH_REFUSED = "plan_path_refused"
+EVIDENCE_REF_NOT_IN_REVIEWED_TREE = "evidence_ref_not_in_reviewed_tree"
+# PV P3 (R10, R11) — the refusals of a review whose reviewed commit has no
+# kernel source: the answered request row names no anchor, or names null while
+# the store's checkout holds a commit (`cross_review_request_unanchored`); a
+# review or critique payload that names its own reviewed commit
+# (`review_payload_names_reviewed_commit`) — the kernel binds it, never the
+# caller.
+CROSS_REVIEW_REQUEST_UNANCHORED = "cross_review_request_unanchored"
+REVIEW_PAYLOAD_NAMES_REVIEWED_COMMIT = "review_payload_names_reviewed_commit"
 # Plan-coverage verdict vocabulary. "gaps" blocks convergence via the
 # round loop; "environment_unable" escalates straight to HUMAN_REQUIRED
 # (the environment will not heal round-over-round); the two covered
@@ -306,11 +368,21 @@ def record_cross_review(
     plan_id: str,
     review: dict[str, Any],
     workspace_root: str | Path,
+    reviewed_commit_sha: str | None,
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
+    """Record one direction's answer, bound to the commit its reviewer reviewed.
+
+    ``reviewed_commit_sha`` is the kernel's: the answered request row's
+    ``target_sha`` (:func:`answered_request_reviewed_commit`), never a field of
+    ``review`` — a payload that names one is refused (PV R10), and null is
+    admitted only while the store's checkout has no commit (PV R11).
+    """
     _validate_id(plan_id, "plan_id")
     root = ensure_tools_dir(base_dir)
-    payload = _normalize_cross_review(review)
+    _refuse_payload_reviewed_commit(review, "cross-review")
+    require_review_anchor(reviewed_commit_sha, base_dir=root)
+    payload = {**_normalize_cross_review(review), "reviewed_commit_sha": reviewed_commit_sha}
     mismatch = _cross_review_hash_mismatch(root, payload)
     if mismatch:
         event = _append_rejection(root, "cross_review_content_hash_mismatch", {"plan_id": plan_id, **mismatch})
@@ -318,11 +390,13 @@ def record_cross_review(
     return _mutate(
         plan_id=plan_id,
         command_name="record-cross-review",
-        canonical_payload=review,
+        canonical_payload={**review, "reviewed_commit_sha": reviewed_commit_sha},
         event_type="cross_review_recorded",
         payload=payload,
         base_dir=root,
-        validator=lambda state, normalized: _validate_cross_review_record(state, normalized, workspace_root),
+        validator=lambda state, normalized: _validate_cross_review_record(
+            state, normalized, workspace_root, base_dir=root,
+        ),
     )
 
 
@@ -331,16 +405,22 @@ def record_critique(
     plan_id: str,
     critique: dict[str, Any],
     workspace_root: str | Path,
+    reviewed_commit_sha: str | None,
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
+    """Record one critic's answer, bound to the commit it reviewed — the
+    kernel's argument, under the law :func:`record_cross_review` applies."""
     _validate_id(plan_id, "plan_id")
+    root = ensure_tools_dir(base_dir)
+    _refuse_payload_reviewed_commit(critique, "critique")
+    require_review_anchor(reviewed_commit_sha, base_dir=root)
     return _mutate(
         plan_id=plan_id,
         command_name="record-critique",
-        canonical_payload=critique,
+        canonical_payload={**critique, "reviewed_commit_sha": reviewed_commit_sha},
         event_type="critique_recorded",
-        payload=_normalize_critique(critique),
-        base_dir=base_dir,
+        payload={**_normalize_critique(critique), "reviewed_commit_sha": reviewed_commit_sha},
+        base_dir=root,
         validator=lambda state, payload: _validate_critique(state, payload, workspace_root),
     )
 
@@ -350,6 +430,7 @@ def submit_cross_review_v8(
     plan_id: str,
     review: dict[str, Any],
     workspace_root: str | Path,
+    reviewed_commit_sha: str | None,
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     """Plan ARIA-V8.2 — single-step V8 P+C+CR cross-review state transition.
@@ -390,6 +471,11 @@ def submit_cross_review_v8(
             Optional `verdict` is recorded as governance hint.
         workspace_root: passed through to record_cross_review for
             reviewer_names() validation.
+        reviewed_commit_sha: the commit the reviewer reviewed — the answered
+            request's ``target_sha``, from the kernel's request row, never
+            from the agent's envelope (null: the reviewed checkout had no
+            commit). PV P3 — every direction record carries it, and the
+            round's verdict is bound to it (``evaluate_plan``).
         base_dir: aria-tools root override.
 
     Returns:
@@ -414,6 +500,13 @@ def submit_cross_review_v8(
     risks = review.get("risks", [])
     if not isinstance(risks, list):
         raise GovernanceError("V8 cross-review risks must be a list")
+    _require_unique_risk_ids(risks)
+    # PV R16 — every risk is judged by the record law BEFORE the round's task
+    # request is appended, as the prior-risk answer is below: a refused risk
+    # leaves the plan in CHALLENGER_DRAFTED, never requested with an answer
+    # no record will take (the record validator judges it again).
+    for risk in risks:
+        _validate_cross_review_risk(risk)
 
     # Z3-K2 (ORPHAN-HIGH-629) — direction attribution. The V8 agent submits
     # ONE envelope for both directions, and this function used to copy the
@@ -450,6 +543,24 @@ def submit_cross_review_v8(
     round_number = state.get("current_round")
     if not isinstance(round_number, int) or round_number <= 0:
         round_number = max(1, len(state.get("cross_reviews") or {}) + 1)
+
+    # PV P1 (ARIA-HIGH-779) — the reviewer's answer on the prior rounds'
+    # risks is judged BEFORE the round's task request is appended, so a
+    # refused answer leaves the plan in CHALLENGER_DRAFTED (the record
+    # validator judges it again as the event's own law).
+    # PV P3 (R10, R11) — the binding is the kernel's argument, judged before
+    # the round's task request is appended: a refused anchor leaves the plan
+    # in CHALLENGER_DRAFTED, never requested with no answer recordable. It is
+    # judged first, because a clearing answer's evidence is judged against it.
+    _refuse_payload_reviewed_commit(review, "V8 cross-review")
+    require_review_anchor(reviewed_commit_sha, base_dir=root)
+    # PV-R4 R21 — every risk's evidence ref names a file of that commit,
+    # judged here for the same reason.
+    _require_risk_refs_in_reviewed_tree(risks, reviewed_commit_sha, base_dir=root)
+    prior_risk_dispositions = review.get("prior_risk_dispositions", [])
+    _validate_prior_risk_dispositions(
+        state, prior_risk_dispositions, round_number, reviewed_commit_sha=reviewed_commit_sha, base_dir=root,
+    )
 
     # Z3-K2 — deterministic PER-DIRECTION content hash over the risks that
     # apply to that direction. One hash for both directions was half of the
@@ -489,6 +600,16 @@ def submit_cross_review_v8(
         if isinstance(verdicts, dict) and direction in verdicts:
             return verdicts[direction]
         return review.get("verdict")
+
+    # PV P5 (R7) — every verdict the envelope states, and the one each
+    # direction record will carry, is judged BEFORE the round's task request
+    # is appended, so a refused verdict leaves the plan in CHALLENGER_DRAFTED.
+    if "verdict" in review:
+        _require_review_verdict(review["verdict"])
+    for stated in (verdicts or {}).values():
+        _require_review_verdict(stated)
+    for direction in REQUIRED_CROSS_REVIEW_DIRECTIONS:
+        _require_review_verdict(_direction_verdict(direction))
 
     sla_deadline = (datetime.now(timezone.utc) + timedelta(minutes=30)).isoformat()
 
@@ -549,6 +670,10 @@ def submit_cross_review_v8(
                 # apply to it (rows without applies_to_direction apply to
                 # both, preserving every legacy envelope byte-for-byte).
                 "risks": _direction_risks(task_direction),
+                # PV P1 — the dispositions answer the PLAN's prior risks,
+                # not one direction's: each direction record carries the
+                # whole answer, and the fold keeps one row per risk.
+                "prior_risk_dispositions": prior_risk_dispositions,
                 # agent_invocation_request_id intentionally omitted —
                 # V8 bypasses the per-task content-hash mismatch check
                 # because the agent submitted ONE envelope covering both
@@ -556,6 +681,9 @@ def submit_cross_review_v8(
                 # per-task envelopes.
             },
             workspace_root=workspace_root,
+            # PV P3 (R2) — the commit this review judged; the round's
+            # verdict is bound to it, not to HEAD when it is evaluated.
+            reviewed_commit_sha=reviewed_commit_sha,
             base_dir=root,
         )
 
@@ -794,6 +922,7 @@ def evaluate_plan(
         _require_state(state, {"CRITIQUED", "CROSS_REVIEWED"}, "evaluate plan")
         if state.get("current_round") != round_number:
             raise GovernanceError("round_number must match the current critique round")
+        reviewed_commit_sha = round_reviewed_commit(state, round_number)
         decision = _evaluate_cross_review_state(state, round_number, max_rounds=max_rounds) if state.get("state") == "CROSS_REVIEWED" else _evaluate_state(state, round_number)
         from .architecture_spine_gate import _plan_comparison_obligation
 
@@ -837,18 +966,32 @@ def evaluate_plan(
         if decision["terminal_state"] == "CONVERGED" and cross_reviewed_round(state, round_number):
             from .round_independence import round_independence_verdict
 
-            passed, violations = round_independence_verdict(
-                plan_id=plan_id, round_number=round_number, state=state, base_dir=root,
-            )
-            decision["gate_decisions"].append({
-                "gate": CROSS_REVIEW_INDEPENDENCE_GATE, "passed": bool(passed),
-                "violation_reasons": list(violations),
-            })
             # Only a cross-reviewed round that would CONVERGE is judged: a
             # round going to another round is judged there, an escalated one
             # is escalated, and a legacy critique-only round (V8
             # `request_critics`) has no cross reviewer to be independent of.
-            if not passed:
+            # PV R6 — and with it every earlier round whose reviewer's answer
+            # is what clears a material risk today: only the independent
+            # seat clears a risk, so a clearing answer from a round never
+            # judged is judged here, on the fold as that round stood.
+            judged = {
+                judged_round: round_independence_verdict(
+                    plan_id=plan_id, round_number=judged_round, base_dir=root,
+                    state=state if judged_round == round_number else plan_state_at_round(state, judged_round),
+                )
+                for judged_round in (round_number, *clearing_review_rounds(state, round_number))
+            }
+            failed_rounds = sorted(judged_round for judged_round, (passed, _) in judged.items() if not passed)
+            decision["gate_decisions"].append({
+                "gate": CROSS_REVIEW_INDEPENDENCE_GATE, "passed": not failed_rounds,
+                "violation_reasons": [
+                    reason if judged_round == round_number else f"round_{judged_round}:{reason}"
+                    for judged_round in failed_rounds for reason in judged[judged_round][1]
+                ],
+                "judged_rounds": sorted(judged),
+                "failed_rounds": failed_rounds,
+            })
+            if failed_rounds:
                 decision["terminal_state"] = "HUMAN_REQUIRED"
                 decision["reason_codes"] = [CROSS_REVIEW_SELF_AGREEMENT_REASON]
         if decision["terminal_state"] == "NEXT_ROUND_REQUIRED":
@@ -867,6 +1010,11 @@ def evaluate_plan(
             "risks_rollup_summary": decision["risks_rollup_summary"],
             "gate_decisions": decision["gate_decisions"],
             "reason_codes": decision["reason_codes"],
+            # PV P3 — the commit the round's reviewers reviewed (null: their
+            # checkout had none yet; `round_reviewed_commit`); an
+            # implementation request is refused once a later commit changes a
+            # file the plan names (`plan_verdict_staleness`).
+            "reviewed_commit_sha": reviewed_commit_sha,
         }
         key = _idempotency_key(plan_id, "evaluate", {"round_number": round_number})
         existing = _find_by_idempotency(root, key)
@@ -907,7 +1055,6 @@ def _record_duel_observation(
         for review in reviews
         if isinstance(review, dict)
     }
-    risks = fold.get("cross_review_risks_by_round", {}).get(round_number) or []
     # C8/E11 — the duel row names the REAL combatants. The unconditional
     # role literals meant a genesis candidate never matched the
     # genesis_superiority `involved` filter (its duel component stayed
@@ -930,10 +1077,9 @@ def _record_duel_observation(
             "primary_agent": primary_agent,
             "challenger_agent": challenger_agent,
             "verdicts_by_direction": verdicts_by_direction,
-            "material_risk_count": sum(
-                1 for r in risks
-                if isinstance(r, dict) and r.get("severity") in ("blocking", "material")
-            ),
+            # PV R9 — the material gate's own count (one definition,
+            # `is_material_risk`), never a second, narrower spelling.
+            "material_risk_count": len(open_material_review_risks(fold, round_number)),
             "resolved_risk_count": len(fold.get("resolved_review_risk_ids") or []),
             "terminal_state": decision.get("terminal_state"),
         },
@@ -1502,8 +1648,312 @@ def request_implementation(
         validator=lambda state: (
             _require_state(state, {"CONVERGED"}, "request implementation"),
             _require_coverage_for_implementation(state),
+            require_fresh_plan_verdict(state, base_dir=base_dir),
         ),
     )
+
+
+@dataclass(frozen=True)
+class PlanVerdictPaths:
+    """What a CONVERGED verdict judged, read through the plan-path record law (PV R16).
+
+    ``paths``: the repository paths and globs, in their resolved form, sorted
+    and unique. ``refused``: the recorded values the law refuses, in record
+    order — only a row recorded under an earlier law can be one, and it
+    refuses the verdict (``plan_verdict_path_refused``) rather than silently
+    dropping out of the set. ``cited``: each path an evidence ref names (the
+    body's, a risk's, a clearing answer's), once, as ``(recorded ref, path)``
+    in record order — an evidence ref names one file, so each must be a blob
+    of the reviewed commit (PV-R4 R21).
+    """
+
+    paths: tuple[str, ...]
+    refused: tuple[str, ...]
+    cited: tuple[tuple[str, str], ...]
+
+
+def plan_verdict_paths(state: dict[str, Any]) -> PlanVerdictPaths:
+    """PV P3 — the repository paths a CONVERGED verdict judged.
+
+    Every path the converged body names (``plan_origin.body_paths``: its
+    ``affected_surfaces`` and its ``key_changes`` paths, the files the
+    implementer writes), the body's ``evidence_refs``, every cross-review
+    risk's ``evidence_refs``, and the ``evidence_refs`` of every standing
+    ``resolved``/``withdrawn`` answer. A key-change path need not lie inside a
+    surface, so a reader of the surfaces alone let the edited file change
+    unseen (PV R5); and since P1 a cited answer is the only door that clears a
+    material risk, so the evidence it cites is part of what the verdict judged
+    (PV R14).
+
+    PV R16 — each value is read through the record law it was admitted by
+    (:func:`_plan_path_reading`, :func:`_plan_ref_reading`), in its resolved
+    form, so the freshness set names the file git reports and the implementer
+    writes (``a//b`` and ``a/./b`` are ``a/b``). A finding id or a ledger
+    pointer names no file. A value the law refuses is never read as some
+    other path: it is ``refused``. Every path an evidence ref names is also
+    ``cited``, for the reviewed-commit check of :func:`plan_verdict_staleness`.
+    """
+    from .plan_origin import body_paths
+
+    body = plan_body_from_state(state)["plan_content"]
+    readings = [(path, _plan_path_reading(path)) for path in body_paths(body)]
+    refs = list(body.get("evidence_refs", []))
+    for risks in state.get("cross_review_risks_by_round", {}).values():
+        refs.extend(ref for risk in risks for ref in risk.get("evidence_refs", []))
+    for answer in state.get("review_risk_dispositions", {}).values():
+        if answer["disposition"] in CITED_PRIOR_RISK_DISPOSITIONS:
+            refs.extend(answer["evidence_refs"])
+    ref_readings = [(str(ref), _plan_ref_reading(ref)) for ref in refs]
+    readings.extend(ref_readings)
+    cited: dict[str, str] = {}
+    for ref, reading in ref_readings:
+        if reading.path is not None:
+            cited.setdefault(reading.path, ref)
+    return PlanVerdictPaths(
+        paths=tuple(sorted({reading.path for _value, reading in readings if reading.path is not None})),
+        refused=tuple(str(value) for value, reading in readings if reading.refusal is not None),
+        cited=tuple((ref, path) for path, ref in cited.items()),
+    )
+
+
+def plan_verdict_staleness(state: dict[str, Any], *, base_dir: str | Path | None = None) -> str | None:
+    """PV P3 — why the plan's CONVERGED verdict no longer describes the repository, else None.
+
+    The verdict is bound to the commit its reviewers reviewed
+    (``plan_evaluated.reviewed_commit_sha``; null when the reviewed checkout
+    had no commit, i.e. the reviewed tree was the empty tree). Any change
+    between that tree and today's HEAD of the store's checkout
+    (``tool_registry.bound_workspace_root``, read through
+    :func:`plan_verdict_anchor`) to a path the plan names
+    (:func:`plan_verdict_paths`; a surface may be a directory or a glob,
+    judged by :func:`plan_path_covers`) makes it stale:
+    ``plan_verdict_stale:<changed path>``. A verdict recorded
+    before the binding existed names no reviewed tree at all
+    (``plan_verdict_unbound``). A recorded value the record law refuses, or
+    an evidence ref whose path names no file of the reviewed commit
+    (``workspace_view.commit_blob_paths``), is a fact of the ledger:
+    ``plan_verdict_path_refused:<value>`` (PV-R4 R20, R21). A HEAD git cannot
+    read, or a reviewed commit the checkout does not hold or cannot compare
+    with HEAD, proves nothing about today's bytes
+    (``plan_verdict_unverifiable:<why>``). The request door refuses all four
+    the same way; delivery parks every one but the last, a fact of the
+    checkout it withholds (``converged_delivery._withhold_stale_verdict``).
+
+    Every git read goes through the kernel's one hermetic owner
+    (``workspace_view``): no inherited ``GIT_DIR`` answers for another
+    repository, and a git failure is never read as "no commit" (PV R1, R4).
+    """
+    payload = _latest_event(state, "plan_evaluated")["payload"]
+    if "reviewed_commit_sha" not in payload:
+        return f"{PLAN_VERDICT_UNBOUND}:{state['plan_id']}"
+    reviewed = payload["reviewed_commit_sha"]
+    workspace = bound_workspace_root(base_dir)
+    try:
+        head = plan_verdict_anchor(base_dir)
+    except WorkspaceViewRefused as exc:
+        return f"{PLAN_VERDICT_UNVERIFIABLE}:{exc.reason}"
+    if head is None:
+        # No commit today: none was made after a verdict reached on the empty
+        # tree, and a reviewed commit that vanished cannot be compared.
+        return None if reviewed is None else f"{PLAN_VERDICT_UNVERIFIABLE}:{reviewed}"
+    judged = plan_verdict_paths(state)
+    if judged.refused:
+        # A recorded value the record law refuses names no file the gate can
+        # watch; reading it as one would drop what it cited (PV R16). It is
+        # the same on every offer, so it is the ledger's token (PV-R4 R20).
+        return f"{PLAN_VERDICT_PATH_REFUSED}:{judged.refused[0][:80]}"
+    # PV-R4 R21 — an evidence ref names one file, and the verdict judged it in
+    # the reviewed commit: a path that names no blob there (`f.ts#L1` read as
+    # a file name) would watch a name git never reports, and the cited file
+    # would change unseen. The checkout's own failure to answer is not that,
+    # and one git process answers the whole cited set (PV-R5 R23).
+    try:
+        blobs = commit_blob_paths(workspace, reviewed, {path for _ref, path in judged.cited})
+    except WorkspaceViewRefused as exc:
+        return f"{PLAN_VERDICT_UNVERIFIABLE}:{exc.reason}"
+    for ref, path in judged.cited:
+        if path not in blobs:
+            return f"{PLAN_VERDICT_PATH_REFUSED}:{ref[:80]}"
+    plan_paths = judged.paths
+    if not plan_paths:
+        # A plan that names no path judged none, so no commit can stale it.
+        return None
+    if reviewed is None:
+        empty_tree = hermetic_git(workspace, "hash-object", "-t", "tree", os.devnull)
+        if empty_tree.returncode != 0:
+            return f"{PLAN_VERDICT_UNVERIFIABLE}:empty_tree_unhashable"
+        reviewed_tree = empty_tree.stdout.strip()
+    else:
+        reviewed_tree = reviewed
+    # The event law types the reviewed commit as an object id (PV R3), and
+    # `--end-of-options` keeps any revision from being read as an option. No
+    # plan text reaches git: coverage is the kernel's one repo-glob matcher
+    # (`plan_path_covers`), never a pathspec — git's `:(glob)` has no brace
+    # alternation, so a `{a,b}` surface the matcher covers switched the gate
+    # off (PV R13).
+    completed = hermetic_git(
+        workspace, "diff", "--name-only", "--no-renames", "-z",
+        "--end-of-options", reviewed_tree, head,
+    )
+    if completed.returncode != 0:
+        return f"{PLAN_VERDICT_UNVERIFIABLE}:{reviewed}"
+    changed = sorted(
+        path for path in completed.stdout.split("\0")
+        if path and any(plan_path_covers(plan_path, path) for plan_path in plan_paths)
+    )
+    return f"{PLAN_VERDICT_STALE}:{changed[0]}" if changed else None
+
+
+def plan_path_covers(plan_path: str, changed_path: str) -> bool:
+    """PV P3 (R13) — whether a path a plan names covers a changed repository path.
+
+    It does when the two are equal, when the plan path is a directory the
+    changed path lies under, or when the plan path is a glob the kernel's
+    one repo-glob matcher (``canonical_path.matches_repo_glob``: brace
+    alternation, ``**``) matches. ``plan_path`` is a resolved path the record
+    law admitted (:func:`plan_verdict_paths`), so it has no ``''``/``.``
+    segment and every glob in it compiles (PV R16).
+    """
+    from .canonical_path import matches_repo_glob
+
+    return (
+        changed_path == plan_path
+        or changed_path.startswith(f"{plan_path}/")
+        or matches_repo_glob(changed_path, plan_path)
+    )
+
+
+def _require_review_verdict(verdict: Any) -> None:
+    """PV P5 (R7) — a cross-review verdict is one of ``CROSS_REVIEW_VERDICTS``; absent is refused."""
+    if verdict not in CROSS_REVIEW_VERDICTS:
+        raise GovernanceError(
+            f"cross-review verdict is {str(verdict)[:80]!r}; expected one of {', '.join(CROSS_REVIEW_VERDICTS)}"
+        )
+
+
+def _require_reviewed_commit(value: Any) -> None:
+    """PV R3 — a reviewed commit is null (the empty tree) or one full git object id."""
+    if value is not None and not is_object_id(value, formats=ANY_OBJECT_FORMAT):
+        raise GovernanceError(
+            f"reviewed_commit_sha must be null or a full git object id, got {str(value)[:80]!r}"
+        )
+
+
+def plan_verdict_anchor(base_dir: str | Path | None) -> str | None:
+    """PV P3 (R11) — the commit a plan review is anchored at: HEAD of the store's checkout.
+
+    The one checkout a review is minted against, a null anchor is judged
+    against, and a verdict's staleness is compared in
+    (``tool_registry.bound_workspace_root``), so the binding and the
+    comparison can never read two repositories. None: that checkout has no
+    commit (the reviewed tree is the empty tree). A checkout git cannot read
+    raises ``WorkspaceViewRefused`` (``workspace_view.workspace_head_sha``).
+    """
+    return workspace_head_sha(bound_workspace_root(base_dir))
+
+
+def answered_request_reviewed_commit(request: dict[str, Any]) -> str | None:
+    """PV P3 (R2, R10) — the commit the answered request row was anchored at (its ``target_sha``).
+
+    The kernel minted the row; its anchor is the only source a review's
+    reviewed commit has. A row that names no anchor is refused
+    (``cross_review_request_unanchored``).
+    """
+    if "target_sha" not in request:
+        raise GovernanceError(
+            f"{CROSS_REVIEW_REQUEST_UNANCHORED}: request {str(request.get('request_id'))[:80]!r} names no "
+            "target_sha, so the review names no reviewed commit"
+        )
+    return request["target_sha"]
+
+
+def answered_cross_review_request_commit(
+    *, plan_id: str, request_id: Any, base_dir: str | Path | None,
+) -> str | None:
+    """PV P3 (R10) — the anchor of the cross-review request row ``request_id`` names.
+
+    The operator's record lane (``plan record-cross-review``) answers a round
+    ``plan advance-rounds`` minted, whose request rows carry ``target_sha``.
+    A review that names no request row, or one that is not a cross-review
+    request of this plan, has no kernel anchor and is refused
+    (``cross_review_request_unanchored``).
+    """
+    from .agent_invocations import find_request
+
+    if not isinstance(request_id, str) or not request_id:
+        raise GovernanceError(
+            f"{CROSS_REVIEW_REQUEST_UNANCHORED}: the review names no agent_invocation_request_id, so no "
+            "request row anchors its reviewed commit"
+        )
+    row = find_request(ensure_tools_dir(base_dir), request_id)
+    if row.get("role") != "cross_review" or row.get("convergence_id") != plan_id:
+        raise GovernanceError(
+            f"{CROSS_REVIEW_REQUEST_UNANCHORED}: request {request_id[:80]!r} is not a cross-review request "
+            f"of plan {plan_id!r}"
+        )
+    return answered_request_reviewed_commit(row)
+
+
+def require_review_anchor(reviewed_commit_sha: Any, *, base_dir: str | Path | None) -> None:
+    """PV P3 (R3, R11) — a review's anchor is one full object id, or null only for a checkout with no commit.
+
+    Null means "the reviewer reviewed the empty tree". It is true only while
+    the store's checkout (:func:`plan_verdict_anchor`) has no commit; any
+    other null is a mint that read a different checkout (a daemon's cwd, a
+    caller's workspace), and recording it would read every later commit as
+    a change from nothing.
+    """
+    _require_reviewed_commit(reviewed_commit_sha)
+    if reviewed_commit_sha is None and plan_verdict_anchor(base_dir) is not None:
+        raise GovernanceError(
+            f"{CROSS_REVIEW_REQUEST_UNANCHORED}: the review names no reviewed commit while the store's "
+            f"checkout {str(bound_workspace_root(base_dir))[:200]} has one"
+        )
+
+
+def _refuse_payload_reviewed_commit(review: Any, kind: str) -> None:
+    """PV P3 (R10) — the reviewed commit is the kernel's argument; a payload never names it."""
+    if isinstance(review, dict) and "reviewed_commit_sha" in review:
+        raise GovernanceError(
+            f"{REVIEW_PAYLOAD_NAMES_REVIEWED_COMMIT}: a {kind} payload names reviewed_commit_sha; the "
+            "kernel binds the review to its answered request's target_sha"
+        )
+
+
+def round_reviewed_commit(state: dict[str, Any], round_number: int) -> str | None:
+    """PV P3 (R2) — the one commit every answered review of ``round_number`` reviewed.
+
+    A verdict is bound to what its reviewers judged, not to HEAD when it is
+    evaluated: a commit landing between the review and the evaluation was
+    never reviewed. The round's reviews (its cross-review directions, or a
+    legacy critique round's critiques) must all name one commit; a review
+    without the field (recorded before the binding) or two that disagree
+    leave the round with no reviewed tree, and evaluation is refused
+    (``plan_verdict_unbound``).
+    """
+    if state.get("state") == "CROSS_REVIEWED":
+        reviews = state["cross_reviews"][round_number]["reviews"]
+    else:
+        reviews = state["rounds"][round_number]["critiques"]
+    unbound = [review for review in reviews if "reviewed_commit_sha" not in review]
+    named = {review["reviewed_commit_sha"] for review in reviews if "reviewed_commit_sha" in review}
+    if not reviews or unbound or len(named) != 1:
+        raise GovernanceError(
+            f"{PLAN_VERDICT_UNBOUND}:{state['plan_id']}: round {round_number}'s reviews name "
+            f"{sorted(str(sha) for sha in named)} as the reviewed commit "
+            f"({len(unbound)} of {len(reviews)} name none); a verdict is bound to exactly one"
+        )
+    return next(iter(named))
+
+
+def require_fresh_plan_verdict(state: dict[str, Any], *, base_dir: str | Path | None) -> None:
+    """Raise ``plan_verdict_stale|unbound|unverifiable`` (:func:`plan_verdict_staleness`)."""
+    refusal = plan_verdict_staleness(state, base_dir=base_dir)
+    if refusal is not None:
+        raise GovernanceError(
+            f"{refusal}: plan {state['plan_id']!r}'s CONVERGED verdict does not describe the "
+            "repository at HEAD; the plan must be reviewed again before it is implemented"
+        )
 
 
 def record_implementation_delivery_attempt(
@@ -2346,6 +2796,8 @@ def _initial_state(plan_id: str) -> dict[str, Any]:
         "cross_reviews": {},
         "cross_review_risks_by_round": {},
         "resolved_review_risk_ids": [],
+        "review_risk_dispositions": {},
+        "review_risk_claims": {},
         "coverage_by_round": {},
         "implementation_delivery_attempts": [],
         "terminal_state": None,
@@ -2446,20 +2898,40 @@ def _apply_event(state: dict[str, Any], event: dict[str, Any]) -> None:
         task["status"] = payload["status_after"]
         task["review"] = payload
         cross["reviews"].append(payload)
-        surfaced = state["cross_review_risks_by_round"].setdefault(state["current_round"], [])
+        round_number = state["current_round"]
+        surfaced = state["cross_review_risks_by_round"].setdefault(round_number, [])
         # Z3-K3 (ORPHAN-HIGH-629) — the two cross_review_recorded events of a
         # round carried the same risks list and were appended blind, so every
         # risk counted twice: gate margins doubled and any rating metric
-        # would read 2x. Dedup by risk_id within the round; a risk without an
-        # id keeps legacy append behaviour (nothing to key on).
-        seen_risk_ids = {r.get("risk_id") for r in surfaced if r.get("risk_id")}
+        # would read 2x. A row with an id is recorded once per round; a risk
+        # without an id keeps legacy append behaviour (nothing to key on).
+        # PV P1 (ARIA-HIGH-779) — the id is ROUND-SCOPED here, at the one
+        # point a reviewer risk enters the plan (`CR-R{N}-<reviewer id>`), so
+        # every reader — the material gate, the revision prompt, the next
+        # reviewer's prior-risk block, a replay of an old ledger — sees ids
+        # no later round can collide with.
+        # PV R8 — only an IDENTICAL row is the same risk (the two direction
+        # events of one envelope). Two different risks under one id are both
+        # kept: the record law refuses a new one, and a recorded history that
+        # carries one replays with neither masked.
         for risk in payload.get("risks", []):
-            rid = risk.get("risk_id")
-            if rid and rid in seen_risk_ids:
+            row = _surfaced_review_risk(risk, round_number, payload["target_revision_id"])
+            if risk.get("risk_id") and row in surfaced:
                 continue
-            if rid:
-                seen_risk_ids.add(rid)
-            surfaced.append({**risk, "surfaced_in_revision_id": payload["target_revision_id"]})
+            surfaced.append(row)
+        # PV P1 — the reviewer's answer on prior risks; the latest answer
+        # per risk stands, and `resolved_review_risk_ids` is its view.
+        dispositions = state.setdefault("review_risk_dispositions", {})
+        for row in payload.get("prior_risk_dispositions", []):
+            dispositions[row["risk_id"]] = {
+                "disposition": row["disposition"],
+                "evidence_refs": list(row.get("evidence_refs", [])),
+                "round": round_number,
+                "reviewer_agent": payload["reviewer_agent"],
+            }
+        state["resolved_review_risk_ids"] = sorted(
+            risk_id for risk_id, row in dispositions.items() if row["disposition"] == "resolved"
+        )
     elif event_type == "stale_tasks_reaped":
         round_data = state["rounds"].get(payload["round_number"]) or state["cross_reviews"].get(payload["round_number"], {})
         task_by_id = {task["task_id"]: task for task in round_data.get("tasks", {}).values()}
@@ -2495,9 +2967,15 @@ def _apply_event(state: dict[str, Any], event: dict[str, Any]) -> None:
         # payload["round"] + 1 so the next cross_review targets a
         # fresh round number.
         state["current_round"] = payload["round"] + 1
-        resolved = set(state.get("resolved_review_risk_ids", []))
-        resolved.update(str(item) for item in payload.get("addresses_review_risk_ids", []) if isinstance(item, str) and item)
-        state["resolved_review_risk_ids"] = sorted(resolved)
+        # PV P1 (ARIA-HIGH-779) — the author's `addresses_review_risk_ids`
+        # is a CLAIM, stored per risk and shown to the next reviewer inside
+        # <untrusted_prior_risks>; it never resolves anything. It used to be
+        # unioned unchecked into resolved_review_risk_ids, so the author
+        # closed the reviewer's objections itself (18 of 18 CONVERGED
+        # verdicts on aria/state @ 8e39b2eeb hid a material risk that way).
+        claims = state.setdefault("review_risk_claims", {})
+        for risk_id in payload.get("addresses_review_risk_ids", []):
+            claims.setdefault(str(risk_id), []).append(payload["revision_id"])
     elif event_type == "coverage_computed":
         # Annotation event: state["state"] is deliberately NOT changed, so
         # _derive_state / evaluate_plan preconditions are untouched. The
@@ -2764,6 +3242,9 @@ def _normalize_cross_review(review: dict[str, Any]) -> dict[str, Any]:
         # DROPPED here: no rating layer could ever see who judged whom
         # right. Legacy rows read back as None — old ledgers stay valid.
         "verdict": review.get("verdict"),
+        # PV P1 — the reviewer's resolved/open/withdrawn answer on every
+        # prior-round reviewer risk; the only door that clears one.
+        "prior_risk_dispositions": review.get("prior_risk_dispositions", []),
         "review_content_hash": review.get("review_content_hash"),
         "agent_invocation_request_id": review.get("agent_invocation_request_id"),
         "status_after": review.get("status_after", "ANSWERED"),
@@ -2930,7 +3411,9 @@ def _validate_critique(state: dict[str, Any], payload: dict[str, Any], workspace
         _validate_risk(risk)
 
 
-def _validate_cross_review_record(state: dict[str, Any], payload: dict[str, Any], workspace_root: str | Path) -> None:
+def _validate_cross_review_record(
+    state: dict[str, Any], payload: dict[str, Any], workspace_root: str | Path, *, base_dir: str | Path | None,
+) -> None:
     _require_state(state, {"CROSS_REVIEW_REQUESTED"}, "record cross-review")
     packet_hash = _require_hash(payload.get("task_packet_hash"), "task_packet_hash")
     target_revision_id = _require_non_empty(payload.get("target_revision_id"), "target_revision_id")
@@ -2951,6 +3434,7 @@ def _validate_cross_review_record(state: dict[str, Any], payload: dict[str, Any]
         raise GovernanceError("reviewer_agent must match task reviewer_agent")
     if payload.get("review_direction") != task.get("review_direction"):
         raise GovernanceError("review_direction must match task review_direction")
+    _require_review_verdict(payload.get("verdict"))
     _require_hash(payload.get("review_content_hash"), "review_content_hash")
     if payload.get("status_after") != "ANSWERED":
         raise GovernanceError('cross_review_recorded status_after must be "ANSWERED"')
@@ -2961,6 +3445,123 @@ def _validate_cross_review_record(state: dict[str, Any], payload: dict[str, Any]
         raise GovernanceError("risks limit exceeded")
     for risk in risks:
         _validate_cross_review_risk(risk)
+    _require_unique_risk_ids(risks)
+    # PV R8 — the round's other direction already recorded this envelope's
+    # shared rows; a row under the same id with other content is a second
+    # risk the dedup would mask.
+    surfaced = state["cross_review_risks_by_round"].get(state["current_round"], [])
+    for risk in risks:
+        row = _surfaced_review_risk(risk, state["current_round"], target_revision_id)
+        clash = [prior for prior in surfaced if prior.get("risk_id") == row["risk_id"] and prior != row]
+        if clash:
+            raise GovernanceError(
+                f"cross-review risk {row['risk_id']} is already recorded in round "
+                f"{state['current_round']} with different content; one id names one risk"
+            )
+    _require_risk_refs_in_reviewed_tree(risks, payload["reviewed_commit_sha"], base_dir=base_dir)
+    _validate_prior_risk_dispositions(
+        state, payload.get("prior_risk_dispositions"), state["current_round"],
+        reviewed_commit_sha=payload["reviewed_commit_sha"], base_dir=base_dir,
+    )
+    # The dispositions answer the PLAN's prior risks, not one direction's:
+    # every direction record of a round carries the same whole answer, so no
+    # direction recorded later can overwrite the other's.
+    for recorded in cross["reviews"]:
+        if recorded.get("prior_risk_dispositions", []) != payload.get("prior_risk_dispositions"):
+            raise GovernanceError(
+                "prior_risk_dispositions differ between the round's review directions; "
+                "one round gives one answer on each prior risk"
+            )
+
+
+def _validate_prior_risk_dispositions(
+    state: dict[str, Any], dispositions: Any, round_number: int, *,
+    reviewed_commit_sha: str | None, base_dir: str | Path | None,
+) -> None:
+    """PV P1 (ARIA-HIGH-779) — the round's reviewer answer on prior risks.
+
+    Each row names a reviewer risk an EARLIER round of this plan raised
+    (``CR-R{k}-…``, k < round_number), once, with a disposition from
+    ``PRIOR_RISK_DISPOSITIONS``; ``resolved`` and ``withdrawn`` clear a
+    blocking risk, so they must cite evidence. A prior risk the reviewer
+    does not answer stays open.
+
+    PV R16 — every ref passes the plan-path record law
+    (:func:`_plan_ref_reading`), and a clearing answer's cited path must name
+    a file of the commit its reviewer reviewed (``reviewed_commit_sha``, the
+    kernel's argument): :func:`_require_ref_files_in_reviewed_tree`, the law
+    every cross-review risk's refs meet too.
+    """
+    if not isinstance(dispositions, list):
+        raise GovernanceError("prior_risk_dispositions must be an array")
+    prior_ids = {risk["risk_id"] for risk in _prior_review_risk_rows(state, round_number)}
+    answered: set[str] = set()
+    cleared_refs: list[tuple[str, Any]] = []
+    for row in dispositions:
+        if not isinstance(row, dict):
+            raise GovernanceError("prior_risk_disposition must be a JSON object")
+        risk_id = row.get("risk_id")
+        if risk_id not in prior_ids:
+            raise GovernanceError(
+                f"prior_risk_disposition names no earlier-round reviewer risk of this plan: {risk_id!r}"
+            )
+        if risk_id in answered:
+            raise GovernanceError(f"prior_risk_disposition answers {risk_id} twice")
+        answered.add(risk_id)
+        disposition = row.get("disposition")
+        if disposition not in PRIOR_RISK_DISPOSITIONS:
+            raise GovernanceError(
+                f"prior_risk_disposition for {risk_id} is {disposition!r}; "
+                f"expected one of {', '.join(PRIOR_RISK_DISPOSITIONS)}"
+            )
+        evidence_refs = row.get("evidence_refs", [])
+        field = f"prior_risk_disposition {risk_id} evidence_refs"
+        _require_plan_refs(evidence_refs, field)
+        if disposition in CITED_PRIOR_RISK_DISPOSITIONS and not evidence_refs:
+            raise GovernanceError(
+                f"prior_risk_disposition {disposition} for {risk_id} requires evidence_refs: "
+                "a risk is cleared on cited evidence, never on a bare word"
+            )
+        if disposition in CITED_PRIOR_RISK_DISPOSITIONS:
+            cleared_refs.extend((field, ref) for ref in evidence_refs)
+    _require_ref_files_in_reviewed_tree(cleared_refs, reviewed_commit_sha, base_dir=base_dir)
+
+
+def _require_risk_refs_in_reviewed_tree(
+    risks: list[dict[str, Any]], reviewed_commit_sha: str | None, *, base_dir: str | Path | None,
+) -> None:
+    """PV-R4 R21 — every cross-review risk's evidence refs name blobs of the reviewed commit."""
+    _require_ref_files_in_reviewed_tree(
+        [(f"risk {str(risk.get('risk_id'))[:80]} evidence_refs", ref) for risk in risks for ref in risk["evidence_refs"]],
+        reviewed_commit_sha, base_dir=base_dir,
+    )
+
+
+def _require_ref_files_in_reviewed_tree(
+    cited: list[tuple[str, Any]], reviewed_commit_sha: str | None, *, base_dir: str | Path | None,
+) -> None:
+    """THE reviewed-tree law of a reviewer's evidence ref (PV R16, PV-R4 R21).
+
+    An evidence ref names one file (a finding id or a ledger pointer names
+    none), read literally, so its path must be a blob of the commit the
+    reviewer reviewed (``workspace_view.commit_blob_paths``): ``f.ts#L1`` is
+    a legal file name the grammar admits, and a ref the freshness gate
+    watches must name a file git reports. A clearing answer's refs and every
+    cross-review risk's refs pass here; surfaces and key-change paths do not,
+    since a plan may name a file it creates, or a glob. A checkout that
+    cannot answer for the commit raises ``WorkspaceViewRefused``, never this
+    refusal.
+    """
+    workspace = bound_workspace_root(base_dir)
+    read = [(field, ref, _plan_ref_reading(ref).path) for field, ref in cited]
+    # One git process answers the record's whole cited set (PV-R5 R23).
+    blobs = commit_blob_paths(workspace, reviewed_commit_sha, {path for _f, _r, path in read if path is not None})
+    for field, ref, path in read:
+        if path is not None and path not in blobs:
+            raise GovernanceError(
+                f"{EVIDENCE_REF_NOT_IN_REVIEWED_TREE}: {field} {str(ref)[:200]!r} names no file of the "
+                f"reviewed commit {reviewed_commit_sha}"
+            )
 
 
 def _validate_revision(state: dict[str, Any], payload: dict[str, Any]) -> None:
@@ -3005,8 +3606,8 @@ def _validate_coverage_record(state: dict[str, Any], payload: dict[str, Any]) ->
     verdict = payload.get("verdict")
     if verdict not in COVERAGE_VERDICTS:
         raise GovernanceError(f"coverage verdict must be one of {sorted(COVERAGE_VERDICTS)}")
-    if not _valid_repo_path(payload.get("closure_manifest_path")):
-        raise GovernanceError("closure_manifest_path must be a repo-relative POSIX path")
+    closure_manifest_path = payload.get("closure_manifest_path")
+    _require_admitted(_plan_path_reading(closure_manifest_path), "closure_manifest_path", closure_manifest_path)
     _require_hash(payload.get("closure_manifest_hash"), "closure_manifest_hash")
     if not isinstance(payload.get("closure_summary"), dict):
         raise GovernanceError("closure_summary must be a JSON object")
@@ -3097,12 +3698,8 @@ def _validate_risk(risk: dict[str, Any]) -> None:
         raise GovernanceError("risk must be a JSON object")
     for field in ("risk_category", "severity", "invariant", "recommendation"):
         _require_non_empty(risk.get(field), field)
-    affected_files = risk.get("affected_files")
-    if not isinstance(affected_files, list) or not all(_valid_repo_path(item) for item in affected_files):
-        raise GovernanceError("affected_files must be repo-relative POSIX paths")
-    evidence_refs = risk.get("evidence_refs")
-    if not isinstance(evidence_refs, list) or not all(_valid_evidence_ref(item) for item in evidence_refs):
-        raise GovernanceError("evidence_refs contains invalid reference")
+    _require_plan_paths(risk.get("affected_files"), "risk affected_files")
+    _require_plan_refs(risk.get("evidence_refs"), "risk evidence_refs")
 
 
 def _validate_cross_review_risk(risk: dict[str, Any]) -> None:
@@ -3119,15 +3716,34 @@ def _validate_cross_review_risk(risk: dict[str, Any]) -> None:
         _require_non_empty(risk.get(field), field)
     if str(risk.get("severity")) not in {*RISK_SEVERITY_VALUES, *KNOWN_SEVERITIES}:
         raise GovernanceError("cross-review risk severity is invalid")
-    affected_files = risk.get("affected_files")
-    if not isinstance(affected_files, list) or not all(_valid_repo_path(item) for item in affected_files):
-        raise GovernanceError("affected_files must be repo-relative POSIX paths")
-    evidence_refs = risk.get("evidence_refs")
-    if not isinstance(evidence_refs, list) or not all(_valid_evidence_ref(item) for item in evidence_refs):
-        raise GovernanceError("evidence_refs contains invalid reference")
+    _require_plan_paths(risk.get("affected_files"), "risk affected_files")
+    _require_plan_refs(risk.get("evidence_refs"), "risk evidence_refs")
 
 
 def _validate_plan_content(plan: dict[str, Any]) -> None:
+    """The record law of a plan body: its shape, and every path text it names (PV R16).
+
+    Every path the body names (``plan_origin.body_paths``: surfaces and
+    key-change paths) passes :func:`_plan_path_reading`, and every
+    ``evidence_refs`` entry passes :func:`_plan_ref_reading` — the law the
+    freshness reader reads them back through.
+    """
+    from .plan_origin import body_paths
+
+    _validate_plan_shape(plan)
+    _require_plan_paths(body_paths(plan), "plan path")
+    _require_plan_refs(plan["evidence_refs"], "plan evidence_refs")
+
+
+def _validate_plan_shape(plan: dict[str, Any]) -> None:
+    """The shape of a plan body, the law a FOLD re-applies to every recorded body.
+
+    The path grammar is the record law's (:func:`_validate_plan_content`), not
+    the fold's: a body recorded under an earlier law (an August 2026 body's
+    ``path:line:excerpt`` refs) must still fold, and the freshness reader
+    turns any such value into ``plan_verdict_unverifiable`` instead
+    (:func:`plan_verdict_paths`).
+    """
     if not isinstance(plan, dict):
         raise GovernanceError("plan content must be a JSON object")
     if len(_canonical_json(plan).encode("utf-8")) > MAX_PLAN_BYTES:
@@ -3143,14 +3759,16 @@ def _validate_plan_content(plan: dict[str, Any]) -> None:
     affected_paths = affected_surface_paths(plan["affected_surfaces"])
     if len(affected_paths) > MAX_AFFECTED_PATHS:
         raise GovernanceError("affected_surfaces.paths limit exceeded")
-    if not all(_valid_repo_path(path) for path in affected_paths):
-        raise GovernanceError("affected_surfaces paths must be repo-relative POSIX paths")
+    if not all(isinstance(path, str) and path.strip() for path in affected_paths):
+        raise GovernanceError("affected_surfaces paths must be non-empty strings")
     if not isinstance(plan["validation_commands"], list):
         raise GovernanceError("validation_commands must be an array")
     for command in plan["validation_commands"]:
         _validate_validation_command(command)
-    if not isinstance(plan["evidence_refs"], list) or not all(_valid_evidence_ref(ref) for ref in plan["evidence_refs"]):
-        raise GovernanceError("evidence_refs contains invalid reference")
+    if not isinstance(plan["evidence_refs"], list) or not all(
+        isinstance(ref, str) and ref.strip() for ref in plan["evidence_refs"]
+    ):
+        raise GovernanceError("evidence_refs must be an array of non-empty strings")
     # Optional coverage block (schema_version >= 2 plans). NOT added to
     # PLAN_CONTENT_REQUIRED — fold_plan_state re-validates every historical
     # plan_started payload on every fold, so a new required field would break
@@ -3219,7 +3837,7 @@ def _validate_event(event: dict[str, Any]) -> None:
     payload = event["payload"]
     event_type = event["event_type"]
     if event_type == "plan_started":
-        _validate_plan_content(payload.get("plan_content"))
+        _validate_plan_shape(payload.get("plan_content"))
         _require_hash(payload.get("content_hash"), "content_hash")
         _require_non_empty(payload.get("initial_revision_id"), "initial_revision_id")
         if "plan_contract_version" in payload and (type(payload["plan_contract_version"]) is not int
@@ -3230,7 +3848,7 @@ def _validate_event(event: dict[str, Any]) -> None:
 
             validate_admission_scope(payload["admission_scope"], payload.get("plan_content"))
     elif event_type == "challenger_plan_drafted":
-        _validate_plan_content(payload.get("plan_content"))
+        _validate_plan_shape(payload.get("plan_content"))
         _require_hash(payload.get("content_hash"), "content_hash")
         _require_non_empty(payload.get("challenger_revision_id"), "challenger_revision_id")
         _require_non_empty(payload.get("source_revision_id"), "source_revision_id")
@@ -3259,6 +3877,8 @@ def _validate_event(event: dict[str, Any]) -> None:
         _require_hash(payload.get("critique_content_hash"), "critique_content_hash")
         if payload.get("status_after") != "ANSWERED":
             raise GovernanceError('critique_recorded status_after must be "ANSWERED"')
+        if "reviewed_commit_sha" in payload:
+            _require_reviewed_commit(payload["reviewed_commit_sha"])
     elif event_type == "cross_review_recorded":
         _require_hash(payload.get("task_packet_hash"), "task_packet_hash")
         _require_hash(payload.get("target_plan_content_hash"), "target_plan_content_hash")
@@ -3269,6 +3889,10 @@ def _validate_event(event: dict[str, Any]) -> None:
         _require_hash(payload.get("review_content_hash"), "review_content_hash")
         if payload.get("status_after") != "ANSWERED":
             raise GovernanceError('cross_review_recorded status_after must be "ANSWERED"')
+        if not isinstance(payload.get("prior_risk_dispositions", []), list):
+            raise GovernanceError("prior_risk_dispositions must be an array")
+        if "reviewed_commit_sha" in payload:
+            _require_reviewed_commit(payload["reviewed_commit_sha"])
     elif event_type == "stale_tasks_reaped":
         if not isinstance(payload.get("round_number"), int):
             raise GovernanceError("round_number must be an integer")
@@ -3304,6 +3928,11 @@ def _validate_event(event: dict[str, Any]) -> None:
         for field in ("risks_rollup_summary", "gate_decisions", "reason_codes"):
             if field not in payload:
                 raise GovernanceError(f"plan_evaluated missing {field}")
+        # PV R3 — the binding reaches `git diff` as a revision: only null or
+        # one full object id is a value the ledger may carry. A verdict
+        # recorded before the binding has no field (`plan_verdict_unbound`).
+        if "reviewed_commit_sha" in payload:
+            _require_reviewed_commit(payload["reviewed_commit_sha"])
     elif event_type == "implementation_delivery_attempted":
         attempt = payload.get("attempt")
         if not isinstance(attempt, int) or isinstance(attempt, bool) or attempt <= 0:
@@ -3508,34 +4137,173 @@ def _prescribed_imports_gate(
     return gate, None
 
 
+def _surfaced_review_risk(risk: dict[str, Any], round_number: int, target_revision_id: str) -> dict[str, Any]:
+    """The row a recorded reviewer risk becomes: its id round-scoped, and the revision it was raised on."""
+    rid = risk.get("risk_id")
+    scoped = {"risk_id": review_risk_id(round_number, rid)} if rid else {}
+    return {**risk, **scoped, "surfaced_in_revision_id": target_revision_id}
+
+
+def _require_unique_risk_ids(risks: list[Any]) -> None:
+    """PV R8 — one envelope names each risk once: a repeated id would let the
+    round's dedup keep one row and drop the other."""
+    ids = [risk.get("risk_id") for risk in risks if isinstance(risk, dict) and risk.get("risk_id")]
+    repeated = sorted({str(rid) for rid in ids if ids.count(rid) > 1})
+    if repeated:
+        raise GovernanceError(f"cross-review risks repeat risk_id {repeated}; one id names one risk")
+
+
+def review_risk_id(round_number: int, reviewer_risk_id: str) -> str:
+    """PV P1 — the plan-wide id of a risk the round's reviewer called ``reviewer_risk_id``."""
+    return f"{REVIEW_RISK_ID_PREFIX}{round_number}-{reviewer_risk_id}"
+
+
+def is_material_risk(risk: dict[str, Any]) -> bool:
+    return str(risk.get("severity")).lower() in MATERIAL_RISK_SEVERITIES
+
+
+def _prior_review_risk_rows(state: dict[str, Any], round_number: int) -> list[dict[str, Any]]:
+    """Every reviewer-raised risk of the rounds before ``round_number``, oldest first."""
+    rows: list[dict[str, Any]] = []
+    for prior_round in sorted(r for r in state.get("cross_review_risks_by_round", {}) if r < round_number):
+        for risk in state["cross_review_risks_by_round"][prior_round]:
+            if str(risk.get("risk_id") or "").startswith(REVIEW_RISK_ID_PREFIX):
+                rows.append({**risk, "round": prior_round})
+    return rows
+
+
+def prior_review_risks(state: dict[str, Any], round_number: int) -> list[dict[str, Any]]:
+    """PV P1 (ARIA-HIGH-779) — the earlier rounds' reviewer risks no reviewer has cleared.
+
+    Each row is the risk as raised, plus ``round``, the plan author's claims
+    on it (``author_claimed_in_revisions``: the revisions whose
+    ``addresses_review_risk_ids`` named it) and the latest reviewer answer
+    (``latest_disposition``, an ``open`` one or None). The round
+    ``round_number`` reviewer is shown exactly these rows, and the material
+    gate counts the material ones as open: only that reviewer's ``resolved``
+    or ``withdrawn`` takes a row out.
+    """
+    dispositions = state.get("review_risk_dispositions", {})
+    claims = state.get("review_risk_claims", {})
+    rows = []
+    for risk in _prior_review_risk_rows(state, round_number):
+        latest = dispositions.get(risk["risk_id"])
+        if latest is not None and latest["disposition"] in CITED_PRIOR_RISK_DISPOSITIONS:
+            continue
+        rows.append({
+            **risk,
+            "author_claimed_in_revisions": list(claims.get(risk["risk_id"], [])),
+            "latest_disposition": latest,
+        })
+    return rows
+
+
+def clearing_review_rounds(state: dict[str, Any], round_number: int) -> list[int]:
+    """PV R6 — the rounds before ``round_number`` whose reviewer answer is the
+    standing ``resolved``/``withdrawn`` on a material reviewer risk.
+
+    Those answers are what keep the risks out of the material gate, so the
+    seat that gave each must pass independence as the converging one does. A
+    cleared nice-to-have risk never blocked, so its answer is not judged.
+    """
+    material_ids = {
+        str(risk.get("risk_id"))
+        for risks in state.get("cross_review_risks_by_round", {}).values()
+        for risk in risks if is_material_risk(risk)
+    }
+    return sorted({
+        row["round"] for risk_id, row in state.get("review_risk_dispositions", {}).items()
+        if risk_id in material_ids and row["disposition"] in CITED_PRIOR_RISK_DISPOSITIONS
+        and row["round"] != round_number
+    })
+
+
+def plan_state_at_round(state: dict[str, Any], round_number: int) -> dict[str, Any]:
+    """The plan's fold as it stood when ``round_number`` closed: every event of
+    ``state`` before the first one that opens a later round, folded again."""
+    events = state["events"]
+    probe = _initial_state(state["plan_id"])
+    cut = len(events)
+    for index, event in enumerate(events):
+        _apply_event(probe, copy.deepcopy(event))
+        if (probe.get("current_round") or 0) > round_number:
+            cut = index
+            break
+    at_round = _initial_state(state["plan_id"])
+    for event in copy.deepcopy(events[:cut]):
+        _apply_event(at_round, event)
+    _derive_state(at_round)
+    return at_round
+
+
+def open_material_review_risks(state: dict[str, Any], round_number: int) -> list[dict[str, Any]]:
+    """The material risks open at ``round_number``: the round's own reviewer
+    risks and every earlier one no reviewer cleared (:func:`prior_review_risks`).
+    The material gate and the duel row both count exactly these (PV R9)."""
+    own = state.get("cross_review_risks_by_round", {}).get(round_number, [])
+    return [risk for risk in [*own, *prior_review_risks(state, round_number)] if is_material_risk(risk)]
+
+
+def _reviewer_dissent_gate(cross: dict[str, Any], material: list[dict[str, Any]]) -> dict[str, Any]:
+    """PV P5 — a reviewer verdict that dissents while no material risk is open.
+
+    The kernel recomputes convergence from the risks and used to read the
+    reviewer's verdict as a hint only, so ``material_risks_present`` with
+    nothing but nice-to-have risks converged silently. The two disagree; the
+    gate names the inconsistency instead of picking a side. Every verdict
+    other than ``agreed`` dissents: submit refuses one outside the closed
+    vocabulary, and a recorded history that carries one (or none) fails
+    closed here (R7).
+    """
+    dissenting = sorted({
+        str(review.get("review_direction")) for review in cross.get("reviews", [])
+        if review.get("verdict") != ASSENTING_REVIEW_VERDICT
+    })
+    return {
+        "gate": REVIEWER_DISSENT_GATE,
+        "passed": not (dissenting and not material),
+        "dissenting_directions": dissenting,
+    }
+
+
 def _evaluate_cross_review_state(state: dict[str, Any], round_number: int, *, max_rounds: int) -> dict[str, Any]:
     cross = state["cross_reviews"][round_number]
-    risks = list(state.get("cross_review_risks_by_round", {}).get(round_number, []))
-    resolved = set(state.get("resolved_review_risk_ids", []))
-    active_risks = [risk for risk in risks if str(risk.get("risk_id")) not in resolved]
-    material = [
-        risk for risk in active_risks
-        if str(risk.get("severity")).lower() in {"blocking", "material", "critical", "high"}
-    ]
+    # PV P1 (ARIA-HIGH-779) — the round's own risks are all open (their ids
+    # are round-scoped; only a LATER reviewer can answer them), and every
+    # earlier reviewer risk no reviewer cleared is still open too.
+    active_risks = list(state.get("cross_review_risks_by_round", {}).get(round_number, []))
+    open_prior = prior_review_risks(state, round_number)
+    open_prior_material = [risk for risk in open_prior if is_material_risk(risk)]
+    material = open_material_review_risks(state, round_number)
     tasks = list(cross.get("tasks", {}).values())
     directions = _cross_review_direction_statuses(state, round_number)
     summary = {
         "active_cross_review_risks": len(active_risks),
         "material_cross_review_risks": len(material),
+        "open_prior_review_risks": len(open_prior),
+        "open_prior_material_review_risks": len(open_prior_material),
         "partial_directions": sorted(direction for direction, status in directions.items() if status == "partial"),
         "pending_tasks": sum(1 for task in tasks if task.get("status") == "PENDING"),
         "timeout_aborted_tasks": sum(1 for task in tasks if task.get("status") == "TIMEOUT_ABORTED" and not task.get("replaced_by_task_ids")),
-        "resolved_review_risks": len(resolved),
+        "resolved_review_risks": len(state.get("resolved_review_risk_ids", [])),
     }
+    dissent = _reviewer_dissent_gate(cross, material)
     blockers = []
     if material:
         blockers.append("material_cross_review_risks_present")
+    if open_prior_material:
+        blockers.append(PRIOR_REVIEW_RISKS_OPEN_REASON)
+    if not dissent["passed"]:
+        blockers.append(REVIEWER_DISSENT_REASON)
     if summary["pending_tasks"]:
         blockers.append("pending_tasks_present")
     if summary["timeout_aborted_tasks"] or summary["partial_directions"]:
         blockers.append("partial_cross_review_coverage")
     gate_decisions = [
         {"gate": "material_cross_review_zero", "passed": not material},
+        {"gate": PRIOR_REVIEW_RISKS_GATE, "passed": not open_prior_material,
+         "open_risk_ids": [risk["risk_id"] for risk in open_prior_material]},
+        dissent,
         {"gate": "no_pending_tasks", "passed": summary["pending_tasks"] == 0},
         {"gate": "no_partial_directions", "passed": not summary["partial_directions"] and summary["timeout_aborted_tasks"] == 0},
         {"gate": "max_rounds", "passed": round_number < max_rounds, "max_rounds": max_rounds},
@@ -3788,8 +4556,12 @@ def key_change_violation(change: Any) -> str | None:
     if "id" in change and (not isinstance(change["id"], str) or not change["id"].strip()):
         return "id must be a non-empty string when present"
     paths = change.get("paths")
-    if paths is not None and (not isinstance(paths, list) or not all(_valid_repo_path(path) for path in paths)):
+    if paths is not None and not isinstance(paths, list):
         return "paths must be a list of repo-relative POSIX paths"
+    for path in paths or []:
+        refusal = _plan_path_reading(path).refusal
+        if refusal is not None:
+            return f"{PLAN_PATH_REFUSED}: paths {str(path)[:200]!r}: {refusal}"
     return _key_change_imports_violation(change.get("imports"), key_change_paths(change))
 
 
@@ -3941,7 +4713,7 @@ def resolve_converged_plan_observation(
             if observation is not None:
                 raise GovernanceError("converged_observation_ambiguous")
             body = plan_body_from_state(state)
-            _validate_plan_content(body["plan_content"])
+            _validate_plan_shape(body["plan_content"])
             observation = copy.deepcopy({
                 **body,
                 "convergence_event_id": event["event_id"],
@@ -4106,18 +4878,104 @@ def _coerce_plan_body(candidate: Any) -> dict[str, Any] | None:
     return None
 
 
-def _valid_repo_path(value: Any) -> bool:
-    if not isinstance(value, str) or not value.strip():
-        return False
-    path = value.strip()
-    return not (path.startswith("/") or "\\" in path or path.startswith("../") or "/../" in path or path == "..")
+@dataclass(frozen=True)
+class PlanPathReading:
+    """One path text a plan records, read through the plan-path record law (PV R16).
+
+    ``path`` is the repository path or glob the text names, in its resolved
+    form (``canonical_path.resolve_repo_relpath``: the spelling git reports a
+    changed file in and the implementer's writable set is normalized to), or
+    None when it names no file (a finding id, a kernel ledger pointer) or is
+    refused. ``refusal`` says why the law refuses it, None when admitted.
+    """
+
+    path: str | None
+    refusal: str | None
 
 
-def _valid_evidence_ref(value: Any) -> bool:
+def _plan_path_reading(value: Any) -> PlanPathReading:
+    """THE record law for a path or glob a plan names (PV R16).
+
+    Surfaces, key-change paths, risk files and the coverage manifest, at
+    record time; and the freshness reader (:func:`plan_verdict_paths`) reads
+    every recorded value through the same law. A text is admitted when it
+    resolves inside the repository (``canonical_path.resolve_repo_relpath``:
+    no absolute path, no backslash; ``''`` and ``.`` segments drop, as the
+    implementer's ``_normalize_declared_path`` drops them) and every brace
+    alternative compiles in the kernel's one glob owner
+    (``canonical_path.require_repo_glob``). A C0 control character or DEL is
+    refused under canonical_path's one rule
+    (``canonical_path.refuse_repo_relpath_control_char``), which
+    ``resolve_repo_relpath`` leaves to its readers: admitted, a NUL in an
+    evidence ref reached the reviewed-commit lookup's git argv, where
+    ``subprocess`` raises ``ValueError``, so neither the record door nor the
+    delivery door could refuse it (PV-R5 SEC-R5R1-B1). A ``..`` segment is
+    refused: the implementer refuses a traversal surface
+    (``classify_declared_surface``), so a plan naming one could never be
+    implemented, and resolving it would turn a traversal into a clean-looking
+    path. The owners' typed refusals are
+    the reasons; nothing here is a second grammar.
+    """
+    from .canonical_path import refuse_repo_relpath_control_char, require_repo_glob, resolve_repo_relpath
+
     if not isinstance(value, str) or not value.strip():
-        return False
+        return PlanPathReading(None, "a path is a non-empty string")
+    text = value.strip()
+    if ".." in text.split("/"):
+        return PlanPathReading(None, "repo_relpath_traversal")
+    try:
+        path = resolve_repo_relpath(text)
+        refuse_repo_relpath_control_char(path)
+        require_repo_glob(path)
+    except GovernanceError as exc:
+        return PlanPathReading(None, str(exc))
+    return PlanPathReading(path, None)
+
+
+def _plan_ref_reading(value: Any) -> PlanPathReading:
+    """THE record law for an evidence ref a plan, a risk or a prior-risk answer cites (PV R16).
+
+    A finding id or a kernel ledger pointer (``evidence_validator``'s one
+    definition, ``_is_ledger_pointer_ref``) names no repository file. Any
+    other ref is in the agent evidence grammar
+    (``evidence_trust.parse_evidence_ref``: ``path`` or ``path:line``), and
+    its path meets :func:`_plan_path_reading`. A range (``f.ts:1-3``) or a
+    comment (``f.ts:1 (the guard)``) is outside that grammar and refused: read
+    as a whole-string path it named no file, so the cited file dropped out of
+    the freshness set.
+    """
+    from .evidence_trust import parse_evidence_ref
+    from .evidence_validator import _is_ledger_pointer_ref
+
+    if not isinstance(value, str) or not value.strip():
+        return PlanPathReading(None, "an evidence ref is a non-empty string")
     ref = value.strip()
-    return bool(FINDING_ID_RE.match(ref)) or _valid_repo_path(ref)
+    if FINDING_ID_RE.match(ref) or _is_ledger_pointer_ref(ref):
+        return PlanPathReading(None, None)
+    parsed = parse_evidence_ref(ref)
+    if parsed is None:
+        return PlanPathReading(None, "outside the evidence ref grammar (path or path:line)")
+    return _plan_path_reading(parsed[0])
+
+
+def _require_admitted(reading: PlanPathReading, field: str, value: Any) -> None:
+    """Raise ``plan_path_refused`` naming the field and the value the law refused."""
+    if reading.refusal is not None:
+        raise GovernanceError(f"{PLAN_PATH_REFUSED}: {field} {str(value)[:200]!r}: {reading.refusal}")
+
+
+def _require_plan_paths(values: Any, field: str) -> None:
+    if not isinstance(values, list):
+        raise GovernanceError(f"{field} must be an array")
+    for value in values:
+        _require_admitted(_plan_path_reading(value), field, value)
+
+
+def _require_plan_refs(values: Any, field: str) -> None:
+    if not isinstance(values, list):
+        raise GovernanceError(f"{field} must be an array")
+    for value in values:
+        _require_admitted(_plan_ref_reading(value), field, value)
 
 
 def _parse_iso_datetime(value: str) -> datetime | None:

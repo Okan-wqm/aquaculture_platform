@@ -217,6 +217,23 @@ class ServiceFactsBridgeTests(unittest.TestCase):
         result = self.bridge(_BridgeRunner(), base_sha=BASE_SHA)
         self.assert_held(result, "head_unreadable")
 
+    def test_the_workspace_head_entry_computes_the_facts_of_the_checkouts_own_head(self) -> None:
+        result = plan_coverage.compute_service_facts_at_head(workspace_root=self.workspace, runner=_BridgeRunner())
+        self.assertEqual(result.get("verdict"), "computed", result)
+        self.assertEqual(result["facts_sha"], self.head)
+
+    def test_the_workspace_head_entry_holds_a_checkout_git_cannot_read_instead_of_raising(self) -> None:
+        # ``workspace_view.workspace_head_sha`` raises on a git failure (PV R4), and this entry's
+        # callers (the cycle's service examination, plan admission, the impact CLI, the learning
+        # sweep) hold a change on a named ``environment_unable``, never on an exception: the
+        # entry's own contract is ``head_unreadable``. A ``.git`` file naming a missing gitdir is
+        # a checkout whose HEAD git cannot answer.
+        broken = self.root / "broken-checkout"
+        broken.mkdir()
+        (broken / ".git").write_text(f"gitdir: {self.root / 'missing-gitdir'}\n", encoding="utf-8")
+        result = plan_coverage.compute_service_facts_at_head(workspace_root=broken, runner=_BridgeRunner())
+        self.assert_held(result, "head_unreadable")
+
 
 # ---------------------------------------------------------------------------------------------
 # SE-3 review round 1 blockers (build/SE-3/review-r1-blockers.md), pinned before round 2.

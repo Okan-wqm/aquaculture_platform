@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
@@ -53,6 +54,19 @@ from .git_object_id import ANY_OBJECT_FORMAT, is_object_id
 # untracked cache from the repository's config deciding what git reports.
 HERMETIC_GIT_CONFIG_ARGS: tuple[str, ...] = ("-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false")
 _GIT_LISTING_TIMEOUT_SECONDS = 60
+_HEAD_TIMEOUT_SECONDS = 30
+# Path-argument bytes one `git ls-tree` of ``commit_blob_paths`` is given.
+# Linux bounds the whole argv by ARG_MAX (2 MiB under the default 8 MiB
+# stack) and one argument by MAX_ARG_STRLEN (128 KiB); 512 KiB of paths
+# leaves the rest of ARG_MAX to the environment and git's own options, and
+# holds about 8,500 paths of this checkout's mean tracked-path length
+# (60 bytes over `git ls-files`, measured 2026-10-24).
+_LS_TREE_ARGV_CHUNK_BYTES = 512 * 1024
+# The refusal reason of a HEAD read git could not answer (``workspace_head_sha``).
+WORKSPACE_HEAD_UNREADABLE = "workspace_head_unreadable"
+# The refusal reason of a commit lookup the checkout cannot answer: the commit
+# is not in it, or git failed reading its trees (``commit_blob_paths``).
+WORKSPACE_COMMIT_UNREADABLE = "workspace_commit_unreadable"
 # The mode git records a submodule (gitlink) with.
 _GITLINK_MODE = "160000"
 _GIT_DIRNAME = ".git"
@@ -77,14 +91,112 @@ def hermetic_git(
     )
 
 
-def workspace_head_sha(workspace_root: str | os.PathLike[str]) -> str | None:
-    """The checkout's HEAD commit, or None when it is not a git checkout."""
+def _inside_checkout(workspace_root: str | os.PathLike[str]) -> bool:
+    """True when ``workspace_root`` or a directory above it holds a ``.git`` entry."""
+    start = Path(workspace_root).resolve()
+    return any((directory / _GIT_DIRNAME).exists() for directory in (start, *start.parents))
+
+
+def _head_git(workspace_root: str | os.PathLike[str], *args: str, text: bool = True) -> subprocess.CompletedProcess:
     try:
-        completed = hermetic_git(workspace_root, "rev-parse", "--verify", "HEAD^{commit}", timeout=30)
-    except (OSError, subprocess.TimeoutExpired):
+        return hermetic_git(workspace_root, *args, timeout=_HEAD_TIMEOUT_SECONDS, text=text)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise WorkspaceViewRefused(f"{WORKSPACE_HEAD_UNREADABLE}:{type(exc).__name__}") from exc
+
+
+def workspace_head_sha(workspace_root: str | os.PathLike[str]) -> str | None:
+    """The checkout's HEAD commit; None when there is none; raise when git cannot say.
+
+    None means one of two facts: ``workspace_root`` is not inside a git
+    checkout (no ``.git`` entry on its path), or the checkout's HEAD names a
+    branch with no commit yet (unborn). Any other answer is a git failure, not
+    a fact about the tree: a checkout git refuses (dubious ownership, a broken
+    ``gitdir``), a ref naming a missing object, a timeout, or no git at all.
+    That raises :class:`WorkspaceViewRefused` (``workspace_head_unreadable:…``),
+    because a caller that read it as "no commit" would bind a verdict, an
+    evidence anchor or a suite to the empty tree while the checkout holds one
+    (PV R4).
+    """
+    if not _inside_checkout(workspace_root):
         return None
+    completed = _head_git(workspace_root, "rev-parse", "--verify", "--quiet", "HEAD^{commit}")
     head = completed.stdout.strip()
-    return head if completed.returncode == 0 and is_object_id(head, formats=ANY_OBJECT_FORMAT) else None
+    if completed.returncode == 0 and is_object_id(head, formats=ANY_OBJECT_FORMAT):
+        return head
+    if completed.returncode == 1:
+        # `--quiet` exits 1 when git read the repository but HEAD names no
+        # commit; it is unborn only when HEAD is a branch whose ref is absent.
+        symbolic = _head_git(workspace_root, "symbolic-ref", "--quiet", "HEAD")
+        branch = symbolic.stdout.strip()
+        if symbolic.returncode == 0 and branch:
+            ref = _head_git(workspace_root, "rev-parse", "--verify", "--quiet", "--end-of-options", branch)
+            if ref.returncode == 1:
+                return None
+    raise WorkspaceViewRefused(f"{WORKSPACE_HEAD_UNREADABLE}:git_exit_{completed.returncode}")
+
+
+def commit_blob_paths(
+    workspace_root: str | os.PathLike[str], commit: str | None, paths: Iterable[str],
+) -> frozenset[str]:
+    """The subset of ``paths`` that names a file (a blob) in ``commit`` of the checkout at ``workspace_root``.
+
+    ``commit`` None is the empty tree, which names no file. The whole set is
+    answered by one ``git --literal-pathspecs ls-tree`` (one per
+    :data:`_LS_TREE_ARGV_CHUNK_BYTES` of path arguments): no pathspec magic and
+    no glob, so ``f.ts#L1`` or ``[id].ts`` asks for a file of that exact name.
+    A path is in the answer only when git lists a blob entry of exactly that
+    path; a path git lists nothing for (absent), or lists as a tree or a
+    submodule, is not. A checkout that cannot answer raises
+    :class:`WorkspaceViewRefused`, the contract of :func:`workspace_head_sha`:
+    a commit the checkout does not hold, or a git that fails reading the
+    commit's trees (``workspace_commit_unreadable:…``), a timeout or no git
+    at all (``_head_git``).
+
+    PV-R4 R21 — a missing commit read as "no file" made a checkout that lacked
+    it look like a plan citing no file. PV-R5 R23 — ``cat-file -t
+    <commit>:<path>`` exits 128 both for an absent path and for a tree git
+    cannot read, so per-path lookups read a damaged object store as "no file"
+    too, and a fact about the checkout was parked as a fact of the ledger.
+    ``ls-tree`` exits 0 having listed what the commit holds, or fails.
+    """
+    asked = frozenset(paths)
+    if commit is None or not asked:
+        return frozenset()
+    held = _head_git(workspace_root, "cat-file", "-e", f"{commit}^{{commit}}")
+    if held.returncode != 0:
+        raise WorkspaceViewRefused(f"{WORKSPACE_COMMIT_UNREADABLE}:{commit[:80]}:git_exit_{held.returncode}")
+    named: set[str] = set()
+    for chunk in _argv_chunks(sorted(asked)):
+        completed = _head_git(
+            workspace_root, "--literal-pathspecs", "ls-tree", "-z", "--full-tree", commit, "--", *chunk, text=False,
+        )
+        if completed.returncode != 0:
+            raise WorkspaceViewRefused(
+                f"{WORKSPACE_COMMIT_UNREADABLE}:{commit[:80]}:git_exit_{completed.returncode}"
+            )
+        for entry in completed.stdout.split(b"\0"):
+            if not entry:
+                continue
+            # `<mode> SP <type> SP <object> TAB <path>`; the path is git's own bytes.
+            meta, _tab, path = entry.partition(b"\t")
+            if meta.split(b" ")[1] == b"blob":
+                named.add(os.fsdecode(path))
+    return frozenset(named & asked)
+
+
+def _argv_chunks(paths: list[str]) -> Iterator[list[str]]:
+    """``paths`` in runs whose argument bytes stay within :data:`_LS_TREE_ARGV_CHUNK_BYTES`."""
+    chunk: list[str] = []
+    size = 0
+    for path in paths:
+        cost = len(os.fsencode(path)) + 1
+        if chunk and size + cost > _LS_TREE_ARGV_CHUNK_BYTES:
+            yield chunk
+            chunk, size = [], 0
+        chunk.append(path)
+        size += cost
+    if chunk:
+        yield chunk
 
 
 def index_flagged_paths(workspace_root: str | os.PathLike[str]) -> tuple[str, ...]:
@@ -203,6 +315,8 @@ def build_workspace_view(workspace_root: str | os.PathLike[str]) -> WorkspaceVie
 
 __all__ = [
     "HERMETIC_GIT_CONFIG_ARGS",
+    "WORKSPACE_COMMIT_UNREADABLE",
+    "WORKSPACE_HEAD_UNREADABLE",
     "WorkspaceView",
     "WorkspaceViewRefused",
     "build_workspace_view",

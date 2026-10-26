@@ -49,6 +49,12 @@ cycle (:func:`redeliver_stranded_converged_plans`, origin
   ``operator_feedback_signature`` check whatever is implemented. It is
   parked the same way (``implementation_envelope_unbound_plan``), before an
   attempt is claimed.
+* **Never fresh** (PV P3). A plan whose CONVERGED verdict no longer describes
+  the repository (``plan_convergence.plan_verdict_staleness``: a commit after
+  the reviewed one changed a path the plan names, or the verdict predates
+  the binding and names no reviewed tree) is parked the same way (``plan_verdict_stale`` /
+  ``plan_verdict_unbound``), before an attempt is claimed: the mint and
+  ``request_implementation`` refuse it on every offer.
 * **The bound.** After ``MAX_DELIVERY_ATTEMPTS`` counted attempts the plan
   moves, under the plan lock and only from CONVERGED with no live request
   (review M3), to ``HUMAN_REQUIRED`` with reason code
@@ -132,6 +138,22 @@ UNBOUND_PLAN_KIND: str = "converged_delivery_unbound_plan"
 WITHHELD_BODY_UNPROVABLE: str = "body_unprovable"
 BODY_UNPROVABLE_REASON: str = "implementation_envelope_body_unprovable"
 BODY_UNPROVABLE_KIND: str = "converged_delivery_body_unprovable"
+# PV P3 — a CONVERGED plan whose verdict no longer describes the repository
+# (``plan_convergence.plan_verdict_staleness``): a commit after the reviewed
+# one changed a path the plan names (``plan_verdict_stale``), the verdict
+# predates the binding (``plan_verdict_unbound``), or a recorded value the
+# record law refuses or an evidence ref naming no file of the reviewed commit
+# (``plan_verdict_path_refused``, PV-R4 R20/R21). All are facts of the ledger
+# and the history, the same on every offer, and the mint refuses each, so the
+# plan is moved to HUMAN_REQUIRED before staging (reason: the refusal's own
+# token). Only ``plan_verdict_unverifiable`` is the checkout's state, not the
+# plan's — a HEAD git cannot read, a reviewed commit this checkout does not
+# hold or cannot compare with HEAD: that offer is withheld uncounted and the
+# plan stays CONVERGED. The owner decides the cause by its token; this module
+# reads the token only.
+WITHHELD_STALE_VERDICT: str = "plan_verdict_stale"
+STALE_VERDICT_KIND: str = "converged_delivery_plan_verdict_stale"
+WITHHELD_VERDICT_UNVERIFIABLE: str = "plan_verdict_unverifiable"
 
 
 def authority_absent_request_id(plan_id: str) -> str:
@@ -380,6 +402,28 @@ def _withhold_unbound_plan(plan_id: str, *, state: dict[str, Any], base_dir: Pat
                             withheld=WITHHELD_UNBOUND_PLAN)
 
 
+def _withhold_stale_verdict(plan_id: str, *, state: dict[str, Any], base_dir: Path) -> str | None:
+    """Why ``plan_id`` is not offered when its CONVERGED verdict is stale, else None (PV P3).
+
+    Asked through the mint's own gate (``plan_convergence.plan_verdict_
+    staleness``), so the door and the mint cannot disagree. A stale, unbound
+    or path-refused verdict is parked (:func:`_park_unmintable`); an
+    unverifiable one is withheld and offered again from a checkout that can
+    answer for the commit.
+    """
+    from .plan_convergence import PLAN_VERDICT_UNVERIFIABLE, plan_verdict_staleness
+
+    refusal = plan_verdict_staleness(state, base_dir=base_dir)
+    if refusal is None:
+        return None
+    reason_code = refusal.split(":", 1)[0]
+    if reason_code == PLAN_VERDICT_UNVERIFIABLE:
+        return WITHHELD_VERDICT_UNVERIFIABLE
+    return _park_unmintable(plan_id, state=state, base_dir=base_dir, refusal=refusal,
+                            reason_code=reason_code, kind=STALE_VERDICT_KIND,
+                            withheld=WITHHELD_STALE_VERDICT)
+
+
 def _withheld(plan_id: str, origin: str, reason: str, **extra: Any) -> dict[str, Any]:
     return {
         "terminal_state": "IMPLEMENTATION_REQUEST_REFUSED",
@@ -432,6 +476,11 @@ def _claim_attempt(
     unbound = _withhold_unbound_plan(plan_id, state=state, base_dir=base_dir)
     if unbound is not None:
         return None, unbound
+    # PV P3 — at the same point: a verdict whose reviewed bytes changed costs
+    # no staging and no counted attempt.
+    stale = _withhold_stale_verdict(plan_id, state=state, base_dir=base_dir)
+    if stale is not None:
+        return None, stale
     if worktree_is_dirty(workspace_root):
         return None, WITHHELD_WORKSPACE_DIRTY
     attempt = len(attempts) + 1
@@ -858,10 +907,13 @@ __all__ = [
     "ORIGIN_EXECUTOR",
     "ORIGIN_REDELIVERY",
     "REDELIVERIES_PER_CYCLE",
+    "STALE_VERDICT_KIND",
     "UNBOUND_PLAN_KIND",
     "WITHHELD_BODY_UNPROVABLE",
     "WITHHELD_NO_WRITABLE_SCOPE",
+    "WITHHELD_STALE_VERDICT",
     "WITHHELD_UNBOUND_PLAN",
+    "WITHHELD_VERDICT_UNVERIFIABLE",
     "authority_absent_request_id",
     "converged_plan_ids",
     "deliver_converged_plan",

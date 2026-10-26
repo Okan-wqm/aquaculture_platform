@@ -41,7 +41,6 @@ from __future__ import annotations
 import re
 import json
 import os
-import subprocess
 import time
 from pathlib import Path
 from typing import Any, Literal, Protocol, TypedDict
@@ -69,6 +68,7 @@ from .plan_convergence import (
     _planning_source_context,
     evaluate_plan,
     fold_plan_state,
+    plan_verdict_anchor,
     record_coverage,
 )
 from .plan_coverage import (
@@ -87,6 +87,7 @@ from .request_admission import Admission, admit_request
 from .step_request import StepRequestDisposition, step_request_disposition
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir
 from .digest import ZERO_SHA256_DIGEST
+from .workspace_view import workspace_head_sha
 
 # Plan ARIA-V10.4 Phase 3.H.2 — the convergence drainer mints
 # envelopes for FOUR roles across its rounds (primary_plan revisions,
@@ -341,33 +342,6 @@ def _check_aria_stop(root: Path) -> bool:
     return (root / "ARIA_STOP").exists()
 
 
-def _resolve_workspace_head_sha(workspace_root: str | Path | None) -> str | None:
-    """The commit SHA the plan's evidence is grounded at (the checkout HEAD).
-
-    Threaded into every planner/challenger/cross-review/critic envelope as
-    ``target_sha`` so the evidence-validator can grade an agent's evidence_refs
-    as ``repo_verified`` (content matches the git blob at this SHA) instead of
-    ``worktree_candidate``. Without it, ``EvidencePolicy.require_repo_verified``
-    rejects EVERY real ref and convergence can never complete — the layer-4
-    blocker found live 2026-07-03. Returns None when HEAD cannot be resolved
-    (detached/shallow/no-git); the validator then keeps its prior behaviour.
-    """
-    root = Path(workspace_root) if workspace_root else Path.cwd()
-    try:
-        proc = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=str(root),
-            text=True,
-            capture_output=True,
-            check=False,
-            timeout=5,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    sha = proc.stdout.strip()
-    return sha if proc.returncode == 0 and sha else None
-
-
 def _plan_contract_gate_reasons(eval_result: dict[str, Any]) -> dict[str, list[str]]:
     """The reasons the ``plan_contract_complete`` row recorded, grouped by
     reason code with EVERY detail kept.
@@ -525,7 +499,14 @@ def run_convergence_drainer(
     transcript_path = transcript_dir / f"{cycle_id}.jsonl"
     persistence = _persistence_path(root, plan_id)
     convergence_id = plan_id
-    target_sha = _resolve_workspace_head_sha(workspace_root)
+    # The commit every planner envelope's evidence is graded at (target_sha:
+    # `repo_verified` means the content matches the git blob at this SHA;
+    # without it `EvidencePolicy.require_repo_verified` rejects every real
+    # ref — the layer-4 blocker found live 2026-07-03). Read through the
+    # kernel's one hermetic HEAD owner before anything is written: a checkout
+    # git cannot read raises `WorkspaceViewRefused` (PV R4, R12), which the
+    # executor contains to this plan's step.
+    target_sha = workspace_head_sha(workspace_root or Path.cwd())
     resolved_coverage_computer = coverage_computer or compute_plan_coverage
 
     request_ids: list[str] = []
@@ -1029,6 +1010,12 @@ def run_convergence_drainer(
                 if isinstance(latest, dict) and isinstance(latest.get("revision_id"), str)
                 else f"{plan_id}-r{current_round}"
             )
+            # PV P3 (R11) — the cross-review request's target_sha is the commit
+            # the round's verdict is bound to, so it is HEAD of the store's
+            # checkout, the one the staleness check compares in — never the
+            # caller's workspace or this process's cwd. Read before anything is
+            # written for the round (R12).
+            cross_review_anchor = plan_verdict_anchor(root)
             try:
                 request_id = _ensure_envelope(
                     _STEP_ROLE_CROSS_REVIEW,
@@ -1046,7 +1033,7 @@ def run_convergence_drainer(
                         context_source_paths=current_context_paths,
                         allowed_scope=allowed_scope,
                         base_dir=base_dir,
-                        target_sha=target_sha,
+                        target_sha=cross_review_anchor,
                         context_repo_root=workspace_root,
                         cycle_id=cycle_id,
                         remint_of=remint_of,

@@ -95,14 +95,14 @@ def remint_judge_for_panel(
     """
     from datetime import datetime, timezone
 
-    from .convergence_drainer import _resolve_workspace_head_sha
     from .tool_registry import bound_workspace_root
+    from .workspace_view import workspace_head_sha
 
     workspace = bound_workspace_root(root)
     return remint_judge_request(
         dead,
         subjects=JudgeSubjectLiveness(base_dir=root, now=datetime.now(timezone.utc)),
-        target_sha=_resolve_workspace_head_sha(workspace),
+        target_sha=workspace_head_sha(workspace),
         workspace=workspace,
         admission=admission,
         extra_evidence_refs=(adjudication_ref,) if adjudication_ref else (),

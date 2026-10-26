@@ -31,7 +31,7 @@ def _valid_plan_content(plan_id: str) -> dict:
         "affected_surfaces": ["fixture.py"],
         "key_changes": [{"id": "c1", "description": "fixture", "paths": ["fixture.py"]}],
         "validation_commands": [{"cmd": "echo ok", "timeout_ms": 1000, "expected_exit": 0}],
-        "evidence_refs": ["fixture.py:1:ok"],
+        "evidence_refs": ["fixture.py:1"],
     }
 
 

@@ -34,6 +34,7 @@ from .workspace import WorkspacePaths, ensure_workspace, repo_hash, workspace_pa
 from .discovery import run_discovery
 from .cycle_diff import run_cycle_diff
 from .cycle_progress import emit_progress
+from .workspace_view import WORKSPACE_HEAD_UNREADABLE, WorkspaceViewRefused
 from .cycle_runtime_status import RUNTIME_OK, RUNTIME_DEGRADED, degraded_tool_records, non_ok_runs, runtime_status
 from .impact_graph import cycle_service_examination
 from .memory import (
@@ -1365,7 +1366,7 @@ def _phase_product_fitness(context: PhaseContext) -> dict[str, Any]:
     streak exactly like `red`. A score a system can improve by looking
     away is worse than no score.
     """
-    from .convergence_drainer import _resolve_workspace_head_sha
+    from .workspace_view import workspace_head_sha
     from .github_adapters import select_checks_reader
     from .ledger import append_declared_jsonl, load_jsonl
     from .product_fitness import evaluate_fitness, load_charter, streak_from_history
@@ -1374,10 +1375,11 @@ def _phase_product_fitness(context: PhaseContext) -> dict[str, Any]:
         profile=get_profile(base_dir=context.base_dir),
         cwd=context.workspace_root,
     )
-    # One head-sha resolver, already used by the convergence step to bind
-    # evidence to a commit — a second `git rev-parse` here would be a
-    # second answer to the same question.
-    head_sha = _resolve_workspace_head_sha(context.workspace_root) or ""
+    # The kernel's one HEAD owner, the one the convergence step binds
+    # evidence with — a second `git rev-parse` here would be a second answer
+    # to the same question. A checkout git cannot read raises, and the phase
+    # records that failure by name (`_run_phase_stage`).
+    head_sha = workspace_head_sha(context.workspace_root) or ""
     try:
         charter = load_charter(context.workspace_root)
         verdict = evaluate_fitness(
@@ -2002,7 +2004,7 @@ def _phase_judgment_pipeline(context: PhaseContext) -> dict[str, Any]:
     Per-tool failures are recorded and do not stop the loop —
     `batch_containment`: one bad item costs that item, never the batch.
     """
-    from .convergence_drainer import _resolve_workspace_head_sha
+    from .workspace_view import workspace_head_sha
     from .feedback_store import generate_ai_consensus, generate_judgment_sample
     from .genesis_policy import judgment_pipeline_policy
     from .judge_fanout import (
@@ -2011,7 +2013,7 @@ def _phase_judgment_pipeline(context: PhaseContext) -> dict[str, Any]:
         dispatch_judges_for_sample,
     )
 
-    target_sha = _resolve_workspace_head_sha(context.workspace_root)
+    target_sha = workspace_head_sha(context.workspace_root)
     # ORPHAN-HIGH-786 — retire age-expired envelopes BEFORE minting, so the
     # backlog cap below counts only envelopes still alive to claim. Expiry
     # was lazy (discovered at claim time), the backlog read pending while
@@ -2299,26 +2301,30 @@ def _phase_outcome_calibration(context: PhaseContext) -> dict[str, Any]:
     ``record_and_continue``: an outcome lane that crashed produced no row,
     which must not fail a night whose judging succeeded.
     """
-    from .convergence_drainer import _resolve_workspace_head_sha
     from .mutation_canary import mint_canary_judgments
     from .outcome_truth import mint_outcome_truth
     from .stability_reask import (
         collect_stability_flips,
         mint_stability_reasks_for_all_tools,
     )
+    from .workspace_view import workspace_head_sha
 
+    # PV R12 — the kernel's one HEAD owner, read once and before any write: a
+    # checkout it refuses stops the phase here, before outcome truth lands a
+    # row, and both mints below anchor at the same commit.
+    target_sha = workspace_head_sha(context.workspace_root)
     outcome = mint_outcome_truth(
         repo_root=context.workspace_root, base_dir=context.base_dir,
     )
     stability = mint_stability_reasks_for_all_tools(
         base_dir=context.base_dir,
         cycle_id=context.cycle_id,
-        target_sha=_resolve_workspace_head_sha(context.workspace_root),
+        target_sha=target_sha,
     )
     flips = collect_stability_flips(base_dir=context.base_dir)
     canary = mint_canary_judgments(
         base_dir=context.base_dir, cycle_id=context.cycle_id,
-        target_sha=_resolve_workspace_head_sha(context.workspace_root),
+        target_sha=target_sha,
     )
     return {
         "status": "completed",
@@ -2343,10 +2349,10 @@ def _phase_judge_replay(context: PhaseContext) -> dict[str, Any]:
     the regression memory existed and nothing ever sat the judges back down
     in front of it. A judge change that forgot an old lesson was silent.
     """
-    from .convergence_drainer import _resolve_workspace_head_sha
+    from .workspace_view import workspace_head_sha
     from .judge_replay import compute_replay_recall, replay_judges_on_goldset
 
-    target_sha = _resolve_workspace_head_sha(context.workspace_root)
+    target_sha = workspace_head_sha(context.workspace_root)
     replayed: list[dict[str, Any]] = []
     for tool in list_tools(base_dir=context.base_dir):
         tool_id = str(tool.get("tool_id") or "")
@@ -2404,9 +2410,9 @@ def _phase_judge_calibration(context: PhaseContext) -> dict[str, Any]:
     # ARIA-HIGH-004 — the report names the commit this cycle measured at,
     # resolved the way every other phase of the cycle resolves it, so the
     # learning funnel can join it to the judgments of the same tree.
-    from .convergence_drainer import _resolve_workspace_head_sha
+    from .workspace_view import workspace_head_sha
 
-    target_sha = _resolve_workspace_head_sha(context.workspace_root) if context.workspace_root else None
+    target_sha = workspace_head_sha(context.workspace_root) if context.workspace_root else None
     return compute_judge_calibration(cycle_id=context.cycle_id, base_dir=context.base_dir,
                                      target_sha=target_sha, **_calibration_knobs(context.workspace_root))
 
@@ -2446,12 +2452,12 @@ def _phase_goldset_proposal(context: PhaseContext) -> dict[str, Any]:
     # that drafts the corpus for that operator. Anchored to the workspace head
     # like every other minted request: an unanchored request grades the
     # curator's real evidence `baseline_unavailable`.
-    from .convergence_drainer import _resolve_workspace_head_sha
+    from .workspace_view import workspace_head_sha
 
     return propose_goldsets_for_labelled_tools(
         cycle_id=context.cycle_id,
         base_dir=context.base_dir,
-        target_sha=_resolve_workspace_head_sha(context.workspace_root),
+        target_sha=workspace_head_sha(context.workspace_root),
     )
 
 
@@ -4236,6 +4242,19 @@ def _run_phase_stage(
                 "error": str(exc),
             }
             continue
+        except WorkspaceViewRefused as exc:
+            # PV SC3 — the kernel's one HEAD owner could not read this
+            # checkout. The phase holds ITS work by that name; it did not
+            # fail, so the phases after it (most of which read nothing from
+            # git) are not skipped as `upstream_failure`. The cycle's verdict
+            # still says a phase did not run (`_first_held_phase`).
+            context.results[phase.name] = phase.absent()
+            context.outcomes[phase.name] = {
+                "outcome": "held",
+                "reason": WORKSPACE_HEAD_UNREADABLE,
+                "error": str(exc),
+            }
+            continue
         except Exception as exc:
             context.results[phase.name] = (
                 phase.error_payload(context, exc)
@@ -4571,7 +4590,16 @@ def _runtime_status(context: PhaseContext) -> str:
         integrity_valid=integrity_valid,
         non_ok=_non_ok_runs(context),
         phase_interrupted=_first_interrupted_phase(context) is not None,
+        phase_held=_first_held_phase(context) is not None,
     )
+
+
+def _first_held_phase(context: PhaseContext) -> str | None:
+    """The first phase that held its work on an unreadable checkout, or None."""
+    for name, outcome in context.outcomes.items():
+        if outcome.get("outcome") == "held":
+            return name
+    return None
 
 
 def _first_interrupted_phase(context: PhaseContext) -> str | None:

@@ -317,7 +317,7 @@ class _DrainFixture(unittest.TestCase):
             return {"request_id": f"AIR-{len(self.captured)}"}
 
         head_patch = (
-            patch("aria_kernel.convergence_drainer._resolve_workspace_head_sha", return_value=head)
+            patch("aria_kernel.workspace_view.workspace_head_sha", return_value=head)
             if head is not None else contextlib.nullcontext()
         )
         with patch.object(ao, "read_pending", return_value=items), \

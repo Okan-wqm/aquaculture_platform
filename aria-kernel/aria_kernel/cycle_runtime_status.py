@@ -82,6 +82,7 @@ def runtime_status(
     integrity_valid: bool | None,
     non_ok: list[Mapping[str, Any]],
     phase_interrupted: bool = False,
+    phase_held: bool = False,
 ) -> str:
     """The cycle's runtime verdict from its facts.
 
@@ -96,13 +97,15 @@ def runtime_status(
     verified 9/9. A deadline interruption is a phase that did not finish
     (``phase_interrupted``): the cycle is ``failed`` and says which phase,
     the store is still verified by the close-out phases, and the night can
-    publish.
+    publish. A phase that held its work on a checkout git cannot read
+    (``phase_held``, PV SC3) did not run either, but nothing in it failed and
+    the other phases ran: the cycle is ``degraded``, not ``ok``.
     """
     if phase_failed or phase_interrupted:
         return RUNTIME_FAILED
     if integrity_valid is False or any(is_integrity_class(run) for run in non_ok):
         return RUNTIME_INTEGRITY_FAILED
-    if non_ok:
+    if non_ok or phase_held:
         return RUNTIME_DEGRADED
     return RUNTIME_OK
 

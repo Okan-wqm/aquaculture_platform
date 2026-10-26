@@ -90,7 +90,7 @@ def _run_phase(tmp: str, *, sample_items: list[dict] | None = None, enable_funne
          patch("aria_kernel.feedback_store.generate_ai_consensus",
                return_value={"consensus": []}), \
          patch("aria_kernel.request_drain_capacity._request_ledgers", return_value=ledgers), \
-         patch("aria_kernel.convergence_drainer._resolve_workspace_head_sha", return_value="a" * 40):
+         patch("aria_kernel.workspace_view.workspace_head_sha", return_value="a" * 40):
         result = cycle_mod._phase_judgment_pipeline(ctx)
     return result, calls, ctx
 
@@ -328,7 +328,7 @@ class Tier0EarlyStopTest(unittest.TestCase):
                    return_value={"consensus": []}), \
              patch("aria_kernel.request_drain_capacity._request_ledgers",
                    return_value=_seed_ledgers(drained=91, now=_NIGHT)), \
-             patch("aria_kernel.convergence_drainer._resolve_workspace_head_sha", return_value=head):
+             patch("aria_kernel.workspace_view.workspace_head_sha", return_value=head):
             result = cycle_mod._phase_judgment_pipeline(ctx)
         return result, calls, ctx
 
@@ -430,7 +430,7 @@ class TierRoutingTest(unittest.TestCase):
                    return_value={"consensus": []}), \
              patch("aria_kernel.request_drain_capacity._request_ledgers",
                    return_value=_seed_ledgers(drained=drained, now=_NIGHT)), \
-             patch("aria_kernel.convergence_drainer._resolve_workspace_head_sha", return_value=head):
+             patch("aria_kernel.workspace_view.workspace_head_sha", return_value=head):
             result = cycle_mod._phase_judgment_pipeline(ctx)
         return result, calls, ctx
 
@@ -653,7 +653,7 @@ class JudgmentCacheTest(unittest.TestCase):
                    return_value={"consensus": []}), \
              patch("aria_kernel.request_drain_capacity._request_ledgers",
                    return_value=_seed_ledgers(drained=91, now=_NIGHT)), \
-             patch("aria_kernel.convergence_drainer._resolve_workspace_head_sha", return_value=head), \
+             patch("aria_kernel.workspace_view.workspace_head_sha", return_value=head), \
              patch("aria_kernel.claude_settings.kernel_code_root", return_value=kernel / "aria-kernel"):
             result = cycle_mod._phase_judgment_pipeline(ctx)
         return result, calls, ctx

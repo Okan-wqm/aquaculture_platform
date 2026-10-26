@@ -144,7 +144,12 @@ def advance_after_accepted_step(
     from .ledger import LedgerIntegrityError
     from .plan_convergence import TERMINAL_STATES, fold_plan_state
     from .tool_registry import GovernanceError, append_tools_governance
+    from .workspace_view import WorkspaceViewRefused
 
+    # A store, contract or checkout fault of THIS plan's step, not the drain's.
+    # A checkout git cannot read (`WorkspaceViewRefused`, PV R12) fails the
+    # step that needed its HEAD; programming errors raise.
+    store_faults = (GovernanceError, BridgeContractViolation, LedgerIntegrityError, OSError, WorkspaceViewRefused)
     env = os.environ if environ is None else environ
     role = str(request.get("role") or "")
     plan_id = str(request.get("convergence_id") or "")
@@ -185,10 +190,9 @@ def advance_after_accepted_step(
             plan_seed={},
             max_rounds=AUTONOMY_CYCLE_MAX_ROUNDS,
         )
-    except (GovernanceError, BridgeContractViolation, LedgerIntegrityError, OSError) as exc:
-        # A store or contract fault of THIS plan's step, not the drain's: the
-        # cycle meets the same state next and handles it as it always has
-        # (`convergence_invalid_plan`). Programming errors raise.
+    except store_faults as exc:
+        # The cycle meets the same state next and handles it as it always has
+        # (`convergence_invalid_plan`).
         outcome.update(status=ADVANCE_FAILED, error_class=type(exc).__name__, error_message=str(exc)[:500])
         append_tools_governance(tools_dir, ADVANCE_GOVERNANCE_KIND, {"cycle_id": cycle_id, **outcome})
         budget.outcomes.append(outcome)
@@ -198,7 +202,6 @@ def advance_after_accepted_step(
         minted_request_ids=list(result.get("request_ids") or []),
         to_state=fold_plan_state(plan_id=plan_id, base_dir=tools_dir).get("state"),
     )
-    store_faults = (GovernanceError, BridgeContractViolation, LedgerIntegrityError, OSError)
     if result["arbiter_verdict"] == "converged":
         if converged_seam is None:
             from .executor_converged_seam import run_executor_converged_seam as converged_seam

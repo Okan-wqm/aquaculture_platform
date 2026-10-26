@@ -102,6 +102,25 @@ def _refuse_non_repo_spelling(text: str, raw_path: object) -> None:
         raise _GE(f"repo_relpath_backslash: {raw_path!r}")
 
 
+def refuse_repo_relpath_control_char(raw_path: object) -> None:
+    """Refuse a repo path text holding a C0 control character or DEL.
+
+    The one rule for it (ARIA-CRITICAL-215): :func:`normalize_repo_relpath`
+    applies it, and so does every reader of :func:`resolve_repo_relpath` that
+    hands the path on (the plan path record law,
+    ``plan_convergence._plan_path_reading``). Such a name is legal in git, but
+    no repository glob is written for it, and a NUL in it cannot even reach
+    git: ``subprocess`` refuses the argv with ``ValueError`` (PV-R5
+    SEC-R5R1-B1).
+
+    Raises ``tool_registry.GovernanceError`` ``repo_relpath_control_char``.
+    """
+    from .tool_registry import GovernanceError as _GE
+
+    if _CONTROL_CHARACTER.search(str(raw_path)):
+        raise _GE(f"repo_relpath_control_char: {raw_path!r}")
+
+
 def normalize_repo_relpath(raw_path: object) -> str:
     """The canonical spelling of a path that must stay inside the repository.
 
@@ -119,9 +138,11 @@ def normalize_repo_relpath(raw_path: object) -> str:
     ...) or DEL is refused too. It is legal in a git name and ``git diff -z``
     returns it verbatim, but no repository glob is written for such a name:
     the lane classifier once placed ``.../__tests__/a\\nb.test.ts`` under the
-    blocked billing tree in L1. ``resolve_repo_relpath`` keeps it, because
-    its readers (agent evidence refs) refuse control and bidi characters
-    under their own code (``agent_evidence_path_unresolvable``).
+    blocked billing tree in L1 (:func:`refuse_repo_relpath_control_char`).
+    ``resolve_repo_relpath`` keeps it, because each of its readers refuses it
+    first: agent evidence refs under their own code
+    (``agent_evidence_path_unresolvable``), the plan path record law through
+    :func:`refuse_repo_relpath_control_char`.
 
     Raises ``tool_registry.GovernanceError`` with ``repo_relpath_absolute``,
     ``repo_relpath_backslash``, ``repo_relpath_control_char``,
@@ -132,8 +153,7 @@ def normalize_repo_relpath(raw_path: object) -> str:
 
     text = str(raw_path)
     _refuse_non_repo_spelling(text, raw_path)
-    if _CONTROL_CHARACTER.search(text):
-        raise _GE(f"repo_relpath_control_char: {raw_path!r}")
+    refuse_repo_relpath_control_char(raw_path)
     path = lexical_repo_path(text)
     segments = path.split("/")
     if ".." in segments:
@@ -204,6 +224,9 @@ def matches_repo_glob(path: str, pattern: str) -> bool:
       ``b`` and ``a/x/b``; ``a/**`` matches ``a`` and ``a/x/y``.
     * ``*`` matches zero or more characters that are not ``/``.
     * ``?`` matches exactly one character that is not ``/``.
+    * ``[...]`` is a character class and ``[!...]`` its negation; a class
+      that cannot compile raises ``GovernanceError`` (``repo_glob_invalid``),
+      so the answer is a bool or that typed refusal, never ``re.error``.
     * Other characters are matched literally.
     * Every wildcard reads a newline as a name character, and the match ends
       at the end of the path (ARIA-CRITICAL-215 fix round; ``fnmatch``'s
@@ -233,8 +256,24 @@ def expand_repo_glob(pattern: str) -> tuple[str, ...]:
     authority set's judge matches each path against every member, and a
     member is one brace glob over the standard library's module names
     (B1 round 4), so expanding per match would dominate every check.
+
+    PV-R4 R19 — the count of alternatives is read before any is built, and a
+    pattern over ``MAX_REPO_GLOB_ALTERNATIVES`` is refused
+    (``repo_glob_too_many_alternatives``): each ``{a,b}`` group doubles it, so
+    a plan or reviewer path of 24 groups once built 16M alternatives on every
+    record and every freshness read. The refusal is raised before this cache
+    stores anything, so no refused pattern holds memory here.
     """
-    return tuple(_expand_braces(lexical_repo_path(pattern)))
+    lexical = lexical_repo_path(pattern)
+    count = _brace_alternative_count(lexical)
+    if count > MAX_REPO_GLOB_ALTERNATIVES:
+        from .tool_registry import GovernanceError as _GE
+
+        raise _GE(
+            f"{REPO_GLOB_TOO_MANY_ALTERNATIVES}: {pattern[:200]!r} expands to more than "
+            f"{MAX_REPO_GLOB_ALTERNATIVES} alternatives"
+        )
+    return tuple(_expand_braces(lexical))
 
 
 def repo_glob_directory(pattern: str) -> str | None:
@@ -281,8 +320,10 @@ def _expand_braces(pattern: str) -> list[str]:
     Nested braces are split depth-aware in :func:`_split_top_level_commas`
     but only the OUTERMOST group is expanded per recursion level — nested
     groups inside an alternative branch are not pre-expanded; tool
-    manifests in the corpus do not require shell-style nested expansion
-    and keeping the depth flat bounds growth at O(N * groups).
+    manifests in the corpus do not require shell-style nested expansion.
+    Sequential groups multiply, so the one caller (:func:`expand_repo_glob`)
+    reads the count first (:func:`_brace_alternative_count`) and refuses a
+    pattern over ``MAX_REPO_GLOB_ALTERNATIVES`` before this runs.
     """
     # Find the first top-level brace group
     depth = 0
@@ -312,6 +353,29 @@ def _expand_braces(pattern: str) -> list[str]:
     return [pattern]
 
 
+def _brace_alternative_count(pattern: str) -> int:
+    """How many alternatives :func:`_expand_braces` builds for ``pattern``,
+    without building one: the product of the sizes of its sequential
+    outermost groups, read by the same scan (a nested group stays inside its
+    alternative, an unbalanced ``{`` expands nothing). The product stops
+    growing once it passes ``MAX_REPO_GLOB_ALTERNATIVES``: past that the
+    answer is the refusal, so the scan never carries a large integer."""
+    count = 1
+    depth = 0
+    start = -1
+    for index, char in enumerate(pattern):
+        if char == "{":
+            if depth == 0:
+                start = index
+            depth += 1
+        elif char == "}" and depth > 0:
+            depth -= 1
+            if depth == 0 and start >= 0:
+                count = min(count * len(_split_top_level_commas(pattern[start + 1 : index])),
+                            MAX_REPO_GLOB_ALTERNATIVES + 1)
+    return count
+
+
 def _split_top_level_commas(text: str) -> list[str]:
     """Split ``text`` on commas that are not nested inside ``{}``."""
     parts: list[str] = []
@@ -339,6 +403,18 @@ def _glob_match(path: str, pattern: str) -> bool:
 
 
 _GLOB_REGEX_CACHE: dict[str, re.Pattern[str]] = {}
+# The refusal of a glob this owner cannot compile (``_glob_to_regex``).
+REPO_GLOB_INVALID = "repo_glob_invalid"
+# PV-R4 R19 — the refusal of a glob whose brace alternatives exceed
+# MAX_REPO_GLOB_ALTERNATIVES (``expand_repo_glob``), and that bound. The
+# largest legitimate member is the B1 authority set's standard-library glob,
+# one group of ``sys.stdlib_module_names``: measured 300 alternatives
+# (Python 3.12.3, ``derived_authority_set`` of this checkout, 1335 members,
+# 2026-10-24). 1024 keeps that member with room for the list's growth across
+# interpreter releases, and stays 16000 times under the 24-group ref that
+# cost 174 s and 792 MB.
+REPO_GLOB_TOO_MANY_ALTERNATIVES = "repo_glob_too_many_alternatives"
+MAX_REPO_GLOB_ALTERNATIVES = 1024
 
 
 def _glob_to_regex(pattern: str) -> re.Pattern[str]:
@@ -395,14 +471,17 @@ def _glob_to_regex(pattern: str) -> re.Pattern[str]:
             index += 1
             continue
         if char == "[":
-            # Character class — copy through to closing `]`, escaping nothing
+            # Character class — copied through to its closing `]`. fnmatch's
+            # negation `[!x]` is regex `[^x]`: copied raw it was a class that
+            # MATCHES `!` and `x`, a pattern other than the one written.
             close = pattern.find("]", index + 1)
             if close == -1:
                 # Unterminated class — treat literally
                 parts.append(re.escape(char))
                 index += 1
                 continue
-            parts.append(pattern[index : close + 1])
+            body = pattern[index + 1 : close]
+            parts.append(f"[^{body[1:]}]" if body.startswith("!") else f"[{body}]")
             index = close + 1
             continue
         # Literal character
@@ -411,17 +490,43 @@ def _glob_to_regex(pattern: str) -> re.Pattern[str]:
     # `\Z`, not `$`: `$` also matches before a trailing newline. DOTALL: the
     # `.` that `**` compiles to must read a newline as `*` (`[^/]*`) does.
     parts.append(r"\Z")
-    compiled = re.compile("".join(parts), re.DOTALL)
+    # A class the translation copied may still not compile (`[z-a]`, `[]x`):
+    # that pattern is refused by name, never rewritten into one that does,
+    # and ``re.error`` never reaches a caller (PV R16 — one reviewer string
+    # raised it through the plan freshness gate and the delivery drain).
+    try:
+        compiled = re.compile("".join(parts), re.DOTALL)
+    except re.error as exc:
+        from .tool_registry import GovernanceError as _GE
+
+        raise _GE(f"{REPO_GLOB_INVALID}: {pattern!r}: {exc}") from exc
     _GLOB_REGEX_CACHE[pattern] = compiled
     return compiled
 
+
+def require_repo_glob(pattern: str) -> None:
+    """Refuse ``pattern`` unless every brace alternative compiles in this owner.
+
+    The admission half of :func:`matches_repo_glob`: a recorder that will
+    hand a text to the matcher later asks here first, so the refusal
+    (``repo_glob_invalid``, ``repo_glob_too_many_alternatives``) is raised
+    when the text is written, by name, instead of when some later reader
+    matches against it.
+    """
+    for alternative in expand_repo_glob(pattern):
+        _glob_to_regex(alternative)
+
 __all__ = [
+    "MAX_REPO_GLOB_ALTERNATIVES",
+    "REPO_GLOB_INVALID",
+    "REPO_GLOB_TOO_MANY_ALTERNATIVES",
     "_canonical_evidence_path",
     "expand_repo_glob",
     "lexical_repo_path",
     "matches_repo_glob",
     "normalize_repo_relpath",
     "repo_glob_directory",
+    "require_repo_glob",
     "resolve_repo_relpath",
     "typed_alternatives",
 ]

@@ -34,6 +34,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
+from aria_kernel.workspace_view import workspace_head_sha
 from aria_kernel.agent_invocations import list_agent_invocation_requests
 from aria_kernel.agent_surface import (
     DISPATCHABLE_ROLES,
@@ -156,6 +157,7 @@ class _QuestioningFixture(unittest.TestCase):
                 "risks": [],
                 "critique_content_hash": content_hash({"reviewer": REVIEWER, "risks": []}),
             },
+            reviewed_commit_sha=workspace_head_sha(self.root),
             workspace_root=self.root,
             base_dir=self.tools_dir,
         )

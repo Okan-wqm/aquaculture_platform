@@ -23,6 +23,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from aria_kernel.workspace_view import workspace_head_sha
 from aria_kernel import convergence_drainer as cd
 from aria_kernel.ledger import load_jsonl, load_segments
 from tests._helpers.declared_fixtures import native_invocation_bytes
@@ -371,8 +372,9 @@ class PlannerTwinContextTests(_StepCase):
             review = {key: task[key] for key in ("task_packet_hash", "target_revision_id", "target_plan_content_hash",
                                                 "reviewer_agent", "review_direction")}
             review["risks"] = risks
+            review["verdict"] = "material_risks_present" if risks else "agreed"
             review["review_content_hash"] = content_hash(review)
-            record_cross_review(plan_id="plan-1", review=review, workspace_root=self.root, base_dir=self.tools)
+            record_cross_review(plan_id="plan-1", review=review, reviewed_commit_sha=workspace_head_sha(self.root), workspace_root=self.root, base_dir=self.tools)
         self.assertEqual(fold_plan_state(plan_id="plan-1", base_dir=self.tools)["state"], "CROSS_REVIEWED")
 
     def _record_current_revision(self, body: dict) -> dict:
@@ -436,7 +438,8 @@ class PlannerTwinContextTests(_StepCase):
         self.assertEqual(result["state"], "CROSS_REVIEW_REQUESTED")
         requests = [row for row in self.requests() if row["role"] == "cross_review"]
         self.assertEqual(len(requests), 2)
-        self.assertEqual({json.loads(row["suggested_prompt"])["task"]["review_direction"] for row in requests},
+        self.assertEqual({item["review_direction"] for row in requests for item in row["must_satisfy"]
+                          if item["id"] == "cross_review_direction"},
                          {"primary_to_challenger", "challenger_to_primary"})
         for request in requests:
             self._assert_native_body_request(request, body, cycle_id=None)
@@ -645,8 +648,10 @@ class CrossCycleConvergence(_StepCase):
                     "reviewer_agent": reviewer,
                     "review_direction": direction,
                     "risks": [],
+                    "verdict": "agreed",
                     "review_content_hash": content_hash({"r": reviewer}),
                 },
+                reviewed_commit_sha=workspace_head_sha(self.root),
                 workspace_root=self.root,
                 base_dir=self.tools,
             )
@@ -713,7 +718,9 @@ class PlanContractCarriedToThePrimary(_StepCase):
                 plan_id="plan-1",
                 review={"task_packet_hash": task["task_packet_hash"], "target_revision_id": task["target_revision_id"],
                         "target_plan_content_hash": task["target_plan_content_hash"], "reviewer_agent": reviewer,
-                        "review_direction": direction, "risks": [], "review_content_hash": content_hash({"r": reviewer})},
+                        "review_direction": direction, "risks": [], "verdict": "agreed",
+                        "review_content_hash": content_hash({"r": reviewer})},
+                reviewed_commit_sha=workspace_head_sha(self.root),
                 workspace_root=self.root, base_dir=self.tools,
             )
         self.assertEqual(self.step()["arbiter_verdict"], "in_progress")

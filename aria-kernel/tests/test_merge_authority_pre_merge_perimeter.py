@@ -757,6 +757,14 @@ class NativeImplementationContextTests(unittest.TestCase):
         os.environ["NX_HEAD"] = "HEAD"
         installed = installed_node_modules("nx", "typescript", "eslint", "ts-node", "yaml", "ajv")
         (repo / "node_modules").symlink_to(installed, target_is_directory=True)
+        # PV P3 — the surface changes BEFORE the plan converges: the verdict
+        # is bound to the commit it was reached at, and a later commit to a
+        # path the plan names would make it stale (`plan_verdict_stale`).
+        # NX_BASE stays at the initial commit, so the baseline still sees it.
+        (repo / source_path).write_text("export const sampleIntervalMs: number = 30000;\n", encoding="utf-8")
+        git("add", source_path)
+        git("commit", "-q", "-m", "fixture: the surface the plan is reviewed at")
+        reviewed_sha = git("rev-parse", "HEAD")
         operator_set_profile("strict", base_dir=tools)
         ensure_tools_binding(tools, workspace_root=repo)
         plan = production_converged_plan(
@@ -775,7 +783,7 @@ class NativeImplementationContextTests(unittest.TestCase):
         self.assertEqual(coverage_payload["witness"]["tool"], native_tool_paths[0])
         self.assertEqual(coverage_payload["target_revision_id"], plan.revision_id)
         self.assertEqual(coverage_payload["target_plan_content_hash"], plan.content_hash)
-        self.assertEqual(coverage_payload["computed_at_sha"], initial_sha)
+        self.assertEqual(coverage_payload["computed_at_sha"], reviewed_sha)
         self.assertEqual(coverage_payload["uncovered"], [])
         self.assertEqual(coverage_payload["waived"], [])
         coverage_manifest = tools / "coverage" / (plan.plan_id + "-r1.json")
@@ -788,9 +796,6 @@ class NativeImplementationContextTests(unittest.TestCase):
             self.assertEqual((repo / path).read_bytes(), expected_bytes)
             self.assertEqual(subprocess.check_output(["git", "show", initial_sha + ":" + path], cwd=repo),
                 expected_bytes)
-        (repo / source_path).write_text("export const sampleIntervalMs: number = 30000;\n", encoding="utf-8")
-        git("add", source_path, ".claude/agents/farm-expert.md")
-        git("commit", "-q", "-m", "fixture: committed converged baseline")
         git("branch", "-M", "main")
         self.assertEqual(git("status", "--porcelain"), "")
         staged = stage_converged_plan_for_pr(plan_id=plan.plan_id, workspace_root=repo, base_dir=tools)
@@ -973,7 +978,7 @@ class NativeImplementationContextTests(unittest.TestCase):
         self.assertEqual(evidence.coverage_manifest_hash, coverage_payload["closure_manifest_hash"])
         self.assertEqual(evidence.coverage_revision_id, plan.revision_id)
         self.assertEqual(evidence.coverage_plan_hash, plan.content_hash)
-        self.assertEqual(evidence.coverage_computed_at_sha, initial_sha)
+        self.assertEqual(evidence.coverage_computed_at_sha, reviewed_sha)
         self.assertTrue(results["cycle_and_turn_budget_cap"].passed, results["cycle_and_turn_budget_cap"].reason)
         self.assertEqual(results["cycle_and_turn_budget_cap"].reason, "native_cycle_and_turn_budget_respected")
         self.assertEqual(evidence.turn_budget_cap, IMPLEMENTER_TURN_BUDGET)

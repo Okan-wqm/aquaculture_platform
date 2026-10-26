@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 
 import { makeFixtureTree } from '../gates/fixture-tree';
+import { hermeticGitEnv } from '../gates/hermetic-git';
 
+import { ADAPTER_EXCLUDED_DIRS, containedWorkspace } from './adapter-fs';
 import { analyzeDocStaleness, isPointInTimeRecord } from './doc-staleness-adapter';
 
 const workspace = makeFixtureTree('aria-doc-staleness-');
@@ -149,5 +152,198 @@ assert.deepEqual(roleOutput.metadata.unclaimedRefs, {
   absence: 2,
   change_target: 1,
 });
+
+// ---------------------------------------------------------------------------
+// DET scope-5 (B16): the scan surface is the manifest's roots, and the roots
+// are the live documentation, not docs/ alone: the code directories that carry
+// service and library READMEs and the five live root documents, each file root
+// read as that file. sens-api-gateway/, mcp/ and the claim prefixes
+// (PATH_PREFIXES) stay as they were until a labelled sample exists. Each
+// scenario runs on its own, so one run reports every failing one.
+// ---------------------------------------------------------------------------
+const REPO_ROOT = resolve(__dirname, '..', '..');
+const manifest = JSON.parse(
+  readFileSync(join(__dirname, 'doc-staleness-adapter.tool.json'), 'utf8'),
+) as {
+  declared_scope: string[];
+  allowed_read_globs: string[];
+  default_input: { roots: string[] };
+};
+const DIRECTORY_ROOTS = [
+  'apps',
+  'docs',
+  'e2e',
+  'infra',
+  'infrastructure',
+  'libs',
+  'platform',
+  'web',
+];
+const FILE_ROOTS = ['AGENTS.md', 'CLAUDE.md', 'CONTRIBUTING.md', 'README.md', 'SECURITY.md'];
+// A directory root declares `<root>/**/*.md`; a file root declares itself.
+const SCOPE = [...DIRECTORY_ROOTS.map((root) => `${root}/**/*.md`), ...FILE_ROOTS].sort();
+// Root-level markdown the scan skips on purpose: dated reports, plans and logs
+// whose date sits in a body header (isPointInTimeRecord reads the path), and
+// one empty file. A new root-level document is a root or listed here, never
+// silently unread.
+const ROOT_DOCS_NOT_SCANNED = [
+  ...[
+    'ARIA-MIMARI-SEMALARI',
+    'ARIA-VERIMLILIK-DEGERLENDIRMESI',
+    'DISCOVERY_LOG',
+    'okn',
+    'scada-plan',
+  ],
+  ...['DEPLOY-FAZ0', 'DEPLOY-FAZ1', 'DEPLOY-FAZ2', 'DEPLOY-FAZ3', 'FARM-AI-PROGRAM-2026-09-18'],
+].map((name) => `${name}.md`);
+const DELETED = 'apps/farm-service/src/old.service.ts';
+
+const scopeFailures: string[] = [];
+function scenario(name: string, body: () => void): void {
+  try {
+    body();
+  } catch (error) {
+    scopeFailures.push(`--- ${name}\n${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+function put(workspace: string, path: string, body: string): void {
+  mkdirSync(dirname(join(workspace, path)), { recursive: true });
+  writeFileSync(join(workspace, path), body, 'utf8');
+}
+// A document whose line 2 says `ref` is part of the repository, as it stands.
+const claims = (ref: string): string => ['# Doc', `Lives in \`${ref}\`.`, ''].join('\n');
+
+// The manifest owns the surface. The exact set also keeps sens-api-gateway/
+// (+20 findings in 124 docs) and mcp/ (6 false claims) out, as the RCA decided.
+scenario('the manifest names the documentation roots and their globs', () => {
+  const roots = [...DIRECTORY_ROOTS, ...FILE_ROOTS].sort();
+  assert.deepEqual([...manifest.default_input.roots].sort(), roots);
+  assert.deepEqual([...manifest.declared_scope].sort(), SCOPE);
+  assert.deepEqual([...manifest.allowed_read_globs].sort(), SCOPE);
+});
+
+scenario('a file root is read as that file', () => {
+  const ws = makeFixtureTree('aria-doc-staleness-fileroot-');
+  put(ws, 'README.md', ['# Platform', 'Shared code lives in `libs/gone/`.', ''].join('\n'));
+  put(ws, 'docs/runbooks/other.md', claims(DELETED));
+  const scan = (roots: string[], allowed?: string[]): ReturnType<typeof analyzeDocStaleness> =>
+    analyzeDocStaleness({ roots, repo_snapshot: { allowed_paths: allowed } }, ws);
+
+  assert.doesNotThrow(() => scan(['README.md']), 'a file root is not walked as a directory');
+  const output = scan(['README.md']);
+  assert.deepEqual(output.read_paths, ['README.md']);
+  assert.deepEqual(
+    output.findings.map((item) => `${item.path}:${item.line}`),
+    ['README.md:2'],
+  );
+  // A root the workspace lacks, file or directory, is skipped beside one it has.
+  assert.deepEqual(scan(['README.md', 'AGENTS.md', 'e2e']).read_paths, ['README.md']);
+  // The snapshot's allowed paths still decide what is read; a file root is no way around them.
+  assert.deepEqual(scan(['README.md'], ['docs/runbooks/other.md']).read_paths, []);
+  // Green at the base: a root leading out of the workspace stays refused.
+  assert.throws(() => scan(['../x']), /escapes workspace root/);
+});
+
+scenario('the manifest roots read the widened directories and the root documents', () => {
+  const ws = makeFixtureTree('aria-doc-staleness-scope-');
+  put(ws, 'apps/farm-service/src/main.ts', 'export {};\n');
+  put(ws, 'apps/farm-service/README.md', claims(DELETED)); // TP
+  put(ws, 'docs/runbooks/ops.md', claims(DELETED)); // TP: docs/ is still read
+  put(
+    ws,
+    'README.md',
+    [
+      '# Platform', // 1
+      'Shared code lives in `libs/gone/`.', // 2 TP: a deleted directory
+      'Entry point: `apps/farm-service/src/main.ts`.', // 3 exists
+      // 4: prefixes outside PATH_PREFIXES stay unclaimed (RCA: labelled sample first).
+      'Elsewhere: `tests/gone.spec.ts`, `aria-kernel/gone.py`, `docs/gone.md`, `infra/gone.tf`, `crates/gone.rs`.',
+      '- `apps/farm-service/src/fresh.service.ts` (new) -- the export handler', // 5 creation
+      '',
+    ].join('\n'),
+  );
+  const directories = ['libs', 'web', 'infra', 'infrastructure', 'e2e', 'platform'];
+  for (const directory of directories) {
+    put(ws, `${directory}/svc/README.md`, claims(`libs/gone-from-${directory}.ts`)); // TP
+  }
+  const rootDocs = ['AGENTS.md', 'CLAUDE.md', 'CONTRIBUTING.md', 'SECURITY.md'];
+  for (const doc of rootDocs) {
+    put(ws, doc, claims(`libs/gone-from-${doc.slice(0, -3).toLowerCase()}.ts`)); // TP
+  }
+  // Read, never flagged: a README naming what exists; a record under a widened directory.
+  put(ws, 'web/modules/dash/README.md', claims('apps/farm-service/src/main.ts'));
+  put(ws, 'libs/shared/docs/reviews/review.md', claims(DELETED));
+  // Not read: a dated root document, the two tracked directories, a directory no root
+  // names (an `mcp/`-style README's `tools/x` is relative to its package), node_modules.
+  for (const path of ['DEPLOY-FAZ9.md', 'sens-api-gateway/docs/guide.md', 'tests/README.md']) {
+    put(ws, path, claims(DELETED));
+  }
+  put(ws, 'mcp/README.md', claims('tools/relative.ts'));
+  put(ws, 'apps/farm-service/node_modules/dep/README.md', claims(DELETED));
+
+  const output = analyzeDocStaleness({ roots: manifest.default_input.roots }, ws);
+  const flagged = [
+    ...['README.md', 'apps/farm-service/README.md', 'docs/runbooks/ops.md', ...rootDocs],
+    ...directories.map((directory) => `${directory}/svc/README.md`),
+  ].sort();
+  assert.deepEqual(
+    output.findings.map((item) => `${item.path}:${item.line}`).sort(),
+    flagged.map((path) => `${path}:2`),
+    JSON.stringify(output.findings),
+  );
+  assert.deepEqual(
+    output.read_paths,
+    [...flagged, 'libs/shared/docs/reviews/review.md', 'web/modules/dash/README.md'].sort(),
+  );
+  assert.equal(output.metadata.recordDocs, 1);
+  assert.equal((output.metadata.unclaimedRefs as { creation: number }).creation, 1);
+});
+
+const trackedMarkdown = execFileSync('git', ['-C', REPO_ROOT, 'ls-files', '-z', '--', '*.md'], {
+  encoding: 'utf8',
+  env: hermeticGitEnv(),
+  maxBuffer: 64 * 1024 * 1024,
+})
+  .split('\0')
+  .filter((path) => path.length > 0);
+
+scenario('every tracked root-level markdown file is a root or declared unscanned', () => {
+  const rootDocs = trackedMarkdown.filter((path) => !path.includes('/'));
+  const roots = new Set(manifest.default_input.roots);
+  assert.deepEqual(
+    rootDocs.filter((path) => !roots.has(path) && !ROOT_DOCS_NOT_SCANNED.includes(path)),
+    [],
+    'a root-level document is neither a doc-staleness root nor listed as unscanned',
+  );
+  assert.deepEqual(
+    ROOT_DOCS_NOT_SCANNED.filter((path) => !rootDocs.includes(path) || roots.has(path)),
+    [],
+    'the unscanned list names a document that is untracked or is also a root',
+  );
+});
+
+// The surface over this checkout, not a fixture: every tracked document under
+// a root is read.
+scenario('the real repository: the scan reads what the roots hold', () => {
+  const real = analyzeDocStaleness({ roots: manifest.default_input.roots }, REPO_ROOT);
+  const workspace = containedWorkspace(REPO_ROOT);
+  const read = new Set(real.read_paths);
+  const unread = trackedMarkdown.filter(
+    (path) =>
+      (FILE_ROOTS.includes(path) || DIRECTORY_ROOTS.some((root) => path.startsWith(`${root}/`))) &&
+      !path
+        .split('/')
+        .slice(0, -1)
+        .some((segment) => ADAPTER_EXCLUDED_DIRS.has(segment)) &&
+      workspace.entry(path) === 'file' &&
+      !read.has(path),
+  );
+  assert.deepEqual(unread, [], 'a tracked document under a root is not read');
+});
+
+assert.ok(
+  scopeFailures.length === 0,
+  `${scopeFailures.length} DET scope-5 scenario(s) failed:\n\n${scopeFailures.join('\n\n')}`,
+);
 
 process.stdout.write('doc-staleness-adapter tests passed\n');

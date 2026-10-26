@@ -42,8 +42,9 @@
 // (a bind source it cannot place, a runtime user named by a variable, a module
 // source it cannot classify, an nginx include it cannot see, or a level that
 // sets headers under one) is an
-// observation, never a clean result. A credential is located by path, line and
-// key, never copied into the output.
+// observation, never a clean result. A manifest root the checkout does not hold
+// is an infrastructure_root_absent observation, not a crash. A credential is
+// located by path, line and key, never copied into the output.
 //
 // A kustomize overlay that patches resources and probes into a base workload it
 // deploys supplies that guard: the composition is recorded as evidence instead
@@ -359,8 +360,20 @@ export function analyzeInfrastructurePolicy(
     workspace.entry(path) === 'file' && pathAllowedBySnapshot(workspaceRoot, path, input);
 
   // ------------------------------------------------------ the scan surface
+  // The manifest's roots are a hand list that outlives a directory: a root the checkout does
+  // not hold is an observation (it hides no file), where a root that exists but cannot be
+  // scanned (a symlink, a special file, a file the classifier does not own) is still refused.
+  const scanRoots: string[] = [];
   for (const root of roots) {
     const entry = workspace.entry(root);
+    if (entry === 'absent') {
+      observations.push({
+        id: `${TOOL_ID}:root-absent:${root}`,
+        type: 'infrastructure_root_absent',
+        details: { root },
+      });
+      continue;
+    }
     if (entry === 'refused') {
       throw new Error(`${TOOL_ID}: root is not a contained workspace-relative path: ${root}`);
     }
@@ -370,11 +383,12 @@ export function analyzeInfrastructurePolicy(
     if (entry === 'file' && classifyInfraFile(root) === null) {
       throw new Error(`${TOOL_ID}: scan root is not an infrastructure file: ${root}`);
     }
+    scanRoots.push(root);
   }
   const relativePath = (absolute: string): string =>
     normalizeWorkspacePath(relative(workspaceRoot, absolute));
   const collected = filterFilesBySnapshot(
-    roots.flatMap((root) =>
+    scanRoots.flatMap((root) =>
       workspace.entry(root) === 'file'
         ? [join(workspaceRoot, root)]
         : collectFiles(workspaceRoot, join(workspaceRoot, root), {

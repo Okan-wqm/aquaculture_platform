@@ -29,9 +29,9 @@
         "{workspaceRoot}/infra/**",
         "{workspaceRoot}/deploy/**",
         "{workspaceRoot}/nginx/**",
-        "{workspaceRoot}/docker-compose*.yml",
-        "{workspaceRoot}/Dockerfile.agent-tooling",
-        "{workspaceRoot}/apps/sensor-ingestion/Dockerfile",
+        "{workspaceRoot}/**/Dockerfile*",
+        "{workspaceRoot}/**/*.{Dockerfile,dockerfile}",
+        "{workspaceRoot}/**/{docker-,}compose*.{yml,yaml}",
         "{workspaceRoot}/.gitleaks.toml",
         "{workspaceRoot}/.github/manifests/postgres-image.json"
       ],

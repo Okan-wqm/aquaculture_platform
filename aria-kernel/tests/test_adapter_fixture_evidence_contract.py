@@ -107,7 +107,9 @@ class ShippedManifestContractTests(unittest.TestCase):
 
     def test_an_agent_backed_manifest_declares_no_fixture_suite(self) -> None:
         agent_backed = [manifest for _, manifest in _shipped_manifests() if is_agent_backed(manifest)]
-        self.assertTrue(agent_backed, "no agent-backed manifest ships: change-review is the first")
+        # Direct, not incidental (removed-tests audit): reclassifying an existing adapter as agent-backed, or adding a
+        # second agent-backed tool, must be a decision this assertion records.
+        self.assertEqual(sorted(manifest["tool_id"] for manifest in agent_backed), ["change-review"])
         for manifest in agent_backed:
             with self.subTest(tool=manifest["tool_id"]):
                 self.assertNotIn("fixture_set", manifest)

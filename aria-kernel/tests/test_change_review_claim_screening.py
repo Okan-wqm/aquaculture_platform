@@ -116,6 +116,25 @@ class ClaimsTheFamilyContractContradicts(ChangeReviewCase):
         contract = self.families.contracts[self.families.low]
         self.assertEqual((finding["claim_type"], finding["severity"]), (contract.claim_type, contract.severity_cap))
 
+    def test_every_familys_raw_row_carries_its_contracts_type_and_severity(self) -> None:
+        # The conformance audit (R10) found a mutant that stores one constant severity passing every test, because only
+        # the LOW family's stored row was pinned. One answer carries one claim per declared family; each stored row must
+        # carry the type and severity of ITS family's contract, resolved by the one resolver, not from the claim text.
+        names = list(self.families.contracts)
+        self.assertGreaterEqual(len({self.families.contracts[name].severity_cap for name in names}), 2)
+        self.bridge([self.claim(3 + index, marker=f"F{index}", rule=name) for index, name in enumerate(names)])
+
+        rows = raw_rows(self.tools)
+        self.assertEqual(len(rows), len(names))
+        seen = {}
+        for row in rows:
+            finding = self.finding(row)
+            seen[finding["id"].split(":", 1)[0]] = (finding["claim_type"], finding["severity"])
+        self.assertEqual(sorted(seen), sorted(names))
+        for name in names:
+            contract = self.families.contracts[name]
+            self.assertEqual(seen[name], (contract.claim_type, contract.severity_cap), name)
+
     def finding(self, row: dict[str, Any]) -> dict[str, Any]:
         from aria_kernel.feedback_store import resolve_raw_finding
 

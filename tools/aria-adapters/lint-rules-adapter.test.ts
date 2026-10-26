@@ -10,7 +10,7 @@ async function main(): Promise<void> {
   // Expectations that are pinned independently, so one red does not hide
   // another: each is collected here and all are reported together at the end.
   const pins: string[] = [];
-  const pin = async (name: string, body: () => Promise<void>): Promise<void> => {
+  const pin = async (name: string, body: () => void | Promise<void>): Promise<void> => {
     try {
       await body();
     } catch (error: unknown) {
@@ -488,7 +488,7 @@ async function main(): Promise<void> {
   // Each rule is found on exactly the lines that draw it, in all three backend
   // roots, and on none of the near-miss or suppressed lines.
   for (const rule of policyRuleIds) {
-    await pin(`${rule} is found on exactly its lines in the backend roots`, async () => {
+    await pin(`${rule} is found on exactly its lines in the backend roots`, () => {
       assert.deepEqual(observedPolicy(policyRun, rule), expectedPolicy(backendPaths, rule));
     });
   }
@@ -499,7 +499,7 @@ async function main(): Promise<void> {
   // floods the ledger instead of silencing it.
   await pin(
     'a justified inline suppression raises no finding, whichever policy rule it names',
-    async () => {
+    () => {
       assert.ok(policyRun.read_paths.includes(suppressedPath), 'the suppressed file is scanned');
       assert.deepEqual(
         policyRun.findings
@@ -527,7 +527,7 @@ async function main(): Promise<void> {
 
   await pin(
     'a policy finding is medium, below a closing confidence, and cites its own line',
-    async () => {
+    () => {
       const found = policyFindingsOf(policyRun);
       assert.ok(found.length > 0, 'the policy pack produced findings');
       for (const finding of found) {
@@ -550,7 +550,7 @@ async function main(): Promise<void> {
     },
   );
 
-  await pin('severityFor ranks a policy rule medium whatever its own meta says', async () => {
+  await pin('severityFor ranks a policy rule medium whatever its own meta says', () => {
     for (const rule of policyRuleIds) {
       assert.equal(severityFor(rule, { type: 'suggestion' }), 'medium', `${rule} (suggestion)`);
       assert.equal(severityFor(rule, { type: 'problem' }), 'medium', `${rule} (problem)`);
@@ -563,26 +563,19 @@ async function main(): Promise<void> {
     );
   });
 
-  await pin(
-    'the policy pack is a named rule pack, counted rule by rule in the summary',
-    async () => {
-      const packs = ['sonarjs', 'security', 'policy'];
-      assert.deepEqual([...RULE_PACKS], packs);
-      const summary = policyRun.observations.find(
-        (observation) => observation.type === 'lint_rules_summary',
-      );
-      assert.deepEqual(summary?.details?.rulePacks, packs);
-      assert.deepEqual(policyRun.metadata.rulePacks, packs);
-      const histogram = (summary?.details?.ruleHistogram ?? {}) as Record<string, number>;
-      for (const rule of policyRuleIds) {
-        assert.equal(
-          histogram[rule],
-          expectedPolicy(backendPaths, rule).length,
-          `${rule} histogram`,
-        );
-      }
-    },
-  );
+  await pin('the policy pack is a named rule pack, counted rule by rule in the summary', () => {
+    const packs = ['sonarjs', 'security', 'policy'];
+    assert.deepEqual([...RULE_PACKS], packs);
+    const summary = policyRun.observations.find(
+      (observation) => observation.type === 'lint_rules_summary',
+    );
+    assert.deepEqual(summary?.details?.rulePacks, packs);
+    assert.deepEqual(policyRun.metadata.rulePacks, packs);
+    const histogram = (summary?.details?.ruleHistogram ?? {}) as Record<string, number>;
+    for (const rule of policyRuleIds) {
+      assert.equal(histogram[rule], expectedPolicy(backendPaths, rule).length, `${rule} histogram`);
+    }
+  });
 
   // The generic `*` contract says a true positive is "not a style preference
   // the codebase allows", which the judges would refute for a console call in
@@ -593,7 +586,7 @@ async function main(): Promise<void> {
   // say; this pins that they and the rules that really fire are the same set.
   await pin(
     'each policy rule that fires has its own manifest contract, and no other has one',
-    async () => {
+    () => {
       const manifest = JSON.parse(
         readFileSync(join(__dirname, 'lint-rules-adapter.tool.json'), 'utf8'),
       ) as { rules: Record<string, unknown> };

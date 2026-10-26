@@ -18,6 +18,13 @@ git index, and a cycle's checkout has nothing staged: the scan could only
 ever say "clean". The pre-commit hook and the CI range check keep owning the
 diff-time gate; this adapter observes what is already on main.
 
+DET-banned B02 — only ``tree`` and ``staged`` are served (``SERVED_MODES``);
+any other ``mode`` is refused before the gate is spawned. ``range`` and
+``file`` need operands the adapter never forwards (the gate puts refs into a
+shell command and a ``git diff`` argv), and ``commit`` scans only HEAD's
+message, so on a cycle checkout it would read as clean for a history it never
+looked at.
+
 Runner contract (ARIA tool_runner.run_tool):
     stdin: JSON {cycle_id, ...}
     stdout: JSON {observations[], findings[], read_paths[],
@@ -54,6 +61,13 @@ def _resolve_repo_root() -> Path:
 
 
 DEFAULT_MODE = "tree"
+# The closed set of gate modes a request may name; DEFAULT_MODE is one of them.
+# `staged` stays: it is served correctly (an operator's pre-commit preview)
+# even though it is blind on a cycle checkout. The gate's other modes belong to
+# the CI range check and the commit hook, which own their operands.
+SERVED_MODES = ("tree", "staged")
+# The gate's own error exit (it exits 2 on a request it cannot serve).
+UNSERVED_MODE_EXIT = 2
 
 
 def _invoke_banned_phrase_cli(repo_root: Path, mode: str = DEFAULT_MODE) -> tuple[int, str]:
@@ -162,6 +176,26 @@ def _violation_to_observation(v: dict, cycle_id: str, idx: int) -> dict:
     }
 
 
+def _write_unavailable(mode: object, exit_code: int | None, reason: str) -> None:
+    """The typed `unavailable` envelope: no verdict, and never a clean scan."""
+    sys.stdout.write(json.dumps({
+        "observations": [],
+        "findings": [],
+        "read_paths": [],
+        "evidence_sources": [],
+        "cost_units": 0,
+        "status": "unavailable",
+        "metadata": {
+            "adapter": "banned-phrase-adapter",
+            "phase": "shadow",
+            "mode": mode,
+            "exit_code": exit_code,
+            "violation_count": 0,
+            "reason": reason,
+        },
+    }))
+
+
 def main() -> int:
     raw = sys.stdin.read() if not sys.stdin.isatty() else ""
     try:
@@ -170,6 +204,19 @@ def main() -> int:
         payload = {}
     cycle_id = payload.get("cycle_id", "unknown-cycle")
     mode = payload.get("mode", DEFAULT_MODE)
+
+    # DET-banned B02 — refused before the gate is spawned: the gate would exit 2
+    # (range/file without operands, read as a crash) or scan HEAD's message
+    # alone (commit, read as clean). The gate has no verdict for this request.
+    if mode not in SERVED_MODES:
+        _write_unavailable(
+            mode,
+            None,
+            f"mode {mode!r} is not served by the adapter, which serves only "
+            f"{', '.join(SERVED_MODES)}; range, file and commit belong to the CI "
+            "range check and the pre-commit hook",
+        )
+        return UNSERVED_MODE_EXIT
 
     repo_root = _resolve_repo_root()
     exit_code, output_text = _invoke_banned_phrase_cli(repo_root, mode=mode)
@@ -183,22 +230,7 @@ def main() -> int:
     # observations for that (the audit reproduction: exit 127 read as
     # "no banned phrases") turns a dead security gate into a green one.
     if exit_code != 0 and not violations:
-        sys.stdout.write(json.dumps({
-            "observations": [],
-            "findings": [],
-            "read_paths": [],
-            "evidence_sources": [],
-            "cost_units": 0,
-            "status": "unavailable",
-            "metadata": {
-                "adapter": "banned-phrase-adapter",
-                "phase": "shadow",
-                "mode": mode,
-                "exit_code": exit_code,
-                "violation_count": 0,
-                "reason": "banned-phrase CLI failed without a parseable result",
-            },
-        }))
+        _write_unavailable(mode, exit_code, "banned-phrase CLI failed without a parseable result")
         return exit_code or 1
 
     body = {

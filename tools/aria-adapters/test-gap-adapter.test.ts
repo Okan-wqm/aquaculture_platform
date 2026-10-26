@@ -708,16 +708,19 @@ assert.deepEqual(
   'no input key switches the write-boundary rule off',
 );
 
-// The rule moves the real-repo baseline: 221 findings on clean main become
-// about 323 (build/DET-RCA/testgap.md), above the old cap of 300. The fixture
-// lane judges the full-repo scan against this cap.
+// The rule moves the real-repo baseline: 221 findings on clean main become 349
+// (210 migration + 11 security + 128 write-boundary, measured on 20ff4f8a7),
+// above the old cap of 300. The fixture lane judges the full-repo scan against
+// this cap, and a lane over its cap blocks readiness, so the cap is set where
+// the other adapters set theirs: a round number well above the measured count
+// (here about 29% headroom), not one finding above it.
 const baselineCase = JSON.parse(
   readFileSync(join(repoRoot, semanticFixtures, 'cases', 'real-repo-baseline.json'), 'utf8'),
 ) as { readonly expected: { readonly max_findings: number } };
 assert.equal(
   baselineCase.expected.max_findings,
-  350,
-  'the real-repo baseline cap holds the rule-on population (221 + about 102) with headroom',
+  450,
+  'the real-repo baseline cap holds the rule-on population (349 measured) with headroom',
 );
 
 process.stdout.write('test-gap-adapter tests passed\n');

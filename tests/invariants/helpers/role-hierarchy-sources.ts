@@ -3,10 +3,11 @@
  * three shapes a copy of the platform role hierarchy has taken in this repository.
  *
  * - `hierarchy map`: an object literal keyed by platform roles whose values are role lists or
- *   ranks — the backend `ROLE_HIERARCHY`, the web copy beside it, auth's `ROLE_LEVELS`, the
- *   invite check's `ranks` and the mobile `ROLE_RANK` all had this shape;
- *   (`{ SUPER_ADMIN: ['TENANT_ADMIN', …] }`, `{ [Role.SUPER_ADMIN]: 4 }`).
- * - `order`: one array literal naming all four platform roles — the user entity's `roleOrder`.
+ *   ranks (`{ SUPER_ADMIN: ['TENANT_ADMIN', …] }`, `{ [Role.SUPER_ADMIN]: 4 }`) — the backend
+ *   `ROLE_HIERARCHY`, the web copy beside it, auth's `ROLE_LEVELS`, the invite check's `ranks`
+ *   and the mobile `ROLE_RANK` all had this shape.
+ * - `order`: one array literal naming all four platform roles — the user entity's `roleOrder`,
+ *   the messaging resolver's `hierarchy`, and the role lists of aquamobil and the admin panel.
  * - `union`: a type union of two or more platform role literals — the three web `UserRole`s.
  *
  * A role is named by its string literal, by a property access ending in it (`Role.TENANT_ADMIN`,

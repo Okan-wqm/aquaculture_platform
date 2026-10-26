@@ -19,16 +19,10 @@ import { CapabilityAuthorityService } from './capability-authority';
 import {
   CatalogueCategoryView,
   entitledPermissionCategories,
-  PERMISSION_CATEGORIES,
   panelPermissionsToResourceArray,
   resolveEntitledCapabilities,
 } from './permission-catalogue';
 import { colors } from '@aquaculture/shared-contracts';
-
-// Re-export the catalogue SSoT so existing importers (tenant-role.resolver,
-// permission-catalogue.spec) keep their import path. The definition now lives in
-// permission-catalogue.ts so CapabilityAuthorityService can share it with no cycle.
-export { PERMISSION_CATEGORIES };
 
 /**
  * Default tenant roles seed data

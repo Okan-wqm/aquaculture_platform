@@ -93,6 +93,84 @@ export type {
   ActiveOwnerModuleCode,
 } from './modules/platform-modules';
 
+// ── Access vocabulary (RBAC-MEDIUM-024; ADR-051 §1) ──
+// The platform roles and their one hierarchy, the tenant capability catalogue and the one
+// capability check, the access kinds, the member and service callers, ModuleScope, and the one
+// pure decideAccess that guards, NATS responders, sockets, notification fan-out and the nav call.
+export {
+  PLATFORM_ROLES_BY_PRIVILEGE,
+  PLATFORM_ROLE,
+  PLATFORM_ROLE_KIND,
+  PLATFORM_ROLE_HIERARCHY,
+  ACCOUNT_ROLES,
+  MODULE_ROLES,
+  isPlatformRole,
+  isAccountRole,
+  isModuleRole,
+  platformRoleSatisfies,
+  highestPlatformRole,
+  accountRoleOf,
+} from './access/platform-roles';
+export type {
+  PlatformRole,
+  PlatformRoleKind,
+  AccountRole,
+  ModuleRole,
+} from './access/platform-roles';
+export {
+  TENANT_CAPABILITY_CATALOGUE,
+  TENANT_CAPABILITIES,
+  COMPANY_VIEW_CAPABILITY,
+  isTenantCapability,
+  holdsTenantCapabilities,
+} from './access/tenant-capabilities';
+export type {
+  TenantCapability,
+  TenantCapabilityCatalogue,
+  TenantCapabilityCategoryKey,
+  TenantCapabilityHolder,
+} from './access/tenant-capabilities';
+export {
+  ALL_MODULES_SCOPE,
+  ScopeWideningError,
+  moduleScopeOf,
+  moduleScopeIncludes,
+  narrowModuleScope,
+} from './access/module-scope';
+export type { ModuleScope, NonEmptyReadonlyArray } from './access/module-scope';
+export {
+  NATS_SERVICE_NAMES,
+  isModuleAccess,
+  userCaller,
+  serviceCaller,
+} from './access/access-spec';
+export type {
+  AccessIntent,
+  ServiceIntent,
+  ScopedKind,
+  ModuleAccessSpec,
+  ScopedAccessSpec,
+  CompanyAccessSpec,
+  SelfAccessSpec,
+  AccountAccessSpec,
+  ServiceAccessSpec,
+  MemberAccessSpec,
+  AccessSpec,
+  AccessKind,
+  AccessRequest,
+  ModuleAccess,
+  NatsServiceName,
+  UserCaller,
+  ServiceCaller,
+  Caller,
+  VerifiedMemberIdentity,
+  UserSubjectAccess,
+  ServiceSubjectAccess,
+  SubjectAccess,
+} from './access/access-spec';
+export { decideAccess, deriveServiceGrants } from './access/decide-access';
+export type { AccessDecision, AccessDenyReason, ServiceGrants } from './access/decide-access';
+
 // ── AI Persona Grammar + Catalogue ──
 // Single source of truth for persona ids (`<tier>[-<specialty>]-v<N>`) and the
 // published persona catalogue (names, icons, RBAC requirements). Consumed by

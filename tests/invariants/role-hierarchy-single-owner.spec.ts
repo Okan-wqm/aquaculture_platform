@@ -5,18 +5,19 @@
  * Before it, every surface typed its own: backend-common held `ROLE_HIERARCHY`, the web copied it
  * "matching backend", auth kept an unused `ROLE_LEVELS` (with a `VIEWER` no role has), the invite
  * check ranked roles by hand, the user entity and the messaging resolver each listed the roles in
- * privilege order, the mobile app kept a `ROLE_RANK` mirror, the web declared `UserRole` three
- * times, the SUPER_ADMIN/TENANT_ADMIN capability bypass was written twice, and the capability
- * catalogue was a literal no other workspace could import. A change to one copy silently
- * diverged from the others.
+ * privilege order, the mobile app kept a `ROLE_RANK` mirror and its own role list, the admin panel
+ * another list, the web declared `UserRole` three times, the SUPER_ADMIN/TENANT_ADMIN capability
+ * bypass was written three times (backend, web, mobile), and the capability catalogue was a
+ * literal no other workspace could import. A change to one copy silently diverged from the others.
  *
  *   1. The one hierarchy is `PLATFORM_ROLES_BY_PRIVILEGE` (platform-roles.ts). The backend `Role`
  *      enum spells exactly its roles, and `roleHasPermission` answers exactly as it does.
- *   2. No product source outside the owner declares a hierarchy map, a privilege-ordered role list
- *      or a union of role literals (specs, migrations and generated code are exempt: generated
- *      unions come from the GraphQL schema the `Role` enum builds).
+ *   2. No product source outside the owner declares a hierarchy map, a list of all the roles or a
+ *      union of role literals (specs, migrations and generated code are exempt: generated unions
+ *      come from the GraphQL schema the `Role` enum builds).
  *   3. The capability check (with its account-role bypass) is `holdsTenantCapabilities`, read by
- *      the backend and the web; the catalogue literal lives only in tenant-capabilities.ts.
+ *      the backend, the web and the mobile app; the catalogue literal lives only in
+ *      tenant-capabilities.ts.
  */
 import {
   PLATFORM_ROLES_BY_PRIVILEGE,
@@ -34,6 +35,7 @@ const OWNER = 'libs/shared-contracts/src/access/platform-roles.ts';
 const BACKEND_CAPABILITY_CHECK =
   'libs/backend-common/src/decorators/require-permission.decorator.ts';
 const WEB_CAPABILITY_CHECK = 'web/shared-ui/src/utils/tenant-capabilities.ts';
+const MOBILE_CAPABILITY_CHECK = 'web/apps/aquamobil/src/hooks/useAuth.tsx';
 const AUTH_CATALOGUE = 'apps/auth-service/src/modules/tenant/services/permission-catalogue.ts';
 const SOURCE_ROOTS = ['apps', 'libs', 'platform', 'web', 'mcp'];
 const ROLES: ReadonlySet<string> = new Set(PLATFORM_ROLES_BY_PRIVILEGE);
@@ -91,7 +93,7 @@ describe('INVARIANT: one owner for the access vocabulary (RBAC-MEDIUM-024)', () 
   });
 
   describe('3. the capability check and catalogue', () => {
-    it.each([BACKEND_CAPABILITY_CHECK, WEB_CAPABILITY_CHECK])(
+    it.each([BACKEND_CAPABILITY_CHECK, WEB_CAPABILITY_CHECK, MOBILE_CAPABILITY_CHECK])(
       '%s reads holdsTenantCapabilities and names no account role itself',
       (file) => {
         const code = codeOf(file, readRepoFile(file));

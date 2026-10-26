@@ -55,6 +55,16 @@ describe('platform roles (the one hierarchy)', () => {
     expect(platformRoleSatisfies(held, required)).toBe(expected);
   });
 
+  it('fails closed on a role string from a claim that is no platform role', () => {
+    // A token claim can carry any string whatever the static type says.
+    const unknownRole = 'SOMETHING_ELSE' as PlatformRole;
+    for (const role of PLATFORM_ROLES_BY_PRIVILEGE) {
+      expect(platformRoleSatisfies(unknownRole, role)).toBe(false);
+      expect(platformRoleSatisfies(role, unknownRole)).toBe(false);
+    }
+    expect(platformRoleSatisfies(unknownRole, unknownRole)).toBe(false);
+  });
+
   it('splits the roles into account roles and module roles (ADR-051 §1)', () => {
     expect(ACCOUNT_ROLES).toEqual(['SUPER_ADMIN', 'TENANT_ADMIN']);
     expect(MODULE_ROLES).toEqual(['MODULE_MANAGER', 'MODULE_USER']);

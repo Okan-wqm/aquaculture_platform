@@ -1,7 +1,7 @@
 import * as crypto from 'crypto';
 
 import { tenantManagerRepo } from '@aquaculture/backend-common/database';
-import { Role } from '@aquaculture/backend-common/decorators';
+import { Role, roleHasPermission } from '@aquaculture/backend-common/decorators';
 import {
   Injectable,
   Logger,
@@ -1090,21 +1090,16 @@ export class UserLifecycleService {
    * MODULE_MANAGER can invite only MODULE_USER. Anything else throws.
    */
   private assertRoleHierarchy(inviter: User, targetTenantId: string, targetRole: Role): void {
-    const ranks: Record<string, number> = {
-      [Role.SUPER_ADMIN]: 4,
-      [Role.TENANT_ADMIN]: 3,
-      [Role.MODULE_MANAGER]: 2,
-      [Role.MODULE_USER]: 1,
-    };
-
     if (inviter.role === Role.SUPER_ADMIN) return;
 
     if (inviter.tenantId !== targetTenantId) {
       throw new ForbiddenException('Cannot invite users to a different tenant');
     }
 
+    // The one platform role hierarchy (RBAC-MEDIUM-024): a tenant admin may grant
+    // its own role or any role below it.
     if (inviter.role === Role.TENANT_ADMIN) {
-      if ((ranks[targetRole] ?? 0) <= (ranks[Role.TENANT_ADMIN] ?? 0)) return;
+      if (roleHasPermission(Role.TENANT_ADMIN, targetRole)) return;
       throw new ForbiddenException('Cannot create user with higher role than your own');
     }
 

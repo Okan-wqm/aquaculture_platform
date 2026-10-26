@@ -1,3 +1,4 @@
+import { accountRoleOf, holdsTenantCapabilities } from '@aquaculture/shared-contracts';
 import { SetMetadata } from '@nestjs/common';
 
 import { Role } from './roles.decorator';
@@ -66,15 +67,18 @@ function normalizeRoles(user: ResourcePermissionUser): Role[] {
 }
 
 /**
- * SSoT for the tenant-RBAC capability check. Shared by `TenantPermissionGuard`
- * (route-level, via `@RequireTenantPermission`) AND any programmatic /
- * conditional check — e.g. a multi-branch mutation that must gate only ONE
- * branch (creating a GROUP channel) without blanket-guarding the whole handler.
+ * The tenant-RBAC capability check for a verified user. Shared by
+ * `TenantPermissionGuard` (route-level, via `@RequireTenantPermission`) AND any
+ * programmatic / conditional check — e.g. a multi-branch mutation that must gate
+ * only ONE branch (creating a GROUP channel) without blanket-guarding the whole
+ * handler.
  *
- * SUPER_ADMIN and TENANT_ADMIN bypass (full access); otherwise EVERY required
- * capability must be present in the user's `resourcePermissions`. Fail-closed on
- * a missing user. Mirrors the frontend `useAuth().hasPermission` exactly so the
- * UI-visibility and the server-enforcement verdicts agree.
+ * The rule itself — an account role holds every capability, a member exactly its
+ * `resourcePermissions` — is `holdsTenantCapabilities` in shared-contracts, which
+ * the frontend `useAuth().hasPermission` reads too, so the UI-visibility and the
+ * server-enforcement verdicts cannot disagree (RBAC-MEDIUM-024). This function
+ * only reads the claims the way the backend receives them (roles case-normalised)
+ * and fails closed on a missing user.
  */
 export function hasAllResourcePermissions(
   user: ResourcePermissionUser | null | undefined,
@@ -83,12 +87,13 @@ export function hasAllResourcePermissions(
   if (!user) {
     return false;
   }
-  const roles = normalizeRoles(user);
-  if (roles.includes(Role.SUPER_ADMIN) || roles.includes(Role.TENANT_ADMIN)) {
-    return true;
-  }
-  const granted = user.resourcePermissions ?? [];
-  return requiredPermissions.every((permission) => granted.includes(permission));
+  return holdsTenantCapabilities(
+    {
+      accountRole: accountRoleOf(normalizeRoles(user)),
+      capabilities: user.resourcePermissions ?? [],
+    },
+    requiredPermissions,
+  );
 }
 
 /** Single-capability convenience over {@link hasAllResourcePermissions}. */

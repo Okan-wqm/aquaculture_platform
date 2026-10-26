@@ -66,7 +66,7 @@ import {
   UpdateTenantUserInput,
   RevokeUserRoleInput,
 } from '../dto/tenant-role.dto';
-import { TenantRoleService, PERMISSION_CATEGORIES } from '../services/tenant-role.service';
+import { TenantRoleService } from '../services/tenant-role.service';
 import { TenantUserManagementService, UserRoleAssignmentResult } from '../services/tenant-user-management.service';
 
 @Resolver(() => TenantRole)

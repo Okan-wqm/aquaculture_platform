@@ -5,6 +5,10 @@
  * - User gets initial permissions from their role
  * - Admin changes the role's permissions
  * - User's new token (after refresh/re-login) reflects the updated permissions
+ *
+ * The panels name catalogue capabilities only (RBAC-HIGH-025): the write path refuses any other
+ * key. The change grants `company:view` (plan PKG-03 accept: the Company read capability saved on
+ * a role lands in the JWT).
  */
 
 import { assertDefined } from '../../helpers/assertions';
@@ -41,9 +45,8 @@ describe('Permission Propagation', () => {
       level: 40,
       isDefault: false,
       panelPermissions: {
-        farm: {
-          tanks: { view: true, edit: false, delete: false },
-          batches: { view: true, edit: false, delete: false },
+        admin: {
+          users: { view: true, invite: false },
         },
       },
     });
@@ -99,15 +102,14 @@ describe('Permission Propagation', () => {
     const loginResult1 = await loginAs(testEmail, testPassword);
     const payload1 = decodeJwt(loginResult1.accessToken);
 
-    // 2. Update the role's permissions (add new permissions)
+    // 2. Update the role's permissions (add the Company read capability)
     await updateTenantRole(superAdminToken, customRoleId, {
       panelPermissions: {
-        farm: {
-          tanks: { view: true, edit: true, delete: true },
-          batches: { view: true, edit: true, delete: false },
+        admin: {
+          users: { view: true, invite: false },
         },
-        sensor: {
-          devices: { view: true, edit: true, delete: false },
+        company: {
+          company: { view: true },
         },
       },
     });
@@ -129,6 +131,10 @@ describe('Permission Propagation', () => {
 
     // The tokens should be different (different iat/jti at minimum)
     expect(loginResult2.accessToken).not.toBe(loginResult1.accessToken);
+
+    // A member's token carries exactly the role's capabilities, before and after the change.
+    expect(payload1.resourcePermissions).toEqual(['users:view']);
+    expect([...payload2.resourcePermissions].sort()).toEqual(['company:view', 'users:view']);
   });
 
   it('should propagate permissions to getUserEffectivePermissions query', async () => {

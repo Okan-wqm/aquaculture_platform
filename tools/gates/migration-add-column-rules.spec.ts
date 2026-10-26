@@ -334,7 +334,9 @@ void test('R14 (b) rejects an ALTER TABLE outside up() and down()', () => {
       '}',
     ].join('\n  '),
   );
-  expectR14(source, ['b']);
+  // (b) for the ALTER TABLE the helper holds, (d) for the call to it: up()
+  // runs work the gate does not read as one of up()'s own queries.
+  expectR14(source, ['b', 'd']);
 });
 
 void test('R14 (c) requires every ALTER TABLE to name the same literal table', () => {
@@ -399,6 +401,29 @@ void test('R14 (d) allows DROP COLUMN only as the inverse of an added column, in
   );
 });
 
+void test('R14 (d) rejects an ADD that builds an index, validates rows or rewrites', () => {
+  // Each is a second ADD on the exemption's own table that passes R13 (it is
+  // nullable), yet scans or indexes the table under the ACCESS EXCLUSIVE lock
+  // the catalog-only ADD already holds (ADR-053 Decision 3), or rewrites it.
+  for (const definition of [
+    'code text UNIQUE',
+    'owner_id uuid REFERENCES farms(id)',
+    'qty integer CHECK (qty >= 0)',
+    'ref uuid PRIMARY KEY',
+    'ref uuid DEFAULT gen_random_uuid()',
+  ]) {
+    const source = migration(
+      [
+        SET_TIMEOUT,
+        ...ADD_SITE_MODULE,
+        `await queryRunner.query(\`ALTER TABLE sites ADD COLUMN IF NOT EXISTS ${definition}\`);`,
+      ],
+      [SET_TIMEOUT, DROP_SITE_MODULE],
+    );
+    expectR14(source, ['d']);
+  }
+});
+
 void test('R14 (d) rejects a query whose SQL the gate cannot read', () => {
   expectR14(
     migration(
@@ -407,6 +432,46 @@ void test('R14 (d) rejects a query whose SQL the gate cannot read', () => {
     ),
     ['d'],
   );
+});
+
+void test("R14 (d) rejects every call but a .query(`…`) on the method's own QueryRunner", () => {
+  for (const call of [
+    // A helper that builds an index under the ADD's lock (migration-helpers.ts).
+    "await addColumnWithIndex(queryRunner, { table: 'sites', column: 'zone', columnType: 'text', indexName: 'sites_zone_idx', indexColumns: ['zone'] });",
+    // A helper that runs a session-scoped SET search_path (base-migration.ts).
+    "await pinSearchPath(queryRunner, 'farm');",
+    // A QueryRunner API: the index build never reaches a SQL chunk.
+    "await queryRunner.createIndex('sites', new TableIndex({ name: 'sites_module_idx', columnNames: ['module'] }));",
+    // SQL the gate reads, sent through another receiver.
+    'await queryRunner.manager.query(`SELECT 1`);',
+    'await dataSource.query(`SELECT 1`);',
+    // SQL the chunk extractor never sees.
+    'await queryRunner.query<unknown[]>(`SELECT 1`);',
+    'await queryRunner\n      .query(`SELECT 1`);',
+  ]) {
+    const source = migration(
+      [SET_TIMEOUT, ...ADD_SITE_MODULE, call],
+      [SET_TIMEOUT, DROP_SITE_MODULE],
+    );
+    expectR14(source, ['d']);
+  }
+  // down() is held to the same rule.
+  expectR14(
+    migration(
+      [SET_TIMEOUT, ...ADD_SITE_MODULE],
+      [SET_TIMEOUT, DROP_SITE_MODULE, "await pinSearchPath(queryRunner, 'farm');"],
+    ),
+    ['d'],
+  );
+});
+
+void test('R14 (d) reads the QueryRunner parameter by its own name', () => {
+  const rename = (line: string): string => line.replace(/queryRunner/g, 'qr');
+  const source = migration(
+    [SET_TIMEOUT, ...ADD_SITE_MODULE].map(rename),
+    [SET_TIMEOUT, DROP_SITE_MODULE].map(rename),
+  ).replace(/\(queryRunner: QueryRunner\)/g, '(qr: QueryRunner)');
+  assert.deepStrictEqual(inspectMigrationSource(MIGRATION_PATH, source), []);
 });
 
 void test('R14 (e) rejects transaction = false and withDdlSafety', () => {

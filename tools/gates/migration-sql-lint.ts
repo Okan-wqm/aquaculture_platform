@@ -96,9 +96,11 @@
  *       A migration that adds `NOT NULL DEFAULT <allowlisted constant>` to a
  *       table it does not create must have the Decision-3 shape (stated
  *       reason, `SET LOCAL lock_timeout` <= 2s, one literal table, nothing
- *       else, transactional without withDdlSafety). It is the one rule that
- *       runs once per file (`FileRule`), because a timeout set in one
- *       `.query()` call governs the ALTER TABLE in the next.
+ *       else and no call but `queryRunner.query(`…`)`, transactional without
+ *       withDdlSafety). It is the one rule that runs once per file
+ *       (`FileRule`), because a timeout set in one `.query()` call governs
+ *       the ALTER TABLE in the next. Owners: migration-add-column-rules.ts,
+ *       which reads up()/down() through migration-ts-structure.ts.
  *
  * SQL is extracted from TypeScript `queryRunner.query(`...`)` template
  * literals. Bare `.sql` files are scanned whole. Single-line (`//`) and
@@ -488,11 +490,11 @@ const RULES: readonly Rule[] = [
       ),
     message:
       'single-step ADD COLUMN ... NOT NULL without DEFAULT. On non-empty tables ' +
-      'this takes ACCESS EXCLUSIVE and fails if any row is NULL. Use blue-green ' +
-      '3-step: nullable → backfill → SET NOT NULL (data-expert.md invariant), or, ' +
-      'when one constant is the true value for every existing row, ' +
-      '`NOT NULL DEFAULT <constant>` in the ADR-053 shape (rules R13/R14, ' +
-      'docs/runbooks/migration-authoring.md Blue-green safety).',
+      'this takes ACCESS EXCLUSIVE and fails if any row is NULL. Use ' +
+      'nullable → backfill → SET NOT NULL, or, when one constant is the true ' +
+      'value for every existing row, `NOT NULL DEFAULT <constant>` in the ' +
+      'ADR-053 shape (rules R13/R14). docs/runbooks/migration-authoring.md ' +
+      'Blue-green safety, ADR-053.',
   },
   {
     id: 'R3-create-index-not-idempotent',
@@ -727,9 +729,12 @@ const FILE_RULES: readonly FileRule[] = [
       'same-statement `-- ADR-053: <why the value is true for every existing row>`; ' +
       '`SET LOCAL lock_timeout` <= 2s before the first ALTER TABLE of up() and of ' +
       'down(), and none larger; one literal table; only SET LOCAL, read-only ' +
-      'SELECT, ADD COLUMN and the inverse DROP COLUMN IF EXISTS in down(); no ' +
-      '`transaction = false`, no withDdlSafety. docs/runbooks/migration-authoring.md, ' +
-      'ADR-053 Decision 3.',
+      'SELECT, ADD COLUMN without an inline constraint or rewrite, and the ' +
+      'inverse DROP COLUMN IF EXISTS in down(), each sent as a template ' +
+      'literal to the queryRunner.query() of up() or down(), with no other ' +
+      'call (no helper, no QueryRunner API); no `transaction = false`, no ' +
+      'withDdlSafety. ' +
+      'docs/runbooks/migration-authoring.md, ADR-053 Decision 3.',
   },
 ];
 

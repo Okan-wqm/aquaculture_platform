@@ -22,6 +22,7 @@
     "tools/gates/migration-sql-lint.ts",
     "tools/gates/migration-add-column-rules.ts",
     "tools/gates/migration-sql-structure.ts",
+    "tools/gates/migration-ts-structure.ts",
     "tools/gates/expand-contract-ast.ts",
     "tools/gates/migration-shared-enum-drop.ts",
     "tools/gates/rls-predicate-canonical.ts",
@@ -161,7 +162,7 @@
       "defect_claim": "A new migration uses the ADR-053 catalog-only NOT NULL DEFAULT exemption outside its required shape, so its ACCESS EXCLUSIVE lock can queue every reader without a bound, outlive its own table's change, or rest on an unstated claim about existing rows.",
       "premises": [
         "The migration adds a NOT NULL column with an allowlisted constant DEFAULT to a table it does not create.",
-        "The migration lacks one of: the same-statement `-- ADR-053:` reason; a SET LOCAL lock_timeout of at most 2 s before the first ALTER TABLE of up() and of down(), with no larger value anywhere; a single literal ALTER TABLE target; a body of only SET LOCAL, read-only SELECT, ADD COLUMN and the inverse DROP COLUMN IF EXISTS in down(); a transactional envelope without withDdlSafety.",
+        "The migration lacks one of: the same-statement `-- ADR-053:` reason; a SET LOCAL lock_timeout of at most 2 s before the first ALTER TABLE of up() and of down(), with no larger value anywhere; a single literal ALTER TABLE target; a body of only SET LOCAL, read-only SELECT, ADD COLUMN without an inline constraint or rewrite and the inverse DROP COLUMN IF EXISTS in down(), with no call in up() or down() but the method's own QueryRunner .query() with a template literal; a transactional envelope without withDdlSafety.",
         "The cited migration is in the change set under review (added, never applied), so it can still be corrected before it runs."
       ]
     },
@@ -238,6 +239,6 @@
     "stdin_json": true
   },
   "freshness_window_hours": 168,
-  "parse_window_signature": "sha256:67d0e30778f59835056fc3ef62f387a107d939b4a42d2b93bdd265cc886a0edd",
+  "parse_window_signature": "sha256:9a1ac46abbb06d80a3bd96e8b97efc15baaaa381ee9c4dbed77ed777ce4b5a0d",
   "schema_version": 1
 }

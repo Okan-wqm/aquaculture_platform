@@ -24,10 +24,16 @@
  *           of up() and of down(), and no larger, zero or unreadable value
  *           anywhere in the file;
  *       (c) every ALTER TABLE names the same literal table;
- *       (d) no statement other than SET LOCAL, a read-only SELECT, ADD COLUMN on
- *           that table and, in down(), the inverse DROP COLUMN IF EXISTS of a
- *           column the file adds; every query is a template literal the gate
- *           can read;
+ *       (d) no statement other than SET LOCAL, a read-only SELECT, an ADD COLUMN
+ *           on that table that neither rewrites nor carries an inline
+ *           constraint (an inline UNIQUE/PRIMARY KEY builds an index, a
+ *           REFERENCES or CHECK scans the table, under the lock the ADD
+ *           holds) and, in down(), the inverse DROP COLUMN IF EXISTS of a
+ *           column the file adds; and no invocation in up() or down() but a
+ *           `<runner>.query(\`…\`)` on the method's own QueryRunner whose SQL
+ *           the gate read. A helper, a QueryRunner API or a query through
+ *           another receiver runs work the gate cannot see, so it fails
+ *           closed (migration-ts-structure.ts finds the invocations);
  *       (e) no `transaction = false` and no `withDdlSafety(`.
  *     It is file-scoped because a lock_timeout set in one `.query()` call
  *     governs the ALTER TABLE in the next one, and a per-chunk rule sees one
@@ -36,8 +42,6 @@
  * Whether the `-- ADR-053:` reason is true is a fact about the data; neither
  * PostgreSQL nor this gate can check it. The gate checks that it is stated.
  */
-
-import * as ts from 'typescript';
 
 import {
   alterTablesIn,
@@ -54,6 +58,7 @@ import {
   type SqlToken,
   type TableName,
 } from './migration-sql-structure';
+import { migrationMethods, type Invocation, type MigrationMethod } from './migration-ts-structure';
 
 export interface RuleHit {
   readonly start: number;
@@ -146,16 +151,6 @@ interface RegionRange {
   readonly end: number;
 }
 
-/** The body of `up() {…}` or of `up = async () => …`. */
-function methodBody(node: ts.Node): ts.Node | undefined {
-  if (ts.isMethodDeclaration(node)) return node.body;
-  if (!ts.isPropertyDeclaration(node) || node.initializer === undefined) return undefined;
-  const { initializer } = node;
-  return ts.isArrowFunction(initializer) || ts.isFunctionExpression(initializer)
-    ? initializer.body
-    : undefined;
-}
-
 /** Every match of a global regex in `text`, with its offset. */
 function matchesOf(text: string, pattern: RegExp): readonly { index: number; text: string }[] {
   const out: { index: number; text: string }[] = [];
@@ -165,25 +160,34 @@ function matchesOf(text: string, pattern: RegExp): readonly { index: number; tex
   return out;
 }
 
-/** The bodies of a TypeORM migration's up() and down(), as ranges of the file text. */
-function migrationMethodRanges(text: string): readonly RegionRange[] {
-  const source = ts.createSourceFile('migration.ts', text, ts.ScriptTarget.Latest, false);
-  const ranges: RegionRange[] = [];
-  const visit = (node: ts.Node): void => {
-    const name =
-      (ts.isMethodDeclaration(node) || ts.isPropertyDeclaration(node)) && ts.isIdentifier(node.name)
-        ? node.name.text
-        : null;
-    if (name === 'up' || name === 'down') {
-      const body = methodBody(node);
-      if (body !== undefined) {
-        ranges.push({ region: name, start: body.getStart(source), end: body.getEnd() });
-      }
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(source);
-  return ranges;
+/**
+ * (d): the invocations in up() and down() whose work the gate did not read as
+ * SQL: everything but a `<runner>.query(\`…\`)` on the method's own QueryRunner
+ * whose template literal is one of the file's chunks. A call nested inside a
+ * reported one is part of it and is not reported again. `withDdlSafety` is
+ * (e)'s finding; the queries in its callback are judged one by one.
+ */
+function unreadInvocations(
+  methods: readonly MigrationMethod[],
+  chunkOffsets: ReadonlySet<number>,
+): readonly Invocation[] {
+  const unread = methods
+    .flatMap((method) => method.invocations)
+    .filter(
+      (call) =>
+        !(call.runnerQuerySqlOffset !== null && chunkOffsets.has(call.runnerQuerySqlOffset)) &&
+        !/\bwithDdlSafety$/.test(call.callee),
+    );
+  // Strict containment: two invocations never hide each other.
+  return unread.filter(
+    (call) =>
+      !unread.some(
+        (outer) =>
+          outer.start <= call.start &&
+          call.end <= outer.end &&
+          outer.end - outer.start > call.end - call.start,
+      ),
+  );
 }
 
 /** A parsed statement placed in the file: absolute offsets and its region. */
@@ -298,7 +302,10 @@ function isAllowedStatement(
   if (alter === undefined || alter.start !== first?.start) return false;
   return alter.actions.every(
     (action) =>
-      action.kind === 'add-column' ||
+      // An inline constraint builds an index or scans the table, and a
+      // rewriting definition rewrites it, all under the ADD's ACCESS
+      // EXCLUSIVE lock (Decision 3: they go in their own migrations).
+      (action.kind === 'add-column' && !action.inlineConstraint && !rewritesOrScans(action)) ||
       (action.kind === 'drop-column' &&
         action.ifExists &&
         placed.region === 'down' &&
@@ -308,16 +315,18 @@ function isAllowedStatement(
 }
 
 /**
- * R14 over one migration file. Chunk offsets are file offsets; up() and down()
- * are read from the file as written, and the TS-level checks ((d)'s unreadable
- * queries, (e)) from the comment-blanked text, so a comment cannot trip them.
+ * R14 over one migration file. Chunk offsets are file offsets; up(), down()
+ * and the invocations in them are read from the file as written (a comment is
+ * not a node), and (e) from the comment-blanked text, so a comment cannot trip
+ * it.
  */
 export function inspectExemptionShape(migration: MigrationFile): readonly ShapeHit[] {
   const { source, text, chunks, kind } = migration;
+  const methods: readonly MigrationMethod[] = kind === 'sql' ? [] : migrationMethods(source);
   const ranges: readonly RegionRange[] =
     kind === 'sql'
       ? [{ region: 'file', start: 0, end: source.length }]
-      : migrationMethodRanges(source);
+      : methods.map((method) => ({ region: method.name, start: method.start, end: method.end }));
   const placed: PlacedStatement[] = chunks.flatMap((chunk) =>
     splitStatements(chunk.sql, tokenizeSql(chunk.sql)).map((statement) => {
       const at = chunk.offset + (statement.tokens[0]?.start ?? statement.start);
@@ -427,19 +436,17 @@ export function inspectExemptionShape(migration: MigrationFile): readonly ShapeH
         p,
         from,
         p.statement.end,
-        `(d) only SET LOCAL, read-only SELECT, ADD COLUMN on ${target.key} and its inverse DROP COLUMN IF EXISTS in down() are allowed.`,
+        `(d) only SET LOCAL, read-only SELECT, an ADD COLUMN on ${target.key} with no inline constraint and no rewriting definition, and its inverse DROP COLUMN IF EXISTS in down() are allowed.`,
       );
     }
   }
   if (kind === 'typeorm') {
-    for (const match of matchesOf(text, /\b\w+\.query\(\s*(?![\s`])/)) {
+    const chunkOffsets = new Set(chunks.map((chunk) => chunk.offset));
+    for (const call of unreadInvocations(methods, chunkOffsets)) {
       hits.push({
-        offset: match.index,
-        snippet: text
-          .slice(match.index, match.index + 80)
-          .replace(/\s+/g, ' ')
-          .trim(),
-        detail: '(d) a .query() whose SQL is not a template literal cannot be read by the gate.',
+        offset: call.start,
+        snippet: source.slice(call.start, call.end).replace(/\s+/g, ' ').trim().slice(0, 160),
+        detail: `(d) \`${call.callee}(…)\` is not a .query(\`…\`) on up()/down()'s own QueryRunner whose SQL the gate read, so the gate cannot check what it runs; an exemption migration runs nothing else.`,
       });
     }
     // (e) one transaction, no envelope that overrides the bound or the search_path.

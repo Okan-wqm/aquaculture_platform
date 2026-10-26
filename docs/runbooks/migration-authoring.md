@@ -66,6 +66,11 @@ PR-fail churn):
       (per ADR-025 + Faz 1.4).
 - [ ] **Search path pinned** — `await pinSearchPath(queryRunner, '<svc>')`
       at the top of up(). `migration-helpers.ts` provides the helper.
+      Not in a migration that uses the ADR-053 one-statement NOT NULL
+      add: the db-migrate orchestrator already pins each schema before
+      every migration, and `add-column-exemption-shape` allows no call
+      there but ``queryRunner.query(`…`)``, because the gate cannot read
+      what a helper runs.
 - [ ] **DDL safety wrapper** — wrap the heavy section in
       `withDdlSafety(queryRunner, { schema, advisoryLockKeySuffix })`.
       Not in a migration that uses the ADR-053 one-statement NOT NULL

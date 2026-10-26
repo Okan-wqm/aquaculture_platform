@@ -15,8 +15,9 @@
 //   tools/gates/migration-sql-lint.ts        delta-safety rules R1–R14
 //                                            (`inspectMigrationSource`; R13/R14,
 //                                            ADR-053, live in
-//                                            migration-add-column-rules.ts and
-//                                            migration-sql-structure.ts)
+//                                            migration-add-column-rules.ts,
+//                                            migration-sql-structure.ts and
+//                                            migration-ts-structure.ts)
 //   tools/gates/expand-contract-ast.ts       @ExpandContract phase discipline
 //                                            (`inspectSource`, `validateInspections`)
 //   tools/gates/migration-shared-enum-drop.ts orphan-type reclamation
@@ -204,6 +205,7 @@ const SQL_LINT_OWNER = 'tools/gates/migration-sql-lint.ts';
 /** The ADR-053 ADD COLUMN rules (R13/R14) the SQL-lint owner imports. */
 const SQL_LINT_ADD_COLUMN_RULES = 'tools/gates/migration-add-column-rules.ts';
 const SQL_LINT_STRUCTURE = 'tools/gates/migration-sql-structure.ts';
+const SQL_LINT_TS_STRUCTURE = 'tools/gates/migration-ts-structure.ts';
 const EXPAND_CONTRACT_OWNER = 'tools/gates/expand-contract-ast.ts';
 const ENUM_DROP_OWNER = 'tools/gates/migration-shared-enum-drop.ts';
 const RLS_OWNER = 'tools/gates/rls-predicate-canonical.ts';
@@ -220,6 +222,7 @@ const AUTHORITY_PATHS: readonly string[] = [
   SQL_LINT_OWNER,
   SQL_LINT_ADD_COLUMN_RULES,
   SQL_LINT_STRUCTURE,
+  SQL_LINT_TS_STRUCTURE,
   EXPAND_CONTRACT_OWNER,
   ENUM_DROP_OWNER,
   RLS_OWNER,

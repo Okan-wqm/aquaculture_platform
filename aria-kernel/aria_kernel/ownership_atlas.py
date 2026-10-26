@@ -59,6 +59,9 @@ FAMILIES: dict[str, Family] = {
                                          ledgers=(("memory_procedural", "memory/procedural.jsonl"),)),
     "fitness_report": Family("learning-memory", f"{_K}fitness.py:generate_fitness_report",
                              ("generate_fitness_report",), (("fitness_reports", "fitness/fitness-reports.jsonl"),)),
+    # F1.2 — what a learning mechanism contributed over a window of cycles: the scorecard and every reader take it from here.
+    "mechanism_contribution": Family("learning-memory", f"{_K}autonomy_evidence.py:mechanism_contribution",
+                                     ("mechanism_contribution",)),
     "calibration_gate": Family("judgment", f"{_K}genesis_policy.py:effective_calibration_gate",
                                ("effective_calibration_gate",)),
     "verbatim_quote_law": Family("judgment", f"{_K}evidence_trust.py:quote_matches_at", ("quote_matches_at",)),

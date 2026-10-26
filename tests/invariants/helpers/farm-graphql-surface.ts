@@ -95,7 +95,7 @@ export function extractBackendResolverFields(
       const named = match[2]!.match(/name:\s*'([^']+)'/);
       const withoutComments = match[3]!
         .replace(/\/\*[\s\S]*?\*\//g, '')
-        .replace(/^\s*\/\/.*$/gm, '');
+        .replace(/(^|\s)\/\/.*$/gm, '$1');
       fields.push({
         kind: match[1]! as BackendResolverKind,
         field: named ? named[1]! : match[4]!,

@@ -1235,6 +1235,7 @@ export const en = {
     'Performance reviews are restricted to HR managers and administrators.',
   'hr.restricted.payroll':
     'Payroll information is restricted to HR managers and payroll administrators.',
+  'hr.restricted.finance': 'The HR finance tab needs a manager or admin role.',
 
   // ── Time ranges (sensor readings, dashboards, SCADA charts) ──
   'timeRange.preset.live': 'Live',

@@ -49,12 +49,15 @@ const PRIVILEGED: readonly ConsoleRole[] = ['TENANT_ADMIN', 'MODULE_MANAGER'];
 /**
  * Pages that refuse a role in-page with an "Access Restricted" view, read off
  * the pages: FinancePage and HRFinancePage `canView`, PayrollPage
- * `isAuthorised` (SEC-003).
+ * `isAuthorised` (SEC-003), CertificationDashboardPage and PerformancePage
+ * (HR-HIGH-056).
  */
 const IN_PAGE_ROLE_GATES: Readonly<Record<string, readonly ConsoleRole[]>> = {
   '/sites/finance': PRIVILEGED,
   '/hr/finance': PRIVILEGED,
   '/hr/payroll': PRIVILEGED,
+  '/hr/training/certifications': PRIVILEGED,
+  '/hr/performance': PRIVILEGED,
 };
 /**
  * Pages that refuse a viewer lacking a resource permission in-page:

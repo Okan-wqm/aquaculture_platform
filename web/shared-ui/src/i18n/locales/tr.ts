@@ -1191,6 +1191,7 @@ export const tr: Record<MessageKey, string> = {
     'Performans değerlendirmeleri yalnızca İK yöneticileri ve yöneticiler için açıktır.',
   'hr.restricted.payroll':
     'Bordro bilgileri yalnızca İK yöneticileri ve bordro yöneticileri için açıktır.',
+  'hr.restricted.finance': 'İK finans sekmesi için yönetici veya admin rolü gerekir.',
   'hr.today.sites.filterLabel': 'Sahaya göre süz',
   'hr.today.sites.all': 'Tüm sahalar',
   'hr.today.roster.title': 'Bugün vardiyada',

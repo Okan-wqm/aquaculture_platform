@@ -15,7 +15,7 @@
  * once, and the record checks compare employee ids with employee ids.
  */
 import { ForbiddenException } from '@nestjs/common';
-import { Role, hasAnyRole } from '@aquaculture/backend-common/decorators';
+import { PLATFORM_ROLES, Role, hasAnyRole } from '@aquaculture/backend-common/decorators';
 import type { CurrentUserPayload } from '@aquaculture/backend-common/decorators';
 import type { EntityManager } from 'typeorm';
 
@@ -28,10 +28,10 @@ export type ViewerClaims = Pick<CurrentUserPayload, 'sub'> &
 /** The viewer's own HR employee record, reduced to what the scope rules need. */
 export type ViewerEmployee = Pick<Employee, 'id' | 'departmentHrId'>;
 
-const PLATFORM_ROLES: ReadonlySet<string> = new Set<string>(Object.values(Role));
+const PLATFORM_ROLE_NAMES: ReadonlySet<string> = new Set<string>(PLATFORM_ROLES);
 
 function isPlatformRole(value: string): value is Role {
-  return PLATFORM_ROLES.has(value);
+  return PLATFORM_ROLE_NAMES.has(value);
 }
 
 function claimedRoles(viewer: ViewerClaims): Role[] {

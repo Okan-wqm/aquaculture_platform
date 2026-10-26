@@ -9,11 +9,12 @@
 import type { ConsoleRole, NavPageDef } from '../types';
 
 /**
- * The roles PayrollPage admits (`isAuthorised`, SEC-003: salary, bank and tax
- * data); anyone else gets its "Access Restricted" view, so the nav does not
- * offer it to them.
+ * The roles the manager-only HR pages admit: PayrollPage (`isAuthorised`, SEC-003: salary, bank
+ * and tax data), CertificationDashboardPage and PerformancePage (HR-HIGH-056: other people's
+ * certification and review records). Anyone else gets the page's "Access Restricted" view, so the
+ * nav does not offer it to them.
  */
-export const PAYROLL_ROLES: readonly ConsoleRole[] = ['TENANT_ADMIN', 'MODULE_MANAGER'];
+export const WORKFORCE_MANAGER_ROLES: readonly ConsoleRole[] = ['TENANT_ADMIN', 'MODULE_MANAGER'];
 
 export const HR_PAGES = {
   dashboard: {
@@ -77,13 +78,19 @@ export const HR_PAGES = {
     id: 'hr-certifications',
     labelKey: 'nav.page.certifications',
     path: '/hr/training/certifications',
+    requiredRoles: WORKFORCE_MANAGER_ROLES,
   },
-  performance: { id: 'hr-performance', labelKey: 'nav.performance', path: '/hr/performance' },
+  performance: {
+    id: 'hr-performance',
+    labelKey: 'nav.performance',
+    path: '/hr/performance',
+    requiredRoles: WORKFORCE_MANAGER_ROLES,
+  },
   payroll: {
     id: 'hr-payroll',
     labelKey: 'nav.payroll',
     path: '/hr/payroll',
-    requiredRoles: PAYROLL_ROLES,
+    requiredRoles: WORKFORCE_MANAGER_ROLES,
   },
   analytics: { id: 'hr-analytics', labelKey: 'nav.page.hrAnalytics', path: '/hr/analytics' },
 } satisfies Record<string, NavPageDef>;

@@ -9,7 +9,8 @@
  * leave request, a weekly plan or a certification (HR-HIGH-056).
  *
  * Direct-supervisor visibility for a line manager who is not a workforce manager is a tracked
- * refinement (ORPHAN-MEDIUM-347); it needs the viewer's employee record.
+ * refinement (ORPHAN-MEDIUM-347); `findViewerEmployee` (common/viewer.ts) now provides the lookup
+ * it was waiting for.
  */
 import { isSameUser, isWorkforceManager } from '../../common/viewer';
 import type { ViewerClaims } from '../../common/viewer';
@@ -25,9 +26,9 @@ export function canViewEmployeeContact(
 }
 
 /** The work email stays (it is already public as `Employee.email`); phone numbers go. */
-export function redactContactInfo(contactInfo: ContactInfo | undefined): ContactInfo {
+export function redactContactInfo(contactInfo: ContactInfo): ContactInfo {
   return {
-    email: contactInfo?.email ?? REDACTED,
+    email: contactInfo.email,
     phone: REDACTED,
     emergencyContact: undefined,
     emergencyPhone: undefined,

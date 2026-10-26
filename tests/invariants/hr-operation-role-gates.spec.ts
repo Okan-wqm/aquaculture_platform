@@ -37,7 +37,10 @@
  *   - "open to all staff but not listed": decide which kind it is, add it to ANY_STAFF with the
  *     reason. If you cannot write the reason in one sentence, it is a manager operation.
  */
-import { extractBackendResolverFields } from './helpers/farm-graphql-surface';
+import { readFileSync } from 'fs';
+import { join } from 'path';
+
+import { REPO_ROOT, extractBackendResolverFields, listFiles } from './helpers/farm-graphql-surface';
 import type { BackendResolverField } from './helpers/farm-graphql-surface';
 
 const HR_SOURCE_ROOT = 'apps/hr-service/src';
@@ -48,6 +51,7 @@ const HR_SOURCE_ROOT = 'apps/hr-service/src';
  *  - catalog: tenant-wide reference or configuration data; nothing about an individual.
  *  - team:    what colleagues need to see of one another (a roster, a directory, headcounts); a
  *             nested employee is redacted by the type, and nothing about pay, performance or health.
+ *             (HR-MEDIUM-065 tracks the drafts, overtime and pending leave two of them still show.)
  */
 type StaffReason = 'self' | 'catalog' | 'team';
 
@@ -62,7 +66,10 @@ const ANY_STAFF: Readonly<Record<string, { readonly kind: StaffReason; readonly 
     why: 'team list; contact details redacted by Employee.contactInfo/address',
   },
   hrDepartments: { kind: 'catalog', why: 'department names, codes and head counts' },
-  hrDepartment: { kind: 'catalog', why: 'one department: name, code, head count, manager name' },
+  hrDepartment: {
+    kind: 'catalog',
+    why: 'one department: name, code, cost codes, head count, manager name',
+  },
   hrDashboardStats: { kind: 'team', why: 'aggregate counts only' },
   // ── attendance and shifts ──────────────────────────────────────────────────────────────────
   shifts: { kind: 'catalog', why: 'shift definitions' },
@@ -75,8 +82,8 @@ const ANY_STAFF: Readonly<Record<string, { readonly kind: StaffReason; readonly 
     why: 'a non-manager is narrowed to their own record inside the resolver',
   },
   dailyAttendanceOverview: { kind: 'team', why: 'aggregate counts only' },
-  clockIn: { kind: 'self', why: 'the handler refuses another employee id' },
-  clockOut: { kind: 'self', why: 'the handler refuses another employee id' },
+  clockIn: { kind: 'self', why: 'the resolver refuses another employee id' },
+  clockOut: { kind: 'self', why: 'the resolver refuses another employee id' },
   // ── leave ──────────────────────────────────────────────────────────────────────────────────
   leaveTypes: { kind: 'catalog', why: 'leave type definitions' },
   calculateLeaveDays: {
@@ -135,7 +142,13 @@ function gateOf(operation: BackendResolverField): Gate {
   if (/@Public\s*\(/.test(written)) return 'public';
   if (/@ModuleUserOrHigher\s*\(/.test(written)) return 'any-staff';
   const roles = written.match(/@Roles\s*\(([^)]*)\)/);
-  if (roles) return /\bMODULE_USER\b/.test(roles[1] ?? '') ? 'any-staff' : 'manager';
+  if (roles) {
+    // A @Roles that names no `Role.X` (empty, or a spread constant) is not a gate this scan can
+    // read, and RolesGuard treats an empty list as "any authenticated user": refuse it.
+    const named = roles[1]?.match(/\bRole\.[A-Z_]+/g) ?? [];
+    if (named.length === 0) return 'none';
+    return named.includes('Role.MODULE_USER') ? 'any-staff' : 'manager';
+  }
   if (/@(TenantAdminOrHigher|ModuleManagerOrHigher|SuperAdminOnly)\s*\(/.test(written))
     return 'manager';
   return 'none';
@@ -161,6 +174,22 @@ describe('hr-service operation role gates (HR-HIGH-056)', () => {
     }
   });
 
+  it('the scan sees every operation the resolvers declare', () => {
+    // An operation the decorator scan cannot parse would escape every check below.
+    const declared = listFiles(HR_SOURCE_ROOT, ['**/*.ts'])
+      .filter((file) => !file.includes('.spec.') && !file.includes('__tests__'))
+      .reduce(
+        (count, file) =>
+          count +
+          (readFileSync(join(REPO_ROOT, file), 'utf8').match(
+            /^\s*@(Query|Mutation|Subscription)\s*\(/gm,
+          )?.length ?? 0),
+        0,
+      );
+
+    expect(operations.length).toBe(declared);
+  });
+
   it('every operation declares its gate on the operation itself', () => {
     const ungated = operations.filter((operation) => gateOf(operation) === 'none').map(where);
 
@@ -173,8 +202,15 @@ describe('hr-service operation role gates (HR-HIGH-056)', () => {
     ).toBe('');
   });
 
-  it('no operation is public', () => {
+  it('no operation is public, and no resolver declares a gate on the class', () => {
     expect(operations.filter((operation) => gateOf(operation) === 'public').map(where)).toEqual([]);
+
+    // A class-level decorator reaches every method through RolesGuard's handler-then-class lookup,
+    // where the operation scan cannot see it.
+    const classLevel = [...new Set(operations.map((operation) => operation.file))].filter((file) =>
+      /^(@Public|@Roles)\s*\(/m.test(readFileSync(join(REPO_ROOT, file), 'utf8')),
+    );
+    expect(classLevel).toEqual([]);
   });
 
   it('an operation open to every staff member is a listed decision, with its reason', () => {

@@ -14,6 +14,7 @@ import {
   useHrPersonnelTable,
   type HrFinanceGranularity,
 } from '../../hooks/useHrFinance';
+import { AccessRestricted } from '../../components/common';
 import { useIsWorkforceManager } from '../../hooks';
 import { PersonnelTableTab } from './components/PersonnelTableTab';
 import { SalariesTab } from './components/SalariesTab';
@@ -74,21 +75,7 @@ const HRFinancePage: React.FC = () => {
   };
 
   if (!canView) {
-    return (
-      <div className="flex min-h-[60vh] items-center justify-center p-6">
-        <div
-          role="alert"
-          className="max-w-md rounded-md bg-white dark:bg-gray-900 p-8 text-center shadow-(--shadow-sd-sm)"
-        >
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
-            Finance is restricted
-          </h2>
-          <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
-            You need a manager or admin role to view the HR finance tab.
-          </p>
-        </div>
-      </div>
-    );
+    return <AccessRestricted messageKey="hr.restricted.finance" />;
   }
 
   return (

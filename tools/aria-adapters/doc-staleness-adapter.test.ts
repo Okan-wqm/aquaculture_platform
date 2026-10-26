@@ -244,6 +244,17 @@ scenario('a file root is read as that file', () => {
   assert.throws(() => scan(['../x']), /escapes workspace root/);
 });
 
+// A document is a markdown file, as the directory walk already filters: a file root that
+// is not one is a manifest mistake, refused rather than parsed as documentation.
+scenario('a file root that is not markdown is refused', () => {
+  const ws = makeFixtureTree('aria-doc-staleness-nonmd-');
+  put(ws, 'package.json', '{"main": "`libs/gone/`"}\n');
+  assert.throws(
+    () => analyzeDocStaleness({ roots: ['package.json'] }, ws),
+    /scan root is not a markdown file: .*package\.json/,
+  );
+});
+
 scenario('the manifest roots read the widened directories and the root documents', () => {
   const ws = makeFixtureTree('aria-doc-staleness-scope-');
   put(ws, 'apps/farm-service/src/main.ts', 'export {};\n');

@@ -179,9 +179,10 @@ export function ReportReviewPage(): JSX.Element {
             <Card className="p-4 space-y-2">
               <div className="flex items-center justify-between gap-2">
                 <span className="text-title font-semibold text-ink-1">{draft.reportType}</span>
-                {/* The status is a machine value, so it keeps its mono/uppercase
-                    treatment — "uppercase survives only where a machine speaks". */}
-                <span className="text-meta font-mono font-semibold text-ink-3 uppercase tracking-wide shrink-0">
+                {/* The status is a machine value, so it keeps its uppercase
+                    treatment — "uppercase survives only where a machine speaks".
+                    It is a word, not code, so it is set in Inter. */}
+                <span className="text-meta font-semibold text-ink-3 uppercase tracking-wide shrink-0">
                   {draft.status}
                 </span>
               </div>

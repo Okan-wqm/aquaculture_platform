@@ -66,7 +66,7 @@ export function LiveReadingsCard({ tankId }: { tankId: string }): ReactElement |
         <div className="grid grid-cols-3 gap-3">
           {metrics.map((metric) => (
             <div key={metric.key} className="rounded-xl bg-surface-2 p-2.5 text-center">
-              <div className="text-head font-mono font-bold tabular-nums text-ink-1">
+              <div className="text-head font-bold tabular-nums text-ink-1">
                 {metric.value}
                 {metric.unit && (
                   <span className="text-meta font-semibold text-ink-3 ml-0.5">{metric.unit}</span>

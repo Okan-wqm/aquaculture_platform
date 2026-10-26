@@ -106,9 +106,7 @@ export function SyncStatusPage(): JSX.Element {
         {/* Pending Count */}
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-display font-mono font-bold text-ink-1 tabular-nums">
-              {pendingCount}
-            </h2>
+            <h2 className="text-display font-bold text-ink-1 tabular-nums">{pendingCount}</h2>
             <p className="text-body text-ink-3">Pending Operations</p>
           </div>
           <Button

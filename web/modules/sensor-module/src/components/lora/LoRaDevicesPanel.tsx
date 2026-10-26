@@ -74,7 +74,7 @@ function RssiIndicator({ rssi }: { rssi?: number }) {
   return (
     <span className={`flex items-center gap-1 ${color}`}>
       <Icon className="w-4 h-4" />
-      <span className="text-xs font-mono">{rssi} dBm</span>
+      <span className="text-xs tabular-nums">{rssi} dBm</span>
     </span>
   );
 }

@@ -517,7 +517,7 @@ export function AccountPage(): JSX.Element {
           <Card className="p-4 flex flex-col gap-3">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <div className="text-display font-mono font-semibold text-ink-1 tabular-nums">
+                <div className="text-display font-semibold text-ink-1 tabular-nums">
                   {pendingCount}
                 </div>
                 <div className="text-meta text-ink-3">
@@ -702,7 +702,7 @@ export function AccountPage(): JSX.Element {
                 person reads the same on both. */}
             <span
               aria-hidden
-              className="w-14 h-14 shrink-0 rounded-2xl bg-acc text-acc-on inline-flex items-center justify-center text-head font-mono font-semibold"
+              className="w-14 h-14 shrink-0 rounded-2xl bg-acc text-acc-on inline-flex items-center justify-center text-head font-semibold"
             >
               {initials}
             </span>
@@ -734,7 +734,8 @@ export function AccountPage(): JSX.Element {
           />
         </section>
 
-        {/* App version — the machine value, so it is set in mono. */}
+        {/* App version — one translated sentence with the version interpolated
+            into it, so the line is set in the text face. */}
         <p className="text-meta text-ink-3 text-center">
           {t('m.account.appVersion', { version: APP_VERSION })}
         </p>

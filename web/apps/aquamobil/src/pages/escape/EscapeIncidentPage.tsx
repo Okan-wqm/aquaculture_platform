@@ -183,7 +183,7 @@ export function EscapeIncidentPage(): JSX.Element {
           <SummaryRow
             label="Estimated escaped"
             value={`~${estimatedCount.toLocaleString()}`}
-            valueClass="text-display font-mono font-bold text-warn tabular-nums"
+            valueClass="text-display font-bold text-warn tabular-nums"
           />
           <SummaryRow
             label="Cause"

@@ -321,7 +321,7 @@ export const AlarmPanel = memo(({ onClose, className = '' }: AlarmPanelProps) =>
         header: 'Value / Threshold',
         className: 'whitespace-nowrap',
         render: (_value, alarm) => (
-          <span className="text-xs font-mono">
+          <span className="text-xs tabular-nums">
             {alarm.currentValue.toFixed(2)} / {alarm.threshold.toFixed(2)}
           </span>
         ),

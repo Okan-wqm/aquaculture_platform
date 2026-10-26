@@ -32,7 +32,7 @@ export function AccountAvatar(): ReactElement {
       type="button"
       onClick={() => navigate('/account')}
       aria-label="Account"
-      className="w-10 h-10 min-h-touch min-w-touch shrink-0 rounded-xl bg-acc text-acc-on font-mono text-meta font-semibold inline-flex items-center justify-center touch-feedback focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-acc"
+      className="w-10 h-10 min-h-touch min-w-touch shrink-0 rounded-xl bg-acc text-acc-on text-meta font-semibold inline-flex items-center justify-center touch-feedback focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-acc"
     >
       {initials(name)}
     </button>

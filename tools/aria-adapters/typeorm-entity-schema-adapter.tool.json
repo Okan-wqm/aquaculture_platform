@@ -1,7 +1,7 @@
 {
   "tool_id": "typeorm-entity-schema-adapter",
   "kind": "adapter",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "status": "SHADOW",
   "security_class": true,
   "declared_scope": ["apps/**/*.ts", "libs/backend-common/src/database/schema-manager.service.ts"],
@@ -40,6 +40,16 @@
       "premises": [
         "The cited @Entity() declares no literal schema option.",
         "The table is not a per-tenant table that search_path routes into the tenant schema (it is cross-tenant, listed in MODULE_SCHEMAS infrastructureTables, or owned by a platform service)."
+      ]
+    },
+    "typeorm_entity_schema_forbidden": {
+      "claim_type": "wrong_code",
+      "severity_cap": "HIGH",
+      "defect_claim": "A per-tenant table declares a schema, so every tenant's rows are pinned into the shared schema instead of the tenant schema search_path routes to.",
+      "premises": [
+        "The cited @Entity() declares a schema option, literal or not.",
+        "The service is listed in TENANT_SCOPED_MODULES.",
+        "The table is not in that module's MODULE_SCHEMAS infrastructureTables (it is not cross-tenant)."
       ]
     },
     "module_schema_table_missing": {

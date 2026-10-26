@@ -31,6 +31,7 @@ const HR_CASES: readonly Case[] = [
     true,
   ],
   ['leave/shift', `@Entity('shifts', { schema: SCHEMA_NAME })`, 'Shift', true, NAME_CONST],
+  ['leave/overtime', `@Entity('overtime', { schema })`, 'Overtime', true, `const schema = 'hr';`],
   ['legacy/legacy-balance', `@Entity('legacy_balances', { schema: 'hr' })`, 'LegacyBalance', true],
   // Near-miss negatives: a per-tenant table without schema; cross-tenant infrastructure tables
   // (explicit name, snake_case default name, non-literal schema) KEEP `schema:`.
@@ -145,6 +146,15 @@ const zetaRow = sourceOf(['', `@Entity('zeta_rows', { schema: 'zeta' })`, 'ZetaR
 assert.deepEqual(
   flaggedIn({ [zeta]: zetaRow, [SSOT]: ssot(['zeta']) }, 'apps/zeta-service/src', 'zeta'),
   [zeta],
+);
+
+// A tenant-scoped module with no MODULE_SCHEMAS entry has no infrastructure set to test the
+// table against, so the claim's second premise is unread and nothing is reported.
+const ghost = 'apps/ghost-service/src/row.entity.ts';
+const ghostRow = sourceOf(['', `@Entity('ghost_rows', { schema: 'ghost' })`, 'GhostRow', true]);
+assert.deepEqual(
+  flaggedIn({ [ghost]: ghostRow, [SSOT]: ssot(['ghost']) }, 'apps/ghost-service/src', 'ghost'),
+  [],
 );
 
 // No registry, no claim: an absent SSoT, one without TENANT_SCOPED_MODULES, and a partially

@@ -17,7 +17,9 @@ Runner contract: ARIA tool_runner.run_tool envelope. Through the kernel the
 adapter reads exactly ``repo_snapshot.allowed_paths`` (pre-filtered to the
 manifest's ``allowed_read_globs``); a direct CLI run falls back to
 ``SCANNED_GLOBS``, which mirror the manifest
-(``tools/aria-adapters/cqrs-adapter.tool.json``).
+(``tools/aria-adapters/cqrs-adapter.tool.json``). Specs, ``__tests__``, ``.test.ts``
+files and migrations are not controllers that serve requests in production and
+are never read (``adapter_scope.is_excluded_source``, shared with the outbox adapter).
 """
 from __future__ import annotations
 
@@ -27,6 +29,8 @@ import re
 import sys
 from pathlib import Path
 from typing import Iterable
+
+from adapter_scope import is_excluded_source
 
 
 REPO_ROOT_ENV = "ARIA_REPO_ROOT"
@@ -44,9 +48,6 @@ _INJECT_REPOSITORY_RE = re.compile(
     r"@InjectRepository\s*\(|Repository\s*<\s*\w+\s*>"
 )
 _BUS_CALL_RE = re.compile(r"\b(?:CommandBus|QueryBus)\.execute\s*\(")
-
-
-_SKIP_SUBSTRINGS = ("node_modules/", "dist/", "/__tests__/", ".spec.ts")
 
 
 def _line_of(content: str, pattern: re.Pattern[str]) -> int | None:
@@ -103,7 +104,7 @@ def _iter_files(root: Path, allowed_paths: Iterable[str] | None = None) -> list[
         if not path.is_file():
             continue
         rel = path.relative_to(root).as_posix()
-        if any(skip in rel for skip in _SKIP_SUBSTRINGS):
+        if is_excluded_source(rel):
             continue
         found.append(path)
     return found

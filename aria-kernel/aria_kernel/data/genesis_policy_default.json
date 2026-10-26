@@ -15,6 +15,10 @@
   },
   "change_review": {
     "_doc": "SE-13 (service-expertise PLAN \u00a73.7, \u00a74.3; DECISIONS Q7) \u2014 change-review caps (claims into proof, seats per change and per cycle) and seat envelopes, parsed strictly by genesis_policy.change_review_policy: every key required, an unknown or out-of-range key refused by its dotted path, no default fill (an override replaces the block whole). Every cap is a HOLD for its reader, never a raise.",
+    "context": {
+      "_doc": "WP-D2 (DESIGN-discovery row D2), pre-registered before the first DEV measurement. pr_tracking.context_recall measures, without an LLM, the share of DEV bug cases whose change-review envelope file set (the change's files, the impacted services, the twin slice) holds at least one file the fix F changed, with n and the Wilson lower bound (judge_calibration.wilson_lower). Below recall_floor the impact source is the defect (F3.9), not the discovery seats. The floor is high on purpose: each DEV bug case's X is SZZ-blamed from lines F changed (CASES.md), so X's own changed files already hold a file F changed in nearly every case; an envelope under 0.95 lost part of the change itself (a cap, a dropped path), not a coupling only an agent could see.",
+      "recall_floor": 0.95
+    },
     "knowledge": {
       "_doc": "PLAN \u00a73.7. Token caps per seat prompt: touched_service_tokens for the touched service's knowledge, impacted_contract_tokens per impacted facing contract, at most impacted_entries_per_seat impacted entries (contract edges first). sections_in_render_order is the one section list: sections render in this order, rows newest first inside a section, and a cap cuts from the END, so anti_patterns are dropped first and missed last; the drop count is rendered. A section ablation (service_expertise.dev_check) and a tombstoned section name sections from this list.",
       "impacted_contract_tokens": 300,

@@ -132,7 +132,6 @@ JUDGMENT_PIPELINE_DEFAULTS: dict[str, Any] = {
     # `measure_only`, on the record, while fewer than two calibrated seats
     # exist (`effective_calibration_gate`, asking the ONE seat law, F0.8).
     "calibration_gate": "measure_only",
-    "max_uncalibrated_escalations_per_cycle": 5,
     # WP-J slice C — the judgment funnel (judgment_funnel.route_judgment_sample,
     # the ONE routing owner called between generate_judgment_sample and
     # dispatch_judges_for_sample). `funnel_enabled` FALSE is the shipped
@@ -1070,6 +1069,12 @@ CHANGE_REVIEW_SCHEMA: dict[str, Any] = {
         "impacted_contract_tokens": _prereg.whole(1, 100_000),
         "impacted_entries_per_seat": _prereg.whole(0, 100),
         "sections_in_render_order": _prereg.names(),
+    },
+    # WP-D2 (DESIGN-discovery row D2) — the context-recall exit floor,
+    # pre-registered before the first DEV measurement; read by
+    # pr_tracking.context_recall.
+    "context": {
+        "recall_floor": _PROBABILITY,
     },
     # WP-D4: the claims of ONE change that may enter proof. ``overflow`` is a
     # one-member vocabulary, a pin: an overflow is a hold, never a drop.

@@ -36,7 +36,7 @@ from aria_kernel import agent_invocations as invocations
 from aria_kernel.agent_invocations import create_agent_invocation_request, list_agent_invocation_requests
 from aria_kernel.handoff_ledger import take_handoff_snapshot
 from aria_kernel.human_required import sweep_lease_lifecycle_for_human_required
-from aria_kernel.judge_fanout import CONSENSUS_ARBITRATION_ROLE, pending_arbitration_group_ids
+from aria_kernel.judge_fanout import CONSENSUS_ARBITRATION_ROLE
 from aria_kernel.plan_016_metrics import compute_plan_016_metrics
 from aria_kernel.tool_registry import ensure_tools_dir
 from aria_kernel.request_admission import admit_request
@@ -197,12 +197,6 @@ class ReadersOfEveryRequestLoadTheLedgersOnce(_Store):
         metrics, singles = self.per_request_calls(lambda: compute_plan_016_metrics(base_dir=self.tools))
         self.assertEqual(singles, 0)
         self.assertEqual(metrics["aria_agent_claim_active"], 0)
-
-    def test_the_pending_arbitration_groups(self) -> None:
-        self._mint(99, role=CONSENSUS_ARBITRATION_ROLE, group="judge:tool-a:split")
-        groups, singles = self.per_request_calls(lambda: pending_arbitration_group_ids(base_dir=self.tools))
-        self.assertEqual(singles, 0)
-        self.assertEqual(groups, {"judge:tool-a:split"})
 
     def test_the_state_filter_of_the_request_list(self) -> None:
         rows, singles = self.per_request_calls(

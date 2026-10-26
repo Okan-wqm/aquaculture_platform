@@ -388,14 +388,9 @@ class ConsensusArbitrationMinterTest(_ToolsDirTest):
         self.assertEqual(split_verdict_groups(tool_id="tool-a", base_dir=self.tools), [])
 
 
-class ArbitrationBeforeEscalationTest(_ToolsDirTest):
-    """One authority per question: the split goes to the arbiter first.
-
-    The HUMAN_REQUIRED adjudication panel for a consensus escalation dispatches
-    three agents — and one of them IS `aria-consensus-arbiter`. Raising the
-    escalation while arbitration is in flight asks the same agent the same
-    question twice.
-    """
+class ArbitrationInsteadOfEscalationTest(_ToolsDirTest):
+    """One authority per question: the split goes to the arbiter, and since
+    F0.7 (ARIA-MEDIUM-730) never to the operator — in flight or not."""
 
     def _split_and_record_uncertainty(self) -> None:
         _judge_vote(self.tools, judge_id="aria-evidence-judge", verdict="true_positive")
@@ -407,23 +402,23 @@ class ArbitrationBeforeEscalationTest(_ToolsDirTest):
             [u["reason"] for u in result["uncertainties"]], ["judge_disagreement"],
         )
 
-    def test_escalation_waits_while_arbitration_is_in_flight(self) -> None:
+    def test_with_arbitration_in_flight_nothing_escalates(self) -> None:
         self._split_and_record_uncertainty()
         dispatch_arbiter_for_split_verdicts(tool_id="tool-a", base_dir=self.tools)
 
         result = sweep_consensus_uncertainties_for_human_required(base_dir=self.tools)
 
         self.assertEqual(result["created"], [])
-        self.assertEqual(result["skipped"][0]["reason"], "arbitration_in_flight")
+        self.assertEqual(result["routed"]["arbiter"], 1)
 
-    def test_without_arbitration_the_escalation_still_reaches_the_operator(self) -> None:
-        # Nothing is dropped, only ordered: a split with no arbiter in flight
-        # escalates exactly as it did before.
+    def test_without_arbitration_the_split_still_never_reaches_the_operator(self) -> None:
         self._split_and_record_uncertainty()
 
         result = sweep_consensus_uncertainties_for_human_required(base_dir=self.tools)
 
-        self.assertEqual(len(result["created"]), 1)
+        self.assertEqual(result["created"], [])
+        minted = dispatch_arbiter_for_split_verdicts(tool_id="tool-a", base_dir=self.tools)
+        self.assertEqual(minted["minted_count"], 1)
 
 
 class RemovedRolesTest(_ToolsDirTest):

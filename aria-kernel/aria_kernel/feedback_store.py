@@ -1223,11 +1223,14 @@ def record_ai_feedback_file(
 
 
 def _has_unverifiable_evidence(rows: list[dict[str, Any]], workspace_root: str | Path) -> bool:
-    """Plan 024 §C — True if any judge in the group cites an evidence ref that
+    """Plan 024 §C — True if any judge in ``rows`` cites an evidence ref that
     positively does not resolve in the repo (``missing`` / ``invalid``). A ref
     that exists but is unverified at a pinned sha (``worktree_candidate``) is
     given the benefit of the doubt — this gate catches fabricated evidence, not
-    sha-pinning uncertainty, so it cannot flood escalation on a clean repo."""
+    sha-pinning uncertainty, so it cannot flood escalation on a clean repo.
+    The caller passes the judges the consensus row speaks for (JJ-1): a side
+    the arbiter ruled ``evidence_missing`` dissents, and the row neither
+    publishes its refs nor needs them to resolve."""
     from .evidence_trust import classify_evidence_ref
     for row in rows:
         for ref in _optional_string_list(row.get("evidence_refs")):
@@ -1452,9 +1455,13 @@ def generate_ai_consensus(
         # Plan 024 §C — evidence-gated arbiter. When a workspace is supplied, the
         # union of judge evidence is only published as consensus if it actually
         # resolves in the repo; a judge citing fabricated evidence escalates to a
-        # human instead of being rubber-stamped. Opt-in: legacy callers without
-        # workspace_root keep the pure mechanical gate.
-        if workspace_root is not None and _has_unverifiable_evidence(rows, workspace_root):
+        # human instead of being rubber-stamped. Scoped to the agreeing judges
+        # (JJ-1): the arbiter's per-side `evidence_missing` ruling is what turns
+        # the losing side's missing ref into a dissent, and a second judge of the
+        # same ref over every row would hold that group in the arbiter lane
+        # forever. Opt-in: legacy callers without workspace_root keep the pure
+        # mechanical gate.
+        if workspace_root is not None and _has_unverifiable_evidence(agreeing, workspace_root):
             uncertainties.append(_consensus_uncertainty(tool_id, run_id, finding_id, group_id, "evidence_not_repo_verified"))
             continue
         # ARIA-HIGH-325 — what a true_positive may stand on. Unconditional:

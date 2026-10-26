@@ -212,14 +212,41 @@ class EverySideGetsARecordedRulingTest(_SplitCase):
         ]
         self.assertEqual(row.get("side_rulings"), recorded)
         self.assertEqual([r.get("side_rulings") for r in self._arbiter_rows()], [recorded])
-        # And the group settles on the upheld side: no terminal unverifiable, no human.
-        settled = generate_ai_consensus(tool_id=TOOL, base_dir=self.tools, judge_weights=WEIGHTS)
+        # And the group settles on the upheld side: no terminal unverifiable, no human. The call is
+        # the cycle's own (it passes the workspace), so the consensus evidence gate is live: the
+        # side ruled evidence_missing is a dissenter, and the row does not speak for it.
+        settled = generate_ai_consensus(
+            tool_id=TOOL, base_dir=self.tools, judge_weights=WEIGHTS, workspace_root=self.repo,
+        )
         self.assertEqual([c["verdict"] for c in settled["consensus"]], ["true_positive"])
         self.assertEqual(settled["uncertainties"], [])
         self.assertEqual(sweep_consensus_uncertainties_for_human_required(base_dir=self.tools)["created"], [])
         self.assertEqual(list_human_required(base_dir=self.tools).rows, [])
         self.assertEqual(unverifiable_rate(tool_id=TOOL, base_dir=self.tools)["unverifiable"], 0)
         self.assertEqual(arbitration_groups(tool_id=TOOL, base_dir=self.tools), [])
+
+    def test_the_gate_still_holds_the_side_the_arbiter_upheld_to_the_tree(self) -> None:
+        self._split()
+        request = self._mint()
+        record_judge_verdict_from_response(
+            request=request,
+            response=self._answer(
+                request, verdict="false_positive",
+                side_rulings=[
+                    {"verdict": "false_positive", "ruling": "upheld"},
+                    {"verdict": "true_positive", "ruling": "speculative"},
+                ],
+            ),
+            base_dir=self.tools,
+        )
+
+        held = generate_ai_consensus(
+            tool_id=TOOL, base_dir=self.tools, judge_weights=WEIGHTS, workspace_root=self.repo,
+        )
+
+        # The agreeing side cites a ref the tree does not carry: that is not published as consensus.
+        self.assertEqual(held["consensus"], [])
+        self.assertEqual([u["reason"] for u in held["uncertainties"]], ["evidence_not_repo_verified"])
 
     def _assert_refused(self, side_rulings: object) -> None:
         self._split()

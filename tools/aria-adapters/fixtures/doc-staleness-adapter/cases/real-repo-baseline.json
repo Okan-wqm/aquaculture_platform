@@ -2,7 +2,21 @@
   "name": "real-repo-baseline",
   "lane": "real_repo_baseline",
   "input": {
-    "roots": ["docs"]
+    "roots": [
+      "docs",
+      "apps",
+      "libs",
+      "web",
+      "infra",
+      "infrastructure",
+      "e2e",
+      "platform",
+      "README.md",
+      "AGENTS.md",
+      "CONTRIBUTING.md",
+      "SECURITY.md",
+      "CLAUDE.md"
+    ]
   },
   "expected": {
     "status": "ok",

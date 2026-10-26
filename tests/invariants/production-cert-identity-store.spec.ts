@@ -84,6 +84,20 @@ function runGenerator(
 }
 
 /**
+ * A scratch tree laid out like the repository, as far as the generator reads
+ * it: its own directory and services.yaml, which it finds through its own
+ * location. Returns the scripts directory.
+ */
+function layoutScratchRepository(workDirectory: string): string {
+  const scripts = join(workDirectory, 'infrastructure/docker/scripts');
+  const nats = join(workDirectory, 'infrastructure/nats');
+  mkdirSync(scripts, { recursive: true, mode: 0o700 });
+  mkdirSync(nats, { recursive: true, mode: 0o700 });
+  copyFileSync(join(REPO_ROOT, NATS_SERVICES_YAML), join(nats, basename(NATS_SERVICES_YAML)));
+  return scripts;
+}
+
+/**
  * Runs a copy of the generator whose source TRANSFORM rewrote, from a scratch
  * tree laid out like the repository (the copy reads services.yaml through its
  * own location), so a spec can change one spelling and see what every reader
@@ -94,12 +108,7 @@ function runGeneratorVariant(
   certsDirectory: string,
   transform: (source: string) => string,
 ): SpawnSyncReturns<string> {
-  const scripts = join(workDirectory, 'infrastructure/docker/scripts');
-  const nats = join(workDirectory, 'infrastructure/nats');
-  const variant = join(scripts, 'generate-internal-certs.sh');
-  mkdirSync(scripts, { recursive: true, mode: 0o700 });
-  mkdirSync(nats, { recursive: true, mode: 0o700 });
-  copyFileSync(join(REPO_ROOT, NATS_SERVICES_YAML), join(nats, basename(NATS_SERVICES_YAML)));
+  const variant = join(layoutScratchRepository(workDirectory), 'generate-internal-certs.sh');
   writeFileSync(variant, transform(readFileSync(GENERATOR_PATH, 'utf8')), { mode: 0o700 });
   return spawnSync('/bin/bash', [variant], {
     cwd: workDirectory,
@@ -126,25 +135,40 @@ function generatorDefinitions(): string {
   return generator.slice(0, generationStart);
 }
 
+/**
+ * Runs the generator's definitions followed by HARNESS_LINES as a script FILE
+ * in a scratch repository tree, the way production runs the generator. Its
+ * first lines derive SCRIPT_DIR and REPO_ROOT from BASH_SOURCE, which a
+ * `bash -c` string does not have: bash 5.3 (the CI runner image's) refuses the
+ * resulting `cd ""`, and the harness never reached the function under test.
+ */
+function runGeneratorHarness(
+  harnessLines: readonly string[],
+  environment: Readonly<Record<string, string>>,
+): SpawnSyncReturns<string> {
+  const workDirectory = mkdtempSync(join(tmpdir(), 'aqua-cert-harness-'));
+  try {
+    const harness = join(layoutScratchRepository(workDirectory), 'generator-harness.sh');
+    writeFileSync(harness, [generatorDefinitions(), ...harnessLines].join('\n'), { mode: 0o700 });
+    return spawnSync('/bin/bash', [harness], {
+      cwd: workDirectory,
+      encoding: 'utf8',
+      env: { PATH: '/usr/bin:/bin', LC_ALL: 'C', ...environment },
+    });
+  } finally {
+    removeFixtureTree(workDirectory);
+  }
+}
+
 function runAssetValidator(
   certsDirectory: string,
   assetPath: string,
   expectedMode: '0600' | '0644',
 ): SpawnSyncReturns<string> {
-  const validationHarness = [
-    generatorDefinitions(),
-    `validate_existing_certificate_asset "\${ASSET_PATH}" ${expectedMode} 'fixture asset'`,
-  ].join('\n');
-  return spawnSync('/bin/bash', ['-c', validationHarness], {
-    cwd: REPO_ROOT,
-    encoding: 'utf8',
-    env: {
-      PATH: '/usr/bin:/bin',
-      LC_ALL: 'C',
-      DEPLOY_CERTS_DIR: certsDirectory,
-      ASSET_PATH: assetPath,
-    },
-  });
+  return runGeneratorHarness(
+    [`validate_existing_certificate_asset "\${ASSET_PATH}" ${expectedMode} 'fixture asset'`],
+    { DEPLOY_CERTS_DIR: certsDirectory, ASSET_PATH: assetPath },
+  );
 }
 
 function runClientSetValidator(
@@ -153,41 +177,26 @@ function runClientSetValidator(
   certificatePath: string,
   expectedIdentity: string,
 ): SpawnSyncReturns<string> {
-  const validationHarness = [
-    generatorDefinitions(),
-    'validate_existing_client_set "${KEY_PATH}" "${CERTIFICATE_PATH}" "CN=${EXPECTED_IDENTITY}" "fixture client"',
-  ].join('\n');
-  return spawnSync('/bin/bash', ['-c', validationHarness], {
-    cwd: REPO_ROOT,
-    encoding: 'utf8',
-    env: {
-      PATH: '/usr/bin:/bin',
-      LC_ALL: 'C',
+  return runGeneratorHarness(
+    [
+      'validate_existing_client_set "${KEY_PATH}" "${CERTIFICATE_PATH}" "CN=${EXPECTED_IDENTITY}" "fixture client"',
+    ],
+    {
       DEPLOY_CERTS_DIR: certsDirectory,
       KEY_PATH: keyPath,
       CERTIFICATE_PATH: certificatePath,
       EXPECTED_IDENTITY: expectedIdentity,
     },
-  });
+  );
 }
 
 function runCanonicalCaCopyValidator(
   certsDirectory: string,
   caPath: string,
 ): SpawnSyncReturns<string> {
-  const validationHarness = [
-    generatorDefinitions(),
-    'validate_canonical_ca_copy "${CA_PATH}" "fixture CA copy"',
-  ].join('\n');
-  return spawnSync('/bin/bash', ['-c', validationHarness], {
-    cwd: REPO_ROOT,
-    encoding: 'utf8',
-    env: {
-      PATH: '/usr/bin:/bin',
-      LC_ALL: 'C',
-      DEPLOY_CERTS_DIR: certsDirectory,
-      CA_PATH: caPath,
-    },
+  return runGeneratorHarness(['validate_canonical_ca_copy "${CA_PATH}" "fixture CA copy"'], {
+    DEPLOY_CERTS_DIR: certsDirectory,
+    CA_PATH: caPath,
   });
 }
 
@@ -197,22 +206,14 @@ function runCanonicalCaCopyValidator(
  * set the table does not hold (minio), so the call meets no missing directory.
  */
 function runServerSetIssuer(certsDirectory: string, argument: string): SpawnSyncReturns<string> {
-  const issuingHarness = [
-    generatorDefinitions(),
-    'prepare_certificate_directories "${CERTS_DIR}/minio"',
-    'RENEW_LEAVES=true',
-    'generate_server_cert "${SERVER_SET_ARGUMENT}"',
-  ].join('\n');
-  return spawnSync('/bin/bash', ['-c', issuingHarness], {
-    cwd: REPO_ROOT,
-    encoding: 'utf8',
-    env: {
-      PATH: '/usr/bin:/bin',
-      LC_ALL: 'C',
-      DEPLOY_CERTS_DIR: certsDirectory,
-      SERVER_SET_ARGUMENT: argument,
-    },
-  });
+  return runGeneratorHarness(
+    [
+      'prepare_certificate_directories "${CERTS_DIR}/minio"',
+      'RENEW_LEAVES=true',
+      'generate_server_cert "${SERVER_SET_ARGUMENT}"',
+    ],
+    { DEPLOY_CERTS_DIR: certsDirectory, SERVER_SET_ARGUMENT: argument },
+  );
 }
 
 function runOpenSsl(args: readonly string[]): void {

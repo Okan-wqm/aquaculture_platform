@@ -52,10 +52,10 @@
       "mcp_servers": []
     },
     "arbiter": {
-      "description": "Read-only consensus arbitration; sees judge outputs only.",
+      "description": "Read-only consensus arbitration; weighs the seats' evidence and may Read and Grep the repository to check a citation.",
       "model": "opus",
       "effort": "max",
-      "tools": ["Read"],
+      "tools": ["Read", "Grep"],
       "write_scope": [],
       "env_passthrough": [],
       "external_writes": false,

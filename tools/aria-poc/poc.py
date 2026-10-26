@@ -81,8 +81,10 @@ GRAPHQL_ENUM_PATTERN = re.compile(
     r"\benum\s+(\w+)\s*\{([^}]+)\}",
     re.MULTILINE | re.DOTALL,
 )
+# The type name is the last dotted part, each part optionally quoted: TypeORM
+# baselines write ``CREATE TYPE "farm"."suppliers_status_enum" AS ENUM(...)``.
 SQL_ENUM_PATTERN = re.compile(
-    r"CREATE\s+TYPE\s+(\w+)\s+AS\s+ENUM\s*\(([^)]+)\)",
+    r'CREATE\s+TYPE\s+(?:"?\w+"?\.)?"?(\w+)"?\s+AS\s+ENUM\s*\(([^)]+)\)',
     re.IGNORECASE | re.DOTALL,
 )
 # Rust enum declaration head: `pub enum Foo {` / `enum Foo<T> {`. The body is
@@ -907,15 +909,66 @@ def detect_ui_option_groups(repo_root: Path, fates: list[FileFate]) -> list[dict
 
 
 # ─── detect_sql_enums ────────────────────────────────────────────────────
-# Pattern manifest: `CREATE TYPE foo AS ENUM ('a', 'b', 'c')` — sadece
-# apps/*/src/database/migrations/ altında. Bu repo'da tüm SQL enum'lar
-# TypeORM migration'larından geliyor (ADR-011 schema-per-tenant).
-# Full ARIA'nın `sql-typeorm-migration` adapter'ının (CONTRACTS §1.2 #7)
-# bir alt parçası.
+# Pattern manifest: `CREATE TYPE foo AS ENUM ('a', 'b', 'c')`, read from the
+# migration files SCHEMA_REGISTRY declares (the files the migrator runs; this
+# repo's SQL enums all come from TypeORM migrations, ADR-011). The registry is
+# the one owner of which directories those are: services keep them under
+# src/database/migrations/ or src/migrations/ (messaging-service has both).
+# Full ARIA's `sql-typeorm-migration` adapter (CONTRACTS §1.2 #7) is a
+# superset of this reader.
+SCHEMA_REGISTRY_PATH = "apps/db-migrate/src/schema-registry.ts"
+# One lexer pass: a comment or a string literal is consumed whole, so a glob left
+# in a comment is never an entry and the `]` of a glob (`[0-9]*`) never ends the array.
+_REGISTRY_TOKEN = re.compile(
+    r"/\*.*?\*/|//[^\n]*|'[^'\n]*'|\"[^\"\n]*\"|`[^`]*`|\w+|\S", re.DOTALL,
+)
+
+
+def _glob_pattern(glob: str) -> "re.Pattern[str]":
+    """A registry glob as an anchored regex: ``*`` stays inside one path segment,
+    ``[..]`` is a character class and ``{a,b}`` an alternation. Any other glob
+    syntax is refused rather than read as literal text."""
+    if "**" in glob or re.search(r"[?!()]", glob):
+        raise ValueError(f"{SCHEMA_REGISTRY_PATH}: unsupported glob syntax in {glob!r}")
+    out = []
+    for part in re.split(r"(\{[^}]*\}|\[[^\]]*\]|\*)", glob):
+        if part == "*":
+            out.append("[^/]*")
+        elif part.startswith("["):
+            out.append(part)
+        elif part.startswith("{"):
+            out.append("(?:" + "|".join(re.escape(x) for x in part[1:-1].split(",")) + ")")
+        else:
+            out.append(re.escape(part))
+    return re.compile("".join(out))
+
+
+def registered_migration_patterns(repo_root: Path) -> list["re.Pattern[str]"]:
+    """Every ``migrationsGlob`` entry of SCHEMA_REGISTRY, as matchers over repo-relative paths."""
+    text = (repo_root / SCHEMA_REGISTRY_PATH).read_text(encoding="utf-8")
+    tokens = [t for t in _REGISTRY_TOKEN.findall(text) if not t.startswith(("//", "/*"))]
+    patterns: list[re.Pattern[str]] = []
+    for i, token in enumerate(tokens):
+        if token != "migrationsGlob" or tokens[i + 1:i + 3] != [":", "["]:
+            continue
+        for item in tokens[i + 3:]:
+            if item == "]":
+                break
+            if item == ",":
+                continue
+            if item[0] not in "'\"":
+                raise ValueError(f"{SCHEMA_REGISTRY_PATH}: migrationsGlob entry {item!r} is not a string literal")
+            patterns.append(_glob_pattern(item[1:-1]))
+    if not patterns:
+        raise ValueError(f"{SCHEMA_REGISTRY_PATH}: no migrationsGlob entry could be read")
+    return patterns
+
+
 def detect_sql_enums(repo_root: Path, fates: list[FileFate]) -> list[dict]:
     enums: list[dict] = []
+    migrations = registered_migration_patterns(repo_root)
     for f in fates:
-        if "/database/migrations/" not in f.path:
+        if not any(m.fullmatch(f.path) for m in migrations):
             continue
         # WHY: archived (superseded) migrations under ``migrations/.archive/``
         # describe a schema that has since been re-baselined. Comparing a

@@ -19,13 +19,20 @@ import {
 } from './adapter-fs';
 import { createContainedProgram } from './adapter-ts';
 
-type CheckName = 'base_event' | 'event_interfaces' | 'schema_catalogs' | 'validator_dispatch';
+type CheckName =
+  | 'base_event'
+  | 'event_interfaces'
+  | 'schema_catalogs'
+  | 'schema_contract_agreement'
+  | 'validator_dispatch';
 type FindingRule =
   | 'event_id_brand_missing'
   | 'base_event_field_missing'
   | 'create_base_event_missing'
   | 'schema_catalog_empty'
-  | 'schema_catalog_not_wired_to_validator';
+  | 'schema_catalog_not_wired_to_validator'
+  | 'event_schema_field_drift'
+  | 'event_schema_required_drift';
 
 interface AdapterInput {
   readonly root?: string;
@@ -103,6 +110,7 @@ const DEFAULT_CHECKS: readonly CheckName[] = [
   'base_event',
   'event_interfaces',
   'schema_catalogs',
+  'schema_contract_agreement',
   'validator_dispatch',
 ];
 const REQUIRED_BASE_EVENT_FIELDS = ['eventId', 'eventType', 'timestamp', 'tenantId', 'version'];
@@ -175,6 +183,9 @@ export function analyzeEventContracts(
   if (checks.has('schema_catalogs')) {
     analyzeSchemaCatalogs(units, result);
   }
+  if (checks.has('schema_contract_agreement')) {
+    analyzeSchemaContractAgreement(units, result, context);
+  }
   if (checks.has('validator_dispatch')) {
     analyzeValidatorDispatch(units, result);
   }
@@ -218,12 +229,16 @@ export function analyzeEventContracts(
   };
 }
 
-function analyzeBaseEvent(units: readonly SourceUnit[], result: AnalysisResult): void {
-  const unit = units.find(
+function baseEventUnit(units: readonly SourceUnit[]): SourceUnit | undefined {
+  return units.find(
     (item) =>
       item.relativePath.endsWith('/base-event.ts') ||
       item.relativePath === 'libs/event-contracts/src/base-event.ts',
   );
+}
+
+function analyzeBaseEvent(units: readonly SourceUnit[], result: AnalysisResult): void {
+  const unit = baseEventUnit(units);
   if (!unit) {
     return;
   }
@@ -321,19 +336,28 @@ function analyzeEventInterfaces(
   }
 }
 
+/** The `*_EVENT_SCHEMAS` catalog declarations of a runtime schema file: the one rule for "a catalog". */
+function schemaCatalogsIn(unit: SourceUnit): ts.VariableDeclaration[] {
+  const catalogs: ts.VariableDeclaration[] = [];
+  if (!unit.relativePath.includes('/schemas/') || !unit.relativePath.endsWith('.schema.ts')) {
+    return catalogs;
+  }
+  visit(unit.sourceFile, (node) => {
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.name.text.endsWith('_EVENT_SCHEMAS')
+    ) {
+      catalogs.push(node);
+    }
+  });
+  return catalogs;
+}
+
 function analyzeSchemaCatalogs(units: readonly SourceUnit[], result: AnalysisResult): void {
   for (const unit of units) {
-    if (!unit.relativePath.includes('/schemas/') || !unit.relativePath.endsWith('.schema.ts')) {
-      continue;
-    }
-    visit(unit.sourceFile, (node) => {
-      if (!ts.isVariableDeclaration(node) || !ts.isIdentifier(node.name)) {
-        return;
-      }
-      const name = node.name.text;
-      if (!name.endsWith('_EVENT_SCHEMAS')) {
-        return;
-      }
+    for (const node of schemaCatalogsIn(unit)) {
+      const name = node.name.getText();
       const eventCount = countObjectLiteralProperties(node.initializer);
       result.observations.push({
         id: `event-schema-catalog:${unit.relativePath}:${name}`,
@@ -355,8 +379,200 @@ function analyzeSchemaCatalogs(units: readonly SourceUnit[], result: AnalysisRes
           details: { catalog: name },
         });
       }
-    });
+    }
   }
+}
+
+/** An event contract interface and where it is declared, by the one definition rule. */
+interface ContractSite {
+  readonly unit: SourceUnit;
+  readonly declaration: ts.InterfaceDeclaration;
+  readonly line: number;
+}
+
+/** A schema variable typed `JSONSchemaType<W>`, with the type `W` the compiler resolves for it. */
+interface WireSchema {
+  readonly name: string;
+  readonly unit: SourceUnit;
+  readonly line: number;
+  readonly wire: ts.Type;
+}
+
+/** Member name to whether it is optional, for the members BaseEvent does not carry. */
+type MemberOptionality = ReadonlyMap<string, boolean>;
+
+/**
+ * Z27 (ledger Z-C2): a runtime wire schema is tied by tsc only to its local, hand-copied `Wire*`
+ * interface (`JSONSchemaType<WireTankDeleted>`), never to the contract interface
+ * (`TankDeletedEvent`), so renaming a member in the Wire interface and its schema compiles. This
+ * check relates the two: every catalog entry that is a variable typed `JSONSchemaType<W>`
+ * (annotated, or cast with `as`) is paired by its event type with the one contract interface the
+ * definition rule (`eventDefinitionsIn`) finds for it, and the member names and their optionality
+ * are compared after the BaseEvent members are set aside (the wire bases omit or narrow some).
+ * Value types are not compared. An entry that is not a typed schema variable, an event type with
+ * no definition or with several, and an interface with no schema are not paired and give no
+ * finding.
+ */
+function analyzeSchemaContractAgreement(
+  units: readonly SourceUnit[],
+  result: AnalysisResult,
+  context: AnalysisContext,
+): void {
+  const { checker } = context;
+  const baseUnit = baseEventUnit(units);
+  const baseEvent = baseUnit === undefined ? undefined : findInterface(baseUnit, 'BaseEvent');
+  if (baseEvent === undefined) {
+    return;
+  }
+  const baseMembers = new Set(
+    checker.getPropertiesOfType(checker.getTypeAtLocation(baseEvent)).map((member) => member.name),
+  );
+  const contracts = new Map<string, ContractSite[]>();
+  for (const unit of units) {
+    for (const definition of eventDefinitionsIn(unit.sourceFile, checker)) {
+      const declaration = findInterface(unit, definition.declaration);
+      if (declaration === undefined) {
+        continue;
+      }
+      for (const eventType of definition.eventTypes) {
+        contracts.set(eventType, [
+          ...(contracts.get(eventType) ?? []),
+          { unit, declaration, line: definition.line },
+        ]);
+      }
+    }
+  }
+  for (const unit of units) {
+    for (const catalog of schemaCatalogsIn(unit)) {
+      const entries = unwrapExpression(catalog.initializer);
+      if (entries === undefined || !ts.isObjectLiteralExpression(entries)) {
+        continue;
+      }
+      for (const entry of entries.properties) {
+        if (!ts.isPropertyAssignment(entry) || !isPlainName(entry.name)) {
+          continue;
+        }
+        const eventType = entry.name.text;
+        const schema = typedWireSchema(entry.initializer, units, checker);
+        const sites = contracts.get(eventType) ?? [];
+        const [site] = sites;
+        if (schema === undefined || sites.length !== 1 || site === undefined) {
+          continue;
+        }
+        const drift = compareMembers(
+          memberOptionality(checker, schema.wire, baseMembers),
+          memberOptionality(checker, checker.getTypeAtLocation(site.declaration), baseMembers),
+        );
+        const evidence = [
+          { path: site.unit.relativePath, line: site.line },
+          { path: schema.unit.relativePath, line: schema.line },
+        ];
+        const subject = `${eventType} (contract ${site.declaration.name.text}, schema ${schema.name})`;
+        if (drift.wireOnly.length > 0 || drift.contractOnly.length > 0) {
+          result.findings.push({
+            id: `event-contracts:${site.unit.relativePath}:schema-field-drift:${eventType}`,
+            rule: 'event_schema_field_drift',
+            severity: 'high',
+            path: site.unit.relativePath,
+            line: site.line,
+            message: `${subject}: the wire schema and the contract interface name different members; only on the wire: [${drift.wireOnly.join(', ')}], only in the contract: [${drift.contractOnly.join(', ')}].`,
+            evidence,
+            details: { eventType, wireOnly: drift.wireOnly, contractOnly: drift.contractOnly },
+          });
+        }
+        if (drift.requiredOnWire.length > 0 || drift.requiredInContract.length > 0) {
+          result.findings.push({
+            id: `event-contracts:${site.unit.relativePath}:schema-required-drift:${eventType}`,
+            rule: 'event_schema_required_drift',
+            severity: 'high',
+            path: site.unit.relativePath,
+            line: site.line,
+            message: `${subject}: the wire schema and the contract interface disagree on optionality; required on the wire but optional in the contract: [${drift.requiredOnWire.join(', ')}], mandatory in the contract but optional on the wire: [${drift.requiredInContract.join(', ')}].`,
+            evidence,
+            details: {
+              eventType,
+              requiredOnWire: drift.requiredOnWire,
+              requiredInContract: drift.requiredInContract,
+            },
+          });
+        }
+      }
+    }
+  }
+}
+
+function isPlainName(name: ts.PropertyName): name is ts.Identifier | ts.StringLiteral {
+  return ts.isIdentifier(name) || ts.isStringLiteral(name);
+}
+
+/**
+ * The `JSONSchemaType<W>` a catalog entry's variable is typed with, `W` as the checker resolves
+ * it: the variable's annotation, or the `as` cast of its initializer. A call, a spread, a literal
+ * or an untyped variable has none.
+ */
+function typedWireSchema(
+  entry: ts.Expression,
+  units: readonly SourceUnit[],
+  checker: ts.TypeChecker,
+): WireSchema | undefined {
+  if (!ts.isIdentifier(entry)) {
+    return undefined;
+  }
+  const symbol = checker.getSymbolAtLocation(entry);
+  const declaration = (
+    symbol !== undefined && (symbol.flags & ts.SymbolFlags.Alias) !== 0
+      ? checker.getAliasedSymbol(symbol)
+      : symbol
+  )?.valueDeclaration;
+  if (declaration === undefined || !ts.isVariableDeclaration(declaration)) {
+    return undefined;
+  }
+  const cast = declaration.initializer;
+  const annotation =
+    declaration.type ?? (cast !== undefined && ts.isAsExpression(cast) ? cast.type : undefined);
+  const unit = units.find((candidate) => candidate.sourceFile === declaration.getSourceFile());
+  if (
+    annotation === undefined ||
+    unit === undefined ||
+    !ts.isTypeReferenceNode(annotation) ||
+    annotation.typeName.getText() !== 'JSONSchemaType' ||
+    annotation.typeArguments?.length !== 1
+  ) {
+    return undefined;
+  }
+  return {
+    name: declaration.name.getText(),
+    unit,
+    line: lineOf(unit.sourceFile, declaration),
+    wire: checker.getTypeFromTypeNode(annotation.typeArguments[0]),
+  };
+}
+
+function memberOptionality(
+  checker: ts.TypeChecker,
+  type: ts.Type,
+  baseMembers: ReadonlySet<string>,
+): MemberOptionality {
+  return new Map(
+    checker
+      .getPropertiesOfType(type)
+      .filter((member) => !baseMembers.has(member.name))
+      .map((member) => [member.name, (member.flags & ts.SymbolFlags.Optional) !== 0]),
+  );
+}
+
+/** Names on one side only, and names both sides carry with different optionality. */
+function compareMembers(
+  wire: MemberOptionality,
+  contract: MemberOptionality,
+): Record<'wireOnly' | 'contractOnly' | 'requiredOnWire' | 'requiredInContract', string[]> {
+  const shared = [...wire.keys()].filter((name) => contract.has(name));
+  return {
+    wireOnly: [...wire.keys()].filter((name) => !contract.has(name)).sort(),
+    contractOnly: [...contract.keys()].filter((name) => !wire.has(name)).sort(),
+    requiredOnWire: shared.filter((name) => !wire.get(name) && contract.get(name)).sort(),
+    requiredInContract: shared.filter((name) => wire.get(name) && !contract.get(name)).sort(),
+  };
 }
 
 function analyzeValidatorDispatch(units: readonly SourceUnit[], result: AnalysisResult): void {

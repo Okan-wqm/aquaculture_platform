@@ -231,6 +231,22 @@ const SEGMENTS_THEN_DIGITS = new RegExp(
   'g',
 );
 
+/**
+ * A severity word list on its own: two or more of the registry's four severities
+ * in one group, closed, then a hyphen and digits, which may open with `[1-9]`.
+ * The list is the classifier segment of an id (`(HIGH|MEDIUM|LOW)-(\d{3})`,
+ * `(?:HIGH|LOW)-[0-9]{3}`), whatever stands before it. A list that holds a word
+ * the registry does not have (`NIT`) does not match: the group must close after
+ * a registry severity, so that dialect stays another grammar. One severity is
+ * not a list. Groups as SEGMENTS_THEN_DIGITS.
+ */
+const SEVERITY_WORD = String.raw`(?:CRITICAL|HIGH|MEDIUM|LOW)`;
+const SEVERITIES_THEN_DIGITS = new RegExp(
+  String.raw`\((?:\?:|\?P<\w+>|\?<\w+>)?${SEVERITY_WORD}(?:\|${SEVERITY_WORD})+\)${GROUP_END}-${GROUP_END}` +
+    String.raw`${GROUP_OPEN}(?:\[1-9\])?(?:${DIGIT}(?:\{(\d+)(?:(,)(\d*))?\}|[+*])|(${DIGIT}{3,}))`,
+  'g',
+);
+
 /** The smallest width of a sequence the owner spells (`001`): a count at or above it is a width of its own. */
 const SMALLEST_SEQUENCE_WIDTH = 3;
 
@@ -271,12 +287,17 @@ function statesAWidth(
   return Number(lower) >= SMALLEST_SEQUENCE_WIDTH;
 }
 
-function segmentsThenDigits(line: string): boolean {
-  for (const match of asRegexSource(line).matchAll(SEGMENTS_THEN_DIGITS)) {
+/** Whether `pattern` (groups as SEGMENTS_THEN_DIGITS) finds digits that state a width in `line` read as a regex. */
+function digitsOfItsOwn(pattern: RegExp, line: string): boolean {
+  for (const match of asRegexSource(line).matchAll(pattern)) {
     if (match[4] !== undefined || statesAWidth(match[1], match[2], match[3])) return true;
   }
   return false;
 }
+
+const segmentsThenDigits = (line: string): boolean => digitsOfItsOwn(SEGMENTS_THEN_DIGITS, line);
+const severitiesThenDigits = (line: string): boolean =>
+  digitsOfItsOwn(SEVERITIES_THEN_DIGITS, line);
 
 interface RestatementShape {
   readonly name: string;
@@ -299,7 +320,9 @@ const ID_CONTEXT = String.raw`domain|sequence|severity|finding|ARIA-|ORPHAN|-HIG
  * heading's optional classifier followed by it. The fourth is the one an author
  * writes next whatever the segments are called: any two or more segments joined
  * by hyphens to a digit count of its own, in a regex literal, a RegExp built
- * from a string or a template literal, or a Python raw or f-string. The rest
+ * from a string or a template literal, or a Python raw or f-string. The fifth
+ * is the classifier on its own: two or more of the four severities in one word
+ * list, then a digit count of its own, with no segment spelled beside it. The rest
  * are the other ways to hold the width: padding a sequence to three digits,
  * reading it as the last three characters of an id, or the last hyphen segment,
  * and holding it to a limit written out (`next > 999`, the allocator's old
@@ -320,6 +343,7 @@ const RESTATEMENT_SHAPES: readonly RestatementShape[] = [
     new RegExp(String.raw`ORPHAN-\(\?:\[A-Z\]\+-\)\?\(${DIGITS}`),
   ),
   { name: 'segments joined by hyphens, then a digit count of its own', test: segmentsThenDigits },
+  { name: 'a severity word list, then a digit count of its own', test: severitiesThenDigits },
   spelled(
     'a sequence padded to three digits',
     new RegExp(
@@ -386,7 +410,14 @@ describe('REG-ID — the detector is not blind and not trigger-happy', () => {
     "existingIds.push(`${domain}-RESERVED-${String(reserved.sequence).padStart(3, '0')}`);",
     'if (Number.parseInt(next.slice(-3), 10) <= Number.parseInt(match[2], 10)) {',
     'const shortForm = e.id.match(/^P0-(?:CRITICAL|HIGH|MEDIUM|LOW)-0*(\\d+)$/);',
-    '  /^Closes:\\s+(\\S+?)#([A-Z][A-Z0-9]+-(?:CRITICAL|HIGH|MEDIUM|LOW)-\\d{3}|F-\\d{3})\\s*$/;',
+    '  /^Closes:\\s+(\\S+?)#([A-Z][A-Z0-9]+-(?:CRITICAL|HIGH|MEDIUM|LOW)-\\d{3}|F-\\d{3})\\s*$/;', // a severity word list on its own, before the sequence: no segment is
+    // spelled next to it, so the list alone says it is a classifier
+    'const R = /(HIGH|MEDIUM|LOW)-(\\d{3})/;',
+    'const R = /(?:HIGH|LOW)-\\d{3}/;',
+    'X = re.compile(r"(?:HIGH|LOW)-[0-9]{3}")',
+    'X = re.compile(r"(?P<severity>CRITICAL|HIGH)-(?P<n>[0-9]{3,5})")',
+    'const R = new RegExp(`(?:MEDIUM|LOW)-(?:[1-9]\\\\d{2,4})`);',
+    'const R = /^(?:(?:HIGH|MEDIUM))-\\d\\d\\d$/;',
   ];
   // Lines that spell a different grammar, or no grammar: the F-NNN and DEBT
   // families, an ADR number, the NIT dialect, an unrelated padded counter, a
@@ -400,7 +431,21 @@ describe('REG-ID — the detector is not blind and not trigger-happy', () => {
     'const SEVERITY = /^(CRITICAL|HIGH|MEDIUM|LOW)$/;',
     'r"^F-\\d{3,}$"',
     ' * `ORPHAN-(CRITICAL|HIGH|MEDIUM|LOW)-\\d{3}` form skipped 16 real',
-    '# FINDING_ID_RE = ^[A-Z]+-(CRITICAL|HIGH|MEDIUM|LOW)-\\d{3}$',
+    '# FINDING_ID_RE = ^[A-Z]+-(CRITICAL|HIGH|MEDIUM|LOW)-\\d{3}$', // a list that is not the registry's severities, one severity alone, a list
+    // with no digit count of its own, other families spelled the same way
+    'const R = /(?:HIGH|LOW|NIT)-\\d{3}/;',
+    'const R = /(NIT|HIGH)-\\d{3}/;',
+    'const R = /(HIGH|NIT|LOW)-\\d{3}/;',
+    'const R = /(?:HIGH|LOW)-\\d+/;',
+    'const R = /(?:HIGH|LOW)-\\d{2,}/;',
+    'const R = /(?:HIGH)-\\d{3}/;',
+    'const R = /(?:HIGH|LOW)-[A-Z]+/;',
+    'X = re.compile(r"(?:HIGH|LOW)-[0-9]+")',
+    'const R = /(?:ADR|RFC)-\\d{3}/;',
+    'const R = /(?:F|DEBT)-\\d{3}/;',
+    'const R = /RUSTSEC-\\d{4}-\\d{4}/;',
+    '// const R = /(?:HIGH|LOW)-\\d{3}/;',
+    '# X = re.compile(r"(?:HIGH|LOW)-[0-9]{3}")',
   ];
 
   it('sees every restatement the repository carried', () => {

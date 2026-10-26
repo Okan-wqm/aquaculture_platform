@@ -15,7 +15,13 @@
 //   * `heavy_dependency_statically_imported` — a known heavyweight library
 //     is imported statically in module source, which welds it into the
 //     initial chunk; the fix is a dynamic `import()` at the use site.
+//   * `route_page_statically_imported` — a federated remote's router lazy-loads
+//     its pages and one page is imported statically, which welds that page and
+//     everything it imports into the remote's initial chunk. Structural, needs
+//     no library list: see `routerPageFindings`.
 import { dirname, join, relative } from 'node:path';
+
+import ts from 'typescript';
 
 import {
   collectFiles,
@@ -46,8 +52,11 @@ interface AdapterObservation {
 
 interface AdapterFinding {
   readonly id: string;
-  readonly rule: 'bundle_budget_not_enforced' | 'heavy_dependency_statically_imported';
-  readonly severity: 'low' | 'high';
+  readonly rule:
+    | 'bundle_budget_not_enforced'
+    | 'heavy_dependency_statically_imported'
+    | 'route_page_statically_imported';
+  readonly severity: 'low' | 'medium' | 'high';
   readonly path: string;
   readonly line?: number;
   readonly message: string;
@@ -80,6 +89,123 @@ const HEAVY_MODULES = new Set([
 ]);
 
 const STATIC_IMPORT_RE = /^\s*import\s[^;]*?from\s+['"]([^'"]+)['"]/;
+
+// A file is a router when it lazy-loads at least this many relative modules AND
+// at least this share of the relative page modules it imports are lazy. Below
+// the floor a file is a component that happens to split one chunk; below the
+// share it ships most of its pages eagerly (sensor-module keeps 14 of its 31
+// pages static, a 55% share, and is left alone).
+const ROUTER_MIN_LAZY_MODULES = 5;
+const ROUTER_MIN_LAZY_PAGE_SHARE = 0.75;
+
+const isRelativeSpecifier = (specifier: string): boolean => specifier.startsWith('.');
+
+// Pages of a web module live under a `pages/` directory (web/modules/*/src/pages).
+const isPageSpecifier = (specifier: string): boolean => specifier.split('/').includes('pages');
+
+const propertyNameText = (name: ts.PropertyName): string | undefined =>
+  ts.isIdentifier(name) || ts.isStringLiteral(name) ? name.text : undefined;
+
+/** A vite config is a federated remote's when module federation `exposes` something. */
+function declaresExposes(configPath: string, text: string): boolean {
+  const config = ts.createSourceFile(configPath, text, ts.ScriptTarget.Latest, true);
+  const visit = (node: ts.Node): boolean =>
+    ((ts.isPropertyAssignment(node) || ts.isShorthandPropertyAssignment(node)) &&
+      propertyNameText(node.name) === 'exposes') ||
+    ts.forEachChild(node, visit) === true;
+  return visit(config);
+}
+
+/** `import type { A } from`, `import { type A, type B } from`: erased by the build, loads nothing. */
+function isTypeOnlyImport(node: ts.ImportDeclaration): boolean {
+  const clause = node.importClause;
+  if (clause === undefined) {
+    return false; // `import './x'` runs the module
+  }
+  const bindings = clause.namedBindings;
+  return (
+    clause.isTypeOnly ||
+    (clause.name === undefined &&
+      bindings !== undefined &&
+      ts.isNamedImports(bindings) &&
+      bindings.elements.length > 0 &&
+      bindings.elements.every((element) => element.isTypeOnly))
+  );
+}
+
+/** The relative module an `import('./x')` call loads, however the lazy edge around it is written. */
+function lazyModuleOf(node: ts.Node): string | undefined {
+  if (!ts.isCallExpression(node) || node.expression.kind !== ts.SyntaxKind.ImportKeyword) {
+    return undefined;
+  }
+  const argument = node.arguments[0];
+  return argument !== undefined &&
+    ts.isStringLiteralLike(argument) &&
+    isRelativeSpecifier(argument.text)
+    ? argument.text
+    : undefined;
+}
+
+/**
+ * Z37 layer 1. In a federated remote's router file (see the thresholds above),
+ * every static runtime import of a relative page module is one finding, cited
+ * at the import statement. A page imported both ways counts as static: the
+ * static edge is what puts it in the initial chunk. Nothing is resolved on
+ * disk; a page is recognised by the specifier the router wrote.
+ */
+function routerPageFindings(
+  sourceRel: string,
+  moduleRel: string,
+  source: ts.SourceFile,
+): AdapterFinding[] {
+  const staticPages = source.statements
+    .filter(ts.isImportDeclaration)
+    .filter((node) => !isTypeOnlyImport(node))
+    .flatMap((node) =>
+      ts.isStringLiteral(node.moduleSpecifier) &&
+      isRelativeSpecifier(node.moduleSpecifier.text) &&
+      isPageSpecifier(node.moduleSpecifier.text)
+        ? [{ node, specifier: node.moduleSpecifier.text }]
+        : [],
+    );
+  const lazyModules = new Set<string>();
+  const visit = (node: ts.Node): void => {
+    const lazyModule = lazyModuleOf(node);
+    if (lazyModule !== undefined) {
+      lazyModules.add(lazyModule);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+
+  const staticSpecifiers = new Set(staticPages.map((page) => page.specifier));
+  const lazyPages = [...lazyModules].filter(
+    (specifier) => isPageSpecifier(specifier) && !staticSpecifiers.has(specifier),
+  ).length;
+  const pages = lazyPages + staticSpecifiers.size;
+  if (
+    lazyModules.size < ROUTER_MIN_LAZY_MODULES ||
+    lazyPages < ROUTER_MIN_LAZY_PAGE_SHARE * pages
+  ) {
+    return [];
+  }
+  return staticPages.map(({ node, specifier }) => {
+    const line = source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1;
+    return {
+      id: `bundle-budget:route-page:${sourceRel}:${line}:${specifier}`,
+      rule: 'route_page_statically_imported',
+      severity: 'medium',
+      path: sourceRel,
+      line,
+      message:
+        `\`${sourceRel}\` lazy-loads ${lazyPages} of its ${pages} pages but imports ` +
+        `\`${specifier}\` statically, welding that page and everything it imports into ` +
+        `\`${moduleRel}\`'s initial chunk; load it with lazy(() => import()) like its siblings.`,
+      evidence: [{ path: sourceRel, line }],
+      confidence: 0.8,
+    };
+  });
+}
 
 export function analyzeBundleBudgets(
   input: AdapterInput,
@@ -126,6 +252,9 @@ export function analyzeBundleBudgets(
       path: rel,
       details: { hasBudget, hasViteConfig: viteConfig !== undefined },
     });
+    const federatedRemote =
+      viteConfig !== undefined &&
+      declaresExposes(viteConfig, readWorkspaceFile(workspaceRoot, viteConfig));
     if (viteConfig !== undefined && !hasBudget) {
       const viteRel = normalizeWorkspacePath(relative(workspaceRoot, viteConfig));
       findings.push({
@@ -152,7 +281,8 @@ export function analyzeBundleBudgets(
     for (const source of sources) {
       const sourceRel = normalizeWorkspacePath(relative(workspaceRoot, source));
       readPaths.push(sourceRel);
-      const lines = readWorkspaceFile(workspaceRoot, source).split('\n');
+      const text = readWorkspaceFile(workspaceRoot, source);
+      const lines = text.split('\n');
       for (let index = 0; index < lines.length; index += 1) {
         const match = STATIC_IMPORT_RE.exec(lines[index]);
         if (!match) {
@@ -177,6 +307,15 @@ export function analyzeBundleBudgets(
           evidence: [{ path: sourceRel, line: index + 1 }],
           confidence: 0.85,
         });
+      }
+      if (federatedRemote) {
+        findings.push(
+          ...routerPageFindings(
+            sourceRel,
+            rel,
+            ts.createSourceFile(source, text, ts.ScriptTarget.Latest, true),
+          ),
+        );
       }
     }
   }

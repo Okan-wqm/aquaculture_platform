@@ -557,6 +557,12 @@ def review_change(
         change = state.get("change_intelligence") or {}
         open_requests = list(change.get("subject_open_requests") or [])
         report["subject_ref"] = change.get("subject_ref")
+        # WP-D4 — the kernel's own cost attribution (cost_budget), copied: the
+        # LAST block a round reported, since it is cumulative over this room's
+        # store. A round that failed reports none, and must not erase the
+        # spend the rounds before it did.
+        if change.get("cost_budget") is not None:
+            report["cost_budget"] = change["cost_budget"]
         report["rounds"].append({
             "cycle_id": cycle_id, "exit_code": 0, "status": state.get("status"),
             "minted": change.get("change_intelligence_requests_minted"), "open_requests": open_requests,
@@ -570,6 +576,12 @@ def review_change(
         (store / "logs" / f"{cycle_id}.drain.log").write_text(drain.stdout + drain.stderr, encoding="utf-8")
         report["rounds"][-1]["drain_exit_code"] = drain.returncode
     last = report["rounds"][-1]
+    if "cost_budget" not in report:
+        # No round reported a block: the report names why instead of staying
+        # silent, and carries no spend, because an attribution that could not
+        # be read must not look like a spend of zero.
+        outcome = f"exited {last['exit_code']}" if last["exit_code"] else f"reported status {last.get('status')!r}"
+        report["cost_budget"] = {"unavailable": f"no round reported a cost_budget block; the last cycle {outcome}"}
     report["settled"] = last.get("status") == "completed" and not last.get("open_requests")
     report["passed"] = report["settled"]
     report["wall_seconds"] = round(time.monotonic() - started, 3)

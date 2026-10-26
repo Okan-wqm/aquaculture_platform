@@ -127,6 +127,37 @@ def current_state(base_dir: str | Path) -> str:
     return "tripped" if state == "tripped" else "ok"
 
 
+def monetary_admission_in_force(base_dir: str | Path) -> str:
+    """``managed_subscription`` or ``metered``: the admission the spawn gate acts under.
+
+    Read from the workspace the store is BOUND to, the one place the gate reads
+    operator policy; no ``adaptive_runtime`` block means metered.
+    """
+    from .genesis_policy import _adaptive_runtime_policy
+    from .tool_registry import bound_workspace_root
+
+    adaptive = _adaptive_runtime_policy(bound_workspace_root(base_dir))
+    return adaptive.monetary_admission if adaptive is not None else "metered"
+
+
+def attribution(base_dir: str | Path) -> dict[str, Any]:
+    """What a report names about cost: the admission in force, the USD derived so far, the caps.
+
+    WP-D4 — the room's report of a change review carries this block. It is
+    ``derived_usage`` and ``_load_caps`` (the numbers ``assert_within_budget``
+    gates on) beside ``monetary_admission_in_force`` (the mode that decides
+    whether those numbers admit or only inform): no figure is re-derived.
+    """
+    root = ensure_tools_dir(base_dir)
+    daily_usd, monthly_usd = derived_usage(root)
+    return {
+        "monetary_admission": monetary_admission_in_force(root),
+        "daily_usd": daily_usd,
+        "monthly_usd": monthly_usd,
+        "caps": _load_caps(root),
+    }
+
+
 def assert_within_budget(
     base_dir: str | Path,
     *,
@@ -152,14 +183,11 @@ def assert_within_budget(
     # reservation): the wall-clock caps bound a night. This gate refused
     # trial eight's cross-review with the shipped $5 daily cap after one
     # accepted challenger (ARIA-HIGH-079). The projection is still returned.
-    from .genesis_policy import _adaptive_runtime_policy
-    from .tool_registry import bound_workspace_root
-
-    adaptive = _adaptive_runtime_policy(bound_workspace_root(root))
-    if adaptive is not None and adaptive.monetary_admission == "managed_subscription":
+    monetary_admission = monetary_admission_in_force(root)
+    if monetary_admission == "managed_subscription":
         return {
             "status": "telemetry_only",
-            "monetary_admission": adaptive.monetary_admission,
+            "monetary_admission": monetary_admission,
             "estimated_run_usd": estimated_run_usd,
             "projected_daily_usd": projected_daily,
             "projected_monthly_usd": projected_monthly,
@@ -336,8 +364,10 @@ __all__ = [
     "COST_BREAKER",
     "COST_BREAKER_RESET_EVENT",
     "assert_within_budget",
+    "attribution",
     "current_state",
     "derived_usage",
+    "monetary_admission_in_force",
     "reset_breaker",
     "trip_scope",
 ]

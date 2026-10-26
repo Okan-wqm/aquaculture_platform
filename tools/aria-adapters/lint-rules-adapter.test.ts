@@ -120,6 +120,242 @@ async function main(): Promise<void> {
   assert.deepEqual(empty.findings, []);
   assert.equal(empty.observations.length, 1);
 
+  // ARIA-DET B08 — ESLint lines are 1-based, but a rule that is about the
+  // whole file reports `line: 0` (eslint-plugin-sonarjs does for
+  // `no-empty-test-file`, S2187). The evidence validator refuses a ref whose
+  // line is not positive, and one refused ref turns the WHOLE run into
+  // `evidence_error`: the adapter owns the normalisation, so a file-level
+  // message becomes a finding at line 1 and every other line stays as the
+  // engine reported it.
+  const fileLevel = makeFixtureTree('aria-lint-rules-line0-');
+  const fileLevelSrc = join(fileLevel, 'apps/sample-service/src');
+  mkdirSync(fileLevelSrc, { recursive: true });
+  // A comment line, not an empty file: the evidence validator also refuses a
+  // line past the end of the file, and a file of zero lines has no line 1.
+  writeFileSync(join(fileLevelSrc, 'empty.spec.ts'), '// No test lives in this file.\n', 'utf8');
+  writeFileSync(
+    join(fileLevelSrc, 'covered.spec.ts'),
+    [
+      "describe('covered', () => {",
+      "  it('reads a number', () => {",
+      "    expect(Number('2')).toBe(2);",
+      '  });',
+      '});',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+  writeFileSync(
+    join(fileLevelSrc, 'genuine.ts'),
+    [
+      'export function one(): number {',
+      '  return 1;',
+      '}',
+      '',
+      'export function run(expression: string): unknown {',
+      "  const wrapped = '(' + expression + ')';",
+      '  return eval(wrapped);',
+      '}',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+  const emptySpec = 'apps/sample-service/src/empty.spec.ts';
+  const withSpecs = await analyzeLintRules({ roots: ['apps'], includeTests: true }, fileLevel);
+  assert.deepEqual(
+    withSpecs.findings
+      .filter((finding) => finding.rule === 'sonarjs/no-empty-test-file')
+      .map((finding) => finding.path),
+    [emptySpec],
+    'the empty spec, and only it, draws no-empty-test-file; a spec with a real test does not',
+  );
+  const emptyFinding = withSpecs.findings.find(
+    (finding) => finding.rule === 'sonarjs/no-empty-test-file',
+  );
+  assert.equal(emptyFinding?.line, 1, 'a file-level finding sits on the first line');
+  assert.deepEqual(emptyFinding?.evidence, [{ path: emptySpec, line: 1 }]);
+  assert.ok(
+    emptyFinding?.id.startsWith(`lint-rules:sonarjs/no-empty-test-file:${emptySpec}:1:`),
+    `the finding id names line 1, got ${emptyFinding?.id}`,
+  );
+  for (const finding of withSpecs.findings) {
+    const lines = [finding.line, ...finding.evidence.map((ref) => ref.line)];
+    assert.ok(
+      lines.every((line) => Number.isInteger(line) && (line ?? 0) >= 1),
+      `${finding.id}: every line the validator reads is a positive integer, got ${lines.join(',')}`,
+    );
+  }
+  const genuine = withSpecs.findings.find(
+    (finding) => finding.rule === 'security/detect-eval-with-expression',
+  );
+  assert.equal(genuine?.path, 'apps/sample-service/src/genuine.ts');
+  assert.equal(genuine?.line, 7, 'a genuine line is not moved by the clamp');
+  assert.deepEqual(genuine?.evidence, [{ path: 'apps/sample-service/src/genuine.ts', line: 7 }]);
+
+  // The convention is the plugin's, not one rule's: whatever rule reports
+  // line 0 (S104 max-lines, S1451 file-header, S3317 file-name-differ do too)
+  // is kept as a finding at line 1; a message with no line already was.
+  const stubbed = await analyzeLintRules({ roots: ['apps'], includeTests: true }, fileLevel, () =>
+    Promise.resolve({
+      lintFiles: (files) =>
+        Promise.resolve([
+          {
+            filePath: files[0] ?? '',
+            messages: [
+              {
+                ruleId: 'sonarjs/file-level-rule',
+                severity: 2,
+                message: 'whole file',
+                line: 0,
+                column: 0,
+              },
+              {
+                ruleId: 'sonarjs/file-level-rule-b',
+                severity: 2,
+                message: 'whole file',
+                line: 0,
+                column: 1,
+              },
+              { ruleId: 'sonarjs/line-rule', severity: 2, message: 'one line', line: 7, column: 3 },
+              { ruleId: 'sonarjs/no-line-rule', severity: 2, message: 'no line given' },
+            ],
+          },
+        ]),
+      getRulesMetaForResults: () => ({}),
+    }),
+  );
+  assert.equal(
+    stubbed.findings.length,
+    4,
+    'a file-level message is kept as a finding, not dropped',
+  );
+  const byRule = new Map(stubbed.findings.map((finding) => [finding.rule, finding]));
+  assert.equal(byRule.get('sonarjs/file-level-rule')?.line, 1);
+  assert.equal(byRule.get('sonarjs/file-level-rule-b')?.line, 1);
+  assert.equal(byRule.get('sonarjs/line-rule')?.line, 7);
+  assert.equal(byRule.get('sonarjs/no-line-rule')?.line, 1);
+  for (const finding of stubbed.findings) {
+    assert.deepEqual(
+      finding.evidence,
+      [{ path: finding.path, line: finding.line }],
+      `${finding.id}: the evidence ref carries the finding's own line`,
+    );
+    assert.ok(
+      finding.id.includes(`:${finding.path}:${finding.line}:`),
+      `${finding.id}: the id carries the finding's own line`,
+    );
+  }
+
+  // DET-lint1 review r1 (non-blocking 1 and 2), pinned independently so one
+  // red does not hide the other.
+  const pins: string[] = [];
+  const pin = async (name: string, body: () => Promise<void>): Promise<void> => {
+    try {
+      await body();
+    } catch (error: unknown) {
+      pins.push(`${name}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
+
+  // A file of ZERO bytes has no line 1 (the evidence validator counts
+  // `read_text().splitlines()` = 0 lines and answers `evidence_line_missing`
+  // for any positive line), so clamping its file-level finding to line 1
+  // still turns the WHOLE run into `evidence_error`. Pinned outcome: the
+  // finding is KEPT (a zero-byte spec is the true positive of
+  // no-empty-test-file, and dropping it would hide the rule's clearest case)
+  // and it cites the FILE: evidence `[{path}]` without a `line`, which the
+  // validator accepts for an existing file. The finding carries no line
+  // either, and every other finding of the run survives.
+  await pin('a zero-byte spec cannot be cited at line 1', async () => {
+    const zero = makeFixtureTree('aria-lint-rules-zero-byte-');
+    const zeroSrc = join(zero, 'apps/sample-service/src');
+    mkdirSync(zeroSrc, { recursive: true });
+    writeFileSync(join(zeroSrc, 'zero.spec.ts'), '', 'utf8');
+    writeFileSync(
+      join(zeroSrc, 'covered.spec.ts'),
+      "describe('covered', () => {\n  it('reads a number', () => {\n    expect(Number('2')).toBe(2);\n  });\n});\n",
+      'utf8',
+    );
+    writeFileSync(
+      join(zeroSrc, 'genuine.ts'),
+      [
+        'export function run(expression: string): unknown {',
+        "  const wrapped = '(' + expression + ')';",
+        '  return eval(wrapped);',
+        '}',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+    const zeroPath = 'apps/sample-service/src/zero.spec.ts';
+    const zeroRun = await analyzeLintRules({ roots: ['apps'], includeTests: true }, zero);
+    const zeroFinding = zeroRun.findings.find((finding) => finding.path === zeroPath);
+    assert.equal(zeroFinding?.rule, 'sonarjs/no-empty-test-file', 'the zero-byte spec is kept');
+    assert.deepEqual(
+      zeroFinding?.evidence,
+      [{ path: zeroPath }],
+      'a file with no line is cited by path alone, not at a line it does not have',
+    );
+    assert.equal(zeroFinding?.line, undefined, 'the finding names no line of a file without lines');
+    for (const finding of zeroRun.findings) {
+      for (const ref of finding.evidence) {
+        assert.ok(
+          ref.line === undefined || ref.path !== zeroPath,
+          `${finding.id}: no evidence ref cites a line of the zero-byte file`,
+        );
+      }
+    }
+    const eval7 = zeroRun.findings.find(
+      (finding) => finding.rule === 'security/detect-eval-with-expression',
+    );
+    assert.equal(eval7?.line, 3, 'the other findings of the run survive, unmoved');
+    assert.deepEqual(eval7?.evidence, [{ path: 'apps/sample-service/src/genuine.ts', line: 3 }]);
+  });
+
+  // The clamp must not make two different messages one finding: a file-level
+  // message (line 0) and a genuine line-1 message of the same rule, path and
+  // column both clamp to line 1, and the id (rule:path:line:column) is the
+  // finding's identity everywhere downstream.
+  await pin('a clamped line-0 message and a genuine line-1 message keep distinct ids', async () => {
+    const clash = await analyzeLintRules({ roots: ['apps'], includeTests: true }, fileLevel, () =>
+      Promise.resolve({
+        lintFiles: (files) =>
+          Promise.resolve([
+            {
+              filePath: files[0] ?? '',
+              messages: [
+                {
+                  ruleId: 'sonarjs/shared-rule',
+                  severity: 2,
+                  message: 'whole file',
+                  line: 0,
+                  column: 1,
+                },
+                {
+                  ruleId: 'sonarjs/shared-rule',
+                  severity: 2,
+                  message: 'first line',
+                  line: 1,
+                  column: 1,
+                },
+              ],
+            },
+          ]),
+        getRulesMetaForResults: () => ({}),
+      }),
+    );
+    assert.equal(clash.findings.length, 2, 'both messages are findings');
+    assert.equal(
+      new Set(clash.findings.map((finding) => finding.id)).size,
+      2,
+      `finding ids are unique, got ${clash.findings.map((finding) => finding.id).join(' | ')}`,
+    );
+  });
+
+  if (pins.length > 0) {
+    throw new Error(`pinned expectations failed:\n- ${pins.join('\n- ')}`);
+  }
+
   process.stdout.write('lint-rules-adapter tests passed\n');
 }
 

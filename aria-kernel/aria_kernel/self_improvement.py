@@ -446,9 +446,14 @@ TEST_COLLECTION_MEMBERS: tuple[str, ...] = (
 )
 # Trust-boundary renderers (PLAN-v2 §2 'Güven sınırı'): the `<untrusted_*>`
 # pattern's owners. F4.0 folds the other renderers through these and they
-# join the set there.
+# join the set there. `pr_tracking` joined with WP-D2: it chooses the diff and
+# impact a change-intelligence envelope carries and places their tags itself
+# (`text_safety.untrusted_block`), so a change to it changes what an agent
+# reads as data. A module that places a tag is named here, not left to a
+# guard's import closure; `tests/test_derived_authority_set.py` finds every
+# caller of `untrusted_block` and fails when one is missing.
 TRUST_BOUNDARY_RENDERERS: tuple[str, ...] = tuple(f"{_KERNEL}{name}.py" for name in (
-    "agent_invocations", "untrusted_tree", "text_safety",
+    "agent_invocations", "untrusted_tree", "text_safety", "pr_tracking",
 ))
 # Routing inputs (service-expertise SE-2, SK-01): the orchestrator routing
 # table is the ONE path -> agent map, and it picks the merge-time experts of

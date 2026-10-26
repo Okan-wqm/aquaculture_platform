@@ -16,7 +16,12 @@
  * services (imports nothing from them) so both `TenantRoleService` and
  * `CapabilityAuthorityService` can depend on it with no import cycle.
  */
-import { TENANT_CAPABILITIES, TENANT_CAPABILITY_CATALOGUE } from '@aquaculture/shared-contracts';
+import {
+  PLATFORM_MODULE,
+  TENANT_CAPABILITIES,
+  TENANT_CAPABILITY_CATALOGUE,
+  type TenantCapabilityCategoryKey,
+} from '@aquaculture/shared-contracts';
 
 /**
  * Helper to convert panel permissions to a `resource:action` array.
@@ -64,28 +69,33 @@ export function isKnownCapability(capability: string): boolean {
 // ============================================================================
 
 /**
- * Catalogue category → the licensable module code (`PLATFORM_MODULE`, the
- * module dictionary in shared-contracts) a tenant MUST have enabled to hold
- * any capability in that category. A category NOT listed here is CORE — always
- * entitled regardless of plan:
- *   - `farm` / `batch` / `operations` — the base aquaculture product;
- *   - `reports` / `admin` — platform surfaces every tenant has;
- *   - `messaging` — no licensable module code exists yet, so it stays core
- *     (a dedicated messaging module gate is separate future work).
+ * Catalogue category → the licensable module codes (`PLATFORM_MODULE`, the module
+ * dictionary in shared-contracts) a tenant MUST have enabled to hold a capability
+ * of that category, given the capability's action. A category NOT listed here is
+ * CORE — always entitled regardless of plan:
+ *   - `company` — the Company layer belongs to every tenant (plan D1);
+ *   - `admin` — user and role administration every tenant has;
+ *   - `messaging` — no licensable module code exists for it.
  * Only the categories that map to OPTIONAL modules are gated:
  *   - `hr` → the HR module;
+ *   - `sensor` → the sensor module (edge-device I/O, RBAC-MEDIUM-026);
  *   - `ai` → the AI module (this is the audit's headline over-grant vector:
  *     a STARTER tenant granting itself `ai_settings:manage`);
- *   - `ai_specialists` → the AI module AND the specialty's module (all-of).
+ *   - `ai_specialists` → the AI module AND the specialty's own module (all-of):
+ *     the action of `ai_specialties:<module>` is that module, and the actions
+ *     come from the AI catalogue, so a new specialty module is gated by itself.
  * Keying by category (not individual capability) keeps this aligned with the
  * UI's category-grouped editor and avoids splitting a mixed category.
  */
-export const CATEGORY_MODULE_REQUIREMENTS: Readonly<Record<string, readonly string[]>> = {
-  hr: ['hr'],
-  ai: ['ai'],
-  // ALL-OF: a farm specialist persona is an AI feature over farm data, so the
+export const CATEGORY_MODULE_REQUIREMENTS: {
+  readonly [C in TenantCapabilityCategoryKey]?: (action: string) => readonly string[];
+} = {
+  hr: () => [PLATFORM_MODULE.HR],
+  sensor: () => [PLATFORM_MODULE.SENSOR],
+  ai: () => [PLATFORM_MODULE.AI],
+  // ALL-OF: a specialist persona is an AI feature over its module's data, so the
   // tenant must hold both modules (RBAC-MEDIUM-016).
-  ai_specialists: ['ai', 'farm'],
+  ai_specialists: (module) => [PLATFORM_MODULE.AI, module],
 };
 
 /**
@@ -94,12 +104,13 @@ export const CATEGORY_MODULE_REQUIREMENTS: Readonly<Record<string, readonly stri
  */
 const CAPABILITY_REQUIRED_MODULES: ReadonlyMap<string, readonly string[]> = (() => {
   const map = new Map<string, readonly string[]>();
+  const requirements = new Map(Object.entries(CATEGORY_MODULE_REQUIREMENTS));
   for (const [categoryKey, category] of Object.entries(TENANT_CAPABILITY_CATALOGUE)) {
-    const requiredModules = CATEGORY_MODULE_REQUIREMENTS[categoryKey];
-    if (!requiredModules || requiredModules.length === 0) continue;
+    const requirement = requirements.get(categoryKey);
+    if (requirement === undefined) continue;
     for (const [resource, definition] of Object.entries(category.resources)) {
       for (const action of definition.actions) {
-        map.set(`${resource}:${action}`, requiredModules);
+        map.set(`${resource}:${action}`, requirement(action));
       }
     }
   }

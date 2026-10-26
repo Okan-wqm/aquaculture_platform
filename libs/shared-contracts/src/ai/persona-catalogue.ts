@@ -64,6 +64,15 @@ export function aiSpecialtyCapability(
   return `ai_specialties:${module}`;
 }
 
+/**
+ * A capability a persona can require: its tier's, and its specialty module's. Each one is a
+ * tenant capability (access/tenant-capabilities.ts derives `ai_personas` and `ai_specialties`
+ * from this catalogue), so a persona gate is a check the catalogue offers.
+ */
+export type AiPersonaCapability =
+  | ReturnType<typeof aiPersonaTierCapability>
+  | ReturnType<typeof aiSpecialtyCapability>;
+
 /** Presentation that varies per tier (used by the `general` specialty only). */
 interface AiTierPresentation {
   readonly label: string;
@@ -246,7 +255,7 @@ export interface AiPersonaCatalogueEntry {
    * module-gated. `ai_assistant:use` is the surface gate and is checked by the
    * entry points, not per persona.
    */
-  readonly requiredCapabilities: readonly string[];
+  readonly requiredCapabilities: readonly AiPersonaCapability[];
 }
 
 function composeEntry(
@@ -256,7 +265,7 @@ function composeEntry(
   const tierPresentation = AI_TIER_PRESENTATION[tier];
   const isGeneral = specialty.id === 'general';
   const presentation = isGeneral ? tierPresentation : specialty;
-  const requiredCapabilities: string[] = [aiPersonaTierCapability(tier)];
+  const requiredCapabilities: AiPersonaCapability[] = [aiPersonaTierCapability(tier)];
   if (specialty.requiresModule !== null) {
     requiredCapabilities.push(aiSpecialtyCapability(specialty.requiresModule));
   }
@@ -288,6 +297,20 @@ export const AI_PERSONA_CATALOGUE: readonly AiPersonaCatalogueEntry[] = Object.f
 const CATALOGUE_BY_ID: ReadonlyMap<string, AiPersonaCatalogueEntry> = new Map(
   AI_PERSONA_CATALOGUE.map((entry) => [entry.id, entry]),
 );
+
+/**
+ * Every module a published specialty requires, once each, in catalogue order: the actions of the
+ * `ai_specialties` tenant capability. A specialty for a new module is grantable the moment it is
+ * published, and no capability is offered for a module no published specialty needs.
+ */
+export const AI_SPECIALTY_MODULE_CODES: readonly ActiveOwnerModuleCode[] = Object.freeze([
+  ...new Set(
+    AI_SPECIALTY_IDS.flatMap((specialtyId) => {
+      const { requiresModule, publishedTiers } = AI_SPECIALTY_CATALOGUE[specialtyId];
+      return requiresModule !== null && publishedTiers.length > 0 ? [requiresModule] : [];
+    }),
+  ),
+]);
 
 /** Catalogue lookup; `undefined` for any id that is not a published persona. */
 export function findAiPersona(id: string): AiPersonaCatalogueEntry | undefined {

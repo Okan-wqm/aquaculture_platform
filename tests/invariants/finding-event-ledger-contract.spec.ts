@@ -14,13 +14,20 @@
  *     every envelope column is the field of the line it carries;
  *   - the entity maps that envelope with the same checks;
  *   - parity: a ledger holding exactly the git lines passes, and a missing,
- *     extra or altered row is named; the digest follows the chain heads.
+ *     extra or altered row is named; the digest follows the chain heads;
+ *   - the mirror's INSERT: executed against a recording stand-in for the
+ *     connection (no Postgres runs in this lane), the payload it binds is the
+ *     git line verbatim and every other column is that line's field.
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import {
+  INSERT_FINDING_EVENT_SQL,
+  type LedgerRow,
+  type LedgerSession,
   mirrorDifferences,
+  mirrorInto,
   registryDigest,
   storeEvents,
 } from '../../tools/gates/finding-event-ledger';
@@ -200,5 +207,168 @@ describe('finding event ledger — a pure mirror of the git registry', () => {
 
   it('the registry CLI never writes the ledger', () => {
     expect(registryCli).not.toContain('event_store.finding_events');
+  });
+});
+
+const MAIN_SHA = 'a'.repeat(40);
+const LEDGER_COLUMNS = [
+  'event_id',
+  'finding_id',
+  'version',
+  'event_type',
+  'payload',
+  'main_sha',
+  'occurred_at',
+  'prev_hash',
+  'content_hash',
+];
+
+interface InsertedRow {
+  readonly [column: string]: unknown;
+}
+
+/**
+ * A stand-in for the connection that records every statement and plays the
+ * table's side of the INSERT: the columns are read out of the statement text
+ * and paired with the bound values by position, `finding_events_git_mirror_chk`
+ * is applied to the row, and the stored payload is the parsed jsonb. A
+ * reordered column list, a value bound to the wrong column and a payload that
+ * is not the row's own line each fail here as they would in Postgres.
+ */
+class RecordingLedger implements LedgerSession {
+  readonly statements: { readonly text: string; readonly values: readonly unknown[] }[] = [];
+  readonly inserted: InsertedRow[] = [];
+  private readonly held: FindingEventLine[];
+
+  constructor(held: readonly FindingEventLine[] = []) {
+    this.held = [...held];
+  }
+
+  async query(
+    text: string,
+    values: readonly unknown[] = [],
+  ): Promise<{ readonly rows: readonly LedgerRow[] }> {
+    this.statements.push({ text, values });
+    if (text.startsWith('SELECT payload FROM event_store.finding_events')) {
+      return { rows: this.held.map((payload) => ({ payload })) };
+    }
+    if (text === INSERT_FINDING_EVENT_SQL) this.insert(values);
+    return { rows: [] };
+  }
+
+  private insert(values: readonly unknown[]): void {
+    const listed = /\(([^)]*)\)\s*VALUES/.exec(flatSql(INSERT_FINDING_EVENT_SQL))?.[1] ?? '';
+    const columns = listed.split(',').map((column) => column.trim());
+    const row: Record<string, unknown> = Object.fromEntries(
+      columns.map((column, index) => [column, values[index]]),
+    );
+    const payload = JSON.parse(String(row['payload'])) as FindingEventLine;
+    const mirrors =
+      payload.event_id === row['event_id'] &&
+      payload.finding_id === row['finding_id'] &&
+      payload.version === row['version'] &&
+      payload.event_type === row['event_type'] &&
+      payload.prev_hash === row['prev_hash'] &&
+      payload.content_hash === row['content_hash'];
+    if (!mirrors) throw new Error('violates check constraint "finding_events_git_mirror_chk"');
+    this.inserted.push(row);
+    this.held.push(payload);
+  }
+
+  get verbs(): string[] {
+    return this.statements.map(({ text: statement }) => statement.split(/\s+/)[0] ?? '');
+  }
+}
+
+/** The statement text, one line: what the column list is read from. */
+function flatSql(statement: string): string {
+  return statement.replace(/\s+/g, ' ');
+}
+
+/** The lines of every event log of `store`, as git holds them, in the mirror's order. */
+function gitLines(store: RegistryStore): string[] {
+  return [...store.logs.values()]
+    .sort((left, right) => left.path.localeCompare(right.path))
+    .flatMap((log) => log.bytes.toString('utf8').split('\n'))
+    .filter((line) => line !== '');
+}
+
+describe("finding event ledger — the mirror's INSERT", () => {
+  it('lists the nine ledger columns, in order, with one placeholder each and the payload as jsonb', () => {
+    const flat = flatSql(INSERT_FINDING_EVENT_SQL);
+    expect(flat).toContain(`INSERT INTO event_store.finding_events (${LEDGER_COLUMNS.join(', ')})`);
+    expect(flat).toContain('VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7,$8,$9)');
+  });
+
+  it('binds the git line verbatim as the payload and each of its fields to its own column', async () => {
+    const store = fixtureStore();
+    const ledger = new RecordingLedger();
+    await expect(mirrorInto(ledger, store, MAIN_SHA)).resolves.toBe(2);
+
+    expect(ledger.inserted.map((row) => row['payload'])).toEqual(gitLines(store));
+    expect(ledger.inserted.map((row) => Object.keys(row))).toEqual([
+      LEDGER_COLUMNS,
+      LEDGER_COLUMNS,
+    ]);
+    const lines = storeEvents(store);
+    expect(ledger.inserted).toEqual(
+      lines.map((event) => ({
+        event_id: event.event_id,
+        finding_id: event.finding_id,
+        version: event.version,
+        event_type: event.event_type,
+        payload: JSON.stringify(event),
+        main_sha: MAIN_SHA,
+        occurred_at: event.occurred_at,
+        prev_hash: event.prev_hash,
+        content_hash: event.content_hash,
+      })),
+    );
+    // One transaction under the append lock: read the ledger, write the lines, commit.
+    expect(ledger.verbs).toEqual(['BEGIN', 'SELECT', 'SELECT', 'INSERT', 'INSERT', 'COMMIT']);
+    expect(ledger.statements[1]?.text).toContain('pg_advisory_xact_lock');
+  });
+
+  it('appends only the lines the ledger lacks, and nothing the second time', async () => {
+    const store = fixtureStore();
+    const [first] = storeEvents(store);
+    const ledger = new RecordingLedger(first === undefined ? [] : [first]);
+    await expect(mirrorInto(ledger, store, MAIN_SHA)).resolves.toBe(1);
+    expect(ledger.inserted.map((row) => row['finding_id'])).toEqual(['ARIA-HIGH-903']);
+
+    const again = new RecordingLedger(storeEvents(store));
+    await expect(mirrorInto(again, store, MAIN_SHA)).resolves.toBe(0);
+    expect(again.verbs).toEqual(['BEGIN', 'SELECT', 'SELECT', 'COMMIT']);
+  });
+
+  it('refuses, writes nothing and rolls back when a ledger row is not the git line with its event id', async () => {
+    const store = fixtureStore();
+    const [first, second] = storeEvents(store) as [FindingEventLine, FindingEventLine];
+    const ledger = new RecordingLedger([first, { ...second, occurred_at: '2026-10-26T00:00:00Z' }]);
+    await expect(mirrorInto(ledger, store, MAIN_SHA)).rejects.toThrow(
+      /mirror refused: 1 ledger row/,
+    );
+    expect(ledger.inserted).toEqual([]);
+    expect(ledger.verbs).toEqual(['BEGIN', 'SELECT', 'SELECT', 'ROLLBACK']);
+  });
+
+  it("the stand-in holds the table's mirror check, so a payload that is not the row's line cannot pass", async () => {
+    const [event] = storeEvents(fixtureStore()) as [FindingEventLine];
+    const ledger = new RecordingLedger();
+    const values = [
+      event.event_id,
+      event.finding_id,
+      event.version,
+      event.event_type,
+      JSON.stringify({ ...event, content_hash: 'f'.repeat(64) }),
+      MAIN_SHA,
+      event.occurred_at,
+      event.prev_hash,
+      event.content_hash,
+    ];
+    await expect(ledger.query(INSERT_FINDING_EVENT_SQL, values)).rejects.toThrow(
+      /finding_events_git_mirror_chk/,
+    );
+    expect(ledger.inserted).toEqual([]);
   });
 });

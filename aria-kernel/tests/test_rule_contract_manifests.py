@@ -21,7 +21,7 @@ import unittest
 from pathlib import Path
 
 from aria_kernel.rule_contract import DYNAMIC_RULE_KEY, contract_for_tool, validate_rule_contracts
-from aria_kernel.tool_registry import GovernanceError, validate_tool_definition
+from aria_kernel.tool_registry import GovernanceError, is_agent_backed, validate_tool_definition
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ADAPTERS = REPO_ROOT / "tools" / "aria-adapters"
@@ -74,6 +74,11 @@ class ShippedManifestsDeclareEveryRule(unittest.TestCase):
     def test_every_emitted_rule_has_its_own_contract_and_no_contract_is_dead(self) -> None:
         for manifest in _manifests():
             with self.subTest(tool=manifest["tool_id"]):
+                if is_agent_backed(manifest):
+                    # No source emits its rules: its claim families are the closed set an agent's claim may name
+                    # (test_change_review_defect_claims_bridge pins them), never derived at run time.
+                    self.assertNotIn(DYNAMIC_RULE_KEY, manifest["rules"])
+                    continue
                 literal, derived = _emitted_rules(manifest)
                 self.assertTrue(literal or derived, "no rule emission found in the adapter source")
                 declared = set(manifest["rules"]) - {DYNAMIC_RULE_KEY}

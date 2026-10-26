@@ -149,9 +149,10 @@ def sync_change_review(change: Change) -> dict[str, Any]:
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(manifest_path, destination)
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        fixture_set = REPO_ROOT / str(manifest.get("fixture_set") or "")
-        if fixture_set.is_dir():
-            shutil.copytree(fixture_set, change.repo / str(manifest["fixture_set"]), dirs_exist_ok=True)
+        # An agent-backed tool declares no fixture_set: `REPO_ROOT / ""` is the whole repository.
+        fixture_set_name = manifest.get("fixture_set")
+        if fixture_set_name and (REPO_ROOT / str(fixture_set_name)).is_dir():
+            shutil.copytree(REPO_ROOT / str(fixture_set_name), change.repo / str(fixture_set_name), dirs_exist_ok=True)
     context = cycle_mod.build_phase_context(
         cycle_id="cyc-d3-sync", workspace_root=change.repo, base_dir=change.tools,
     )

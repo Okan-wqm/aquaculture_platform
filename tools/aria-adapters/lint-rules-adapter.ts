@@ -24,6 +24,7 @@ import {
   normalizeWorkspacePath,
   requireScanRoots,
   resolveInsideWorkspace,
+  workspaceFileBytes,
   workspacePathExists,
 } from './adapter-fs';
 
@@ -123,6 +124,31 @@ export function severityFor(ruleId: string, meta: RuleMeta | undefined): Severit
   return 'low';
 }
 
+// The one owner of a message's location. ESLint lines are 1-based, but a rule
+// about the whole file reports `line: 0` (eslint-plugin-sonarjs does for
+// no-empty-test-file S2187, max-lines S104, file-header S1451, file-name-differ
+// S3317), and a message may name no line at all. The evidence validator
+// refuses a ref whose line is not positive, or past the end of the file, and
+// one refused ref turns the WHOLE run into `evidence_error`, so:
+//   - a located message (line >= 1) is cited at its own line, unmoved;
+//   - a file-level message is cited at the file's first line, and its id says
+//     `file-level`, so it never collapses into a genuine line-1 message of
+//     the same rule and column;
+//   - a file-level message in a file with no lines (zero bytes) has no first
+//     line to cite: it is kept, cited by path alone, with no `line`.
+interface MessageLocation {
+  readonly line: number | undefined;
+  readonly idKey: string;
+}
+
+function locateMessage(message: LintMessage, hasLines: () => boolean): MessageLocation {
+  const named = message.line;
+  if (named !== undefined && named >= 1) return { line: named, idKey: String(named) };
+  return hasLines()
+    ? { line: 1, idKey: '1:file-level' }
+    : { line: undefined, idKey: '0:file-level' };
+}
+
 export function selectFiles(input: AdapterInput, workspaceRoot: string): readonly string[] {
   const roots = requireScanRoots('lint-rules-adapter', input.roots);
   const files: string[] = [];
@@ -175,15 +201,18 @@ export async function analyzeLintRules(
     const rulesMeta = engine.getRulesMetaForResults(results);
     for (const result of results) {
       const rel = normalizeWorkspacePath(relative(workspaceRoot, result.filePath));
+      // Read lazily: only a message without a located line needs to know
+      // whether the file has a first line to be cited at.
+      const hasLines = (): boolean => workspaceFileBytes(workspaceRoot, rel) > 0;
       for (const message of result.messages) {
-        const line = message.line ?? 1;
+        const { line, idKey } = locateMessage(message, hasLines);
         if (message.fatal === true) {
           parseErrors += 1;
           observations.push({
-            id: `lint-rules:parse-error:${rel}:${line}`,
+            id: `lint-rules:parse-error:${rel}:${idKey}`,
             type: 'lint_rules_parse_error',
             path: rel,
-            details: { line, message: message.message },
+            details: { line: line ?? 0, message: message.message },
           });
           continue;
         }
@@ -198,13 +227,13 @@ export async function analyzeLintRules(
         ruleHistogram[ruleId] = (ruleHistogram[ruleId] ?? 0) + 1;
         const docs = meta?.docs?.url ? ` (${meta.docs.url})` : '';
         findings.push({
-          id: `lint-rules:${ruleId}:${rel}:${line}:${message.column ?? 0}`,
+          id: `lint-rules:${ruleId}:${rel}:${idKey}:${message.column ?? 0}`,
           rule: ruleId,
           severity: severityFor(ruleId, meta),
           path: rel,
-          line,
+          ...(line === undefined ? {} : { line }),
           message: `${ruleId}: ${message.message}${docs}`,
-          evidence: [{ path: rel, line }],
+          evidence: [line === undefined ? { path: rel } : { path: rel, line }],
           // A pack rule's precision on THIS repository is what the label
           // queue measures; until it has, the finding carries the pack's
           // own confidence, below every closing threshold.

@@ -34,7 +34,12 @@ of an accepted ``change_intelligence`` answer:
 
 Claim text (``claim``, ``expected_behaviour``, ``quote``) is model output about a
 repository an attacker may have written to. Nothing here reads it as an
-instruction: it is stored as data, bounded, and decides nothing.
+instruction: it is stored as data, bounded, and decides nothing. A claim whose
+strings no file or prompt can carry (a lone surrogate has no UTF-8 spelling) is
+malformed, and a path it cites is taken in ONE canonical spelling
+(``canonical_path.normalize_repo_relpath``) that the scope check, the git read and
+the stored finding all use: the spellings git would normalize (``x/../secrets/k``)
+are refused, not read as something the scope check never saw.
 """
 from __future__ import annotations
 
@@ -46,6 +51,7 @@ from typing import Any, Mapping
 
 from .agent_invocations import request_anchor_sha
 from .bridge_exceptions import BridgeContractRefused
+from .canonical_path import normalize_repo_relpath
 from .evidence_excerpts import DEFAULT_LINE_RADIUS
 from .evidence_probe import GitProbeSession
 from .evidence_trust import parse_evidence_ref
@@ -118,6 +124,8 @@ def render_defect_claim_rules() -> list[str]:
         "- `rule` names ONE family below; `claim_type` must equal that family's claim type. The kernel takes the claim's",
         "  type and severity from the family, never from your words.",
         "- `file`, `start_line`, `end_line` (1-based ints, start <= end) locate the defect in the change's head commit.",
+        "  Every path in a claim is repo-relative in its canonical spelling (no leading `/`, no `.` or `..` segment, no",
+        "  control character); another spelling makes the claim malformed.",
         "- `claim` states the defect; `expected_behaviour` states what should hold instead.",
         "- `expectation_ref` (`path:line`) names where that expectation is written: a contract, a type, another caller, a",
         "  test or a decision, outside the lines the change edits. A claim without one is refused.",
@@ -150,13 +158,49 @@ def _is_confidence(value: Any) -> bool:
     )
 
 
-def _ref_entry(ref: str) -> dict[str, Any]:
-    """The adapter evidence shape (``{path, line}``) of one ref; a ref outside the grammar stays whole as a path."""
+def _has_utf8_spelling(claim: Mapping[str, Any]) -> bool:
+    """False when a string of the claim has no UTF-8 spelling: a lone surrogate (``"\\ud800"``, legal JSON).
+
+    Such a string cannot be hashed, stored, put in a prompt or handed to git, and each of those raises
+    far from here (the judgment lane, the replay drain), so the claim is refused at the door instead.
+    """
+    try:
+        json.dumps(claim, ensure_ascii=False).encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
+
+
+def _cited_path(raw: str) -> str | None:
+    """The canonical spelling of a path a claim cites; ``None`` when no file of the repository is spelled so.
+
+    ``canonical_path.normalize_repo_relpath`` is the one law of that spelling (no absolute path, backslash,
+    control character, ``..`` or ``.`` or empty segment). It refuses what git would normalize
+    (``x/../secrets/k`` reads ``secrets/k``), so the scope check, the git read and the stored finding
+    can never disagree about which file a claim cites.
+    """
+    try:
+        return normalize_repo_relpath(raw)
+    except GovernanceError:
+        return None
+
+
+def _ref_entry(ref: str) -> dict[str, Any] | None:
+    """The adapter evidence shape (``{path, line}``) of one ref, its path in canonical spelling.
+
+    A ref outside the grammar stays whole as a path (and resolves to no file); ``None`` when the path
+    is spelled as no file is.
+    """
     parsed = parse_evidence_ref(ref)
-    if parsed is None:
-        return {"path": ref}
-    path, line = parsed
-    return {"path": path} if line is None else {"path": path, "line": line}
+    path, line = parsed if parsed is not None else (ref, None)
+    canonical = _cited_path(path)
+    if canonical is None:
+        return None
+    return {"path": canonical} if line is None else {"path": canonical, "line": line}
+
+
+def _ref_text(entry: Mapping[str, Any]) -> str:
+    return str(entry["path"]) if "line" not in entry else f"{entry['path']}:{entry['line']}"
 
 
 @dataclass(frozen=True)
@@ -168,6 +212,7 @@ class _Sound:
     severity: str
     confidence: float
     cited_paths: tuple[str, ...]
+    expectation: dict[str, Any]
 
 
 def _screen_shape(claim: Any, contracts: Mapping[str, RuleContract]) -> str | _Sound:
@@ -184,6 +229,7 @@ def _screen_shape(claim: Any, contracts: Mapping[str, RuleContract]) -> str | _S
         and isinstance(claim.get("quote"), str) and _is_confidence(claim.get("confidence"))
         and (refs is None or (isinstance(refs, list) and all(isinstance(ref, str) for ref in refs)))
         and (expectation is None or isinstance(expectation, str))
+        and _has_utf8_spelling(claim)
     ):
         return REFUSED_MALFORMED
     contract = contracts.get(rule)
@@ -198,7 +244,11 @@ def _screen_shape(claim: Any, contracts: Mapping[str, RuleContract]) -> str | _S
         return REFUSED_EXPECTATION
     if len(cited) > MAX_EVIDENCE_REFS_PER_CLAIM:
         return REFUSED_MALFORMED
-    file = claim["file"].strip()
+    file = _cited_path(claim["file"].strip())
+    cited_entries = [_ref_entry(ref) for ref in cited]
+    expectation_entry = _ref_entry(expectation.strip())
+    if file is None or expectation_entry is None or None in cited_entries:
+        return REFUSED_MALFORMED
     finding = {
         "id": f"{rule}:{file}:{start}-{end}",
         "rule": rule,
@@ -209,17 +259,17 @@ def _screen_shape(claim: Any, contracts: Mapping[str, RuleContract]) -> str | _S
         "end_line": end,
         "message": claim["claim"],
         "expected_behaviour": claim["expected_behaviour"],
-        "expectation_ref": expectation.strip(),
+        "expectation_ref": _ref_text(expectation_entry),
         "confidence": float(claim["confidence"]),
-        "evidence": [_ref_entry(ref) for ref in cited],
+        "evidence": cited_entries,
         "quotes": {f"{file}:{start}": claim["quote"]},
     }
     if len(json.dumps(finding, sort_keys=True).encode("utf-8")) > TOOL_OUTPUT_FINDING_MAX_BYTES:
         return REFUSED_MALFORMED
-    paths = {entry["path"] for entry in (*finding["evidence"], _ref_entry(finding["expectation_ref"]))} | {file}
+    paths = {entry["path"] for entry in (*cited_entries, expectation_entry)} | {file}
     return _Sound(
         finding=finding, fingerprint=finding_fingerprint(TOOL_ID, finding), severity=contract.severity_cap,
-        confidence=finding["confidence"], cited_paths=tuple(sorted(paths)),
+        confidence=finding["confidence"], cited_paths=tuple(sorted(paths)), expectation=expectation_entry,
     )
 
 
@@ -233,7 +283,8 @@ def _screen_evidence(
     commit and the quote is in the cited file's text there. A blank quote is no quote (``quote_matches_at``
     refuses it; tier-0 leaves an empty one to its submit door, which is this one). A path the tool may not
     read (``tool_health.find_scope_violations``: secrets, ``.git``) is refused before its bytes are
-    touched, so a hostile claim cannot get the run quarantined for a read the claim asked for.
+    touched, so a hostile claim cannot get the run quarantined for a read the claim asked for; the paths
+    are the canonical ones ``_screen_shape`` took, the spelling git reads.
     A probe that could not run is no verdict about the claim: it raises, and the answer is bridged again.
     """
     finding = sound.finding
@@ -243,10 +294,7 @@ def _screen_evidence(
     item = {
         "tool_id": TOOL_ID,
         "path": finding["path"],
-        "evidence": [
-            *finding["evidence"], {"path": finding["path"], "line": finding["end_line"]},
-            _ref_entry(finding["expectation_ref"]),
-        ],
+        "evidence": [*finding["evidence"], {"path": finding["path"], "line": finding["end_line"]}, sound.expectation],
         "quotes": finding["quotes"],
     }
     verdict = tier0_gate(item, None, workspace, head, probe=session)

@@ -11,7 +11,9 @@ such a row is pinned here, beside the pins of the bridge itself
     a closed set (no ``*``): the agent names the rule in each claim;
   * the dispatcher: the row is not dispatchable, and the subprocess runner refuses it;
   * the fixture door asks no case of it (its evidence is checked per answer, at the
-    answer's commit), and the learning-funnel reader reads no fixture verdict for it.
+    answer's commit), and the learning-funnel reader reads no fixture verdict for it;
+  * the merge-impact reader matches a merge's files against the fixture suites tools own, so a
+    tool with no suite is impacted by no merge.
 """
 from __future__ import annotations
 
@@ -25,6 +27,7 @@ from pathlib import Path
 from aria_kernel.adapter_fixture_contract import assert_fixture_backed
 from aria_kernel.feedback_store import append_jsonl, promotions_path
 from aria_kernel.funnel_health import load_learning_funnel_inputs
+from aria_kernel.pr_tracking import _plan_merge_impact
 from aria_kernel.tool_registry import (
     AGENT_RUNNER_TYPE,
     GovernanceError,
@@ -114,6 +117,51 @@ class TheDispatcherAndTheFixtureDoor(unittest.TestCase):
         self.assertEqual(dict(inputs.fixture_status), {})
         self.assertEqual(dict(inputs.fixture_runs), {})
         self.assertIn("change-review", inputs.tools)
+
+
+class TheMergeImpactReader(unittest.TestCase):
+    """``pr_tracking`` reads every registered tool for the suite a merge may have changed.
+
+    A tool that owns no suite has no pattern to match: before the reader asked, its empty
+    ``fixture_set`` became the pattern ``/**``, which every path starts with, so
+    ``change-review`` was reported impacted by every file of every merge and each merge's
+    row demanded fixture reruns and an AI-precision cache flush that nothing could answer.
+    """
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp(prefix="aria-d3-impact-"))
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.repo = make_local_git_repo(self.tmp, name="repo")
+        self.tools = ensure_tools_binding(self.tmp / "store" / "aria-tools", workspace_root=self.repo)
+        register_tool(_manifest("change-review"), base_dir=self.tools)
+        register_tool(_manifest("banned-phrase-adapter"), base_dir=self.tools)
+        self.suite = str(get_tool("banned-phrase-adapter", self.tools)["fixture_set"])
+
+    def _impact(self, changed_files: list[str]) -> dict:
+        merge = {"pr_number": 7, "head_sha": "a" * 40, "merge_sha": "b" * 40, "changed_files": changed_files}
+        return _plan_merge_impact(self.tools, "cyc-d3-impact", merge)
+
+    def test_a_merge_touching_no_suite_impacts_no_tool(self) -> None:
+        row = self._impact(["docs/unrelated/notes.md", "apps/farm-service/src/harvest.ts"])
+
+        self.assertEqual(row["impacted_adapters"], [])
+        self.assertEqual(row["actions"], ["carry_forward_confirmed_memory"])
+
+    def test_a_merge_touching_a_suite_impacts_the_tool_that_owns_it_and_no_other(self) -> None:
+        changed = f"{self.suite}/cases/new-case.json"
+
+        row = self._impact([changed, "docs/unrelated/notes.md"])
+
+        self.assertEqual(
+            row["impacted_adapters"],
+            [{"tool_id": "banned-phrase-adapter", "matched_files": [changed], "impact": "fixture_or_manifest_changed"}],
+        )
+        self.assertEqual(row["actions"], ["rerun_impacted_adapter_fixtures", "invalidate_ai_precision_cache"])
+
+    def test_a_change_to_the_registry_manifest_impacts_the_tools_that_own_a_suite_only(self) -> None:
+        row = self._impact(["aria-tools/registry.json"])
+
+        self.assertEqual([item["tool_id"] for item in row["impacted_adapters"]], ["banned-phrase-adapter"])
 
 
 if __name__ == "__main__":

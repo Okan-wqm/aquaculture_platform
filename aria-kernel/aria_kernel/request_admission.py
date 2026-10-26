@@ -30,7 +30,11 @@ whatever its class: the bound is per change, so it throttles no other work. The
 decision records the change it was made for (``Admission.subject_ref``) and the
 mint of such a seat accepts only an admission decided for that change
 (``check_admission_binding``): a seat minted under a decision that did not name
-its change would take a seat nothing counted.
+its change would take a seat nothing counted. The decision is a forecast, not
+the bound: an admission can be reused, or many can be decided before the first
+mint, each seeing an empty change. So the mint counts the seat again, in the
+request ledger's own transaction (``require_change_seat``, the door's one count),
+and refuses the one past the registered seats whatever decisions preceded it.
 
 A refusal is named (``request_admission_throttled:<reason>``), recorded on
 ``agent-invocations/admissions.jsonl`` once per (cycle, producer, role,
@@ -44,7 +48,7 @@ findings, not requests; the step remint budget (``step_request``) is unchanged.
 """
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -378,13 +382,17 @@ def _measure(root: Path, now: datetime) -> dict[str, Any]:
     return capacity
 
 
-def _change_seats_over_cap(root: Path, role: str, subject_ref: str, count: int) -> bool:
+def _change_seats_over_cap(root: Path, role: str, subject_ref: str, count: int, *,
+                           requests: Iterable[Mapping[str, Any]] | None = None) -> bool:
     """Whether ``count`` more ``role`` seats would take the change ``subject_ref`` past its registered seats.
 
     The seats a change holds are the requests of that role on the request
     ledger that name it: derived there, never a second counter. The cap is the
     strictly parsed ``change_review.seats`` of the workspace the store is bound
-    to (the place the spawn gate reads operator policy).
+    to (the place the spawn gate reads operator policy). The door reads the
+    ledger itself; the mint passes ``requests``, the rows it loaded under the
+    ledger's lock, so the seat it is about to write is counted against the very
+    rows it will be appended to.
     """
     from .agent_invocations import list_agent_invocation_requests
     from .genesis_policy import change_review_policy
@@ -394,8 +402,8 @@ def _change_seats_over_cap(root: Path, role: str, subject_ref: str, count: int) 
     if keys is None:
         raise GovernanceError(f"request_admission_change_seat_role_unclassified:{role}")
     seats = change_review_policy(bound_workspace_root(root))["seats"]
-    held = sum(1 for row in list_agent_invocation_requests(base_dir=root, role=role)
-               if row.get("subject_ref") == subject_ref)
+    rows = list_agent_invocation_requests(base_dir=root, role=role) if requests is None else requests
+    held = sum(1 for row in rows if row.get("role") == role and row.get("subject_ref") == subject_ref)
     return held + count > sum(seats[key] for key in keys)
 
 
@@ -563,6 +571,27 @@ def check_admission_binding(admission: Admission, *, role: str, subject_ref: str
         raise GovernanceError(f"request_admission_subject_mismatch:{admission.subject_ref}!={subject_ref}")
 
 
+def require_change_seat(root: Path, *, role: str, subject_ref: str | None,
+                        requests: Iterable[Mapping[str, Any]]) -> None:
+    """The mint's third check, for a NEW identity only: the seat it writes is within the change's seats.
+
+    ``requests`` are the request-ledger rows the mint loaded under the ledger's
+    lock, before it appends the seat: the count and the append see one ledger,
+    so two mints of one change cannot both take its last seat. Only a role with
+    registered seats (``CHANGE_SEAT_KEYS``) that names its change is counted: a
+    role without seats names a subject the door never counts (``goldset.curation``),
+    and a call that names no change holds no change's seat. A seat past the
+    registered ones raises ``RequestAdmissionThrottled`` as ``change_review_seat_cap``,
+    whatever admission preceded the mint: the admission is the door's forecast
+    (made earlier, possibly reused, possibly one of many decided before the
+    first mint), this count is the bound.
+    """
+    if subject_ref is None or role not in CHANGE_SEAT_KEYS:
+        return
+    if _change_seats_over_cap(root, role, subject_ref, 1, requests=requests):
+        raise RequestAdmissionThrottled(f"{THROTTLED_PREFIX}{REASON_CHANGE_SEAT_CAP}:{role}:{subject_ref}")
+
+
 def require_admitted(admission: Admission) -> None:
     """The mint's second check, for a NEW identity only: re-requesting a sealed row mints nothing."""
     if not admission.admitted:
@@ -575,5 +604,5 @@ __all__ = [
     "THROTTLED_PREFIX", "Admission", "ProducerClass", "PurposeClass", "RequestAdmissionThrottled",
     "admissions_path", "admit_request", "check_admission_binding", "cycle_key_for", "inherits_critical_path",
     "ledger_stamp",
-    "ADMISSIONS_SURFACE", "minted_row", "note_minted", "require_admitted",
+    "ADMISSIONS_SURFACE", "minted_row", "note_minted", "require_admitted", "require_change_seat",
 ]

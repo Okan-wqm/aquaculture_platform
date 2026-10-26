@@ -67,6 +67,9 @@
       "@aquaculture/backend-common/database": [
         "libs/backend-common/src/database/index.ts"
       ],
+      "@aquaculture/backend-common/database/testing": [
+        "libs/backend-common/src/database/testing.ts"
+      ],
       "@aquaculture/backend-common/event-dedup": [
         "libs/backend-common/src/event-dedup/index.ts"
       ],

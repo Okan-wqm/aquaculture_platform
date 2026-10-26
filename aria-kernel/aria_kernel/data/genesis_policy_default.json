@@ -87,6 +87,19 @@
     "max_plans_per_24h": 1
   },
   "fitness_staleness_threshold_days": 7,
+  "gates": {
+    "_doc": "PLAN-v2 F1.2 (ARIA-MEDIUM-733) \u2014 the pre-registered gates, parsed strictly by genesis_policy.gates_policy: every key required, an unknown or out-of-range key refused by its dotted path, no default fill (an override replaces the block whole). g1 is the field list of the scorecard: a cycle is gap-free when its report exists, carries no state_integrity_gap and every field listed here is measured (not None); consecutive_cycles is how many such cycles in a row G1 asks for. Each name is a measured field of one lens spec in autonomy_evidence.CAPABILITY_SPECS, which names its ledger and the owner of its number; autonomy_evidence.g1_gap_free_run reads the list and reports the run, and nothing there or here evaluates the gate.",
+    "g1": {
+      "consecutive_cycles": 14,
+      "fields": [
+        "canary_mutant_detection_rate",
+        "canary_false_claim_refutation_rate",
+        "implementer_repeat_failure_rate",
+        "learning_log_live",
+        "mechanisms_contributing"
+      ]
+    }
+  },
   "genesis_lifecycle": {
     "_doc": "Enterprise autonomy lifecycle gate. Skill/agent genesis cannot jump from pressure gap to request/draft/materialization without HUMAN_REQUIRED, real sandbox, SHADOW, EVAL_WINDOW and ACTIVE evidence.",
     "existing_capability_coverage_threshold": 0.8,

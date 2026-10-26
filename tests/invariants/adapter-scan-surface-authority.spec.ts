@@ -114,3 +114,29 @@ describe('adapter scan surface has a single authority', () => {
     expect(tracked.length).toBeGreaterThan(0);
   });
 });
+
+describe('workflow-shell-safety scan roots cover every shell file the repository tracks', () => {
+  // The roots are a hand-kept list, so a script added under a directory no root
+  // names is never read and nothing says so: the kernel's observation map only
+  // counts what declared_scope matches. This ties the list to the tracked tree.
+  // The tree holds no such file today; the first one added turns this red, and
+  // the fix is a root (with its declared_scope and allowed_read_globs entries).
+  it('has every tracked .sh/.bash file and every tracked executable regular file under a root', () => {
+    const adapter = manifests().find(({ toolId }) => toolId === 'workflow-shell-safety-adapter');
+    if (adapter === undefined) throw new Error('workflow-shell-safety-adapter manifest is missing');
+    const { roots } = adapter.manifest.default_input as { roots: string[] };
+    // `git ls-files -s -z`: "<mode> <object> <stage>\t<path>\0" per tracked file.
+    const outside = execFileSync('git', ['ls-files', '-s', '-z'], {
+      cwd: REPO_ROOT,
+      encoding: 'utf8',
+      maxBuffer: 256 * 1024 * 1024,
+    })
+      .split('\0')
+      .filter(Boolean)
+      .map((entry) => ({ mode: entry.slice(0, 6), path: entry.slice(entry.indexOf('\t') + 1) }))
+      .filter(({ mode, path: file }) => mode === '100755' || /\.(?:sh|bash)$/.test(file))
+      .map(({ path: file }) => file)
+      .filter((file) => !roots.some((root) => file.startsWith(`${root}/`)));
+    expect(outside).toEqual([]);
+  });
+});

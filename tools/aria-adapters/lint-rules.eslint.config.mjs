@@ -39,6 +39,13 @@ import sonarjs from 'eslint-plugin-sonarjs';
 // `no-restricted-syntax`: a finding's rule id selects its judgment contract in
 // the manifest, and a shared id would give every restricted selector in the
 // repository the same contract.
+//
+// The finding sits on the `unknown` keyword, not on the outer assertion: an
+// expression that opens lines before `as unknown as T` (an object literal, a
+// function body) would otherwise be cited at its opening line, and the
+// manifest contract judges the bytes of the cited line, which must be the one
+// that carries the construct. A justified next-line suppression comment for
+// such an expression therefore goes on the line above `as unknown`.
 const noDoubleTypeAssertion = {
   meta: {
     type: 'problem',
@@ -53,7 +60,7 @@ const noDoubleTypeAssertion = {
       TSAsExpression(node) {
         const inner = node.expression;
         if (inner.type === 'TSAsExpression' && inner.typeAnnotation.type === 'TSUnknownKeyword') {
-          context.report({ node, messageId: 'doubleAssertion' });
+          context.report({ node: inner.typeAnnotation, messageId: 'doubleAssertion' });
         }
       },
     };

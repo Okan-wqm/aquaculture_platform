@@ -12,6 +12,9 @@ rejected input forced the engine to try 2^N partitions of the path.
 
 Post-fix shape (linear time, same language):
     ^(?P<path>[^\\s:]+)(?::(?P<line>\\d+))?$
+ARIA-MEDIUM-826 narrowed the path class to ``[^\\s<>`:]`` (a ref is quoted into a
+prompt, so it holds no whitespace, tag delimiter or backtick); the shape is the
+same single class under one ``+``.
 
 Invariants:
 
@@ -152,10 +155,19 @@ class TestRegexNoCatastrophicBacktracking(unittest.TestCase):
             "ReDoS regression: dangerous nested-quantifier overlap "
             f"[^\\s:]*(?:[^\\s:] is back in: {assign.strip()}",
         )
-        # Positive: the safe replacement MUST be present on the compile line
+        # Positive: the safe replacement MUST be the compiled path group. The class is
+        # interpolated from one constant (ARIA-MEDIUM-826: it also excludes the characters
+        # that end a ref's quotation in a prompt), so the compile line cannot show it; the
+        # compiled pattern does, and pinning it fixes the single-class `+` shape and the
+        # exact class: widening it again is a failure here.
+        pattern = evidence_trust.EVIDENCE_REF_RE.pattern
+        self.assertNotIn(
+            r"[^\s<>`:]*(?:[^\s<>`:]", pattern,
+            f"ReDoS regression: nested-quantifier overlap is back in the compiled pattern: {pattern}",
+        )
         self.assertIn(
-            r"[^\s:]+", assign,
-            f"compile line MUST use simple [^\\s:]+ form: {assign.strip()}",
+            r"(?P<path>[^\s<>`:]+)", pattern,
+            f"the compiled path group MUST be the simple [^\\s<>`:]+ form: {pattern}",
         )
 
     def test_i_v8_0_redos_04_boundary_inputs_return_none_deterministically(self):

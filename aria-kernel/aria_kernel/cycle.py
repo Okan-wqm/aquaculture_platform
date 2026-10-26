@@ -1928,12 +1928,17 @@ def _phase_change_intelligence(context: PhaseContext) -> dict[str, Any]:
     caller named, not ARIA's merges: that change is minted for, and the
     payload names the subject's requests still open, which is what a settle
     loop (``harness.py review-change``) waits on.
+
+    WP-D2 — both feeds hand the cycle's workspace: the envelope reads the
+    change's hunks and impact from its tree and the missed signals from its
+    feedback ledger.
     """
     from .pr_tracking import dispatch_change_intelligence, plan_new_merge_impact, subject_open_request_ids
 
     if context.change is not None:
         dispatch = dispatch_change_intelligence(
             cycle_id=context.cycle_id, base_dir=context.base_dir, subject=context.change,
+            workspace=context.workspace,
         )
         return {
             "status": "completed",
@@ -1957,7 +1962,7 @@ def _phase_change_intelligence(context: PhaseContext) -> dict[str, Any]:
     minted = 0
     try:
         dispatch = dispatch_change_intelligence(
-            cycle_id=context.cycle_id, base_dir=context.base_dir,
+            cycle_id=context.cycle_id, base_dir=context.base_dir, workspace=context.workspace,
         )
         minted = len(dispatch.get("minted") or [])
     except GovernanceError as exc:

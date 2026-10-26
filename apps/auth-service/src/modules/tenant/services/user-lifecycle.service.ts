@@ -38,6 +38,7 @@ import {
 import { Tenant } from '../entities/tenant.entity';
 
 import { CapabilityAuthorityService, ValidatedOverrideSet } from './capability-authority';
+import { moduleGrantRows } from './module-assignment-grants';
 import { TenantRoleService, TenantRoleWithDetails } from './tenant-role.service';
 import {
   createCredentialInvalidationIntent,
@@ -979,15 +980,20 @@ export class UserLifecycleService {
       // into the `if` so TS narrows `input.moduleIds` to a defined string[]
       // (no non-null assertion needed on the .map).
       if (invitedRole !== Role.TENANT_ADMIN && input.moduleIds && input.moduleIds.length > 0) {
-        const assignments = input.moduleIds.map((moduleId) =>
+        // RBAC-HIGH-027: each grant carries its module role (module-assignment-grants.ts).
+        const grants = await moduleGrantRows(manager, {
+          moduleIds: input.moduleIds,
+          userRole: invitedRole,
+          isPrimaryManager: (moduleId) =>
+            invitedRole === Role.MODULE_MANAGER && moduleId === input.primaryModuleId,
+        });
+        const assignments = grants.map((grant) =>
           umaRepo.create({
             userId: savedUser.id,
-            moduleId,
             tenantId: input.tenantId,
-            isPrimaryManager:
-              invitedRole === Role.MODULE_MANAGER && moduleId === input.primaryModuleId,
             isActive: true,
             assignedBy: input.invitedBy,
+            ...grant,
           }),
         );
         await umaRepo.saveMany(assignments);

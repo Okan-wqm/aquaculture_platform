@@ -3,6 +3,7 @@ import { CronHeartbeatService, ServiceMetricsService } from '@aquaculture/backen
 
 import { AuthDomainMetricsService } from './auth-domain-metrics.service';
 import { AuthMetricsController } from './metrics.controller';
+import { MODULE_ACCESS_METRICS_REGISTRY } from './module-access.metrics';
 
 /**
  * Auth Metrics Module
@@ -31,5 +32,7 @@ export class AuthMetricsModule implements OnModuleInit {
 
   onModuleInit(): void {
     this.authDomainMetrics.contributeTo(this.serviceMetrics);
+    // RBAC-MEDIUM-029: the codes a minted moduleAccess claim leaves out, counted at mint.
+    this.serviceMetrics.registerContributor('module-access', MODULE_ACCESS_METRICS_REGISTRY);
   }
 }

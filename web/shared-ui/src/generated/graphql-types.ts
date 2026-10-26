@@ -9282,6 +9282,7 @@ export type MattilsynetStatus = {
 };
 
 export type MePayload = {
+  moduleAccess: ModuleAccess;
   modules: Array<UserModule>;
   redirectPath: Scalars['String']['output'];
   tenantName?: Maybe<Scalars['String']['output']>;
@@ -9536,6 +9537,17 @@ export type ModelCount = {
   count: Scalars['Int']['output'];
   model: DeviceModel;
 };
+
+export type ModuleAccess = {
+  farm?: Maybe<ModuleRole>;
+  hr?: Maybe<ModuleRole>;
+  hydroponics?: Maybe<ModuleRole>;
+  sensor?: Maybe<ModuleRole>;
+};
+
+export type ModuleRole =
+  | 'MODULE_MANAGER'
+  | 'MODULE_USER';
 
 export type ModuleUsageStatResponse = {
   actionsLastMonth: Scalars['Int']['output'];

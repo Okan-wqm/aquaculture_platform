@@ -53,6 +53,7 @@ from tests._helpers.operator_requests import (
     git,
     mint_ed25519_key,
 )
+from tests._helpers.service_facts import facts_without_contract_edges
 
 
 def _governance(tools: Path, kind: str) -> list[dict]:
@@ -83,6 +84,8 @@ def _signed_copy(row: dict) -> dict:
 
 class _Fixture(unittest.TestCase):
     def setUp(self) -> None:
+        # SE-4 — a fixture workspace has no TypeScript toolchain; its subject is not contract edges.
+        self.enterContext(facts_without_contract_edges())
         self.tmp = tempfile.TemporaryDirectory(prefix="aria-ofi-")
         self.addCleanup(self.tmp.cleanup)
         env = {k: v for k, v in os.environ.items() if k != "ARIA_REPO_STATE_ROOT"}

@@ -2347,3 +2347,353 @@ cycle settle loop and the `settled`/`passed` flag have no test.
 - Close: the subject's open ids and their states come from one ledger load, or a row without a state
   is refused by name (`change_review_request_state_missing:<id>`); a test with such a row pins the
   refusal.
+
+## ARIA-MEDIUM-840
+
+The impact closure's import edges carry no evidence site: `impact_graph.impact_closure` reports
+reason `import` with evidence `None`, because the cached project graph records project-to-project
+edges and not the import line
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: SE-4 implementer (87ef59330), kept out of the package's 500-line budget.
+- Evidence:
+  - `aria-kernel/aria_kernel/impact_graph.py:105`
+  - `aria-kernel/aria_kernel/impact_graph.py:915`
+- Rule: service-expertise PLAN §1.1 step 3: each closure entry names its edge kind and the edge's
+  evidence `path:line`.
+- Close: the graph builder records the first import site of each project edge, the cache publishes
+  it, the closure reports it, and `test_impact_closure.py` pins token-lib's evidence.
+
+## ARIA-MEDIUM-841
+
+A change to an event interface is recognised as changing event type T only when a hunk covers the
+line of its `eventType` member: SE-3's `event_definitions` carry that one line and not the
+interface's extent, so a hunk that changes only another field ranks no producer or consumer of T
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: SE-4 implementer (87ef59330).
+- Evidence:
+  - `aria-kernel/aria_kernel/impact_graph.py:170`
+  - `aria-kernel/aria_kernel/impact_graph.py:184`
+  - `tools/gates/event-consumer-index.ts:1516`
+  - `tools/gates/event-consumer-index.ts:1524`
+- Rule: service-expertise PLAN §1.2 step 2: changed hunks that intersect a definition give the
+  changed types.
+- Close: `event_definitions` carry the declaration's first and last line (additive), the closure
+  intersects hunks with that extent, and a fixture hunk on a non-`eventType` field of an interface
+  reaches the type's producer and consumer.
+
+## ARIA-MEDIUM-842
+
+The plan-coverage witness still maps a plan's paths to projects through its own nx graph
+(`projectFor` over `npx nx graph`) for `closure.projects` and `unmapped_paths`, beside the kernel's
+one key `project_for_path`, and builds that graph on every coverage run
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: SE-4 implementer (91048d66c). SE-4 removed the witness's `project:` and
+  `event-consumer:` nodes; the touched-project listing and unmapped paths remain.
+- Evidence:
+  - `tools/gates/plan-coverage-witness.ts:208`
+  - `tools/gates/plan-coverage-witness.ts:230`
+  - `tools/gates/plan-coverage-witness.ts:313`
+  - `aria-kernel/aria_kernel/impact_graph.py:964`
+- Rule: one owner per concept (service-expertise PLAN §2 row 'Path -> service/project key').
+- Close: plan coverage hands the witness the closure's touched projects and unknown files with
+  `closure_nodes`; the witness drops `--graph`, `loadGraph` and `projectFor`.
+
+## ARIA-MEDIUM-843
+
+Every workspace-level closure caller (plan admission, the cycle's service examination, the learning
+impact hook, the `impact service-order` CLI) computes code facts on the live checkout's HEAD, which
+must be clean and carry the TypeScript toolchain; otherwise the closure holds and plan admission
+refuses every finding-origin plan with `admission_scope_missing:contract_edges_unavailable:<reason>`
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: SE-4 implementer (87ef59330), as the declared PLAN Risk 12 state. Not measured on the
+  ARIA runner checkout: ARIA is paused and no cycle was run.
+- Evidence:
+  - `aria-kernel/aria_kernel/plan_origin.py:478`
+  - `aria-kernel/aria_kernel/plan_origin.py:482`
+  - `aria-kernel/aria_kernel/cycle.py:2503`
+  - `aria-kernel/aria_kernel/learning.py:272`
+  - `aria-kernel/aria_kernel/cli.py:6207`
+- Rule: service-expertise PLAN §3.3 and Risk 12: code facts are computed once per change subject on
+  its base tree; a hold is declared, never hidden.
+- Close: D5's base worktree supplies the facts tree to these callers, or the facts compute on the
+  runner checkout at HEAD with a success rate reported over DEV runs and recorded against this row.
+
+## ARIA-HIGH-861
+
+The SE-4 closure adds gateway_subgraph and event nodes at depth 1 to every plan, and the pre-merge
+perimeter refuses every waiver (coverage_waiver_adjudication_unavailable), so a plan touching a
+subgraph service or an event producer can pass pre-merge coverage only by also touching every
+contract neighbour (auth-service alone: 5 neighbours, 0 import dependents)
+
+- Severity: HIGH; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: SE-4 review (arch lens), registered by the SE-4 findings clerk. Re-measured at HEAD
+  03d718c40: impact_closure over apps/auth-service/src/main.ts with real code facts (19.3 s) at
+  depth 1 returns ai-service, farm-service, messaging-service and notification-service (event) and
+  gateway-api (gateway_subgraph), and no import dependent. The witness reports every closure node
+  without a waiver as uncovered, and merge_authority refuses any payload that carries waived
+  entries. Not measured: the share of earlier DEV plans this would refuse.
+- Evidence:
+  - `aria-kernel/aria_kernel/merge_authority.py:1292-1296`
+  - `aria-kernel/aria_kernel/plan_coverage.py:388-411`
+  - `aria-kernel/aria_kernel/plan_coverage.py:53`
+  - `aria-kernel/aria_kernel/impact_graph.py:112-121`
+  - `tools/gates/plan-coverage-witness.ts:409-418`
+- Rule: service-expertise PLAN Risk 13: the plan-coverage behaviour delta is listed in the PR; its
+  effect at the merge perimeter, which accepts no waiver, is not, and a gate must not be fed nodes
+  that only an adjudicated waiver can clear.
+- Close: Either the pre-merge perimeter accepts a waiver through the critic's accepted
+  request/result/artifact chain (the branch merge_authority.py:1294-1295 keeps closed), or
+  contract-edge nodes stop gating the merge; test_merge_authority pins an auth-service-only plan
+  with an adjudicated waiver chain (passes) and without one (refused), and the closing commit
+  reports the plan refusal rate over DEV plans.
+
+## ARIA-MEDIUM-862
+
+impact_closure and plan_downstream_impact read the fingerprint-matched service-order cache and
+ignore nx_graph_file, while plan_service_analysis_order builds its order and counts from
+\_project_graph(nx_graph_file): one answer can mix two graphs (probe: dependents [c] but impacted
+[a-lib, b]; origin/main gave [a-lib, c])
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: SE-4 review (ssot lens), registered by the SE-4 findings clerk. Reproduced at HEAD
+  03d718c40 on a synthetic tree (b imports a-lib by tsconfig alias, the nx graph file says c depends
+  on a-lib, the cache published first by a plain cached_service_analysis_order call):
+  plan_service_analysis_order gives order dependents [['c']] and impacted_projects ['a-lib', 'b'],
+  plan_downstream_impact gives graph_source local_import_scan_v1 and downstream ['b']. On
+  origin/main both used the given graph (impacted ['a-lib', 'c'], graph_source nx_graph_json). Only
+  the operator CLI `impact service-order --nx-graph` passes nx_graph_file, so the reach is narrow.
+- Evidence:
+  - `aria-kernel/aria_kernel/impact_graph.py:102`
+  - `aria-kernel/aria_kernel/impact_graph.py:226-235`
+  - `aria-kernel/aria_kernel/impact_graph.py:355`
+  - `aria-kernel/aria_kernel/impact_graph.py:369-378`
+  - `aria-kernel/aria_kernel/impact_graph.py:435-436`
+- Rule: one owner per concept: one graph per answer (service-expertise PLAN §2 row 'Service impact
+  closure').
+- Close: Closure, order and counts derive from one graph: a given nx_graph_file is that graph (it
+  keys the cache or bypasses it) and an absent one means the cache; or the parameter is removed from
+  the four functions. test_impact_closure pins the probe above: impacted ['a-lib', 'c'] and
+  graph_source nx_graph_json.
+
+## ARIA-MEDIUM-863
+
+A held cycle_service_examination returns no examination_order, and \_phase_service_mission_seed
+reads
+exam.get('examination_order') or [] without reading the hold, so it seeds only the CORE services and
+drops every evidence-backed and pressure-backed service with no disclosure
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: SE-4 review (arch lens), registered by the SE-4 findings clerk. Checked at HEAD
+  03d718c40: the hold branch of cycle_service_examination returns the examination without
+  examination_order, impacted_projects and agent_coverage_gaps; cycle.py reads no 'hold' key of the
+  examination anywhere, so the seeder's target list is SERVICE_HARDENING_CORE plus an empty
+  evidence_backed list.
+- Evidence:
+  - `aria-kernel/aria_kernel/cycle.py:2503-2509`
+  - `aria-kernel/aria_kernel/cycle.py:2720-2725`
+  - `aria-kernel/aria_kernel/impact_graph.py:633-635`
+- Rule: service-expertise PLAN §3.3 and Risk 12: a hold is declared, never hidden; a held closure
+  must not look like a closure that reaches nothing.
+- Close: The seeder reads exam['hold'] and discloses it by name in the phase result instead of
+  seeding the CORE set alone; test_cycle pins a held examination: the phase result names
+  `contract_edges_unavailable:<reason>` and mints no mission from the absent order.
+
+## ARIA-LOW-864
+
+GATEWAY_PROJECT = 'gateway-api' in impact_graph is a second copy of the service catalog's gateway
+nxProject: subgraphs.json does not carry it, so a catalog rename leaves the gateway_subgraph edge
+pointing at a project that does not exist
+
+- Severity: LOW; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: SE-4 review (ssot lens), registered by the SE-4 findings clerk. Checked at HEAD
+  03d718c40: the catalog entry serviceId 'gateway-api' has nxProject 'gateway-api' (index.ts:421);
+  subgraphs.json lists the eleven subgraph nxProjects and no gateway entry.
+- Evidence:
+  - `aria-kernel/aria_kernel/impact_graph.py:51`
+  - `aria-kernel/aria_kernel/impact_graph.py:112-116`
+  - `platform/libs/service-catalog/src/index.ts:421`
+  - `scripts/service-catalog/generate-artifacts.ts:140`
+- Rule: one owner per concept: the service catalog owns the gateway's nx project name.
+- Close: The generator of subgraphs.json (scripts/service-catalog/generate-artifacts.ts) emits the
+  gateway's nxProject, impact_graph reads it from the file and GATEWAY_PROJECT is deleted;
+  test_impact_closure pins that a fixture subgraphs.json naming another gateway project moves the
+  edge.
+
+## ARIA-LOW-865
+
+The merge-time coverage check pops closure_nodes from the witness input and only checks that the
+hash-bound manifest echoes them; nothing re-derives the node set from the kernel closure, so the
+input file's closure_nodes are trusted (on origin/main the witness derived its nodes from plan-bound
+paths)
+
+- Severity: LOW; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: SE-4 review (ssot lens), registered by the SE-4 findings clerk. Checked at HEAD
+  03d718c40: closure_nodes appears in merge_authority.py only at the pop and the two comparisons
+  against the manifest. Exploiting it needs a writer of tools/coverage, so this is hardening.
+- Evidence:
+  - `aria-kernel/aria_kernel/merge_authority.py:1267-1280`
+  - `aria-kernel/aria_kernel/plan_coverage.py:402-413`
+- Rule: one owner per concept: the closure node set has one derivation (impact_graph.impact_closure)
+  and the merge check compares against it, not against an echo of its own input.
+- Close: merge_authority recomputes the node set from the kernel closure over the plan's affected
+  paths on the bound base (or checks it against the sealed code facts in the request row) and
+  refuses a differing input by name; test_merge_authority pins an emptied closure_nodes with a
+  matching manifest echo as refused.
+
+## ARIA-LOW-866
+
+Code facts at a checkout's HEAD are computed two ways: compute_service_facts_at_head passes base_sha
+`workspace_head_sha(workspace) or ''`, and compute_plan_coverage reads the same HEAD with `or
+'unknown'` and calls compute_service_facts inline
+
+- Severity: LOW; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: SE-4 review (ssot lens), registered by the SE-4 findings clerk. Checked at HEAD
+  03d718c40: an unreadable HEAD gives head_unreadable in both spellings (\_base_tree_error tests the
+  HEAD read itself), so the two sentinels have no observable difference today; the duplication is
+  structural.
+- Evidence:
+  - `aria-kernel/aria_kernel/plan_coverage.py:377`
+  - `aria-kernel/aria_kernel/plan_coverage.py:384-386`
+  - `aria-kernel/aria_kernel/plan_coverage.py:572-577`
+- Rule: one owner per concept: 'the code facts of this checkout' is computed by one function.
+- Close: compute_plan_coverage calls compute_service_facts_at_head and takes computed_at_sha from
+  the facts it returns, so one function owns the HEAD read and the sentinel; a test pins that an
+  unreadable HEAD gives the same named error from both callers.
+
+## ARIA-LOW-867
+
+Test fixtures still carry the deleted witness report key event_consumers (a dead shape beside the
+new closure_nodes) in three files
+
+- Severity: LOW; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: SE-4 review (ssot lens), registered by the SE-4 findings clerk. Checked at HEAD
+  03d718c40: no source file under aria-kernel/aria_kernel or tools/gates mentions event_consumers;
+  the three fixtures are the only remaining occurrences.
+- Evidence:
+  - `aria-kernel/tests/test_plan_coverage.py:43`
+  - `aria-kernel/tests/test_impact_closure.py:539`
+  - `aria-kernel/tests/test_plan_coverage_gate.py:301`
+- Rule: a fixture states the shape its producer emits: \_coverage_report_fields and the witness no
+  longer know event_consumers.
+- Close: The three fixtures carry closure_nodes (the list in the report, the count in
+  closure_summary) and no event_consumers key; grep for event_consumers in aria-kernel/tests finds
+  nothing.
+
+## ARIA-LOW-868
+
+twin_context_for_files still answers 'which projects does this change reach' with its own depth-1
+dependents set (touched projects plus their direct dependents from the map), beside
+impact_graph.impact_closure over import, gateway_subgraph and event edges
+
+- Severity: LOW; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: SE-4 review (ssot lens), registered by the SE-4 findings clerk. Checked at HEAD
+  03d718c40. The review named the function twin.impact_preview; no such function exists, the lines
+  it cites are in twin_context_for_files. Pre-existing and left alone by SO-05.
+- Evidence:
+  - `aria-kernel/aria_kernel/twin.py:659-665`
+  - `aria-kernel/aria_kernel/twin.py:680-682`
+  - `aria-kernel/aria_kernel/impact_graph.py:63`
+- Rule: one owner per concept (service-expertise PLAN §2 row 'Service impact closure'); SE-4 leaves
+  Twin untouched by SO-05, so this second answer is tracked here.
+- Close: twin_context_for_files takes impacted_projects from impact_closure's node set (computed
+  once per change subject by its caller) or the field is dropped from the twin context; a test pins
+  that an auth-service file's twin context lists the same impacted projects as impact_closure at
+  depth 1.
+
+## ARIA-LOW-869
+
+cycle_service_examination maps the changed files to projects twice: impact_closure returns 'touched'
+and the function then runs its own \_project_for_path counts loop over the same roots; the results
+agree only because both end in project_for_path
+
+- Severity: LOW; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: SE-4 review (ssot lens), registered by the SE-4 findings clerk. Checked at HEAD
+  03d718c40: both walks resolve through project_for_path (impact_closure directly, the counts loop
+  through the \_project_for_path adapter) over the same cache roots.
+- Evidence:
+  - `aria-kernel/aria_kernel/impact_graph.py:555-563`
+  - `aria-kernel/aria_kernel/impact_graph.py:105-106`
+- Rule: one owner per concept: one walk from changed file to project per answer (service-expertise
+  PLAN §2 row 'Path -> service/project key').
+- Close: impact_closure returns the per-project changed-file counts together with 'touched' and
+  cycle_service_examination reads them; the counts loop and its second normalize_paths pass are
+  deleted, and test_impact_closure pins the counts.
+
+## ARIA-LOW-870
+
+impact_closure builds its hold reason with a defensive fallback, (service_facts.get('witness') or
+{}).get('error'): malformed facts that are not computed and carry no witness give the hold
+'contract_edges_unavailable:None', hiding a malformed-input defect behind a well-formed hold name
+
+- Severity: LOW; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: SE-4 review (arch lens), registered by the SE-4 findings clerk. Checked at HEAD
+  03d718c40; the review's probe of malformed facts gave 'contract_edges_unavailable:None'.
+- Evidence:
+  - `aria-kernel/aria_kernel/impact_graph.py:97`
+  - `aria-kernel/aria_kernel/plan_coverage.py:530-534`
+- Rule: no defensive fallbacks (CLAUDE.md Architectural Approach): compute_service_facts documents
+  that every non-computed result carries witness.error.
+- Close: The reason reads `service_facts['witness']['error']` directly, so malformed facts raise at
+  the boundary; test_impact_closure pins both: unavailable facts give the named hold, facts without
+  a witness raise.
+
+## ARIA-LOW-871
+
+plan_impact declares service_facts optional (default None) and then raises service_facts_missing
+when a workspace_root is given: a conditionally required parameter shaped as optional, on a function
+with no production caller
+
+- Severity: LOW; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: SE-4 review (arch lens), registered by the SE-4 findings clerk. Checked at HEAD
+  03d718c40: no module under aria-kernel/aria_kernel calls plan_impact. impact.plan_impact is
+  assigned to the F0.9b tombstone (ARIA-MEDIUM-791, SO-17).
+- Evidence:
+  - `aria-kernel/aria_kernel/impact.py:20`
+  - `aria-kernel/aria_kernel/impact.py:43-44`
+- Rule: make the wrong call impossible (CLAUDE.md hierarchy tier 1): a parameter required in a
+  branch is typed required in the signature.
+- Close: F0.9b tombstones impact.plan_impact (ARIA-MEDIUM-791) and this row closes with it; if the
+  function survives, service_facts is a required keyword and the workspace_root=None branch is
+  removed.
+
+## ARIA-LOW-872
+
+The `impact service-order` CLI computes code facts at HEAD on every call (two ts-node runs, 19.3 s
+in this clerk's probe), although plan_service_analysis_order calls the closure only when
+--changed-file is given; without it the facts are computed and never read
+
+- Severity: LOW; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: SE-4 review (arch lens), registered by the SE-4 findings clerk. Checked at HEAD
+  03d718c40; the review measured about 17 s, this clerk's probe measured 19.3 s for
+  compute_service_facts_at_head. Related to ARIA-MEDIUM-843, which covers the callers that do need
+  the facts.
+- Evidence:
+  - `aria-kernel/aria_kernel/cli.py:6205-6212`
+  - `aria-kernel/aria_kernel/impact_graph.py:359-372`
+- Rule: compute on demand: facts are a per-change-subject input (service-expertise PLAN §3.3), not a
+  per-invocation cost.
+- Close: The CLI computes code facts only on the --changed-file path and the order-only path
+  computes none; test_cli pins that `impact service-order` without --changed-file runs no facts
+  entry.
+
+## ARIA-LOW-873
+
+A base tree without infrastructure/apollo-router/subgraphs.json gives impact_closure no
+gateway_subgraph edge and no hold: \_subgraph_lines returns {} for an absent file, so the edge kind
+is dropped silently, while an unreadable file holds by name
+
+- Severity: LOW; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: SE-4 review (arch lens), registered by the SE-4 findings clerk. Checked at HEAD
+  03d718c40: the docstring of \_subgraph_lines states 'No file means no subgraph relation.'
+- Evidence:
+  - `aria-kernel/aria_kernel/impact_graph.py:99`
+  - `aria-kernel/aria_kernel/impact_graph.py:160-161`
+- Rule: service-expertise PLAN §3.3 and Risk 12: a hold is declared, never hidden; a closure missing
+  an edge kind must say so.
+- Close: An absent subgraphs.json holds as `contract_edges_unavailable:subgraphs_missing:<relpath>`
+  (the file is generated and committed, so its absence is a defect of the base); test_impact_closure
+  pins a fixture tree without the file.

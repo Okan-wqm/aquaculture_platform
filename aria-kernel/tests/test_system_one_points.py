@@ -55,6 +55,7 @@ from aria_kernel.ledger import load_declared_jsonl
 from aria_kernel.system_one import CALLS_RELPATH, CALLS_SURFACE
 from aria_kernel.tool_registry import ensure_tools_dir
 from tests._helpers.registry_projection import public_registry_as_stored
+from tests._helpers.service_facts import facts_without_contract_edges
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _SEED = json.loads((_REPO_ROOT / "aria-config" / "system-one-questions.json").read_text(encoding="utf-8"))
@@ -582,6 +583,11 @@ def _candidate_repo(root: Path) -> str:
 
 class Envelopes(unittest.TestCase):
     """The REAL envelope builders: off (no registry / R4 shadow) is byte-identical, on adds a capped section."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        # SE-4 — a fixture workspace has no TypeScript toolchain; its subject is not contract edges.
+        self.enterContext(facts_without_contract_edges())
 
     _PLAN = {"title": "Use `getScopedRepository` everywhere", "summary": "Scope the farm query.",
              "finding_id": "ORPHAN-LOW-002"}

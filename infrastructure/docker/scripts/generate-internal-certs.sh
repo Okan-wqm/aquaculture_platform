@@ -7,7 +7,7 @@
 set -euo pipefail
 umask 077
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 # Production executes this tracked script from a read-only exact-SHA bundle,
 # while certificate state remains in the persistent host secret store. Local

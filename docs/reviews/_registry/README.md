@@ -64,9 +64,9 @@ evidence:
 
 - `finding-registry reopen <id>` — registration repair. Only for a row registered `RESOLVED` at
   birth in error (no `closing_commits`). Records a `STATE_TRANSITIONED` event back to OPEN; the real
-  fix commit closes it through its merged trailer. A finding a commit closed — recorded in `closing_commits`, or derived
-  by the projection from a merged trailer while the row is stored OPEN — is refused with exit 1,
-  naming the closer and the override below.
+  fix commit closes it through its merged trailer. A finding a commit closed — recorded in
+  `closing_commits`, or derived by the projection from a merged trailer while the row is stored
+  OPEN — is refused with exit 1, naming the closer and the override below.
 - `finding-registry reopen <id> --reject-closure=<sha> --reason=<why>` — override reopen. A commit
   closed the finding, but the change did not actually close it (a version-gated tracking finding
   swept shut, a partial fix). A `CLOSURE_REJECTED` event moves the SHA to
@@ -271,7 +271,9 @@ Closes: docs/reviews/<agent>/<YYYY-MM-DD>-<topic>.md#<FINDING-ID>
 ## What lives here vs. what lives in `docs/reviews/<agent>/`
 
 - `docs/reviews/<agent>/<date>-<topic>.md` is the prose description: evidence, root-cause analysis, proposed fix direction, verification plan. **Narrative source.**
-- `docs/reviews/_registry/` (the genesis segment and the per-finding event logs, read through `finding-registry project`) is the structured index: ID, state, deadlines, closing commits, hash chains. **State source.**
+- `docs/reviews/_registry/` (the genesis segment and the per-finding event logs, read through
+  `finding-registry project`) is the structured index: ID, state, deadlines, closing commits, hash
+  chains. **State source.**
 
 Both are mandatory; one without the other is incomplete. The narrative file carries the `#<finding-id>` anchor; the registry carries the lifecycle state machine.
 

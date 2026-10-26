@@ -1,7 +1,7 @@
 import { Resolver, Query, Mutation, Args, ID, Context, Int, ObjectType, Field } from '@nestjs/graphql';
 import { UnauthorizedException, UseGuards } from '@nestjs/common';
 import { GqlAuthGuard } from '../common/guards/gql-auth.guard';
-import { Roles, Role } from '@aquaculture/backend-common/decorators';
+import { Roles, Role, ModuleUserOrHigher } from '@aquaculture/backend-common/decorators';
 import { StandardPaginatedResponse, IStandardPaginatedResult, fromCqrsPaginated } from '@aquaculture/backend-common/pagination';
 import { RolesGuard } from '@aquaculture/backend-common/guards';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
@@ -104,6 +104,8 @@ export class AquacultureResolver {
   // Work Area Queries
   // =====================
   @Query(() => WorkAreaConnection, { name: 'workAreas' })
+  @UseGuards(RolesGuard)
+  @ModuleUserOrHigher()
   async getWorkAreas(
     @Context() context: GraphQLContext,
     @Args('workAreaType', { type: () => WorkAreaType, nullable: true }) workAreaType?: WorkAreaType,
@@ -120,6 +122,8 @@ export class AquacultureResolver {
   }
 
   @Query(() => [WorkArea], { name: 'offshoreWorkAreas' })
+  @UseGuards(RolesGuard)
+  @ModuleUserOrHigher()
   async getOffshoreWorkAreas(
     @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit: number,
     @Args('page', { type: () => Int, nullable: true, defaultValue: 1 }) page: number,
@@ -133,6 +137,8 @@ export class AquacultureResolver {
   }
 
   @Query(() => WorkAreaDetail, { name: 'workArea' })
+  @UseGuards(RolesGuard)
+  @ModuleUserOrHigher()
   async getWorkArea(
     @Args('id', { type: () => ID }) id: string,
     @Context() context: GraphQLContext,
@@ -190,6 +196,8 @@ export class AquacultureResolver {
   }
 
   @Query(() => [WorkRotation], { name: 'myWorkRotations' })
+  @UseGuards(RolesGuard)
+  @ModuleUserOrHigher()
   async getMyWorkRotations(
     @Context() context: GraphQLContext,
     @Args('status', { type: () => RotationStatus, nullable: true }) status?: RotationStatus,
@@ -230,6 +238,8 @@ export class AquacultureResolver {
   }
 
   @Query(() => [WorkRotation], { name: 'activeRotations' })
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async getActiveRotations(
     @Context() context: GraphQLContext,
     @Args('workAreaId', { type: () => ID, nullable: true }) workAreaId?: string,
@@ -253,6 +263,8 @@ export class AquacultureResolver {
   }
 
   @Query(() => WorkRotation, { name: 'workRotation' })
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async getWorkRotation(
     @Args('id', { type: () => ID }) id: string,
     @Context() context: GraphQLContext,
@@ -262,6 +274,8 @@ export class AquacultureResolver {
   }
 
   @Query(() => RotationDetail, { name: 'currentRotation', nullable: true })
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async getCurrentRotation(
     @Args('employeeId', { type: () => ID }) employeeId: string,
     @Context() context: GraphQLContext,
@@ -271,6 +285,8 @@ export class AquacultureResolver {
   }
 
   @Query(() => [WorkRotation], { name: 'upcomingRotations' })
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async getUpcomingRotations(
     @Args('employeeId', { type: () => ID }) employeeId: string,
     @Args('limit', { type: () => Int, nullable: true, defaultValue: 5 }) limit: number,

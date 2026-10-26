@@ -39,9 +39,10 @@ import {
   useExpiringCertifications,
   useAllCertifications,
   useEmployees,
+  useIsWorkforceManager,
 } from '../../hooks';
 import { derivePaginationMetadataV1 } from '@platform/pagination-contracts';
-import { StatusBadge, EmployeeAvatar } from '../../components/common';
+import { AccessRestricted, StatusBadge, EmployeeAvatar } from '../../components/common';
 import {
   CertificationExpiryAlert,
   AddCertificationModal,
@@ -239,7 +240,7 @@ const CertificationTypeCard: React.FC<{
 // Certification Dashboard Page
 // ============================================================================
 
-export function CertificationDashboardPage() {
+function CertificationDashboard(): React.ReactElement {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const renewCertId = searchParams.get('renew');
@@ -920,6 +921,21 @@ export function CertificationDashboardPage() {
       <AddCertificationTypeModal open={showAddType} onClose={() => setShowAddType(false)} />
       <RenewCertificationModal certification={renewing} onClose={closeRenew} />
     </div>
+  );
+}
+
+/**
+ * The service refuses every certification read below MODULE_MANAGER. The dashboard fires its reads
+ * the moment it mounts, so the role is decided here, before it does: a lower role is shown the
+ * restricted view and no read is ever sent.
+ */
+export function CertificationDashboardPage(): React.ReactElement {
+  const canManage = useIsWorkforceManager();
+
+  return canManage ? (
+    <CertificationDashboard />
+  ) : (
+    <AccessRestricted messageKey="hr.restricted.certifications" />
   );
 }
 

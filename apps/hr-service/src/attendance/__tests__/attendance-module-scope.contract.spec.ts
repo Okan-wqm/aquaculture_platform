@@ -12,10 +12,10 @@ import { GraphQLSchemaBuilderModule, GraphQLSchemaFactory } from '@nestjs/graphq
 import { Test } from '@nestjs/testing';
 import { createPaginatedQueryResult } from '@platform/cqrs';
 import type { GraphQLSchema } from 'graphql';
-import type { Repository } from 'typeorm';
+import type { EntityManager, Repository } from 'typeorm';
 
 import { HrModuleCode } from '../../common/enums';
-import type { Employee } from '../../hr/entities/employee.entity';
+import { Employee } from '../../hr/entities/employee.entity';
 import { AttendanceResolver } from '../attendance.resolver';
 import { GetAttendanceRecordsQuery } from '../queries/get-attendance-records.query';
 import { GetDailyAttendanceOverviewQuery } from '../queries/get-daily-attendance-overview.query';
@@ -68,11 +68,17 @@ describe('attendance API — module scope contract', () => {
   describe('resolver', () => {
     const queryBus = { execute: jest.fn() };
     const employeeRepository = { findOne: jest.fn() };
+    // The viewer's own record is read through the repository's manager (common/viewer.ts).
+    const viewerLookup = jest.fn();
+    const managerDouble: Partial<EntityManager> = { findOne: viewerLookup };
     // The resolver reaches only execute() on each bus and findOne() on the repository. Each double is
     // declared as a Partial of the real type, so one plain assertion hands it over without a cast chain.
     const commandBusDouble: Partial<CommandBus> = { execute: jest.fn() };
     const queryBusDouble: Partial<QueryBus> = queryBus;
-    const employeeRepositoryDouble: Partial<Repository<Employee>> = employeeRepository;
+    const employeeRepositoryDouble: Partial<Repository<Employee>> = {
+      ...employeeRepository,
+      manager: managerDouble as EntityManager,
+    };
     const resolver = new AttendanceResolver(
       commandBusDouble as CommandBus,
       queryBusDouble as QueryBus,
@@ -83,6 +89,7 @@ describe('attendance API — module scope contract', () => {
       jest.clearAllMocks();
       queryBus.execute.mockResolvedValue(createPaginatedQueryResult([], 1, 20, 0));
       employeeRepository.findOne.mockResolvedValue({ id: 'employee-uuid-001' });
+      viewerLookup.mockResolvedValue({ id: 'employee-uuid-001', departmentHrId: 'dept-1' });
     });
 
     it('hands todaysAttendance the module', async () => {
@@ -153,10 +160,11 @@ describe('attendance API — module scope contract', () => {
       it("hands the queue the viewer's EMPLOYEE id, never the auth user id", async () => {
         await resolver.getPendingAttendanceApprovals(contextWith([Role.MODULE_MANAGER]));
 
-        // Only the id is read: the full entity would decrypt national id and bank details for nothing.
-        expect(employeeRepository.findOne).toHaveBeenCalledWith({
+        // Only the id and department are read: the full entity would decrypt national id and bank
+        // details for nothing.
+        expect(viewerLookup).toHaveBeenCalledWith(Employee, {
           where: { userId: 'user-uuid-001', tenantId, isDeleted: false },
-          select: ['id'],
+          select: ['id', 'departmentHrId'],
         });
         const [query] = queryBus.execute.mock.calls[0] as [GetPendingAttendanceApprovalsQuery];
         expect(query.approverId).toBe('employee-uuid-001');
@@ -229,7 +237,7 @@ describe('attendance API — module scope contract', () => {
       // The tenant owner often has no HR employee record and approves across departments: the queue
       // must not depend on one (same as the leave queue).
       it('lists the queue for a tenant admin who has no employee record', async () => {
-        employeeRepository.findOne.mockResolvedValue(null);
+        viewerLookup.mockResolvedValue(null);
 
         await resolver.getPendingAttendanceApprovals(
           contextWith([Role.TENANT_ADMIN]),
@@ -253,7 +261,7 @@ describe('attendance API — module scope contract', () => {
       });
 
       it('does not lock a module manager without an employee record out of the queue', async () => {
-        employeeRepository.findOne.mockResolvedValue(null);
+        viewerLookup.mockResolvedValue(null);
 
         await expect(
           resolver.getPendingAttendanceApprovals(contextWith([Role.MODULE_MANAGER])),

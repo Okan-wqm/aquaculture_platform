@@ -13,10 +13,10 @@ import { GraphQLSchemaBuilderModule, GraphQLSchemaFactory } from '@nestjs/graphq
 import { Test } from '@nestjs/testing';
 import { createPaginatedQueryResult } from '@platform/cqrs';
 import type { GraphQLSchema } from 'graphql';
-import type { Repository } from 'typeorm';
+import type { EntityManager, Repository } from 'typeorm';
 
 import { HrModuleCode } from '../../common/enums';
-import type { Employee } from '../../hr/entities/employee.entity';
+import { Employee } from '../../hr/entities/employee.entity';
 import { LeaveResolver } from '../leave.resolver';
 import { GetLeaveRequestsQuery } from '../queries/get-leave-requests.query';
 import { GetPendingApprovalsQuery } from '../queries/get-pending-approvals.query';
@@ -71,12 +71,16 @@ describe('leave API — module scope contract', () => {
 
   describe('resolver', () => {
     const queryBus = { execute: jest.fn() };
-    const employeeRepository = { findOne: jest.fn() };
-    // The resolver only reaches queryBus.execute and employeeRepository.findOne here; each
+    // The viewer's own record is read through the repository's manager (common/viewer.ts).
+    const viewerLookup = jest.fn();
+    const managerDouble: Partial<EntityManager> = { findOne: viewerLookup };
+    // The resolver only reaches queryBus.execute and the repository's manager here; each
     // double is declared as a Partial of the real collaborator so one plain assertion hands it over.
     const commandBusDouble: Partial<CommandBus> = { execute: jest.fn() };
     const queryBusDouble: Partial<QueryBus> = queryBus;
-    const employeeRepositoryDouble: Partial<Repository<Employee>> = employeeRepository;
+    const employeeRepositoryDouble: Partial<Repository<Employee>> = {
+      manager: managerDouble as EntityManager,
+    };
     const resolver = new LeaveResolver(
       commandBusDouble as CommandBus,
       queryBusDouble as QueryBus,
@@ -86,7 +90,7 @@ describe('leave API — module scope contract', () => {
     beforeEach(() => {
       jest.clearAllMocks();
       queryBus.execute.mockResolvedValue(createPaginatedQueryResult([], 1, 20, 0));
-      employeeRepository.findOne.mockResolvedValue({ id: 'employee-uuid-001' });
+      viewerLookup.mockResolvedValue({ id: 'employee-uuid-001' });
     });
 
     it('hands leaveRequests the module', async () => {

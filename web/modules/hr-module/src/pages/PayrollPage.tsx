@@ -7,8 +7,7 @@
  */
 
 import React, { useState, useMemo, useCallback } from 'react';
-import { Link } from 'react-router-dom';
-import { Lock, Plus, Search, Filter, CheckCircle, Clock, FileText, TrendingUp } from 'lucide-react';
+import { Plus, Search, Filter, CheckCircle, Clock, FileText, TrendingUp } from 'lucide-react';
 import {
   cn,
   Modal,
@@ -35,7 +34,7 @@ import {
   useIsWorkforceManager,
 } from '../hooks';
 import { derivePaginationMetadataV1 } from '@platform/pagination-contracts';
-import { StatusBadge, EmployeeAvatar } from '../components/common';
+import { AccessRestricted, StatusBadge, EmployeeAvatar } from '../components/common';
 import type { Payroll, PayrollFilterInput, CreatePayrollInput, Employee } from '../types';
 import {
   PayrollStatus,
@@ -730,25 +729,7 @@ const PayrollPage: React.FC = () => {
   // ========================================================================
 
   if (!isAuthorised) {
-    return (
-      <div className="flex h-64 flex-col items-center justify-center gap-4 p-6 text-center">
-        <div className="rounded-lg bg-error-100 p-4 dark:bg-error-900/30">
-          <Lock className="h-8 w-8 text-error-600 dark:text-error-400" />
-        </div>
-        <div>
-          <h2 className="text-xl font-bold text-gray-900 dark:text-white">Access Restricted</h2>
-          <p className="mt-1 text-gray-500 dark:text-gray-400">
-            Payroll information is restricted to HR managers and payroll administrators.
-          </p>
-        </div>
-        <Link
-          to="/hr"
-          className="rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700"
-        >
-          Back to HR Dashboard
-        </Link>
-      </div>
-    );
+    return <AccessRestricted messageKey="hr.restricted.payroll" />;
   }
 
   // ========================================================================

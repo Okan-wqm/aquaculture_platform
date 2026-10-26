@@ -1183,6 +1183,14 @@ export const tr: Record<MessageKey, string> = {
   'hr.departments.moduleLabel': 'Modül',
   'hr.departments.moduleMoveHint':
     'Bir departmanı başka bir modüle taşımak, çalışanlarını o modülün ekip listesine taşır.',
+  'hr.restricted.title': 'Erişim kısıtlı',
+  'hr.restricted.back': 'İK panosuna dön',
+  'hr.restricted.certifications':
+    'Sertifika kayıtları yalnızca İK yöneticileri ve yöneticiler için açıktır.',
+  'hr.restricted.performance':
+    'Performans değerlendirmeleri yalnızca İK yöneticileri ve yöneticiler için açıktır.',
+  'hr.restricted.payroll':
+    'Bordro bilgileri yalnızca İK yöneticileri ve bordro yöneticileri için açıktır.',
   'hr.today.sites.filterLabel': 'Sahaya göre süz',
   'hr.today.sites.all': 'Tüm sahalar',
   'hr.today.roster.title': 'Bugün vardiyada',

@@ -1227,6 +1227,14 @@ export const en = {
   'hr.departments.moduleLabel': 'Module',
   'hr.departments.moduleMoveHint':
     "Moving a department to another module moves its employees to that module's team list.",
+  'hr.restricted.title': 'Access Restricted',
+  'hr.restricted.back': 'Back to HR Dashboard',
+  'hr.restricted.certifications':
+    'Certification records are restricted to HR managers and administrators.',
+  'hr.restricted.performance':
+    'Performance reviews are restricted to HR managers and administrators.',
+  'hr.restricted.payroll':
+    'Payroll information is restricted to HR managers and payroll administrators.',
 
   // ── Time ranges (sensor readings, dashboards, SCADA charts) ──
   'timeRange.preset.live': 'Live',

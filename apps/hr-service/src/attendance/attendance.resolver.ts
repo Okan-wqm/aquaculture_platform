@@ -1,4 +1,4 @@
-import { Roles, Role, AuditLog } from '@aquaculture/backend-common/decorators';
+import { Roles, Role, AuditLog, ModuleUserOrHigher } from '@aquaculture/backend-common/decorators';
 import { mobileCommandEnvelopeFromInput } from '@aquaculture/backend-common/mobile-command';
 import {
   StandardPaginatedResponse,
@@ -18,6 +18,12 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
 import { HrModuleCode } from '../common/enums';
+import {
+  findViewerEmployee,
+  isTenantAdmin,
+  isWorkforceManager,
+  type ViewerClaims,
+} from '../common/viewer';
 import { GqlAuthGuard } from '../common/guards/gql-auth.guard';
 import { RolesGuard } from '@aquaculture/backend-common/guards';
 import { Employee } from '../hr/entities/employee.entity';
@@ -54,6 +60,7 @@ interface GraphQLContext {
     user?: {
       sub: string;
       tenantId: string;
+      role?: string;
       roles?: string[];
     };
   };
@@ -96,19 +103,21 @@ export class AttendanceResolver {
     return userId;
   }
 
+  /** The caller's role claims, as the guards see them, for the in-resolver scope decisions. */
+  private viewer(context: GraphQLContext): ViewerClaims {
+    return {
+      sub: this.getUserId(context),
+      role: context.req.user?.role,
+      roles: context.req.user?.roles,
+    };
+  }
+
   /**
    * The HR Employee record of an auth userId, or null: a tenant admin or owner need not have one.
    * This bridges the namespace gap between auth user UUIDs and HR employee UUIDs.
    */
-  private findEmployee(
-    userId: string,
-    tenantId: string,
-    select?: ReadonlyArray<keyof Employee>,
-  ): Promise<Employee | null> {
-    return this.employeeRepository.findOne({
-      where: { userId, tenantId, isDeleted: false },
-      ...(select === undefined ? {} : { select: [...select] }),
-    });
+  private findEmployee(userId: string, tenantId: string): Promise<Employee | null> {
+    return this.employeeRepository.findOne({ where: { userId, tenantId, isDeleted: false } });
   }
 
   /** The caller's own HR Employee record; a request that is about the caller needs one. */
@@ -120,18 +129,12 @@ export class AttendanceResolver {
     return employee;
   }
 
-  private hasRole(context: GraphQLContext, role: Role): boolean {
-    return (context.req.user?.roles ?? []).includes(role);
-  }
-
-  private hasManagementRole(context: GraphQLContext): boolean {
-    return this.hasRole(context, Role.TENANT_ADMIN) || this.hasRole(context, Role.MODULE_MANAGER);
-  }
-
   // =====================
   // Shift Queries
   // =====================
   @Query(() => ShiftConnection, { name: 'shifts' })
+  @UseGuards(RolesGuard)
+  @ModuleUserOrHigher()
   async getShifts(
     @Context() context: GraphQLContext,
     @Args('isActive', { nullable: true }) isActive?: boolean,
@@ -147,6 +150,8 @@ export class AttendanceResolver {
   }
 
   @Query(() => Shift, { name: 'shift' })
+  @UseGuards(RolesGuard)
+  @ModuleUserOrHigher()
   async getShift(
     @Args('id', { type: () => ID }) id: string,
     @Context() context: GraphQLContext,
@@ -195,6 +200,8 @@ export class AttendanceResolver {
   }
 
   @Query(() => [AttendanceRecord], { name: 'myAttendanceRecords' })
+  @UseGuards(RolesGuard)
+  @ModuleUserOrHigher()
   async getMyAttendanceRecords(
     @Context() context: GraphQLContext,
     @Args('startDate', { nullable: true }) startDate?: string,
@@ -240,6 +247,8 @@ export class AttendanceResolver {
   }
 
   @Query(() => AttendanceSummary, { name: 'myAttendanceSummary' })
+  @UseGuards(RolesGuard)
+  @ModuleUserOrHigher()
   async getMyAttendanceSummary(
     @Args('month', { type: () => Int }) month: number,
     @Args('year', { type: () => Int }) year: number,
@@ -265,12 +274,11 @@ export class AttendanceResolver {
     @Args('moduleCode', { type: () => HrModuleCode, nullable: true }) moduleCode?: HrModuleCode,
   ): Promise<IStandardPaginatedResult<AttendanceRecord>> {
     const tenantId = this.getTenantId(context);
-    const userId = this.getUserId(context);
     // The queue works on the approver's EMPLOYEE id (their own records are excluded, their department
     // is looked up by it), not the auth userId. A tenant admin or owner may have no employee record
     // and is not locked out: the queue then has nothing of theirs to exclude or narrow by.
-    // Only the id is read: the full entity would decrypt national id and bank details for nothing.
-    const approver = await this.findEmployee(userId, tenantId, ['id']);
+    const viewer = this.viewer(context);
+    const approver = await findViewerEmployee(this.employeeRepository.manager, tenantId, viewer);
     const result = await this.queryBus.execute<
       GetPendingAttendanceApprovalsQuery,
       PaginatedQueryResult<AttendanceRecord>
@@ -283,7 +291,7 @@ export class AttendanceResolver {
         page,
         moduleCode,
         // A tenant admin approves across departments; only a manager is narrowed to their own.
-        !this.hasRole(context, Role.TENANT_ADMIN),
+        !isTenantAdmin(viewer),
       ),
     );
     return fromCqrsPaginated(result);
@@ -293,6 +301,8 @@ export class AttendanceResolver {
   // Today's Attendance
   // =====================
   @Query(() => [AttendanceRecord], { name: 'todaysAttendance' })
+  @UseGuards(RolesGuard)
+  @ModuleUserOrHigher()
   async getTodaysAttendance(
     @Context() context: GraphQLContext,
     @Args('employeeId', { type: () => ID, nullable: true }) employeeId?: string,
@@ -303,7 +313,7 @@ export class AttendanceResolver {
 
     // A manager asking for the team needs no employee record of their own (the tenant owner often
     // has none); only a request about the caller does.
-    if (this.hasManagementRole(context)) {
+    if (isWorkforceManager(this.viewer(context))) {
       return this.queryBus.execute<GetTodaysAttendanceQuery, AttendanceRecord[]>(
         new GetTodaysAttendanceQuery(tenantId, employeeId, moduleCode),
       );
@@ -319,6 +329,8 @@ export class AttendanceResolver {
   }
 
   @Query(() => [AttendanceRecord], { name: 'myTodaysAttendance' })
+  @UseGuards(RolesGuard)
+  @ModuleUserOrHigher()
   async getMyTodaysAttendance(
     @Context() context: GraphQLContext,
   ): Promise<AttendanceRecord[]> {
@@ -421,6 +433,8 @@ export class AttendanceResolver {
   // Attendance Mutations
   // =====================
   @Mutation(() => AttendanceRecord)
+  @UseGuards(RolesGuard)
+  @ModuleUserOrHigher()
   @AuditLog({ action: 'CLOCK_IN', resource: 'AttendanceRecord', description: 'Employee clock-in' })
   async clockIn(
     @Args('input') input: ClockInInput,
@@ -453,6 +467,8 @@ export class AttendanceResolver {
   }
 
   @Mutation(() => AttendanceRecord)
+  @UseGuards(RolesGuard)
+  @ModuleUserOrHigher()
   @AuditLog({ action: 'CLOCK_OUT', resource: 'AttendanceRecord', description: 'Employee clock-out' })
   async clockOut(
     @Args('input') input: ClockOutInput,

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 
 import ts from 'typescript';
@@ -223,9 +223,12 @@ const rootComposeFiles = trackedFiles
   .sort();
 assert.ok(rootComposeFiles.length > 0, 'the repository root carries compose files');
 assert.deepEqual(
-  manifest.declared_scope.filter((glob) => /compose/.test(glob) && /[*?[{]/.test(glob)),
+  manifest.declared_scope.filter(
+    (glob) => /compose/.test(glob) && !glob.includes('/') && /[*?[{]/.test(glob),
+  ),
   [],
-  'a compose glob at the root has no root to sit under: both scope gates refuse it (A-3)',
+  'a compose glob with no directory prefix has no root to sit under: both scope gates refuse it ' +
+    '(A-3); under a root (apps/**/compose*.yml) it has one (B15)',
 );
 for (const compose of rootComposeFiles) {
   assert.ok(manifest.declared_scope.includes(compose), `declared_scope names ${compose}`);
@@ -1384,10 +1387,207 @@ check('R1r the Terraform finding subject and message take only the reported-sour
   assert.deepEqual(accepting, []);
 });
 
+// ======== 8. DET scope-3 (ledger B15): the scan surface is what the classifier says
+// build/DET-RCA/scope.md B15. The surface is hand lists (declared_scope, default_input.roots,
+// allowed_read_globs) that nothing ties to classifyInfraFile, so the next service Dockerfile or
+// non-root compose file outside the roots is read by no one and missed by no one, and a root a
+// checkout lacks is a crash (tool quarantined) instead of an observation. Latent today: every
+// tracked classified file sits under a root. Red at the base: the seven source directories are no
+// roots, an absent root throws, and the invariant names templates/NOTES.txt (a Helm template that
+// no declared_scope glob names). Green at the base on purpose: the near-miss negatives that
+// guard the fix, and the invariant's self-test (its predicate lives here, so it cannot be red).
+const NEW_ROOTS = ['apps', 'libs', 'platform', 'web', 'e2e', 'sens-api-gateway', 'scripts'];
+const FIXTURES = 'tools/aria-adapters/fixtures/';
+
+// The kernel's own glob matcher, through the `python3 -I -S` bridge shape of kernel-owners.ts:
+// no second glob grammar (braces and `**` are the kernel's).
+const GLOB_BRIDGE = [
+  'import json, sys',
+  'sys.path.insert(0, sys.argv[1])',
+  'from aria_kernel.canonical_path import matches_repo_glob',
+  'ask = json.load(sys.stdin)',
+  'json.dump([p for p in ask["paths"] if not any(matches_repo_glob(p, g) for g in ask["globs"])], sys.stdout)',
+].join('\n');
+const outsideGlobs = (paths: readonly string[], globs: readonly string[]): string[] =>
+  JSON.parse(
+    execFileSync('python3', ['-I', '-S', '-c', GLOB_BRIDGE, join(REPO_ROOT, 'aria-kernel')], {
+      encoding: 'utf8',
+      input: JSON.stringify({ paths, globs }),
+    }),
+  ) as string[];
+/** The invariant: what the classifier calls infrastructure (fixtures aside) is under a default
+ * root, declared and readable in the adapter room. Returns the paths that are not. */
+const scopeGaps = (paths: readonly string[]): string[] => {
+  const infra = paths.filter((p) => classifyInfraFile(p) !== null && !p.startsWith(FIXTURES));
+  return [
+    ...new Set([
+      ...infra.filter((p) => !underRoots(p)),
+      ...outsideGlobs(infra, manifest.declared_scope),
+      ...outsideGlobs(infra, manifest.allowed_read_globs),
+    ]),
+  ].sort();
+};
+
+check('B15 invariant: every tracked infrastructure file is under a root and declared', () => {
+  assert.deepEqual(scopeGaps(trackedFiles), []);
+});
+check('B15 invariant self-test: a classified file in an unlisted directory is a gap', () => {
+  const gaps = ['ops/docker-compose.yml', 'ops/svc/Dockerfile'];
+  const fine = ['ops/README.md', 'ops/config.yml', `${FIXTURES}cases/Dockerfile.unread`];
+  for (const path of gaps) assert.notEqual(classifyInfraFile(path), null, path);
+  assert.deepEqual(scopeGaps([...gaps, ...fine]), gaps);
+});
+check('B15 scope: Dockerfiles and compose files under the new roots are in', () => {
+  const names = [
+    'Dockerfile',
+    'deep/er/Dockerfile.prod',
+    'api.Dockerfile',
+    'docker-compose.dev.yml',
+  ];
+  const paths = NEW_ROOTS.flatMap((root) =>
+    [...names, 'compose.yaml'].map((n) => `${root}/svc/${n}`),
+  );
+  for (const path of paths) assert.notEqual(classifyInfraFile(path), null, path);
+  assert.deepEqual([...new Set(scopeGaps(paths).map((p) => p.split('/')[0]))], []);
+});
+check('B15 near-miss: sources, docs and plain config under the new roots stay undeclared', () => {
+  // A broad `*.{yml,yaml,conf}` would make the kernel's observation map call unread app config observed.
+  const plain = ['apps/x/src/compose.ts', 'apps/x/docs/compose-notes.md', 'apps/x/application.yml'];
+  plain.push(
+    'libs/x/README.md',
+    'web/shell/config.yaml',
+    'e2e/tests/compose.spec.ts',
+    'scripts/ci/build.sh',
+  );
+  for (const path of plain) assert.equal(classifyInfraFile(path), null, path);
+  assert.deepEqual(outsideGlobs(plain, manifest.declared_scope), plain);
+  assert.deepEqual(outsideGlobs(plain, manifest.allowed_read_globs), plain);
+});
+
+// The adapter on a synthetic checkout with the PRODUCTION roots, every one materialised and clean,
+// so a throw or an unread file is the manifest's doing, not the fixture's.
+const writeAt = (base: string, path: string, body: string): void => {
+  mkdirSync(dirname(join(base, path)), { recursive: true });
+  writeFileSync(join(base, path), body, 'utf8');
+};
+const materialiseRoots = (base: string, absent: readonly string[] = []): void => {
+  for (const root of manifest.default_input.roots.filter((r) => !absent.includes(r))) {
+    const format = classifyInfraFile(root);
+    if (format === 'dockerfile') writeAt(base, root, `FROM alpine@${DIGEST}\nUSER 65532\n`);
+    else if (format === 'compose')
+      writeAt(base, root, `services:\n  s:\n    image: redis@${DIGEST}\n`);
+    else mkdirSync(join(base, root), { recursive: true });
+  }
+};
+const lazy = <T>(body: () => T): (() => T) => {
+  let cached: { readonly value: T } | undefined;
+  return () => (cached ??= { value: body() }).value;
+};
+const asClaim = (f: Finding): string => `${f.rule} ${f.path}:${f.line} ${f.owner_rule_id}`;
+const composePrivileged = `services:\n  s:\n    image: redis@${DIGEST}\n    privileged: true\n`;
+const READ_AND_CLAIMED: Readonly<Record<string, string>> = {
+  'apps/farm-service/Dockerfile': 'FROM node:latest\nRUN npm ci\n',
+  'apps/sensor-ingestion/Dockerfile': 'FROM node:latest\nRUN npm ci\n', // a file root today
+  'apps/x/docker-compose.dev.yml': composePrivileged,
+  'web/shell/Dockerfile': 'FROM nginx:latest\n',
+  'apps/clean/Dockerfile': `FROM node:22.12.0-alpine@${DIGEST}\nUSER 65532\n`, // pinned, non-root
+};
+const UNREAD: Readonly<Record<string, string>> = {
+  'apps/x/Dockerfile.dockerignore': 'node_modules\nFROM node:latest\n',
+  'apps/x/docs/compose-notes.md': 'services:\n  s:\n    privileged: true\n',
+  'apps/x/src/compose.ts': 'export const compose = { privileged: true };\n',
+  [`${FIXTURES}infrastructure-policy-adapter/cases/Dockerfile.bad`]: 'FROM node:latest\n',
+  'ops/docker-compose.yml': composePrivileged, // a directory no root names
+};
+const b15Workspace = makeFixtureTree('aria-infrastructure-policy-b15-');
+materialiseRoots(b15Workspace);
+for (const [path, body] of Object.entries({ ...READ_AND_CLAIMED, ...UNREAD })) {
+  writeAt(b15Workspace, path, body);
+}
+const b15Run = lazy(() =>
+  analyzeInfrastructurePolicy({ roots: manifest.default_input.roots }, b15Workspace),
+);
+
+check('B15 a service Dockerfile and a non-root compose file are read and claimed', () => {
+  const out = b15Run();
+  assert.deepEqual(out.findings.map(asClaim).sort(), [
+    'floating_artifact apps/farm-service/Dockerfile:1 floating',
+    'floating_artifact apps/sensor-ingestion/Dockerfile:1 floating',
+    'floating_artifact web/shell/Dockerfile:1 floating',
+    'privileged_runtime apps/farm-service/Dockerfile:1 unset',
+    'privileged_runtime apps/sensor-ingestion/Dockerfile:1 unset',
+    'privileged_runtime apps/x/docker-compose.dev.yml:4 privileged',
+    'privileged_runtime web/shell/Dockerfile:1 unset',
+  ]);
+  for (const path of Object.keys(READ_AND_CLAIMED)) {
+    assert.ok(out.read_paths.includes(path), `${path} was read`);
+    assert.ok(
+      out.observations.some((o) => o.id === `${TOOL_ID}:file:${path}`),
+      `${path} observed`,
+    );
+  }
+});
+check('B15 near-miss: rejected names, fixtures and an unlisted directory are not read', () => {
+  const out = b15Run();
+  for (const path of Object.keys(UNREAD)) {
+    assert.equal(out.read_paths.includes(path), false, `${path} was read`);
+    assert.equal(
+      out.observations.some((o) => o.path === path),
+      false,
+      `${path} is observed`,
+    );
+    assert.equal(
+      out.findings.some((f) => f.path === path),
+      false,
+      `${path} is claimed`,
+    );
+  }
+});
+check('B15 near-miss: a file under two roots is one observation and one claim', () => {
+  // apps/sensor-ingestion/Dockerfile is a root of its own today and, under apps/, a second one.
+  const ids = [...b15Run().findings, ...b15Run().observations].map((entry) => entry.id);
+  assert.deepEqual(
+    ids.filter((id, index) => ids.indexOf(id) !== index),
+    [],
+  );
+});
+
+// A declared root the checkout does not hold: the hand list outlives a directory.
+const ABSENT = ['deploy', 'docker-compose.watch.yml'];
+const absentWorkspace = makeFixtureTree('aria-infrastructure-policy-b15-absent-');
+materialiseRoots(absentWorkspace, ABSENT);
+writeAt(absentWorkspace, 'infrastructure/docker/Dockerfile.api', 'FROM node:latest\nUSER node\n');
+const absentRun = lazy(() =>
+  analyzeInfrastructurePolicy({ roots: manifest.default_input.roots }, absentWorkspace),
+);
+check('B15 a declared root the workspace lacks is an observation, not a throw', () => {
+  for (const root of ABSENT) assert.ok(manifest.default_input.roots.includes(root), root);
+  // The type is the contract; `path` or `details.root` may name the root. A present root,
+  // empty or not, is never named, and the scan goes on past the absent ones.
+  const named = absentRun()
+    .observations.filter((o) => o.type === 'infrastructure_root_absent')
+    .map((o) => (typeof o.path === 'string' ? o.path : String(o.details?.root)));
+  assert.deepEqual(named.sort(), [...ABSENT].sort());
+  assert.deepEqual(absentRun().findings.map(asClaim), [
+    'floating_artifact infrastructure/docker/Dockerfile.api:1 floating',
+  ]);
+});
+check('B15 near-miss: a refused root and a root that is no infrastructure file still throw', () => {
+  const refused = makeFixtureTree('aria-infrastructure-policy-b15-refused-');
+  writeAt(refused, 'README.md', '# not infrastructure\n');
+  mkdirSync(join(refused, 'real'));
+  symlinkSync(join(refused, 'real'), join(refused, 'linked'));
+  const run = (root: string) => (): unknown =>
+    analyzeInfrastructurePolicy({ roots: [root] }, refused);
+  assert.throws(run('README.md'), /not an infrastructure file/);
+  assert.throws(run('linked'), /not a contained workspace-relative path/);
+});
+
 assert.deepEqual(
   blockerFailures,
   [],
-  'the round-2 (B1, B2), round-3 (R1, R2, M2, M4) and round-4 (R1 residual) review blockers are fixed',
+  'the round-2 (B1, B2), round-3 (R1, R2, M2, M4), round-4 (R1 residual) review blockers are ' +
+    'fixed and the DET scope-3 (B15) scope contract holds',
 );
 
 process.stdout.write('infrastructure-policy-adapter.test.ts OK\n');

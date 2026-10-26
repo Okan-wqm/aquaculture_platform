@@ -20,6 +20,8 @@
     "apps/**/migrations/**/*.ts",
     "apps/**/migrations/*.sql",
     "tools/gates/migration-sql-lint.ts",
+    "tools/gates/migration-add-column-rules.ts",
+    "tools/gates/migration-sql-structure.ts",
     "tools/gates/expand-contract-ast.ts",
     "tools/gates/migration-shared-enum-drop.ts",
     "tools/gates/rls-predicate-canonical.ts",
@@ -144,6 +146,25 @@
         "The cited migration is in the change set under review (added, never applied), so it can still be corrected before it runs."
       ]
     },
+    "add_column_rewriting_default": {
+      "claim_type": "wrong_code",
+      "severity_cap": "HIGH",
+      "defect_claim": "A new migration adds a column that PostgreSQL rewrites or scans the whole table to add, holding ACCESS EXCLUSIVE so every reader and writer of the table waits for it.",
+      "premises": [
+        "The cited ADD COLUMN, on a table the same SQL does not create, carries GENERATED ... STORED, an identity or serial type, a DEFAULT outside the ADR-053 constant allowlist (a literal, optionally cast, or now(), CURRENT_TIMESTAMP, CURRENT_DATE), or NOT NULL DEFAULT with an inline CHECK, REFERENCES, UNIQUE or PRIMARY KEY; or the cited statement is a CREATE DOMAIN.",
+        "The cited migration is in the change set under review (added, never applied), so it can still be corrected before it runs."
+      ]
+    },
+    "add_column_exemption_shape": {
+      "claim_type": "wrong_code",
+      "severity_cap": "HIGH",
+      "defect_claim": "A new migration uses the ADR-053 catalog-only NOT NULL DEFAULT exemption outside its required shape, so its ACCESS EXCLUSIVE lock can queue every reader without a bound, outlive its own table's change, or rest on an unstated claim about existing rows.",
+      "premises": [
+        "The migration adds a NOT NULL column with an allowlisted constant DEFAULT to a table it does not create.",
+        "The migration lacks one of: the same-statement `-- ADR-053:` reason; a SET LOCAL lock_timeout of at most 2 s before the first ALTER TABLE of up() and of down(), with no larger value anywhere; a single literal ALTER TABLE target; a body of only SET LOCAL, read-only SELECT, ADD COLUMN and the inverse DROP COLUMN IF EXISTS in down(); a transactional envelope without withDdlSafety.",
+        "The cited migration is in the change set under review (added, never applied), so it can still be corrected before it runs."
+      ]
+    },
     "expand_contract_missing_depends_on": {
       "claim_type": "wrong_code",
       "severity_cap": "HIGH",
@@ -217,6 +238,6 @@
     "stdin_json": true
   },
   "freshness_window_hours": 168,
-  "parse_window_signature": "sha256:19040cd0c1dd26f5b86288d068d2b90b4f17a1f9782417dc92ddd8132f608145",
+  "parse_window_signature": "sha256:67d0e30778f59835056fc3ef62f387a107d939b4a42d2b93bdd265cc886a0edd",
   "schema_version": 1
 }

@@ -12,8 +12,11 @@
 // adds no SQL rule of its own — every verdict below comes from one owner, the
 // same module its gate runs, so the gate and the observation cannot disagree:
 //
-//   tools/gates/migration-sql-lint.ts        delta-safety rules R1–R12
-//                                            (`inspectMigrationSource`)
+//   tools/gates/migration-sql-lint.ts        delta-safety rules R1–R14
+//                                            (`inspectMigrationSource`; R13/R14,
+//                                            ADR-053, live in
+//                                            migration-add-column-rules.ts and
+//                                            migration-sql-structure.ts)
 //   tools/gates/expand-contract-ast.ts       @ExpandContract phase discipline
 //                                            (`inspectSource`, `validateInspections`)
 //   tools/gates/migration-shared-enum-drop.ts orphan-type reclamation
@@ -151,6 +154,8 @@ type MigrationRule =
   | 'alter_column_unguarded'
   | 'add_constraint_without_do_block'
   | 'drop_table_without_if_exists'
+  | 'add_column_rewriting_default'
+  | 'add_column_exemption_shape'
   | 'expand_contract_missing_depends_on'
   | 'expand_contract_depends_on_unresolved'
   | 'breaking_ddl_without_expand_contract'
@@ -196,19 +201,25 @@ interface Projection {
 }
 
 const SQL_LINT_OWNER = 'tools/gates/migration-sql-lint.ts';
+/** The ADR-053 ADD COLUMN rules (R13/R14) the SQL-lint owner imports. */
+const SQL_LINT_ADD_COLUMN_RULES = 'tools/gates/migration-add-column-rules.ts';
+const SQL_LINT_STRUCTURE = 'tools/gates/migration-sql-structure.ts';
 const EXPAND_CONTRACT_OWNER = 'tools/gates/expand-contract-ast.ts';
 const ENUM_DROP_OWNER = 'tools/gates/migration-shared-enum-drop.ts';
 const RLS_OWNER = 'tools/gates/rls-predicate-canonical.ts';
 const TENANT_DDL_OWNER = 'tools/gates/tenant-aware-migration-ddl.ts';
 
 /**
- * The files whose text decides a verdict here: the five owners, and the
+ * The files whose text decides a verdict here: the five owners (with the
+ * modules the SQL-lint owner imports its R13/R14 rules from), and the
  * platform catalog the tenant-aware migration directories derive from. Their
  * hashes are the observation's provenance (`metadata.authorities`): the same
  * finding under a different hash came from a different rule.
  */
 const AUTHORITY_PATHS: readonly string[] = [
   SQL_LINT_OWNER,
+  SQL_LINT_ADD_COLUMN_RULES,
+  SQL_LINT_STRUCTURE,
   EXPAND_CONTRACT_OWNER,
   ENUM_DROP_OWNER,
   RLS_OWNER,
@@ -277,6 +288,16 @@ export const SQL_LINT_PROJECTION: Readonly<Record<string, Projection>> = {
   'R12-drop-table-without-if-exists': {
     rule: 'drop_table_without_if_exists',
     severity: 'critical',
+    confidence: 0.85,
+  },
+  'R13-add-column-rewriting-default': {
+    rule: 'add_column_rewriting_default',
+    severity: 'high',
+    confidence: 0.85,
+  },
+  'R14-add-column-exemption-shape': {
+    rule: 'add_column_exemption_shape',
+    severity: 'high',
     confidence: 0.85,
   },
 };

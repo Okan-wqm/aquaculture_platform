@@ -22,7 +22,10 @@
  *   R2  single-step-add-not-null             (HIGH)
  *       `ADD COLUMN ... NOT NULL` without DEFAULT in the same ADD
  *       clause. Blue-green 3-step discipline requires
- *       nullable → backfill → NOT NULL for populated tables.
+ *       nullable → backfill → NOT NULL for populated tables, unless one
+ *       constant is the true value for every existing row: then ADR-053
+ *       allows `NOT NULL DEFAULT <constant>` in one catalog-only
+ *       statement, in the shape R13/R14 enforce.
  *
  *   R3  create-index-not-concurrent          (MEDIUM)
  *       `CREATE (UNIQUE )?INDEX` without CONCURRENTLY. On TimescaleDB
@@ -82,6 +85,21 @@
  *       diagnostic so authors get a clearer "you forgot IF EXISTS" hint
  *       distinct from "you forgot the DESTRUCTIVE marker".
  *
+ *   R13 add-column-rewriting-default         (HIGH) — ADR-053
+ *       An `ADD COLUMN` that PostgreSQL 16 rewrites or scans under ACCESS
+ *       EXCLUSIVE on a table the chunk does not create: GENERATED … STORED,
+ *       identity/serial, a DEFAULT outside the Decision-1 constant
+ *       allowlist, or NOT NULL DEFAULT with an inline constraint; and any
+ *       CREATE DOMAIN. Owner: migration-add-column-rules.ts.
+ *
+ *   R14 add-column-exemption-shape           (HIGH) — ADR-053, FILE scope
+ *       A migration that adds `NOT NULL DEFAULT <allowlisted constant>` to a
+ *       table it does not create must have the Decision-3 shape (stated
+ *       reason, `SET LOCAL lock_timeout` <= 2s, one literal table, nothing
+ *       else, transactional without withDdlSafety). It is the one rule that
+ *       runs once per file (`FileRule`), because a timeout set in one
+ *       `.query()` call governs the ALTER TABLE in the next.
+ *
  * SQL is extracted from TypeScript `queryRunner.query(`...`)` template
  * literals. Bare `.sql` files are scanned whole. Single-line (`//`) and
  * block (`/* ... *\/`) comments are stripped before scanning so inline
@@ -102,6 +120,13 @@ import { execSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { relative, resolve } from 'node:path';
 
+import {
+  inspectExemptionShape,
+  scanRewritingAddColumns,
+  type MigrationChunk,
+  type MigrationFile,
+} from './migration-add-column-rules';
+
 const REPO_ROOT = resolve(__dirname, '..', '..');
 
 /**
@@ -119,6 +144,19 @@ interface Rule {
   readonly severity: Severity;
   /** Match on a single pre-processed SQL chunk; returns match positions. */
   readonly scan: (sql: string) => readonly { start: number; snippet: string }[];
+  readonly message: string;
+}
+
+/**
+ * A rule that judges a migration once, across all its chunks. Each hit names
+ * the requirement it failed (`detail`), which prefixes the rule message.
+ */
+interface FileRule {
+  readonly id: string;
+  readonly severity: Severity;
+  readonly inspect: (
+    migration: MigrationFile,
+  ) => readonly { offset: number; snippet: string; detail: string }[];
   readonly message: string;
 }
 
@@ -451,7 +489,10 @@ const RULES: readonly Rule[] = [
     message:
       'single-step ADD COLUMN ... NOT NULL without DEFAULT. On non-empty tables ' +
       'this takes ACCESS EXCLUSIVE and fails if any row is NULL. Use blue-green ' +
-      '3-step: nullable → backfill → SET NOT NULL (data-expert.md invariant).',
+      '3-step: nullable → backfill → SET NOT NULL (data-expert.md invariant), or, ' +
+      'when one constant is the true value for every existing row, ' +
+      '`NOT NULL DEFAULT <constant>` in the ADR-053 shape (rules R13/R14, ' +
+      'docs/runbooks/migration-authoring.md Blue-green safety).',
   },
   {
     id: 'R3-create-index-not-idempotent',
@@ -657,6 +698,39 @@ const RULES: readonly Rule[] = [
       'add a `-- DESTRUCTIVE: <rollback-reference>` marker on the same ' +
       'statement (R1 covers the marker requirement separately).',
   },
+  {
+    id: 'R13-add-column-rewriting-default',
+    severity: 'HIGH',
+    scan: scanRewritingAddColumns,
+    message:
+      'ADD COLUMN that rewrites or scans a populated table under ACCESS EXCLUSIVE: ' +
+      'GENERATED … STORED, an identity or serial type, a DEFAULT outside the ADR-053 ' +
+      "allowlist (a literal, optionally cast such as 'farm'::my_enum, or now(), " +
+      'CURRENT_TIMESTAMP, CURRENT_DATE; an interpolated DEFAULT is outside it), or ' +
+      'NOT NULL DEFAULT with an inline CHECK/REFERENCES/UNIQUE/PRIMARY KEY; or a ' +
+      'CREATE DOMAIN (a constrained domain column rewrites every table; the first ' +
+      'domain needs an ADR-053 amendment). Use nullable add → backfill → SET NOT ' +
+      'NULL, and put constraints in their own migrations (NOT VALID → VALIDATE, ' +
+      'CREATE INDEX CONCURRENTLY). docs/runbooks/migration-authoring.md, ADR-053.',
+  },
+];
+
+/** Rules that judge a whole migration file (ADR-053 Decision 3). */
+const FILE_RULES: readonly FileRule[] = [
+  {
+    id: 'R14-add-column-exemption-shape',
+    severity: 'HIGH',
+    inspect: inspectExemptionShape,
+    message:
+      'A migration that adds NOT NULL DEFAULT <constant> to a table it does not ' +
+      'create uses the ADR-053 catalog-only exemption and must have its shape: a ' +
+      'same-statement `-- ADR-053: <why the value is true for every existing row>`; ' +
+      '`SET LOCAL lock_timeout` <= 2s before the first ALTER TABLE of up() and of ' +
+      'down(), and none larger; one literal table; only SET LOCAL, read-only ' +
+      'SELECT, ADD COLUMN and the inverse DROP COLUMN IF EXISTS in down(); no ' +
+      '`transaction = false`, no withDdlSafety. docs/runbooks/migration-authoring.md, ' +
+      'ADR-053 Decision 3.',
+  },
 ];
 
 /**
@@ -665,11 +739,18 @@ const RULES: readonly Rule[] = [
  * own and refuses to run when a rule here has no projection, so a rule added
  * to this gate cannot be dropped silently from the observation (ARIA-HIGH-011).
  */
-export const MIGRATION_SQL_LINT_RULE_IDS: readonly string[] = RULES.map((rule) => rule.id);
+export const MIGRATION_SQL_LINT_RULE_IDS: readonly string[] = [...RULES, ...FILE_RULES].map(
+  (rule) => rule.id,
+);
 
 /**
- * Strip single-line and block TypeScript comments. Preserve newlines so
- * line-number reporting against the original file stays accurate.
+ * Blank out single-line and block TypeScript comments. Every comment
+ * character becomes a space and newlines are kept, so an offset in the
+ * stripped text is the same offset in the file: line numbers are reported
+ * against the original file, and R14 places each SQL chunk in the up() or
+ * down() it sits in by parsing the file itself. (A `//` comment used to be
+ * removed outright, which shifted every later offset and reported a line
+ * above the real one.)
  */
 function stripTsComments(source: string): string {
   let out = '';
@@ -678,7 +759,9 @@ function stripTsComments(source: string): string {
     const two = source.slice(i, i + 2);
     if (two === '//') {
       const eol = source.indexOf('\n', i);
-      i = eol === -1 ? source.length : eol;
+      const end = eol === -1 ? source.length : eol;
+      out += ' '.repeat(end - i);
+      i = end;
     } else if (two === '/*') {
       const end = source.indexOf('*/', i + 2);
       if (end === -1) {
@@ -701,10 +784,11 @@ function stripTsComments(source: string): string {
 }
 
 /**
- * Extract SQL chunks from TypeORM migration TS files. Each chunk is the
- * body of a `<identifier>.query(` template literal, returned WITH its
- * starting offset in the original (comment-stripped) file so we can map
- * offsets back to line numbers.
+ * Extract SQL chunks from a TypeORM migration's comment-stripped source
+ * (`stripTsComments`). Each chunk is the body of a `<identifier>.query(`
+ * template literal, returned WITH its starting offset in that text so we
+ * can map offsets back to line numbers and the file rules can place each
+ * chunk in up() or down().
  *
  * The identifier is deliberately unpinned (`\w+`) rather than hard-coded
  * to `queryRunner` — TypeORM aliases it in private helpers (e.g.
@@ -714,9 +798,8 @@ function stripTsComments(source: string): string {
  * `.query(` with a template literal inside a file whose path contains
  * `/migrations/`).
  */
-function extractSqlChunks(tsSource: string): readonly { sql: string; offset: number }[] {
-  const stripped = stripTsComments(tsSource);
-  const chunks: { sql: string; offset: number }[] = [];
+function extractSqlChunks(stripped: string): readonly MigrationChunk[] {
+  const chunks: MigrationChunk[] = [];
   const re = /\b\w+\.query\(\s*`/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(stripped)) !== null) {
@@ -779,24 +862,70 @@ function scanSqlChunks(
   return violations;
 }
 
+function scanFileRules(relPath: string, source: string, migration: MigrationFile): Violation[] {
+  const violations: Violation[] = [];
+  for (const rule of FILE_RULES) {
+    for (const hit of rule.inspect(migration)) {
+      violations.push({
+        file: relPath,
+        line: offsetToLine(source, hit.offset),
+        ruleId: rule.id,
+        severity: rule.severity,
+        snippet: hit.snippet.replace(/\s+/g, ' ').trim(),
+        message: `${hit.detail} ${rule.message}`,
+      });
+    }
+  }
+  return violations;
+}
+
+/** Every rule — per chunk, then per file — over one migration. */
+function inspectMigration(
+  relPath: string,
+  source: string,
+  migration: MigrationFile,
+): readonly Violation[] {
+  return [
+    ...scanSqlChunks(relPath, source, migration.chunks),
+    ...scanFileRules(relPath, source, migration),
+  ];
+}
+
 /** Scan an in-memory SQL migration through the same rules used by the CLI. */
 export function scanMigrationSql(sql: string): readonly Violation[] {
-  return scanSqlChunks('<inline migration>', sql, [{ sql, offset: 0 }]);
+  return inspectMigration('<inline migration>', sql, {
+    source: sql,
+    text: sql,
+    chunks: [{ sql, offset: 0 }],
+    kind: 'sql',
+  });
 }
 
 /**
  * The one inspection of a migration's source text: a `.sql` file is scanned
  * whole, a TypeORM `.ts` migration through its `<runner>.query(\`...\`)`
- * template literals with comments stripped, and every rule above runs on each
- * chunk. Pure — it reads nothing — so the CLI below and ARIA's
+ * template literals with comments stripped. Every per-chunk rule above runs on
+ * each chunk and every file rule once on the whole file. Pure — it reads
+ * nothing — so the CLI below and ARIA's
  * `sql-migration-safety-adapter` (ARIA-HIGH-011) reach one verdict for one
  * file instead of carrying two copies of the delta-safety rules.
  */
 export function inspectMigrationSource(relPath: string, source: string): readonly Violation[] {
-  const chunks: { sql: string; offset: number }[] = relPath.toLowerCase().endsWith('.sql')
-    ? [{ sql: source, offset: 0 }]
-    : [...extractSqlChunks(source)];
-  return scanSqlChunks(relPath, source, chunks);
+  if (relPath.toLowerCase().endsWith('.sql')) {
+    return inspectMigration(relPath, source, {
+      source,
+      text: source,
+      chunks: [{ sql: source, offset: 0 }],
+      kind: 'sql',
+    });
+  }
+  const text = stripTsComments(source);
+  return inspectMigration(relPath, source, {
+    source,
+    text,
+    chunks: extractSqlChunks(text),
+    kind: 'typeorm',
+  });
 }
 
 function scanMigrationFile(relPath: string): readonly Violation[] {
@@ -862,6 +991,7 @@ function report(violations: readonly Violation[]): void {
   console.error('Rule set: data-expert.md "Migration-delta safety" section.');
   console.error('R1-R5: original delta-safety rules.');
   console.error('R6-R12 (Wave 4-A.2): idempotency-replayability rules.');
+  process.stderr.write('R13-R14 (ADR-053): ADD COLUMN rewrite and catalog-only exemption shape.\n');
   console.error('Grandfather policy: this gate only runs on migrations ADDED');
   console.error('in the current change set. Existing migrations are exempt');
   console.error('(amending is forbidden under the force-push ban; replays are');

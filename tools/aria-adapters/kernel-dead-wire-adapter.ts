@@ -15,6 +15,8 @@
 //                           it, the file documents it, and nothing changes.
 //   cli_verb_never_routed   a subcommand registered on the CLI parser with no
 //                           branch that dispatches it. Typing it does nothing.
+//                           The parser is a tree: a verb is judged against the
+//                           `args.<dest>` of the parser it is registered on.
 //
 // WHAT IS DELIBERATELY ABSENT, and the measurement that decided it. The
 // writer-with-no-reader and reader-with-no-writer masks were prototyped
@@ -90,6 +92,19 @@ interface AriaOutput {
 
 const DEFAULT_POLICY_DIR = 'aria-kernel/aria_kernel/data';
 const DEFAULT_CLI_PATH = 'aria-kernel/aria_kernel/cli.py';
+
+// The CLI parser is a tree. Its root parser is the variable `sub` and routes
+// through `args.command`; every group beneath it owns an
+// `<group>_sub = <parser>.add_subparsers(dest="<group>_command")` of its own.
+// A verb registered on a parser is dispatched by `args.<that parser's dest>`.
+const ROOT_PARENT = 'sub';
+const ROOT_DEST = 'command';
+// `\s*` spans lines: `x_sub = x_parser.add_subparsers(\n    dest="x_command", ...)`.
+const SUBPARSERS_DEST_RE = /(\w+)\s*=\s*[\w.]+\.add_subparsers\(\s*dest\s*=\s*["'](\w+)["']/g;
+const REGISTER_RE = /add_subparser\(\s*(\w+)\s*,\s*["']([a-z0-9_-]+)["']/g;
+const ROUTE_EQ_RE = /args\.(\w+)\s*==\s*["']([a-z0-9_-]+)["']/g;
+// A membership test against a tuple OR a set literal: `in ("a", "b")`, `in {"a", "b"}`.
+const ROUTE_IN_RE = /args\.(\w+)\s+in\s+(?:\(([^)]*)\)|\{([^}]*)\})/g;
 
 // Keys that are prose, not configuration. The policy files carry inline
 // documentation under `_doc`/`comment` keys; treating a comment as an unread
@@ -235,39 +250,58 @@ export function analyzeKernelDeadWire(
   let verbsChecked = 0;
   if (workspacePathExists(workspaceRoot, cliPath)) {
     readPaths.push(cliRel);
-    const cliLines = readWorkspaceFile(workspaceRoot, cliPath).split('\n');
-    const registered = new Map<string, number>();
+    const cliText = readWorkspaceFile(workspaceRoot, cliPath);
+    const cliLines = cliText.split('\n');
+    const destOf = new Map<string, string>([[ROOT_PARENT, ROOT_DEST]]);
+    for (const match of cliText.matchAll(SUBPARSERS_DEST_RE)) {
+      destOf.set(match[1], match[2]);
+    }
+    // Both maps are keyed `<dest>:<verb>`: `status` on two groups is two verbs.
+    const registered = new Map<string, { dest: string; verb: string; line: number }>();
     const routed = new Set<string>();
     for (let index = 0; index < cliLines.length; index += 1) {
       const line = cliLines[index];
-      for (const match of line.matchAll(/add_subparser\(\s*sub\s*,\s*["']([a-z0-9_-]+)["']/g)) {
-        if (!registered.has(match[1])) {
-          registered.set(match[1], index + 1);
+      for (const match of line.matchAll(REGISTER_RE)) {
+        const dest = destOf.get(match[1]);
+        // A parent whose `add_subparsers(dest=...)` this file never declares
+        // has no `args.<dest>` to judge its verbs against.
+        if (dest !== undefined && !registered.has(`${dest}:${match[2]}`)) {
+          registered.set(`${dest}:${match[2]}`, { dest, verb: match[2], line: index + 1 });
         }
       }
-      for (const match of line.matchAll(/args\.command\s*==\s*["']([a-z0-9_-]+)["']/g)) {
-        routed.add(match[1]);
+      for (const match of line.matchAll(ROUTE_EQ_RE)) {
+        routed.add(`${match[1]}:${match[2]}`);
       }
-      for (const match of line.matchAll(/args\.command\s+in\s+\(([^)]*)\)/g)) {
-        for (const inner of match[1].matchAll(/["']([a-z0-9_-]+)["']/g)) {
-          routed.add(inner[1]);
+      for (const match of line.matchAll(ROUTE_IN_RE)) {
+        for (const inner of (match[2] ?? match[3]).matchAll(/["']([a-z0-9_-]+)["']/g)) {
+          routed.add(`${match[1]}:${inner[1]}`);
         }
       }
     }
     verbsChecked = registered.size;
-    for (const [verb, line] of [...registered].sort((a, b) => a[0].localeCompare(b[0]))) {
-      if (routed.has(verb)) {
+    const unrouted = [...registered.entries()]
+      .filter(([key]) => !routed.has(key))
+      .map(([, entry]) => entry);
+    for (const { dest, verb, line } of unrouted) {
+      const nested = dest !== ROOT_DEST;
+      // A nested group's handler is an `if args.<dest> == "a"` chain whose last
+      // verb is reached by falling off the end: the real cli.py has one such verb
+      // per group. One unrouted verb cannot be told from that fall-through by
+      // reading lines, and silence beats a coin flip; two or more cannot all be
+      // the fall-through, so at least one is dead. The root parser has no
+      // fall-through: its lone unrouted verb is flagged.
+      if (nested && unrouted.filter((other) => other.dest === dest).length < 2) {
         continue;
       }
       findings.push({
-        id: `kernel-dead-wire:cli:${verb}`,
+        id: `kernel-dead-wire:cli:${nested ? `${dest}:${verb}` : verb}`,
         rule: 'cli_verb_never_routed',
         severity: 'medium',
         path: cliRel,
         line,
         message:
-          `CLI registers subcommand \`${verb}\` and no branch dispatches it — ` +
-          'the verb parses, prints help, and does nothing.',
+          `CLI registers subcommand \`${verb}\`${nested ? ` of \`args.${dest}\`` : ''} and no ` +
+          'branch dispatches it — the verb parses, prints help, and does nothing.',
         evidence: [{ path: cliRel, line }],
         confidence: 0.85,
       });

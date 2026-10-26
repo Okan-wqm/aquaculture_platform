@@ -7,11 +7,17 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Award, TrendingUp, Star, Target, BarChart3, Calendar, ChevronRight } from 'lucide-react';
-import { usePerformanceReviews, usePendingReviews, useCurrentEmployeeId } from '../hooks';
+import {
+  usePerformanceReviews,
+  usePendingReviews,
+  useCurrentEmployeeId,
+  useIsWorkforceManager,
+} from '../hooks';
 import { cn, Spinner, PageHeader } from '@aquaculture/shared-ui';
+import { AccessRestricted } from '../components/common';
 import { ReviewStatus } from '../types';
 
-const PerformancePage: React.FC = () => {
+const PerformanceOverview: React.FC = () => {
   const employeeId = useCurrentEmployeeId();
   const [activeTab, setActiveTab] = useState<'reviews' | 'goals'>('reviews');
 
@@ -156,6 +162,21 @@ const PerformancePage: React.FC = () => {
         </div>
       )}
     </div>
+  );
+};
+
+/**
+ * The service refuses the pending-review read below MODULE_MANAGER and the screen is the
+ * managers' review desk. The role is decided here, before the overview mounts and reads, so a
+ * lower role is shown the restricted view and no refused read is ever sent.
+ */
+const PerformancePage: React.FC = () => {
+  const canManage = useIsWorkforceManager();
+
+  return canManage ? (
+    <PerformanceOverview />
+  ) : (
+    <AccessRestricted messageKey="hr.restricted.performance" />
   );
 };
 

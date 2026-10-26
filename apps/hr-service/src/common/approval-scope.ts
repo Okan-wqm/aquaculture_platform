@@ -4,8 +4,12 @@
  * Leave and attendance both have a queue of records waiting for a manager. It narrows to ONE
  * thing, chosen in this order: the explicit department, else the module (the module IS the scope,
  * so an approver in a company-wide department still sees the module's records), else — for a
- * manager in the Company view — the approver's own department. A tenant admin, or a viewer with
- * no employee record, is never narrowed implicitly: they approve across departments.
+ * manager in the Company view — the approver's own department. Only a tenant admin is never
+ * narrowed implicitly: they approve across departments.
+ *
+ * A manager who has no department to narrow to — no employee record, or an employee placed in
+ * none — gets an empty queue, not the whole tenant's (HR-HIGH-056): "no department" must never
+ * read as "every department". They approve through the module view, or by naming a department.
  *
  * "Department" is always the employee's LIVE department (`employee.departmentHrId`), never a
  * per-record snapshot: when an employee is moved, their pending records follow them to the new
@@ -31,8 +35,8 @@ export interface ApprovalScopeRequest {
 export type ApprovalDepartment =
   /** Narrow to `departmentId`; undefined or null narrows nothing. */
   | { readonly kind: 'narrow'; readonly departmentId: string | null | undefined }
-  /** The approver is not an employee of the tenant: the queue is empty, not wide. */
-  | { readonly kind: 'unknown-approver' };
+  /** The approver has no department to narrow to (not an employee, or placed in none): the queue is empty, not wide. */
+  | { readonly kind: 'unplaced-approver' };
 
 /**
  * The approver's department is looked up only when nothing explicit narrows the queue, so a call
@@ -44,15 +48,16 @@ export async function resolveApprovalDepartment(
 ): Promise<ApprovalDepartment> {
   const { tenantId, approverId, departmentId, moduleCode, narrowToOwnDepartment } = request;
 
-  if (departmentId || isModuleScoped(moduleCode) || !narrowToOwnDepartment || !approverId) {
+  if (departmentId || isModuleScoped(moduleCode) || !narrowToOwnDepartment) {
     return { kind: 'narrow', departmentId };
   }
+  if (!approverId) return { kind: 'unplaced-approver' };
 
   const approver = await employeeRepository.findOne({
     where: { id: approverId, tenantId, isDeleted: false },
     select: ['id', 'departmentHrId'],
   });
-  if (!approver) return { kind: 'unknown-approver' };
+  if (!approver?.departmentHrId) return { kind: 'unplaced-approver' };
   return { kind: 'narrow', departmentId: approver.departmentHrId };
 }
 

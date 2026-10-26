@@ -1,8 +1,15 @@
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { DataSource } from 'typeorm';
-import { NotFoundException, BadRequestException, Logger, InternalServerErrorException } from '@nestjs/common';
+import {
+  NotFoundException,
+  BadRequestException,
+  ForbiddenException,
+  Logger,
+  InternalServerErrorException,
+} from '@nestjs/common';
 import { AcknowledgeReviewCommand } from '../commands/acknowledge-review.command';
 import { PerformanceReview, ReviewStatus } from '../entities/performance-review.entity';
+import { assertActingAsReviewedEmployee } from '../services/review-subject';
 import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 
 @CommandHandler(AcknowledgeReviewCommand)
@@ -28,6 +35,14 @@ export class AcknowledgeReviewHandler implements ICommandHandler<AcknowledgeRevi
       if (!review) {
         throw new NotFoundException(`Performance review with ID ${reviewId} not found`);
       }
+
+      await assertActingAsReviewedEmployee(
+        queryRunner.manager,
+        tenantId,
+        userId,
+        review,
+        'Only the reviewed employee can acknowledge the review',
+      );
 
       if (review.status !== ReviewStatus.FINALIZED) {
         throw new BadRequestException(
@@ -58,7 +73,11 @@ export class AcknowledgeReviewHandler implements ICommandHandler<AcknowledgeRevi
     } catch (error) {
       await queryRunner.rollbackTransaction();
 
-      if (error instanceof NotFoundException || error instanceof BadRequestException) {
+      if (
+        error instanceof NotFoundException ||
+        error instanceof BadRequestException ||
+        error instanceof ForbiddenException
+      ) {
         throw error;
       }
 

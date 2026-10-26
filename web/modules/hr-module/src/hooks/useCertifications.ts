@@ -129,9 +129,15 @@ export function useEmployeeCertifications(
   });
 }
 
+/**
+ * The service refuses this read below MODULE_MANAGER. A page any module user can reach passes
+ * `enabled: canManage` (useIsWorkforceManager), so the read is never sent for a role that is
+ * only handed a 403.
+ */
 export function useExpiringCertifications(
   daysUntilExpiry: number,
-  departmentId?: string
+  departmentId?: string,
+  options: { enabled?: boolean } = {},
 ) {
   const client = useGraphQLClient();
 
@@ -145,6 +151,7 @@ export function useExpiringCertifications(
         departmentId,
       }),
     select: (data) => data.expiringCertifications,
+    enabled: options.enabled ?? true,
   });
 }
 

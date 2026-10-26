@@ -290,7 +290,7 @@ describe('attendance queries — module scope', () => {
         );
       });
 
-      it('lists every department for an approver placed in none', async () => {
+      it('returns an empty page, not every department, for an approver placed in none', async () => {
         const queryBuilder = await run(
           new GetPendingAttendanceApprovalsQuery(tenantId, approverId),
           {
@@ -299,7 +299,7 @@ describe('attendance queries — module scope', () => {
           },
         );
 
-        expect(queryBuilder['andWhere']).not.toHaveBeenCalledWith(...ownDepartmentNarrowing);
+        expect(queryBuilder['getManyAndCount']).not.toHaveBeenCalled();
       });
 
       it('returns an empty page, not other departments, for an approver id that is no employee', async () => {
@@ -311,9 +311,27 @@ describe('attendance queries — module scope', () => {
         expect(queryBuilder['getManyAndCount']).not.toHaveBeenCalled();
       });
 
-      // The tenant owner often has no employee record: nothing to narrow by, nothing of theirs to exclude.
-      it('neither narrows nor excludes own records for a viewer without an employee record', async () => {
+      // A manager with no employee record has no department to narrow to: an empty queue, never
+      // the whole tenant's. Only a tenant admin (narrowToOwnDepartment false) works without one.
+      it('returns an empty page for a manager without an employee record', async () => {
         const queryBuilder = await run(new GetPendingAttendanceApprovalsQuery(tenantId, null));
+
+        expect(approverLookup).not.toHaveBeenCalled();
+        expect(queryBuilder['getManyAndCount']).not.toHaveBeenCalled();
+      });
+
+      it('neither narrows nor excludes own records for a tenant admin without an employee record', async () => {
+        const queryBuilder = await run(
+          new GetPendingAttendanceApprovalsQuery(
+            tenantId,
+            null,
+            undefined,
+            20,
+            1,
+            undefined,
+            false,
+          ),
+        );
 
         expect(approverLookup).not.toHaveBeenCalled();
         expect(queryBuilder['andWhere']).not.toHaveBeenCalledWith(...ownDepartmentNarrowing);

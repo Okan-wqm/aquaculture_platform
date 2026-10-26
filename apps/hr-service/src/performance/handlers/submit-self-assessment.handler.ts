@@ -1,8 +1,15 @@
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { DataSource } from 'typeorm';
-import { NotFoundException, BadRequestException, Logger, InternalServerErrorException } from '@nestjs/common';
+import {
+  NotFoundException,
+  BadRequestException,
+  ForbiddenException,
+  Logger,
+  InternalServerErrorException,
+} from '@nestjs/common';
 import { SubmitSelfAssessmentCommand } from '../commands/submit-self-assessment.command';
 import { PerformanceReview, ReviewStatus } from '../entities/performance-review.entity';
+import { assertActingAsReviewedEmployee } from '../services/review-subject';
 import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 
 @CommandHandler(SubmitSelfAssessmentCommand)
@@ -28,6 +35,14 @@ export class SubmitSelfAssessmentHandler implements ICommandHandler<SubmitSelfAs
       if (!review) {
         throw new NotFoundException(`Performance review with ID ${reviewId} not found`);
       }
+
+      await assertActingAsReviewedEmployee(
+        queryRunner.manager,
+        tenantId,
+        userId,
+        review,
+        'Only the reviewed employee can submit the self assessment',
+      );
 
       if (review.status !== ReviewStatus.DRAFT && review.status !== ReviewStatus.SELF_ASSESSMENT) {
         throw new BadRequestException(
@@ -69,7 +84,11 @@ export class SubmitSelfAssessmentHandler implements ICommandHandler<SubmitSelfAs
     } catch (error) {
       await queryRunner.rollbackTransaction();
 
-      if (error instanceof NotFoundException || error instanceof BadRequestException) {
+      if (
+        error instanceof NotFoundException ||
+        error instanceof BadRequestException ||
+        error instanceof ForbiddenException
+      ) {
         throw error;
       }
 

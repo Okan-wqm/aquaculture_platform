@@ -3,6 +3,7 @@ import { NotFoundException, UnauthorizedException, UseGuards } from '@nestjs/com
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { GqlAuthGuard } from '../common/guards/gql-auth.guard';
+import { findViewerEmployee } from '../common/viewer';
 import { Roles, Role, AuditLog, ModuleUserOrHigher } from '@aquaculture/backend-common/decorators';
 import { StandardPaginatedResponse, IStandardPaginatedResult, fromCqrsPaginated } from '@aquaculture/backend-common/pagination';
 import { RolesGuard } from '@aquaculture/backend-common/guards';
@@ -87,21 +88,29 @@ export class TrainingResolver {
   ) {}
 
   /**
+   * The calling user's own HR employee id, or null when they have no employee record (a tenant
+   * administrator need not have one). The JWT subject is the auth user id, a different uuid from
+   * the employee id: `findViewerEmployee` is the one place that bridges them through
+   * `Employee.userId`, and everything here that acts on "my" records starts from its answer.
+   */
+  private async findOwnEmployeeId(userId: string, tenantId: string): Promise<string | null> {
+    const employee = await findViewerEmployee(this.employeeRepository.manager, tenantId, { sub: userId });
+    return employee ? employee.id : null;
+  }
+
+  /**
    * Resolve the calling user's own employee record id from the JWT subject.
    * Used by self-service mutations (startTraining / withdrawFromTraining) to bind
    * the action to the caller's employee so ownership can be enforced server-side.
    */
   private async resolveEmployeeId(userId: string, tenantId: string): Promise<string> {
-    const employee = await this.employeeRepository.findOne({
-      where: { userId, tenantId, isDeleted: false },
-      select: ['id'],
-    });
-    if (!employee) {
+    const employeeId = await this.findOwnEmployeeId(userId, tenantId);
+    if (!employeeId) {
       throw new NotFoundException(
         'Employee record not found for current user. Please contact your administrator.',
       );
     }
-    return employee.id;
+    return employeeId;
   }
 
   private getTenantId(context: GraphQLContext): string {
@@ -126,6 +135,8 @@ export class TrainingResolver {
   // Certification Type Queries
   // =====================
   @Query(() => [CertificationType], { name: 'certificationTypes' })
+  @UseGuards(RolesGuard)
+  @ModuleUserOrHigher()
   async getCertificationTypes(
     @Context() context: GraphQLContext,
     @Args('category', { type: () => CertificationCategory, nullable: true }) category?: CertificationCategory,
@@ -141,6 +152,8 @@ export class TrainingResolver {
   // Employee Certification Queries
   // =====================
   @Query(() => [EmployeeCertification], { name: 'employeeCertifications' })
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async getEmployeeCertifications(
     @Args('employeeId', { type: () => ID }) employeeId: string,
     @Context() context: GraphQLContext,
@@ -153,18 +166,26 @@ export class TrainingResolver {
   }
 
   @Query(() => [EmployeeCertification], { name: 'myCertifications' })
+  @UseGuards(RolesGuard)
+  @ModuleUserOrHigher()
   async getMyCertifications(
     @Context() context: GraphQLContext,
     @Args('status', { type: () => CertificationStatus, nullable: true }) status?: CertificationStatus,
   ): Promise<EmployeeCertification[]> {
     const tenantId = this.getTenantId(context);
-    const userId = this.getUserId(context);
+    const employeeId = await this.findOwnEmployeeId(this.getUserId(context), tenantId);
+    // No employee record means no certifications of their own — never a tenant-wide list.
+    if (!employeeId) {
+      return [];
+    }
     return this.queryBus.execute(
-      new GetEmployeeCertificationsQuery(tenantId, userId, status),
+      new GetEmployeeCertificationsQuery(tenantId, employeeId, status),
     );
   }
 
   @Query(() => [EmployeeCertification], { name: 'expiringCertifications' })
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async getExpiringCertifications(
     @Context() context: GraphQLContext,
     @Args('daysUntilExpiry', { type: () => Int, defaultValue: 30 }) daysUntilExpiry: number,
@@ -177,6 +198,8 @@ export class TrainingResolver {
   }
 
   @Query(() => [EmployeeCertification], { name: 'expiredCertifications' })
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async getExpiredCertifications(
     @Context() context: GraphQLContext,
     @Args('departmentId', { type: () => ID, nullable: true }) departmentId?: string,
@@ -191,6 +214,8 @@ export class TrainingResolver {
   // All Certifications (Paginated)
   // =====================
   @Query(() => EmployeeCertificationConnection, { name: 'allCertifications' })
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async getAllCertifications(
     @Context() context: GraphQLContext,
     @Args('status', { type: () => CertificationStatus, nullable: true }) status?: CertificationStatus,
@@ -211,6 +236,8 @@ export class TrainingResolver {
   // Training Course Queries
   // =====================
   @Query(() => TrainingCourseConnection, { name: 'trainingCourses' })
+  @UseGuards(RolesGuard)
+  @ModuleUserOrHigher()
   async getTrainingCourses(
     @Context() context: GraphQLContext,
     @Args('trainingType', { type: () => TrainingType, nullable: true }) trainingType?: TrainingType,
@@ -230,6 +257,8 @@ export class TrainingResolver {
   // Training Enrollment Queries
   // =====================
   @Query(() => TrainingEnrollmentConnection, { name: 'trainingEnrollments' })
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async getTrainingEnrollments(
     @Context() context: GraphQLContext,
     @Args('employeeId', { type: () => ID, nullable: true }) employeeId?: string,
@@ -246,6 +275,8 @@ export class TrainingResolver {
   }
 
   @Query(() => [TrainingEnrollment], { name: 'myTrainingEnrollments' })
+  @UseGuards(RolesGuard)
+  @ModuleUserOrHigher()
   async getMyTrainingEnrollments(
     @Context() context: GraphQLContext,
     @Args('status', { type: () => EnrollmentStatus, nullable: true }) status?: EnrollmentStatus,
@@ -253,9 +284,14 @@ export class TrainingResolver {
     @Args('page', { type: () => Int, nullable: true, defaultValue: 1 }) page?: number,
   ): Promise<TrainingEnrollment[]> {
     const tenantId = this.getTenantId(context);
-    const userId = this.getUserId(context);
+    const employeeId = await this.findOwnEmployeeId(this.getUserId(context), tenantId);
+    // No employee record means no enrollments of their own. An absent employeeId filter would
+    // list the whole tenant, so the query must not run at all.
+    if (!employeeId) {
+      return [];
+    }
     const result = await this.queryBus.execute(
-      new GetTrainingEnrollmentsQuery(tenantId, userId, undefined, status, limit, page),
+      new GetTrainingEnrollmentsQuery(tenantId, employeeId, undefined, status, limit, page),
     );
     return result.data;
   }
@@ -385,6 +421,8 @@ export class TrainingResolver {
   // Certification Type / Training Course detail queries
   // =====================
   @Query(() => CertificationType, { name: 'certificationType' })
+  @UseGuards(RolesGuard)
+  @ModuleUserOrHigher()
   async getCertificationType(
     @Args('id', { type: () => ID }) id: string,
     @Context() context: GraphQLContext,
@@ -394,6 +432,8 @@ export class TrainingResolver {
   }
 
   @Query(() => TrainingCourse, { name: 'trainingCourse' })
+  @UseGuards(RolesGuard)
+  @ModuleUserOrHigher()
   async getTrainingCourse(
     @Args('id', { type: () => ID }) id: string,
     @Context() context: GraphQLContext,
@@ -406,6 +446,8 @@ export class TrainingResolver {
   // Compliance / status report queries
   // =====================
   @Query(() => EmployeeCertificationStatus, { name: 'employeeCertificationStatus' })
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async getEmployeeCertificationStatus(
     @Args('employeeId', { type: () => ID }) employeeId: string,
     @Context() context: GraphQLContext,
@@ -431,6 +473,8 @@ export class TrainingResolver {
   }
 
   @Query(() => [CertificationType], { name: 'certificationsForWorkArea' })
+  @UseGuards(RolesGuard)
+  @ModuleUserOrHigher()
   async getCertificationsForWorkArea(
     @Args('workAreaId', { type: () => ID }) workAreaId: string,
     @Context() context: GraphQLContext,
@@ -442,6 +486,8 @@ export class TrainingResolver {
   }
 
   @Query(() => [MandatoryTrainingStatus], { name: 'mandatoryTrainingStatus' })
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async getMandatoryTrainingStatus(
     @Args('employeeId', { type: () => ID }) employeeId: string,
     @Context() context: GraphQLContext,
@@ -456,6 +502,8 @@ export class TrainingResolver {
   // Training calendar (scheduled sessions over a date range)
   // =====================
   @Query(() => [TrainingSession], { name: 'trainingCalendar' })
+  @UseGuards(RolesGuard)
+  @ModuleUserOrHigher()
   async getTrainingCalendar(
     @Args('startDate') startDate: string,
     @Args('endDate') endDate: string,

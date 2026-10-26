@@ -12,13 +12,13 @@ export class GetMyGoalsHandler implements IQueryHandler<GetMyGoalsQuery> {
   ) {}
 
   async execute(query: GetMyGoalsQuery): Promise<Goal[]> {
-    const { tenantId, userId, status } = query;
+    const { tenantId, employeeId, status } = query;
 
     const qb = this.goalRepository
       .createQueryBuilder('g')
       .leftJoinAndSelect('g.employee', 'employee')
       .where('g.tenantId = :tenantId', { tenantId })
-      .andWhere('g.employeeId = :userId', { userId })
+      .andWhere('g.employeeId = :employeeId', { employeeId })
       .andWhere('g.isDeleted = false')
       .orderBy('g.targetDate', 'ASC');
 

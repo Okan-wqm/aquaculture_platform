@@ -11,8 +11,8 @@ migrations" is ``SCHEMA_REGISTRY[].migrationsGlob``
 (apps/db-migrate/src/schema-registry.ts): the dirs the migrator really runs,
 timestamp-prefixed files only, relative to the workspace root.
 
-Every test below carries a positive that is invisible before the fix, so each
-fails on its assertion at the old behaviour; the decoys in the same fixture are
+Every test below except the refusals at the end carries a positive that is invisible
+before the fix, so each fails on its assertion at the old behaviour; the decoys in the same fixture are
 the near-miss negatives that the exact-set assertions hold in place afterwards.
 The registry fixtures use the declaration's real shape (doc header naming
 ``migrationsGlob`` and a glob example, single-line and multi-line arrays,
@@ -277,6 +277,36 @@ class SqlEnumFilesComeFromTheRegistry(unittest.TestCase):
             tree.write("apps/retired-service/src/migrations/1800000000000-Baseline.ts",
                        "CREATE TYPE \"retired\".\"retired_enum\" AS ENUM('r');\n")
             self.assertEqual(tree.corpus(), [(ANCHOR_NAME, ANCHOR_PATH)])
+
+
+class SchemaRegistryReaderRefusals(unittest.TestCase):
+    """A registry the reader cannot fully understand is a named error, never a
+    silently smaller corpus (the scan would then under-read without a trace)."""
+
+    def _scan(self, registry_text: str | None) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            if registry_text is not None:
+                (root / REGISTRY_PATH).parent.mkdir(parents=True)
+                (root / REGISTRY_PATH).write_text(registry_text, encoding="utf-8")
+            aria_poc.detect_sql_enums(root, [])
+
+    def test_an_absent_registry_raises(self) -> None:
+        with self.assertRaises(FileNotFoundError):
+            self._scan(None)
+
+    def test_a_registry_without_any_migrations_glob_raises(self) -> None:
+        with self.assertRaisesRegex(ValueError, "no migrationsGlob entry"):
+            self._scan("export const SCHEMA_REGISTRY = [{ service: 'x', migrationsGlob: [], reason: 'r' }];\n")
+
+    def test_an_entry_that_is_not_a_string_literal_raises(self) -> None:
+        with self.assertRaisesRegex(ValueError, "not a string literal"):
+            self._scan(f"export const SCHEMA_REGISTRY = [{{ migrationsGlob: [{_glob('apps/a/src/migrations')}, ...MORE] }}];\n")
+
+    def test_glob_syntax_the_reader_does_not_translate_raises(self) -> None:
+        for glob in ("apps/a/**/[0-9]*{.ts,.js}", "apps/a/src/migrations/[!_]*.ts", "apps/a/src/migrations/?*.ts"):
+            with self.subTest(glob), self.assertRaisesRegex(ValueError, "unsupported glob syntax"):
+                self._scan(f"export const SCHEMA_REGISTRY = [{{ migrationsGlob: ['{glob}'] }}];\n")
 
 
 class SqlEnumCorpusOfTheRealRepo(unittest.TestCase):

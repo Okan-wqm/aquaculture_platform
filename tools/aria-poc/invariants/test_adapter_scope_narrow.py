@@ -22,6 +22,9 @@ These tests guarantee:
 * the rule flags a raw publish in a transactional write path of a service
   that registers the outbox, and nothing else (true- and false-positive
   fixtures);
+* `cqrs_adapter.SCANNED_GLOBS` matches its manifest, and the cqrs and outbox
+  adapters skip the same non-production sources (specs, `__tests__`, `.test.ts`,
+  migrations) through ONE shared predicate, not two private lists (DET-RCA B18);
 * `agent_harness_security_adapter.SCANNED_GLOBS` matches its manifest.
 
 Test isolation: each test creates a tempdir fixture repo with `package.json`
@@ -30,6 +33,8 @@ relevant TS / py files, runs the adapter, asserts shape.
 """
 from __future__ import annotations
 
+import ast
+import importlib
 import json
 import os
 import shutil
@@ -49,6 +54,11 @@ from agent_harness_security_adapter import (  # type: ignore[import-not-found]
     SCANNED_GLOBS as HARNESS_SCANNED_GLOBS,
     _load_credential_table as harness_credential_table,
 )
+from cqrs_adapter import (  # type: ignore[import-not-found]
+    SCANNED_GLOBS as CQRS_SCANNED_GLOBS,
+    _iter_files as cqrs_iter_files,
+    scan as cqrs_scan,
+)
 from outbox_adapter import (  # type: ignore[import-not-found]
     SCANNED_GLOBS as OUTBOX_SCANNED_GLOBS,
     _FALLBACK_SCANNED_GLOBS as OUTBOX_FALLBACK_GLOBS,
@@ -57,6 +67,7 @@ from outbox_adapter import (  # type: ignore[import-not-found]
 )
 
 
+_POC = Path(__file__).resolve().parents[1]
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _MANIFEST_DIR = _REPO_ROOT / "tools" / "aria-adapters"
 
@@ -282,6 +293,96 @@ export class TelemetryService {
             "// Previously eventBus.publish() was called AFTER commit.",
         ))
         self.assertEqual(self._rules(), [])
+
+
+# One path set inside the scope of BOTH adapters (cqrs: ``controllers/`` and
+# ``*.controller.ts``; outbox: ``apps/*/src/**``). The near misses share a
+# fragment with a skip entry (``.test.ts``, ``/migrations/``, ``dist/``,
+# ``.spec.ts``) without carrying it, so a looser predicate goes red.
+_CONTROLLERS = "apps/hr-service/src/leave/controllers"
+_READ = [f"{_CONTROLLERS}/{name}.controller.ts"
+         for name in ("leave", "latest", "migrations", "distribution", "spec")]
+_SPEC_AND_TESTS_DIR = [f"{_CONTROLLERS}/leave.controller.spec.ts", f"{_CONTROLLERS}/__tests__/leave.helper.ts"]
+_TEST_AND_MIGRATION = [
+    f"{_CONTROLLERS}/leave.controller.test.ts",
+    "apps/hr-service/src/migrations/1-leave.controller.ts",
+]
+_SKIP_FRAGMENTS = {"/__tests__/", ".spec.ts", ".test.ts", "/migrations/", "node_modules/", "dist/"}
+
+
+class CqrsAdapterScopeTests(unittest.TestCase):
+    """DET-RCA B18 — the cqrs adapter reads production controllers, and the cqrs
+    and outbox adapters leave the same non-production sources unread."""
+
+    def setUp(self) -> None:
+        self.repo = _make_repo()
+        self.addCleanup(shutil.rmtree, self.repo, True)
+
+    def _both_adapters_walk_only_production(self, skipped: list[str]) -> None:
+        for rel in [*_READ, *skipped]:
+            _seed(self.repo, rel, "// source")
+        for adapter, iter_files in (("cqrs", cqrs_iter_files), ("outbox", outbox_iter_files)):
+            for mode, supplied in (("glob walk", None), ("kernel allowed_paths", [*_READ, *skipped])):
+                with self.subTest(adapter=adapter, mode=mode):
+                    walked = sorted(p.relative_to(self.repo).as_posix() for p in iter_files(self.repo, supplied))
+                    self.assertEqual(walked, sorted(_READ))
+
+    def test_cqrs_adapter_scanned_globs_match_the_manifest(self) -> None:
+        self.assertEqual(sorted(_manifest_globs("cqrs-adapter")), sorted(CQRS_SCANNED_GLOBS))
+
+    def test_both_adapters_skip_specs_and_tests_directories(self) -> None:
+        # Pin of the intended skip (the cqrs premise: a controller that serves
+        # requests in production); green on the base by design.
+        self._both_adapters_walk_only_production(_SPEC_AND_TESTS_DIR)
+
+    def test_both_adapters_skip_test_files_and_migrations(self) -> None:
+        # Red on the base: the cqrs list lacks `.test.ts` and `/migrations/`.
+        self._both_adapters_walk_only_production(_TEST_AND_MIGRATION)
+
+    def test_a_production_controller_is_flagged_and_its_spec_is_not(self) -> None:
+        defect = "class C {\n  constructor(@InjectRepository(X) private repo: Repository<X>) {}\n}\n"
+        for rel in (_READ[0], *_SPEC_AND_TESTS_DIR):
+            _seed(self.repo, rel, defect)
+        result = cqrs_scan(self.repo)
+        self.assertEqual(result["read_paths"], [_READ[0]])
+        self.assertEqual({f["path"] for f in result["findings"]}, {_READ[0]})
+
+    def test_neither_adapter_keeps_a_private_skip_list(self) -> None:
+        # Red on the base: both adapters define the fragments themselves. One
+        # owner means the literals live in the shared predicate and nowhere else.
+        for name in ("cqrs_adapter", "outbox_adapter"):
+            tree = ast.parse((_POC / f"{name}.py").read_text(encoding="utf-8"))
+            owned = {
+                n.value for n in ast.walk(tree) if isinstance(n, ast.Constant) and n.value in _SKIP_FRAGMENTS
+            }
+            self.assertEqual(owned, set(), f"{name} owns skip fragments instead of the shared predicate")
+
+    def test_the_shared_predicate_decides_the_skip(self) -> None:
+        # NEW API this package introduces (red on the base because the module
+        # does not exist): tools/aria-poc/adapter_scope.py,
+        # ``is_excluded_source(rel: str) -> bool`` over a repo-relative posix path.
+        scope = importlib.import_module("adapter_scope")
+        excluded = [
+            *_SPEC_AND_TESTS_DIR, *_TEST_AND_MIGRATION,
+            "apps/hr-service/node_modules/x/y.controller.ts", "apps/hr-service/dist/y.controller.js",
+        ]
+        self.assertEqual([r for r in excluded if not scope.is_excluded_source(r)], [])
+        self.assertEqual([r for r in _READ if scope.is_excluded_source(r)], [])
+
+    def test_the_runner_argv_reads_no_spec(self) -> None:
+        # The runner starts `python3 <adapter>.py` in tools/aria-poc with no
+        # PYTHONPATH: a shared module the adapters import must resolve there.
+        supplied = [_READ[0], *_SPEC_AND_TESTS_DIR]
+        for rel in supplied:
+            _seed(self.repo, rel, "// source")
+        env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "ARIA_REPO_ROOT": str(self.repo)}
+        for name in ("cqrs_adapter", "outbox_adapter"):
+            completed = subprocess.run(
+                [sys.executable, f"{name}.py"], cwd=_POC, env=env, capture_output=True, text=True,
+                input=json.dumps({"repo_snapshot": {"allowed_paths": supplied}}), timeout=60, check=False,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr[-2000:])
+            self.assertEqual(json.loads(completed.stdout)["read_paths"], [_READ[0]], name)
 
 
 class AgentHarnessSecurityScopeUnchangedTests(unittest.TestCase):

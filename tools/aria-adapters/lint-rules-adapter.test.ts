@@ -395,6 +395,15 @@ async function main(): Promise<void> {
     plain('  public planLength(payload: unknown): number {'),
     flagged(NO_DOUBLE, `    return (payload ${AS} unknown ${AS} Subscription).plan.length;`),
     plain('  }'),
+    // A double assertion whose expression opens lines before the assertion
+    // keyword: the finding sits on the line that carries `as unknown`, which
+    // is the one line a judge reads.
+    plain('  public fromRow(count: number): Subscription {'),
+    plain('    const row = {'),
+    plain('      plan: String(count),'),
+    flagged(NO_DOUBLE, `    } ${AS} unknown ${AS} Subscription;`),
+    plain('    return row;'),
+    plain('  }'),
     plain('  public count(payload: unknown): number {'),
     flagged(NO_ANY, `    const typed = payload ${AS} any;`),
     plain('    return typed.count;'),
@@ -549,6 +558,27 @@ async function main(): Promise<void> {
       }
     },
   );
+
+  // The manifest contract judges the bytes of the cited line (observable
+  // cited_line_bytes_at_sha: "The cited line asserts an expression to unknown
+  // and then to another type"), so a finding for a multi-line expression that
+  // cites the line where the expression opens shows the judge a line without
+  // the construct and is refuted as a false positive.
+  await pin('a double-assertion finding cites the line that carries `as unknown`', () => {
+    const doubles = policyFindingsOf(policyRun).filter((finding) => finding.rule === NO_DOUBLE);
+    assert.ok(doubles.length > 0, 'the double-assertion rule fired');
+    const cited = doubles.filter((finding) => {
+      const text = readFileSync(join(policyTree, finding.path), 'utf8').split('\n')[
+        (finding.line ?? 1) - 1
+      ];
+      return !/as unknown/.test(text ?? '');
+    });
+    assert.deepEqual(
+      cited.map((finding) => `${finding.path}:${finding.line}`),
+      [],
+      'every cited line carries `as unknown`',
+    );
+  });
 
   await pin('severityFor ranks a policy rule medium whatever its own meta says', () => {
     for (const rule of policyRuleIds) {

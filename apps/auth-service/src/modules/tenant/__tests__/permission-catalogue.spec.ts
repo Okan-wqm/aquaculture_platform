@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { AI_PERSONA_CATALOGUE } from '@aquaculture/shared-contracts';
+import { AI_PERSONA_CATALOGUE, TENANT_CAPABILITY_CATALOGUE } from '@aquaculture/shared-contracts';
 import {
   CATALOGUE_CAPABILITIES,
   entitledCapabilities,
@@ -7,21 +7,20 @@ import {
   isKnownCapability,
   requiredModulesFor,
 } from '../services/permission-catalogue';
-import { PERMISSION_CATEGORIES } from '../services/tenant-role.service';
 
 /**
  * Faz 7 — messaging + AI capabilities added to the RBAC catalogue SSoT.
  *
- * PERMISSION_CATEGORIES is the single catalogue the tenant-admin role editor
+ * TENANT_CAPABILITY_CATALOGUE is the single catalogue the tenant-admin role editor
  * (permissionCategories query), token-mint resolution, and TenantPermissionGuard
  * all consume. The wire permission string is `${resourceKey}:${action}`, so
  * resource keys MUST be globally unique across categories — a collision would
  * silently merge permissions between unrelated features. These specs lock the
  * new messaging/AI coverage in and guard that invariant (previously unguarded).
  */
-describe('PERMISSION_CATEGORIES — messaging + AI coverage (Faz 7)', () => {
+describe('TENANT_CAPABILITY_CATALOGUE — messaging + AI coverage (Faz 7)', () => {
   it('includes a Messaging category with channel + message capabilities', () => {
-    const messaging = PERMISSION_CATEGORIES.messaging;
+    const messaging = TENANT_CAPABILITY_CATALOGUE.messaging;
     expect(messaging).toBeDefined();
     expect(messaging.resources.channels.actions).toEqual(
       expect.arrayContaining(['view', 'create_group', 'create_dm', 'manage']),
@@ -30,7 +29,7 @@ describe('PERMISSION_CATEGORIES — messaging + AI coverage (Faz 7)', () => {
   });
 
   it('includes an AI category with chat, settings, and persona-tier capabilities', () => {
-    const ai = PERMISSION_CATEGORIES.ai;
+    const ai = TENANT_CAPABILITY_CATALOGUE.ai;
     expect(ai).toBeDefined();
     expect(ai.resources.ai_assistant.actions).toContain('use');
     expect(ai.resources.ai_settings.actions).toEqual(expect.arrayContaining(['view', 'manage']));
@@ -42,7 +41,7 @@ describe('PERMISSION_CATEGORIES — messaging + AI coverage (Faz 7)', () => {
   it('every resource key is globally unique across categories (permission strings are resourceKey:action)', () => {
     const seen = new Map<string, string>();
     const collisions: string[] = [];
-    for (const [categoryKey, category] of Object.entries(PERMISSION_CATEGORIES)) {
+    for (const [categoryKey, category] of Object.entries(TENANT_CAPABILITY_CATALOGUE)) {
       for (const resourceKey of Object.keys(category.resources)) {
         const prior = seen.get(resourceKey);
         if (prior) {
@@ -58,8 +57,8 @@ describe('PERMISSION_CATEGORIES — messaging + AI coverage (Faz 7)', () => {
   it('AI settings does NOT reuse the admin "settings" key (would collide into settings:manage)', () => {
     // Regression guard for the specific near-miss: AI settings must be a
     // distinct resource key so `settings:*` stays admin-only.
-    expect(PERMISSION_CATEGORIES.ai.resources).not.toHaveProperty('settings');
-    expect(PERMISSION_CATEGORIES.ai.resources).toHaveProperty('ai_settings');
+    expect(TENANT_CAPABILITY_CATALOGUE.ai.resources).not.toHaveProperty('settings');
+    expect(TENANT_CAPABILITY_CATALOGUE.ai.resources).toHaveProperty('ai_settings');
   });
 });
 
@@ -72,8 +71,8 @@ describe('entitledPermissionCategories — UI catalogue entitlement filter', () 
   it('with full entitlement, reproduces the entire catalogue verbatim', () => {
     const view = entitledPermissionCategories(CATALOGUE_CAPABILITIES);
 
-    expect(Object.keys(view).sort()).toEqual(Object.keys(PERMISSION_CATEGORIES).sort());
-    for (const [categoryKey, category] of Object.entries(PERMISSION_CATEGORIES)) {
+    expect(Object.keys(view).sort()).toEqual(Object.keys(TENANT_CAPABILITY_CATALOGUE).sort());
+    for (const [categoryKey, category] of Object.entries(TENANT_CAPABILITY_CATALOGUE)) {
       for (const [resourceKey, resource] of Object.entries(category.resources)) {
         expect(view[categoryKey]!.resources[resourceKey]!.actions).toEqual(resource.actions);
       }
@@ -90,7 +89,8 @@ describe('entitledPermissionCategories — UI catalogue entitlement filter', () 
     // Core categories keep their full action sets.
     for (const categoryKey of ['farm', 'batch', 'operations', 'reports', 'admin', 'messaging']) {
       expect(view[categoryKey]).toBeDefined();
-      const source = PERMISSION_CATEGORIES[categoryKey as keyof typeof PERMISSION_CATEGORIES];
+      const source =
+        TENANT_CAPABILITY_CATALOGUE[categoryKey as keyof typeof TENANT_CAPABILITY_CATALOGUE];
       for (const [resourceKey, resource] of Object.entries(source.resources)) {
         expect(view[categoryKey]!.resources[resourceKey]!.actions).toEqual(resource.actions);
       }
@@ -131,7 +131,9 @@ describe('entitledPermissionCategories — UI catalogue entitlement filter', () 
  */
 describe('ai_specialists — all-of module entitlement (RBAC-MEDIUM-016)', () => {
   it('declares ai_specialties:farm in the ai_specialists category', () => {
-    expect(PERMISSION_CATEGORIES.ai_specialists.resources.ai_specialties.actions).toEqual(['farm']);
+    expect(TENANT_CAPABILITY_CATALOGUE.ai_specialists.resources.ai_specialties.actions).toEqual([
+      'farm',
+    ]);
     expect(isKnownCapability('ai_specialties:farm')).toBe(true);
   });
 

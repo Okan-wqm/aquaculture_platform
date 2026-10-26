@@ -1,0 +1,31 @@
+{
+  "check": "cd aria-kernel && python3 -m tests._helpers.plan_verdict_replay_fixture --check",
+  "checks_run_at_derivation": [
+    "assert_projection_is_lossless: the kernel's fold and cross-review gate judge the raw and the projected events of every plan identically (risk ids and severities, claims, dispositions, decision) at the recorded cap and at the kernel default",
+    "scan_for_sensitive_data: no email, uuid, tenant schema, ip address, token, key, credential assignment or operator name in the fixture text"
+  ],
+  "committed_on": "the operator's 2026-10-25 decision to commit the replay fixture as a test (ARIA quality and learning program v2)",
+  "data": "ARIA plan and risk records only: reviewer risk ids, severities and one-line summaries about repository code. No tenant data, no secrets, no personal data. ARIA's own redaction marker <secret-redacted> appears where the ledger's writer already withheld a value.",
+  "events": 234,
+  "fixture": "plan-verdict-replay-aria-state-8e39b2eeb.json",
+  "fixture_bytes": 216135,
+  "fixture_sha256": "5ca8f57d2eaffe1d2b73cacb992ddffa0f029e4e10b2d388bf976c888e426b85",
+  "generator": "aria-kernel/tests/_helpers/plan_verdict_replay_fixture.py",
+  "plans": 18,
+  "projection": "per event type, only the payload fields the replay reads; the generator's _PROJECTIONS table is the list. Cut everywhere: ledger hash chain, idempotency keys, schema versions, timestamps, agent names, plan and challenger bodies, risk recommendations, affected files and evidence refs, coverage manifests and witnesses, implementation-phase events.",
+  "purpose": "PV R9: replay the plans CONVERGED on aria/state through the plan-verdict law (finding ARIA-HIGH-779): under the old law each hid a new material risk behind the plan author's claim; under PV's law none converges.",
+  "regenerate": "cd aria-kernel && python3 -m tests._helpers.plan_verdict_replay_fixture --write",
+  "replayed_by": "aria-kernel/tests/test_plan_verdict_replay.py",
+  "selection": "every plan whose ledger holds a plan_evaluated event with terminal_state CONVERGED; its events up to and including that evaluation, in ledger order, each tagged with its 1-based line in the source ledger (ledger_line)",
+  "source": {
+    "branch": "aria/state",
+    "ledger_bytes": 2008328,
+    "ledger_converged_evaluations": 18,
+    "ledger_evaluations": 32,
+    "ledger_events": 367,
+    "ledger_plans": 42,
+    "ledger_sha256": "26b49f47a8e429db6877346e86b78ac984182ba5e32035a612d93a89dbd3f6f0",
+    "path": "tools/plans/events.jsonl",
+    "sha": "8e39b2eebd8ef97a00aebd14675cdbb27a9f72cd"
+  }
+}

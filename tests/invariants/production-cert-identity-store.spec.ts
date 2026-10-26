@@ -987,20 +987,9 @@ describe('production certificate identity store', () => {
       ).toBe(true);
 
       // An alias is never published onto a file that is not there.
-      const dangling = spawnSync(
-        '/bin/bash',
-        [
-          '-c',
-          [
-            generatorDefinitions(),
-            'publish_postgres_alias postgres-cert.pem "${CERTS_DIR}/postgres/server.crt"',
-          ].join('\n'),
-        ],
-        {
-          cwd: REPO_ROOT,
-          encoding: 'utf8',
-          env: { PATH: '/usr/bin:/bin', LC_ALL: 'C', DEPLOY_CERTS_DIR: certs },
-        },
+      const dangling = runGeneratorHarness(
+        ['publish_postgres_alias postgres-cert.pem "${CERTS_DIR}/postgres/server.crt"'],
+        { DEPLOY_CERTS_DIR: certs },
       );
       expectFailure(dangling, 'PostgreSQL alias target is not a regular non-symlink file');
       expect(readlinkSync(join(postgres, 'server.crt'))).toBe('postgres-server-cert.pem');

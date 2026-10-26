@@ -796,8 +796,6 @@ class NativeImplementationContextTests(unittest.TestCase):
             self.assertEqual((repo / path).read_bytes(), expected_bytes)
             self.assertEqual(subprocess.check_output(["git", "show", initial_sha + ":" + path], cwd=repo),
                 expected_bytes)
-        git("add", ".claude/agents/farm-expert.md")
-        git("commit", "-q", "-m", "fixture: committed converged baseline")
         git("branch", "-M", "main")
         self.assertEqual(git("status", "--porcelain"), "")
         staged = stage_converged_plan_for_pr(plan_id=plan.plan_id, workspace_root=repo, base_dir=tools)

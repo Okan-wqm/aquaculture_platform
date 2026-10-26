@@ -20,6 +20,13 @@
  * The projection (`readRegistryRows`) is the one reader that folds both, so
  * the specs read through it.
  *
+ * MF-2 conformance round 2 (G1) found the same defect in a third reader, one
+ * outside this directory: compliance-attestation-gate.spec.ts (libs/backend-common)
+ * built its severity map from the frozen file, so ARIA-HIGH-983 (born after the
+ * freeze, then closed by a merged trailer) was an id the gate reported and the
+ * map could not place. The last group runs the gate itself on a repository that
+ * holds such findings and pins that the spec reads through the projection.
+ *
  * ## What these tests pin
  *
  * Each runs the real spec (a copy resolves its repository root to the
@@ -34,6 +41,11 @@
  * and counts only the tests that fail in addition to it, so a failure that is
  * the fixture's cancels out.
  */
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+import { readRegistryRows } from '../../tools/gates/finding-registry-projection';
+
 import {
   createdPayload,
   EVENT_STORE_RELATIVE_DIR,
@@ -43,10 +55,12 @@ import {
 } from './helpers/finding-event-fixture';
 import {
   type CliRun,
+  closesTrailer,
   FIXTURE_ALIAS_REVIEW_FILE,
   fixtureFinding,
   parseJsonlRows,
   REGISTRY_RELATIVE_PATH,
+  REPO_ROOT,
   RegistryFixtureRepo,
 } from './helpers/registry-fixture-repo';
 import {
@@ -227,4 +241,91 @@ describe('ARIA-MEDIUM-984 - the evidence-shape spec holds born findings and amen
     },
     SLOW_TEST_MS,
   );
+});
+
+describe('MF-2 conformance round 2 (G1) - the compliance attestation gate and its spec read findings born after the freeze', () => {
+  const GATE = 'tools/gates/compliance-attestation-coverage.ts';
+  const GATE_SPEC =
+    'libs/backend-common/src/database/schema-drift/__tests__/compliance-attestation-gate.spec.ts';
+  const EVIDENCE_DIR = 'docs/compliance/evidence';
+  const CUTOFF = '2026-10-01T00:00:00Z';
+  const BORN_CLOSED = 'ARIA-HIGH-905';
+  const BORN_OPEN = 'ARIA-CRITICAL-906';
+  const BORN_BELOW_HIGH = 'ARIA-MEDIUM-907';
+  const repo = RegistryFixtureRepo.create('mf2-compliance-born-');
+
+  interface GateReport {
+    readonly totalInScope: number;
+    readonly missing: readonly string[];
+  }
+
+  function runGate(): { readonly status: number | null; readonly report: GateReport } {
+    const run = repo.gate(GATE, ['--cutoff', CUTOFF, '--json']);
+    return { status: run.status, report: JSON.parse(run.stdout) as GateReport };
+  }
+
+  beforeAll(() => {
+    // One legacy row in the frozen segment and three findings born after it, none in findings.jsonl;
+    // a merged trailer closes the born HIGH one and the born MEDIUM one.
+    repo.writeRegistry([fixtureFinding(LEGACY)]);
+    for (const id of [BORN_CLOSED, BORN_OPEN, BORN_BELOW_HIGH]) bear(repo, id);
+    repo.commit(
+      'chore(registry): seed a frozen store with three born findings',
+      '2026-10-01T10:00:00Z',
+    );
+    repo.commit(
+      `fix(registry): close two born findings\n\n${closesTrailer(BORN_CLOSED)}\n${closesTrailer(BORN_BELOW_HIGH)}`,
+      '2026-10-02T10:00:00Z',
+    );
+  }, SLOW_TEST_MS);
+
+  afterAll(() => repo.dispose());
+
+  it(
+    'the projection holds every finding of the store with its severity, born ones included',
+    () => {
+      expect(
+        Object.fromEntries(readRegistryRows(repo.root).map((row) => [row.id, row.severity])),
+      ).toEqual({
+        [LEGACY]: 'HIGH',
+        [BORN_CLOSED]: 'HIGH',
+        [BORN_OPEN]: 'CRITICAL',
+        [BORN_BELOW_HIGH]: 'MEDIUM',
+      });
+    },
+    SLOW_TEST_MS,
+  );
+
+  it(
+    'a born HIGH finding a merged trailer closed is in scope; the open one and the one below HIGH are not',
+    () => {
+      const { status, report } = runGate();
+      expect(status).toBe(1);
+      expect(report.totalInScope).toBe(1);
+      expect(report.missing).toEqual([BORN_CLOSED]);
+    },
+    SLOW_TEST_MS,
+  );
+
+  it(
+    'an attestation file for the born finding clears it',
+    () => {
+      repo.write(`${EVIDENCE_DIR}/${BORN_CLOSED}.md`, `# attestation for ${BORN_CLOSED}\n`);
+      try {
+        const { status, report } = runGate();
+        expect(status).toBe(0);
+        expect(report.totalInScope).toBe(1);
+        expect(report.missing).toEqual([]);
+      } finally {
+        repo.git(['clean', '-fdq', '--', EVIDENCE_DIR]);
+      }
+    },
+    SLOW_TEST_MS,
+  );
+
+  it('the gate spec takes its severities from the projection and never opens the frozen file', () => {
+    const source = readFileSync(join(REPO_ROOT, GATE_SPEC), 'utf8');
+    expect(source).toContain('readRegistryRows(');
+    expect(source).not.toContain('_registry/findings.jsonl');
+  });
 });

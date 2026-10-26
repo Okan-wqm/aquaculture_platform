@@ -29,6 +29,7 @@ from typing import Any, Iterable, Mapping
 
 from .ledger import append_declared_jsonl, load_declared_jsonl
 from .tool_registry import ensure_tools_dir, utc_now
+from .workspace_view import WORKSPACE_HEAD_UNREADABLE
 
 
 __all__ = [
@@ -160,6 +161,9 @@ AUTONOMY_PHASES: tuple[str, ...] = (
     # ARIA-HIGH-579 — every provider is out; the night held in place
     # (`provider_hold`, the same name as the clean exit it ends on).
     "provider_outage_hold",
+    # PV SC3 — the checkout git cannot read: the cycle that met it ends on a
+    # named failed exit (the phase name is the refusal reason, one constant).
+    WORKSPACE_HEAD_UNREADABLE,
 )
 
 

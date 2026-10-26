@@ -34,6 +34,7 @@ from .workspace import WorkspacePaths, ensure_workspace, repo_hash, workspace_pa
 from .discovery import run_discovery
 from .cycle_diff import run_cycle_diff
 from .cycle_progress import emit_progress
+from .workspace_view import WORKSPACE_HEAD_UNREADABLE, WorkspaceViewRefused
 from .cycle_runtime_status import RUNTIME_OK, RUNTIME_DEGRADED, degraded_tool_records, non_ok_runs, runtime_status
 from .impact_graph import cycle_service_examination
 from .memory import (
@@ -4230,6 +4231,19 @@ def _run_phase_stage(
                 "error": str(exc),
             }
             continue
+        except WorkspaceViewRefused as exc:
+            # PV SC3 — the kernel's one HEAD owner could not read this
+            # checkout. The phase holds ITS work by that name; it did not
+            # fail, so the phases after it (most of which read nothing from
+            # git) are not skipped as `upstream_failure`. The cycle's verdict
+            # still says a phase did not run (`_first_held_phase`).
+            context.results[phase.name] = phase.absent()
+            context.outcomes[phase.name] = {
+                "outcome": "held",
+                "reason": WORKSPACE_HEAD_UNREADABLE,
+                "error": str(exc),
+            }
+            continue
         except Exception as exc:
             context.results[phase.name] = (
                 phase.error_payload(context, exc)
@@ -4565,7 +4579,16 @@ def _runtime_status(context: PhaseContext) -> str:
         integrity_valid=integrity_valid,
         non_ok=_non_ok_runs(context),
         phase_interrupted=_first_interrupted_phase(context) is not None,
+        phase_held=_first_held_phase(context) is not None,
     )
+
+
+def _first_held_phase(context: PhaseContext) -> str | None:
+    """The first phase that held its work on an unreadable checkout, or None."""
+    for name, outcome in context.outcomes.items():
+        if outcome.get("outcome") == "held":
+            return name
+    return None
 
 
 def _first_interrupted_phase(context: PhaseContext) -> str | None:

@@ -34,11 +34,11 @@ experiment crash records itself and the night moves on.
 """
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
 from typing import Any, Callable
 
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir
+from .workspace_view import workspace_head_sha
 
 # Budgets — small on purpose: the bench proves the wiring nightly without
 # turning the cycle into a CI farm. Raising them is a data decision the
@@ -79,13 +79,17 @@ def _expects_red(contract: dict[str, Any]) -> bool:
 
 
 def _head_sha(repo_root: Path) -> str:
-    completed = subprocess.run(
-        ["git", "rev-parse", "HEAD"],
-        cwd=repo_root, text=True, capture_output=True, check=False,
-    )
-    if completed.returncode != 0 or not completed.stdout.strip():
+    """The checkout's HEAD through the kernel's one HEAD owner.
+
+    No commit to bind the plan to is ``experiment_night_head_sha_unavailable``;
+    a checkout git cannot read raises ``WorkspaceViewRefused`` from the owner,
+    which the cycle's phase driver holds by name (PV SC3) instead of failing
+    the phase and halting the phases after it.
+    """
+    head = workspace_head_sha(repo_root)
+    if head is None:
         raise GovernanceError("experiment_night_head_sha_unavailable")
-    return completed.stdout.strip()
+    return head
 
 
 def plan_night_experiments(

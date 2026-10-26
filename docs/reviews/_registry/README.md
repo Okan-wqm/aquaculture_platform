@@ -15,12 +15,13 @@ Landed 2026-04-16 as Phase 6 of `/root/.claude/plans/abstract-brewing-mochi.md`.
 - `finding-event.schema.json` — JSON Schema of one event line (the closed vocabulary).
 - `findings.jsonl.schema.json` — JSON Schema of a row, applied to every row an event writes.
 - `<git-common-dir>/finding-registry-v1.lock` — process-owned lock present only while a mutation is active; it is not committed.
-- `<git-common-dir>/finding-id-reservations-v1.json` — repository-local domain high-water ledger shared by active worktrees; it is not committed.
+- `<git-common-dir>/finding-id-reservations-v1.json` — repository-local domain high-water ledger
+  shared by active worktrees; it is not committed.
 - `README.md` — this file.
 
 ## Lifecycle states
 
-```
+```text
   OPEN ──── implementation-planner package created ────► IN-PROGRESS
    │                                                        │
    │                                            merged commit with `Closes:` trailer
@@ -247,7 +248,7 @@ Per `_shared/output-format.md`: `{PREFIX}-{SEVERITY}-{NNN}`. The schema is the
 authoritative prefix list; the allocator validates its complete output against
 that schema before writing.
 
-```
+```text
 DATA SEC PLAT FE EDGE MT FARM SENSOR HR MSG ADMIN ANTI ADR AUDIT CTX INFRA PROC
 P0 COMPLIANCE PERF OBS SUPPLY CONTRACT CIRCUIT MEM CLAUDE BILLING ALERT LEGAL
 AUDITTRAIL TENANTCOST AISAFETY PRODUCT DEPLOY RUST ULTRA ORPHAN RBAC MOB
@@ -257,7 +258,7 @@ AUDITTRAIL TENANTCOST AISAFETY PRODUCT DEPLOY RUST ULTRA ORPHAN RBAC MOB
 
 Every fix commit closing a finding MUST include:
 
-```
+```text
 Closes: docs/reviews/<agent>/<YYYY-MM-DD>-<topic>.md#<FINDING-ID>
 ```
 
@@ -266,20 +267,27 @@ Closes: docs/reviews/<agent>/<YYYY-MM-DD>-<topic>.md#<FINDING-ID>
 1. `Closes:` trailer exists on every commit under `fix()`, `security()`, or `refactor(...phase-*)` type.
 2. The cited review file exists.
 3. The cited finding ID exists in this registry.
-4. Transitioning a BLOCKED override requires the commit to be signed by the override's `owner_user` per `.github/CODEOWNERS`.
+4. Transitioning a BLOCKED override requires the commit to be signed by the override's `owner_user`
+   per `.github/CODEOWNERS`.
 
 ## What lives here vs. what lives in `docs/reviews/<agent>/`
 
-- `docs/reviews/<agent>/<date>-<topic>.md` is the prose description: evidence, root-cause analysis, proposed fix direction, verification plan. **Narrative source.**
+- `docs/reviews/<agent>/<date>-<topic>.md` is the prose description: evidence, root-cause analysis,
+  proposed fix direction, verification plan. **Narrative source.**
 - `docs/reviews/_registry/` (the genesis segment and the per-finding event logs, read through
   `finding-registry project`) is the structured index: ID, state, deadlines, closing commits, hash
   chains. **State source.**
 
-Both are mandatory; one without the other is incomplete. The narrative file carries the `#<finding-id>` anchor; the registry carries the lifecycle state machine.
+Both are mandatory; one without the other is incomplete. The narrative file carries the
+`#<finding-id>` anchor; the registry carries the lifecycle state machine.
 
 ## Seed content
 
-The initial commit seeds Phase-0 audit findings (`P0-*`) from `docs/reviews/orchestrator/2026-04-16-v2-audit.md`. These represent the bootstrap state — they were RESOLVED (mostly) before Phase 6 registry existed, so their `closing_commits` reference the already-landed Phase 0 / 4 / 5 commits retroactively. Future findings enter the registry with `state: OPEN` as they are raised.
+The initial commit seeds Phase-0 audit findings (`P0-*`) from
+`docs/reviews/orchestrator/2026-04-16-v2-audit.md`. These represent the bootstrap state — they were
+RESOLVED (mostly) before Phase 6 registry existed, so their `closing_commits` reference the
+already-landed Phase 0 / 4 / 5 commits retroactively. Future findings enter the registry with
+`state: OPEN` as they are raised.
 
 ## References
 

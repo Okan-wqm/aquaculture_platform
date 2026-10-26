@@ -297,6 +297,7 @@ def dispatch_change_intelligence(
     context-recall file set.
     """
     from .agent_invocations import create_agent_invocation_request, minted_subject_refs
+    from .change_review import CLAIMS_KEY
     from .pressure_evidence import split_citable_refs
     from .request_admission import admit_request
     from .text_safety import untrusted_block
@@ -389,7 +390,13 @@ def dispatch_change_intelligence(
             + "\nReturn details.impact_map with beliefs_needs_revalidation, "
             "findings_needs_revalidation, fixtures_requires_rerun and "
             "confirmed_unchanged. Ground every entry in the change's commits, "
-            "not in its description."
+            "not in its description.\n"
+            f"Also return details.{CLAIMS_KEY}: every defect this change introduces "
+            "that the repository at the change's head shows, each with its "
+            "evidence_refs, an expectation_ref outside the changed lines, a "
+            "verbatim quote and a confidence; an empty list says you found none. "
+            "The claim shape and the claim families are in your delivered "
+            "contract. A claim is a hypothesis the kernel measures, not a finding."
         )
         request = create_agent_invocation_request(
             target_agent=CHANGE_INTELLIGENCE_AGENT,

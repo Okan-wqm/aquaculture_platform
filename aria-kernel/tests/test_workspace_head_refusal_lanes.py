@@ -4,7 +4,8 @@
 answers ``None`` only for "no checkout" and "no commit yet" and RAISES
 ``WorkspaceViewRefused("workspace_head_unreadable:...")`` for everything else
 (PV R4, R12). The raise is right for the lanes whose verdicts bind to the
-commit. It reached 21 call sites, most of them in lanes that have nothing to
+commit. It reached 21 call sites (22 once ``experiment_night`` took the owner
+instead of its own subprocess), most of them in lanes that have nothing to
 do with plan verdicts (cycle phases, the doctor, the fixture runner, judge
 re-mint, the autonomy orchestrator, ...). The program lead ratified that
 change on one condition (SPEC "Program-lead ratifications", SC3): every call
@@ -104,6 +105,7 @@ LANE_TESTS: dict[str, str] = {
     "aria_kernel.cycle._phase_outcome_calibration": "CyclePhaseLanes.test_each_phase_holds_with_the_named_reason",
     "aria_kernel.cycle._phase_product_fitness": "CyclePhaseLanes.test_each_phase_holds_with_the_named_reason",
     "aria_kernel.doctor._check_learning_funnel": "DoctorLane.test_the_doctor_names_the_refusal",
+    "aria_kernel.experiment_night._head_sha": "CyclePhaseLanes.test_each_phase_holds_with_the_named_reason",
     "aria_kernel.fixture_runner._measured_code":
         "FixtureRunnerLanes.test_a_suite_on_an_unreadable_checkout_is_refused_by_name",
     "aria_kernel.fixture_runner.require_pinned_fixture_workspace":
@@ -180,7 +182,7 @@ class InventoryTests(unittest.TestCase):
         callers = self._callers()
         self.assertEqual(sorted(callers - set(LANE_TESTS)), [], "a caller of workspace_head_sha without a lane test")
         self.assertEqual(sorted(set(LANE_TESTS) - callers), [], "a lane test for a function that no longer reads HEAD")
-        self.assertEqual(len(callers), 21)
+        self.assertEqual(len(callers), 22)
 
     def test_every_lane_names_a_test_that_exists(self) -> None:
         for site, ref in LANE_TESTS.items():
@@ -190,11 +192,16 @@ class InventoryTests(unittest.TestCase):
 
 
 class CyclePhaseLanes(_TempCase):
-    """Six cycle phases read HEAD; the phase driver is their designed container."""
+    """Seven cycle phases read HEAD; the phase driver is their designed container.
+
+    ``experiment_night`` joined the six when it stopped reading HEAD through its
+    own ``git rev-parse`` subprocess (a second owner whose failure halted the
+    sequence) and took the one owner: the 22nd call site.
+    """
 
     PHASES = (
         "product_fitness", "judgment_pipeline", "judge_calibration",
-        "judge_replay", "outcome_calibration", "goldset_proposal",
+        "judge_replay", "outcome_calibration", "goldset_proposal", "experiment_night",
     )
 
     def _drive(self, phase: str) -> cycle_mod.PhaseContext:

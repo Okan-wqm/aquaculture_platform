@@ -1929,10 +1929,15 @@ def _phase_change_intelligence(context: PhaseContext) -> dict[str, Any]:
     payload names the subject's requests still open, which is what a settle
     loop (``harness.py review-change``) waits on.
 
+    WP-D4 — that payload also carries ``cost_budget``: the admission in force,
+    the USD derived so far and the caps (``cost_budget.attribution``), which
+    the room reports beside the change.
+
     WP-D2 — both feeds hand the cycle's workspace: the envelope reads the
     change's hunks and impact from its tree and the missed signals from its
     feedback ledger.
     """
+    from . import cost_budget
     from .pr_tracking import dispatch_change_intelligence, plan_new_merge_impact, subject_open_request_ids
 
     if context.change is not None:
@@ -1946,6 +1951,7 @@ def _phase_change_intelligence(context: PhaseContext) -> dict[str, Any]:
             "change_intelligence_requests_minted": len(dispatch["minted"]),
             "skipped": dispatch["skipped"],
             "subject_open_requests": subject_open_request_ids(context.change, base_dir=context.base_dir),
+            "cost_budget": cost_budget.attribution(context.base_dir),
         }
     blocked: list[dict[str, Any]] = []
     # Only a merge the impact ledger does not yet name is planned: the

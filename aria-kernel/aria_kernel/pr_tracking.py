@@ -338,20 +338,27 @@ def dispatch_change_intelligence(
             continue
         # ARIA-HIGH-364 — impact analysis of a merge starts new work:
         # discretionary. A refused merge stays unasked and is walked again
-        # next cycle; the refusal holds for this cycle, so the walk stops.
+        # next cycle; a cycle-wide refusal holds for this cycle, so the walk stops.
         # The operator's named change is the work itself (critical path).
+        # WP-D4 — either way the mint names its change, so the door counts the
+        # change's seats and refuses the one past the registered seats. That
+        # refusal is the change's own: it is skipped by name and the walk goes on.
         admission = (
             admit_request(
                 "change_review.operator_subject", CHANGE_INTELLIGENCE_ROLE, base_dir=root, cycle_id=cycle_id,
+                subject_ref=offer.subject_ref,
             )
             if subject is not None
             else admit_request(
                 "change_review.merge_feed", CHANGE_INTELLIGENCE_ROLE, base_dir=root, cycle_id=cycle_id,
+                subject_ref=offer.subject_ref,
             )
         )
         if not admission.admitted:
             skipped.append({"pr_number": offer.pr_number, "subject_ref": offer.subject_ref,
                             "reason": admission.refusal})
+            if admission.refuses_this_change_only:
+                continue
             break
         already_asked.add(offer.subject_ref)
         changed_files = offer.changed_files

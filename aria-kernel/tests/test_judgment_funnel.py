@@ -25,6 +25,18 @@ from unittest.mock import patch
 from aria_kernel import cycle as cycle_mod
 from aria_kernel.tool_registry import GovernanceError
 
+# The test's own clock. The drain ledgers are seeded relative to this instant
+# and the funnel's 7-day drain window is measured from judgment_funnel._now,
+# so BOTH must read the same fixed instant: a ledger pinned to a literal date
+# while the funnel reads the real clock rolls out of the window as soon as the
+# calendar passes it (2026-10-26) and the funnel holds the whole night.
+_NIGHT = datetime(2026, 10, 20, 3, 0, tzinfo=timezone.utc)
+
+
+def _pinned_clock(at: datetime = _NIGHT):
+    """Pin the funnel's one clock seam (judgment_funnel._now) to ``at``."""
+    return patch("aria_kernel.judgment_funnel._now", return_value=at)
+
 
 def _context(base: str):
     return cycle_mod.build_phase_context(
@@ -70,12 +82,9 @@ def _run_phase(tmp: str, *, sample_items: list[dict] | None = None, enable_funne
         calls["dispatch"].append(kw)
         return {"minted": [], "skipped": []}
 
-    from datetime import datetime, timedelta, timezone
+    ledgers = _seed_ledgers(drained=drained, now=_NIGHT)
 
-    now = datetime(2026, 10, 20, 3, 0, tzinfo=timezone.utc)
-    ledgers = _seed_ledgers(drained=drained, now=now)
-
-    with _door_open(), patch.object(cycle_mod, "list_tools", return_value=[{"tool_id": "adapter-a"}]), \
+    with _pinned_clock(), _door_open(), patch.object(cycle_mod, "list_tools", return_value=[{"tool_id": "adapter-a"}]), \
          patch("aria_kernel.feedback_store.generate_judgment_sample", fake_sample), \
          patch("aria_kernel.judge_fanout.dispatch_judges_for_sample", fake_dispatch), \
          patch("aria_kernel.feedback_store.generate_ai_consensus",
@@ -311,14 +320,14 @@ class Tier0EarlyStopTest(unittest.TestCase):
             calls.append(kw)
             return {"minted": [], "skipped": []}
 
-        with _door_open(), patch.object(cycle_mod, "list_tools", return_value=[{"tool_id": "adapter-a"}]), \
+        with _pinned_clock(), _door_open(), patch.object(cycle_mod, "list_tools", return_value=[{"tool_id": "adapter-a"}]), \
              patch("aria_kernel.feedback_store.generate_judgment_sample",
                    return_value={"sample_id": "S1", "cycle_id": "cyc-tier0", "items": items}), \
              patch("aria_kernel.judge_fanout.dispatch_judges_for_sample", fake_dispatch), \
              patch("aria_kernel.feedback_store.generate_ai_consensus",
                    return_value={"consensus": []}), \
              patch("aria_kernel.request_drain_capacity._request_ledgers",
-                   return_value=_seed_ledgers(drained=91, now=datetime(2026, 10, 20, 3, 0, tzinfo=timezone.utc))), \
+                   return_value=_seed_ledgers(drained=91, now=_NIGHT)), \
              patch("aria_kernel.convergence_drainer._resolve_workspace_head_sha", return_value=head):
             result = cycle_mod._phase_judgment_pipeline(ctx)
         return result, calls, ctx
@@ -413,14 +422,14 @@ class TierRoutingTest(unittest.TestCase):
             calls.append(kw)
             return {"minted": [], "skipped": []}
 
-        with _door_open(), patch.object(cycle_mod, "list_tools", return_value=[{"tool_id": "adapter-a"}]), \
+        with _pinned_clock(), _door_open(), patch.object(cycle_mod, "list_tools", return_value=[{"tool_id": "adapter-a"}]), \
              patch("aria_kernel.feedback_store.generate_judgment_sample",
                    return_value={"sample_id": "S1", "cycle_id": "cyc-tiers", "items": items}), \
              patch("aria_kernel.judge_fanout.dispatch_judges_for_sample", fake_dispatch), \
              patch("aria_kernel.feedback_store.generate_ai_consensus",
                    return_value={"consensus": []}), \
              patch("aria_kernel.request_drain_capacity._request_ledgers",
-                   return_value=_seed_ledgers(drained=drained, now=datetime(2026, 10, 20, 3, 0, tzinfo=timezone.utc))), \
+                   return_value=_seed_ledgers(drained=drained, now=_NIGHT)), \
              patch("aria_kernel.convergence_drainer._resolve_workspace_head_sha", return_value=head):
             result = cycle_mod._phase_judgment_pipeline(ctx)
         return result, calls, ctx
@@ -628,8 +637,7 @@ class JudgmentCacheTest(unittest.TestCase):
         ctx = cycle_mod.build_phase_context(
             cycle_id=f"cyc-cache-{night_index}-{mutate}", workspace_root=repo,
             base_dir=Path(tmp) / "aria-tools",
-            cycle_started_at=datetime(2026, 10, 20, 3, 0, tzinfo=timezone.utc)
-            + timedelta(days=night_index),
+            cycle_started_at=_NIGHT + timedelta(days=night_index),
         )
         calls: list[dict] = []
 
@@ -637,14 +645,14 @@ class JudgmentCacheTest(unittest.TestCase):
             calls.append(kw)
             return {"minted": [], "skipped": []}
 
-        with _door_open(), patch.object(cycle_mod, "list_tools", return_value=[{"tool_id": "adapter-a"}]), \
+        with _pinned_clock(_NIGHT + timedelta(days=night_index)), _door_open(), patch.object(cycle_mod, "list_tools", return_value=[{"tool_id": "adapter-a"}]), \
              patch("aria_kernel.feedback_store.generate_judgment_sample",
                    return_value={"sample_id": "S", "cycle_id": ctx.cycle_id, "items": items}), \
              patch("aria_kernel.judge_fanout.dispatch_judges_for_sample", fake_dispatch), \
              patch("aria_kernel.feedback_store.generate_ai_consensus",
                    return_value={"consensus": []}), \
              patch("aria_kernel.request_drain_capacity._request_ledgers",
-                   return_value=_seed_ledgers(drained=91, now=datetime(2026, 10, 20, 3, 0, tzinfo=timezone.utc))), \
+                   return_value=_seed_ledgers(drained=91, now=_NIGHT)), \
              patch("aria_kernel.convergence_drainer._resolve_workspace_head_sha", return_value=head), \
              patch("aria_kernel.claude_settings.kernel_code_root", return_value=kernel / "aria-kernel"):
             result = cycle_mod._phase_judgment_pipeline(ctx)

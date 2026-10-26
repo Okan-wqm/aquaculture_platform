@@ -164,9 +164,11 @@ _BOARD: tuple[str, ...] = (
     ".claude/agents/aria-bug-hunter.md",
     ".claude/agents/aria-adversarial-judge.md",
 )
-# Trust-boundary renderers (B1 bullet 5; PLAN-v2 §2 'Güven sınırı').
+# Trust-boundary renderers (B1 bullet 5; PLAN-v2 §2 'Güven sınırı'). pr_tracking joined with WP-D2
+# (conformance audit R10): it chooses the diff and impact blocks a change-intelligence envelope
+# carries and places their <untrusted_*> tags itself.
 _TRUST_RENDERERS: tuple[str, ...] = tuple(f"{_KERNEL}{name}.py" for name in (
-    "agent_invocations", "untrusted_tree", "text_safety",
+    "agent_invocations", "untrusted_tree", "text_safety", "pr_tracking",
 ))
 _NAMED_MEMBERS: tuple[str, ...] = _RAIL_MODULES + _TEST_COLLECTION + _BOARD + _TRUST_RENDERERS
 
@@ -391,6 +393,43 @@ class TheFullSetInvariant(unittest.TestCase):
         for path in loaded:
             with self.subTest(path=path):
                 self.assertTrue(_is_member(path, self.entries), path)
+
+
+def _modules_placing_untrusted_tags() -> set[str]:
+    """Every kernel module that calls ``text_safety.untrusted_block``, the one way a tag is placed."""
+    kernel = _REPO_ROOT / "aria-kernel" / "aria_kernel"
+    callers: set[str] = set()
+    for path in sorted(kernel.glob("*.py")):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.Call):
+                callee = node.func.attr if isinstance(node.func, ast.Attribute) else getattr(node.func, "id", None)
+                if callee == "untrusted_block":
+                    callers.add(path.relative_to(_REPO_ROOT).as_posix())
+    return callers
+
+
+class TheTrustBoundaryRenderersAreNamedNotOnlyReached(unittest.TestCase):
+    """R10 (D2 conformance audit) — a renderer is a member because it renders, not because a guard imports it.
+
+    ``pr_tracking`` was in the derived set only through the import closure (a guard imports it), so
+    moving that import would have dropped the module that decides which diff and impact an agent
+    reads. The declared members are what the set names before any tree is read.
+    """
+
+    def test_every_pinned_renderer_is_declared(self) -> None:
+        declared = self_improvement.declared_authority_members()
+        for path in _TRUST_RENDERERS:
+            with self.subTest(path=path):
+                self.assertTrue(_is_member(path, declared), f"{path} is not a declared trust-boundary renderer")
+        self.assertEqual(set(_TRUST_RENDERERS), set(self_improvement.TRUST_BOUNDARY_RENDERERS))
+
+    def test_every_module_that_places_an_untrusted_tag_is_a_declared_renderer(self) -> None:
+        callers = _modules_placing_untrusted_tags()
+        self.assertIn(f"{_KERNEL}agent_invocations.py", callers)  # the scan sees the real call sites
+        self.assertIn(f"{_KERNEL}pr_tracking.py", callers)
+        for path in sorted(callers):
+            with self.subTest(path=path):
+                self.assertIn(path, self_improvement.TRUST_BOUNDARY_RENDERERS)
 
 
 class TheClosureIsComputedFromTheTree(unittest.TestCase):

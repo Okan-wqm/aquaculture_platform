@@ -162,6 +162,7 @@ describe('DepartmentsPage', () => {
         'Production',
         'Greenhouse',
         'Control & sensors',
+        'Human resources',
       ]);
     });
 

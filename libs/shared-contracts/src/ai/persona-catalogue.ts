@@ -15,6 +15,8 @@
  * Zero-dependency by design (see index.ts).
  */
 
+import type { ActiveOwnerModuleCode } from '../modules/platform-modules';
+
 import {
   AI_PERSONA_TIERS,
   AI_SPECIALTY_IDS,
@@ -45,9 +47,6 @@ export const AI_PERSONA_COLORS = Object.freeze([
 ] as const);
 export type AiPersonaColor = (typeof AI_PERSONA_COLORS)[number];
 
-/** Tenant modules a specialty can require. */
-export type AiSpecialtyModule = 'farm';
-
 /** The surface capability every AI caller needs before any persona applies. */
 export const AI_ASSISTANT_USE_CAPABILITY = 'ai_assistant:use';
 
@@ -55,9 +54,13 @@ export function aiPersonaTierCapability(tier: AiPersonaTier): `ai_personas:${AiP
   return `ai_personas:${tier}`;
 }
 
+/**
+ * The capability a specialty of `module` requires. A specialty can require only a module whose
+ * features ship (the module dictionary's active owner modules).
+ */
 export function aiSpecialtyCapability(
-  module: AiSpecialtyModule,
-): `ai_specialties:${AiSpecialtyModule}` {
+  module: ActiveOwnerModuleCode,
+): `ai_specialties:${ActiveOwnerModuleCode}` {
   return `ai_specialties:${module}`;
 }
 
@@ -154,7 +157,7 @@ export interface AiSpecialtyDefinition {
   readonly color: AiPersonaColor;
   readonly capabilities: readonly string[];
   /** Tenant module the specialty needs; `null` = core. */
-  readonly requiresModule: AiSpecialtyModule | null;
+  readonly requiresModule: ActiveOwnerModuleCode | null;
   /**
    * Tiers this specialty is published at. Farm specialists stop at `expert`:
    * the supervisor tier is the autonomous one, and farm experts only advise —

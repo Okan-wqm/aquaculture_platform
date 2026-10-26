@@ -1,4 +1,4 @@
-import type { AiPersonaTier, AiSpecialtyModule } from '@aquaculture/shared-contracts';
+import type { ActiveOwnerModuleCode, AiPersonaTier } from '@aquaculture/shared-contracts';
 import type { ITool, ToolMetadata } from '../../../tools/core/tool.interface';
 import type { ToolRegistryService } from '../../../tools/tool-registry.service';
 
@@ -8,7 +8,7 @@ const MANAGER_UP: readonly AiPersonaTier[] = ['manager', 'expert', 'supervisor']
 export interface FakeToolSpec {
   readonly name: string;
   readonly requiredPermissions?: readonly AiPersonaTier[];
-  readonly requiresModule?: AiSpecialtyModule | null;
+  readonly requiresModule?: ActiveOwnerModuleCode | null;
   readonly requiresConfirmation?: boolean;
 }
 

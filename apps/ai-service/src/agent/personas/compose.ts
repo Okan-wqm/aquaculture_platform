@@ -1,8 +1,8 @@
 import type {
+  ActiveOwnerModuleCode,
   AiPersonaCatalogueEntry,
   AiPersonaTier,
   AiSpecialtyId,
-  AiSpecialtyModule,
 } from '@aquaculture/shared-contracts';
 import type { ActuationPolicy } from '../../tools/core/tool.interface';
 import type { AgentPersona, AgentSpecialty, AgentTier } from './types';
@@ -41,7 +41,7 @@ export interface ComposedPersona extends AgentPersona {
   /** RBAC strings the caller must ALL hold (from the shared catalogue). */
   readonly requiredCapabilities: readonly string[];
   /** The specialty's module scope — the only module whose tools this persona may offer. */
-  readonly requiresModule: AiSpecialtyModule | null;
+  readonly requiresModule: ActiveOwnerModuleCode | null;
 }
 
 const POLICY_RANK: Readonly<Record<ActuationPolicy, number>> = {

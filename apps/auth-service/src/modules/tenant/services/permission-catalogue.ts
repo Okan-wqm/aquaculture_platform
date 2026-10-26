@@ -189,13 +189,13 @@ export function isKnownCapability(capability: string): boolean {
 // ============================================================================
 
 /**
- * Catalogue category → the licensable module code (see `ModuleCode` in
- * system-module/entities/module.entity.ts) a tenant MUST have enabled to hold
+ * Catalogue category → the licensable module code (`PLATFORM_MODULE`, the
+ * module dictionary in shared-contracts) a tenant MUST have enabled to hold
  * any capability in that category. A category NOT listed here is CORE — always
  * entitled regardless of plan:
  *   - `farm` / `batch` / `operations` — the base aquaculture product;
  *   - `reports` / `admin` — platform surfaces every tenant has;
- *   - `messaging` — no licensable `ModuleCode` exists yet, so it stays core
+ *   - `messaging` — no licensable module code exists yet, so it stays core
  *     (a dedicated messaging module gate is separate future work).
  * Only the categories that map to OPTIONAL modules are gated:
  *   - `hr` → the HR module;

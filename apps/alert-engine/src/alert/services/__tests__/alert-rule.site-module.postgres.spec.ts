@@ -30,7 +30,7 @@ import { AlertRule, AlertSeverity } from '../../../database/entities/alert-rule.
 import { ActiveAlertCount, ActiveAlertCountDimension } from '../../dto/active-alert-count.type';
 import { AlertHistoryOrder } from '../../dto/alert-history-order.enum';
 import { AlertHistory } from '../../entities/alert-history.entity';
-import { AlertModule } from '../../entities/alert-module.enum';
+import { OWNER_MODULE, type OwnerModuleCode } from '@aquaculture/shared-contracts';
 import { AlertEvaluationService } from '../alert-evaluation.service';
 import { sensorOrigin } from '../alert-origin';
 import { AlertRuleService } from '../alert-rule.service';
@@ -55,7 +55,7 @@ class ActiveAlertCountProbeResolver {
 interface Seed {
   readonly severity: AlertSeverity;
   readonly acknowledged: boolean;
-  readonly module: AlertModule | null;
+  readonly module: OwnerModuleCode | null;
   readonly siteId: string | null;
   readonly resolved?: boolean;
   readonly tenantId?: string;
@@ -65,42 +65,42 @@ const SEEDS: readonly Seed[] = [
   {
     severity: AlertSeverity.CRITICAL,
     acknowledged: false,
-    module: AlertModule.SENSOR,
+    module: OWNER_MODULE.SENSOR,
     siteId: SITE_A,
   },
   {
     severity: AlertSeverity.CRITICAL,
     acknowledged: false,
-    module: AlertModule.SENSOR,
+    module: OWNER_MODULE.SENSOR,
     siteId: SITE_A,
   },
   {
     severity: AlertSeverity.CRITICAL,
     acknowledged: true,
-    module: AlertModule.SENSOR,
+    module: OWNER_MODULE.SENSOR,
     siteId: SITE_B,
   },
   {
     severity: AlertSeverity.WARNING,
     acknowledged: false,
-    module: AlertModule.FARM,
+    module: OWNER_MODULE.FARM,
     siteId: SITE_A,
   },
-  { severity: AlertSeverity.WARNING, acknowledged: false, module: AlertModule.FARM, siteId: null },
+  { severity: AlertSeverity.WARNING, acknowledged: false, module: OWNER_MODULE.FARM, siteId: null },
   // Recorded before alarms carried a module or a site.
   { severity: AlertSeverity.MEDIUM, acknowledged: false, module: null, siteId: null },
   // Not counted: resolved, or another tenant's.
   {
     severity: AlertSeverity.CRITICAL,
     acknowledged: false,
-    module: AlertModule.SENSOR,
+    module: OWNER_MODULE.SENSOR,
     siteId: SITE_A,
     resolved: true,
   },
   {
     severity: AlertSeverity.CRITICAL,
     acknowledged: false,
-    module: AlertModule.SENSOR,
+    module: OWNER_MODULE.SENSOR,
     siteId: SITE_A,
     tenantId: OTHER_TENANT,
   },
@@ -211,19 +211,19 @@ describe('AlertRuleService site + module reads — real Postgres', () => {
         {
           severity: AlertSeverity.CRITICAL,
           acknowledged: false,
-          module: AlertModule.SENSOR,
+          module: OWNER_MODULE.SENSOR,
           count: 2,
         },
         {
           severity: AlertSeverity.CRITICAL,
           acknowledged: true,
-          module: AlertModule.SENSOR,
+          module: OWNER_MODULE.SENSOR,
           count: 1,
         },
         {
           severity: AlertSeverity.WARNING,
           acknowledged: false,
-          module: AlertModule.FARM,
+          module: OWNER_MODULE.FARM,
           count: 2,
         },
         { severity: AlertSeverity.MEDIUM, acknowledged: false, module: null, count: 1 },
@@ -233,7 +233,7 @@ describe('AlertRuleService site + module reads — real Postgres', () => {
 
   it('groups one module’s alarms by site, alarms without one in their own null group', async () => {
     const counts = await service.countActiveAlerts(TENANT, {
-      module: AlertModule.FARM,
+      module: OWNER_MODULE.FARM,
       groupBy: [ActiveAlertCountDimension.SITE],
     });
 
@@ -264,12 +264,12 @@ describe('AlertRuleService site + module reads — real Postgres', () => {
     );
     const sensorList = await service.getAlertHistory(
       TENANT,
-      { siteId: SITE_A, module: AlertModule.SENSOR, resolved: false },
+      { siteId: SITE_A, module: OWNER_MODULE.SENSOR, resolved: false },
       { page: 1, limit: 100 },
     );
     expect(sensorList.items.map((row) => row.module)).toEqual([
-      AlertModule.SENSOR,
-      AlertModule.SENSOR,
+      OWNER_MODULE.SENSOR,
+      OWNER_MODULE.SENSOR,
     ]);
   });
 
@@ -311,7 +311,7 @@ describe('AlertRuleService site + module reads — real Postgres', () => {
         ...alarm({
           severity,
           acknowledged: false,
-          module: AlertModule.FARM,
+          module: OWNER_MODULE.FARM,
           siteId: SITE_A,
           tenantId: PANEL_TENANT,
         }),
@@ -322,7 +322,7 @@ describe('AlertRuleService site + module reads — real Postgres', () => {
       (
         await service.getAlertHistory(
           PANEL_TENANT,
-          { module: AlertModule.FARM, resolved: false },
+          { module: OWNER_MODULE.FARM, resolved: false },
           { page: 1, limit: 2 },
           order,
         )
@@ -363,7 +363,7 @@ describe('AlertRuleService site + module reads — real Postgres', () => {
         ...alarm({
           severity: AlertSeverity.WARNING,
           acknowledged: false,
-          module: AlertModule.FARM,
+          module: OWNER_MODULE.FARM,
           siteId: SITE_B,
           tenantId: PANEL_TENANT,
         }),
@@ -401,7 +401,7 @@ describe('AlertRuleService site + module reads — real Postgres', () => {
       ...alarm({
         severity: AlertSeverity.CRITICAL,
         acknowledged: false,
-        module: AlertModule.FARM,
+        module: OWNER_MODULE.FARM,
         siteId: SITE_B,
         tenantId: PANEL_TENANT,
       }),
@@ -411,7 +411,7 @@ describe('AlertRuleService site + module reads — real Postgres', () => {
       ...alarm({
         severity: AlertSeverity.INFO,
         acknowledged: false,
-        module: AlertModule.FARM,
+        module: OWNER_MODULE.FARM,
         siteId: SITE_B,
         tenantId: PANEL_TENANT,
       }),
@@ -443,7 +443,7 @@ describe('AlertRuleService site + module reads — real Postgres', () => {
       ...alarm({
         severity: AlertSeverity.HIGH,
         acknowledged: false,
-        module: AlertModule.SENSOR,
+        module: OWNER_MODULE.SENSOR,
         siteId: null,
       }),
       siteId: label,
@@ -456,7 +456,7 @@ describe('AlertRuleService site + module reads — real Postgres', () => {
     });
     const saved = await history.save(parsed);
     const stored = await history.findOneByOrFail({ id: saved.id });
-    expect([stored.module, stored.siteId]).toEqual([AlertModule.SENSOR, null]);
+    expect([stored.module, stored.siteId]).toEqual([OWNER_MODULE.SENSOR, null]);
     await history.delete({ id: saved.id });
   });
 });

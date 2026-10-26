@@ -8,16 +8,17 @@ const english: Translate = (key) => en[key];
 const turkish: Translate = (key) => tr[key];
 
 describe('moduleLabels', () => {
-  it('names each module the way its workspace is named in the console', () => {
+  it('names each module the way its workspace is named in the console, and HR by its module', () => {
     expect(MODULE_CODES.map((code) => moduleLabel(code, english))).toEqual([
       en['nav.workspace.aqua'],
       en['nav.workspace.gh'],
       en['nav.workspace.ctl'],
+      en['hr.module.hr'],
     ]);
   });
 
   it('lists every labelled module once, in display order', () => {
-    expect(MODULE_CODES).toEqual(['FARM', 'HYDROPONICS', 'SENSOR']);
+    expect(MODULE_CODES).toEqual(['FARM', 'HYDROPONICS', 'SENSOR', 'HR']);
   });
 
   it('labels a module code by its module name', () => {

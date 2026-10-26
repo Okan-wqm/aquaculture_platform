@@ -44,6 +44,9 @@ export default defineConfig(({ mode }) => ({
     alias: {
       '@': resolve(__dirname, 'src'),
       ...sharedUiAlias(resolve(__dirname, '../../shared-ui'), mode),
+      // Zero-dependency cross-stack contracts (the module dictionary the database
+      // page groups tables by) — path-aliased, as dashboard and sensor-module do.
+      '@aquaculture/shared-contracts': resolve(__dirname, '../../../libs/shared-contracts/src'),
     },
   },
   base: '/remotes/tenant-admin/',

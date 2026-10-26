@@ -1179,6 +1179,7 @@ export const tr: Record<MessageKey, string> = {
   'hr.orgChart.expand': '{name} departmanını genişlet',
   'hr.module.companyWide': 'Şirket geneli',
   'hr.module.allModules': 'Tüm modüller',
+  'hr.module.hr': 'İnsan kaynakları',
   'hr.module.showing': '{label} gösteriliyor',
   'hr.departments.moduleLabel': 'Modül',
   'hr.departments.moduleMoveHint':

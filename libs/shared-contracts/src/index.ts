@@ -68,6 +68,31 @@ export type {
 export { MESSAGING_MEDIA_MIME_ALLOWLIST } from './enums/messaging-media-mime';
 export type { MessagingMediaMime } from './enums/messaging-media-mime';
 
+// ── Module dictionary (RBAC-MEDIUM-023) ──
+// The one declaration of the platform's module codes: every tenant module, the
+// owner modules (farm, hr, sensor, hydroponics; hydroponics reserved) and the
+// guards for codes crossing a trust boundary. Token grants, registry keys,
+// department and alarm modules, Postgres labels and GraphQL enums derive from it.
+export {
+  PLATFORM_MODULE,
+  PLATFORM_MODULE_CODES,
+  MODULE_DESCRIPTORS,
+  OWNER_MODULE,
+  OWNER_MODULE_CODES,
+  ACTIVE_OWNER_MODULE_CODES,
+  isPlatformModuleCode,
+  isOwnerModuleCode,
+  isActiveOwnerModuleCode,
+} from './modules/platform-modules';
+export type {
+  PlatformModuleKey,
+  PlatformModuleCode,
+  ModuleLifecycle,
+  ModuleDescriptor,
+  OwnerModuleCode,
+  ActiveOwnerModuleCode,
+} from './modules/platform-modules';
+
 // ── AI Persona Grammar + Catalogue ──
 // Single source of truth for persona ids (`<tier>[-<specialty>]-v<N>`) and the
 // published persona catalogue (names, icons, RBAC requirements). Consumed by
@@ -100,7 +125,6 @@ export {
 export type {
   AiPersonaIcon,
   AiPersonaColor,
-  AiSpecialtyModule,
   AiSpecialtyDefinition,
   AiPersonaCatalogueEntry,
 } from './ai/persona-catalogue';

@@ -172,7 +172,7 @@ describe('INVARIANT: one module dictionary (RBAC-MEDIUM-023)', () => {
       expect(handRegistered).toEqual([]);
     });
 
-    it('emits, in the codegen output, only module-code unions that equal the dictionary', () => {
+    it('emits, in the codegen output, module-code unions that equal the dictionary', () => {
       const generated = ts.createSourceFile(
         GENERATED_SCHEMA_TYPES,
         readRepoFile(GENERATED_SCHEMA_TYPES),
@@ -187,7 +187,9 @@ describe('INVARIANT: one module dictionary (RBAC-MEDIUM-023)', () => {
               ? [member.literal.text]
               : [],
           );
-          if (members.filter((member) => CODE_SPELLINGS.has(member)).length >= 2) {
+          // Only unions made of codes alone: a union that also names other things is another
+          // vocabulary that shares spellings (the federation `Join__Graph` names subgraphs).
+          if (members.length >= 2 && members.every((member) => CODE_SPELLINGS.has(member))) {
             unions.push({ name: node.name.text, members: [...members].sort() });
           }
         }

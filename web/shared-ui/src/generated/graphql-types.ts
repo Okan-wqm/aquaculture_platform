@@ -380,6 +380,7 @@ export type AlertHistoryOrder =
 /** The platform module an alarm originates in */
 export type AlertModule =
   | 'FARM'
+  | 'HR'
   | 'HYDROPONICS'
   | 'SENSOR';
 
@@ -7661,6 +7662,7 @@ export type HrDashboardStats = {
 /** Module a department belongs to; unset means company-wide */
 export type HrModuleCode =
   | 'FARM'
+  | 'HR'
   | 'HYDROPONICS'
   | 'SENSOR';
 

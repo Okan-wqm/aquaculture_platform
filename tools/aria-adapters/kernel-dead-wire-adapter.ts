@@ -10,7 +10,7 @@
 //
 // WHAT (deterministic, fs-only, no LLM):
 //
-//   policy_key_never_read   a key in aria-kernel/aria_kernel/data/*.json that
+//   policy_key_never_read   a key in aria-kernel/aria_kernel/data/**/*.json that
 //                           no kernel module ever names. The operator can set
 //                           it, the file documents it, and nothing changes.
 //   cli_verb_never_routed   a subcommand registered on the CLI parser with no

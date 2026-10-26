@@ -59,6 +59,7 @@
           "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/tenant-scoping-adapter.test.ts",
           "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/test-gap-adapter.test.ts",
           "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/typeorm-entity-schema-adapter.test.ts",
+          "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/typeorm-entity-schema-adapter.forbidden.test.ts",
           "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/workflow-shell-safety-adapter.test.ts"
         ]
       }

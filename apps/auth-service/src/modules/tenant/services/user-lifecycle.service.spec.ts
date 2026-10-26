@@ -622,6 +622,118 @@ describe('UserLifecycleService', () => {
       expect(JSON.stringify(publishedEvent)).not.toContain('newuser@tenant.com');
     });
 
+    // RBAC-HIGH-027: every writer sets the role, by the backfill's rule, so a row written after R1
+    // holds what 1819400000000 would have given it — and hr is managed only by its primary manager.
+    it('writes each module grant with its role: the primary module and non-hr modules managed, hr used', async () => {
+      const FARM = '30000000-0000-4000-8000-000000000001';
+      const HR = '30000000-0000-4000-8000-000000000002';
+      const SENSOR = '30000000-0000-4000-8000-000000000003';
+      tenantRepository.findOne.mockResolvedValue(createMockTenant());
+      userRepository.count.mockResolvedValue(5);
+      userRepository.findOne
+        .mockResolvedValueOnce(
+          createMockUser({ id: ADMIN_USER_ID, role: Role.TENANT_ADMIN, tenantId: TENANT_ID }),
+        )
+        .mockResolvedValueOnce(null);
+      const txUserModuleAssignmentRepo = createMockRepository();
+      // saveMany hands the repository the whole row array, as TypeORM's create(array) does.
+      txUserModuleAssignmentRepo.create.mockImplementation((rows: unknown) => rows);
+      txUserModuleAssignmentRepo.save.mockResolvedValue([]);
+      const invitedUser = createMockUser({ id: 'invited-user-id', role: Role.MODULE_MANAGER });
+      const txManager = {
+        getRepository: jest.fn((entity: unknown) => {
+          if (entity === UserModuleAssignment) return txUserModuleAssignmentRepo;
+          if (entity === Tenant) return { increment: jest.fn().mockResolvedValue(undefined) };
+          throw new Error('Unexpected repository');
+        }),
+        find: jest.fn().mockResolvedValue([
+          { id: FARM, code: 'farm' },
+          { id: HR, code: 'hr' },
+          { id: SENSOR, code: 'sensor' },
+        ]),
+        create: jest.fn(<T>(_entity: unknown, data: T) => ({ ...data })),
+        save: jest.fn((entity: unknown, data: Record<string, unknown>) => {
+          if (entity === User) return Promise.resolve(invitedUser);
+          if (entity === Invitation) return Promise.resolve({ id: 'invitation-id', ...data });
+          return Promise.resolve({ id: 'action-token-id', ...data });
+        }),
+        createQueryBuilder: jest.fn(() => createMockTenantCounterBuilder()),
+      };
+      mockDataSource.transaction.mockImplementationOnce(async (...args: unknown[]) => {
+        const cb = args.find(
+          (arg): arg is (manager: unknown) => Promise<unknown> => typeof arg === 'function',
+        );
+        if (!cb) throw new Error('Missing transaction callback');
+        return cb(txManager);
+      });
+
+      await service.adminInviteUser({
+        tenantId: TENANT_ID,
+        email: 'manager@tenant.com',
+        role: Role.MODULE_MANAGER,
+        moduleIds: [FARM, HR, SENSOR],
+        primaryModuleId: FARM,
+        invitedBy: ADMIN_USER_ID,
+        sendInvitation: false,
+      });
+
+      const [saved] = txUserModuleAssignmentRepo.save.mock.calls[0] ?? [];
+      expect(saved).toEqual([
+        expect.objectContaining({ moduleId: FARM, isPrimaryManager: true, role: 'MODULE_MANAGER' }),
+        expect.objectContaining({ moduleId: HR, isPrimaryManager: false, role: 'MODULE_USER' }),
+        expect.objectContaining({
+          moduleId: SENSOR,
+          isPrimaryManager: false,
+          role: 'MODULE_MANAGER',
+        }),
+      ]);
+    });
+
+    it('refuses a module id the catalogue does not hold, before writing any grant', async () => {
+      tenantRepository.findOne.mockResolvedValue(createMockTenant());
+      userRepository.count.mockResolvedValue(5);
+      userRepository.findOne
+        .mockResolvedValueOnce(
+          createMockUser({ id: ADMIN_USER_ID, role: Role.TENANT_ADMIN, tenantId: TENANT_ID }),
+        )
+        .mockResolvedValueOnce(null);
+      const txUserModuleAssignmentRepo = createMockRepository();
+      const txManager = {
+        getRepository: jest.fn((entity: unknown) => {
+          if (entity === UserModuleAssignment) return txUserModuleAssignmentRepo;
+          if (entity === Tenant) return { increment: jest.fn().mockResolvedValue(undefined) };
+          throw new Error('Unexpected repository');
+        }),
+        find: jest.fn().mockResolvedValue([]),
+        create: jest.fn(<T>(_entity: unknown, data: T) => ({ ...data })),
+        save: jest.fn((entity: unknown, data: Record<string, unknown>) => {
+          if (entity === User) return Promise.resolve(createMockUser({ id: 'invited-user-id' }));
+          if (entity === Invitation) return Promise.resolve({ id: 'invitation-id', ...data });
+          return Promise.resolve({ id: 'action-token-id', ...data });
+        }),
+        createQueryBuilder: jest.fn(() => createMockTenantCounterBuilder()),
+      };
+      mockDataSource.transaction.mockImplementationOnce(async (...args: unknown[]) => {
+        const cb = args.find(
+          (arg): arg is (manager: unknown) => Promise<unknown> => typeof arg === 'function',
+        );
+        if (!cb) throw new Error('Missing transaction callback');
+        return cb(txManager);
+      });
+
+      await expect(
+        service.adminInviteUser({
+          tenantId: TENANT_ID,
+          email: 'manager@tenant.com',
+          role: Role.MODULE_USER,
+          moduleIds: ['30000000-0000-4000-8000-00000000000f'],
+          invitedBy: ADMIN_USER_ID,
+          sendInvitation: false,
+        }),
+      ).rejects.toThrow(BadRequestException);
+      expect(txUserModuleAssignmentRepo.save).not.toHaveBeenCalled();
+    });
+
     it('does not publish UserInvited when delivery is not requested', async () => {
       tenantRepository.findOne.mockResolvedValue(createMockTenant());
       userRepository.count.mockResolvedValue(5);

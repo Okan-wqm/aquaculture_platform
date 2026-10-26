@@ -16,7 +16,6 @@ import { DataSource, IsNull, Repository } from 'typeorm';
 
 import { MobileSettingsService } from '../../tenant/services/mobile-settings.service';
 import { RefreshToken } from '../entities/refresh-token.entity';
-import { UserModuleAssignment } from '../entities/user-module-assignment.entity';
 import { UserSiteAssignment } from '../entities/user-site-assignment.entity';
 import { User } from '../entities/user.entity';
 
@@ -191,10 +190,6 @@ describe('TokenService — planLevel JWT claim (MT-MEDIUM-001)', () => {
         {
           provide: getRepositoryToken(RefreshToken),
           useValue: { create: jest.fn((x: unknown) => x), save: jest.fn() },
-        },
-        {
-          provide: getRepositoryToken(UserModuleAssignment),
-          useValue: { find: jest.fn().mockResolvedValue([]) },
         },
         { provide: DataSource, useValue: transactionHarness.dataSource },
         { provide: JwtService, useValue: { signAsync } },
@@ -382,10 +377,17 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
     // ADR-0016: the live rows of auth.platform_capability_grants for the user.
     platformCapabilities?: string[];
     onPlatformCapabilityQuery?: (sql: string) => Promise<unknown>;
+    // RBAC-HIGH-027: the member's enabled module assignments, as the module-access reader reads them.
+    onModuleAssignmentQuery?: () => Promise<unknown>;
   }): jest.Mock =>
     jest.fn((sql: string) => {
       if (typeof sql !== 'string') {
         return Promise.resolve([]);
+      }
+      if (sql.includes('user_module_assignments')) {
+        return overrides?.onModuleAssignmentQuery
+          ? overrides.onModuleAssignmentQuery()
+          : Promise.resolve([]);
       }
       if (sql.includes('platform_capability_grants')) {
         if (overrides?.onPlatformCapabilityQuery) {
@@ -415,7 +417,6 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
   const createService = async (deps?: {
     query?: jest.Mock;
     config?: Record<string, unknown>;
-    moduleAssignmentFind?: jest.Mock;
   }): Promise<TokenService> => {
     configValues = { HASH_REFRESH_TOKENS: false, ...(deps?.config ?? {}) };
     query = deps?.query ?? buildQueryRouter();
@@ -452,12 +453,6 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
         {
           provide: getRepositoryToken(RefreshToken),
           useValue: { create: jest.fn((x: unknown) => x), save: refreshSave },
-        },
-        {
-          provide: getRepositoryToken(UserModuleAssignment),
-          useValue: {
-            find: deps?.moduleAssignmentFind ?? jest.fn().mockResolvedValue([]),
-          },
         },
         { provide: DataSource, useValue: dataSource },
         { provide: JwtService, useValue: { signAsync } },
@@ -519,6 +514,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
       'tenantId',
       'planLevel',
       'modules',
+      'moduleAccess',
       'resourcePermissions',
       'type',
       'jti',
@@ -676,29 +672,25 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
   // module or permission reduction on the next refresh.
   describe('authoritative authorization reads on every mint', () => {
     it('sees a changed module assignment on the immediately following mint', async () => {
-      const moduleAssignmentFind = jest
-        .fn()
-        .mockResolvedValueOnce([
-          {
-            isAccessible: () => true,
-            module: { code: 'farm', name: 'Farm', defaultRoute: '/farm' },
-          },
-        ])
-        .mockResolvedValueOnce([
-          {
-            isAccessible: () => true,
-            module: { code: 'sensor', name: 'Sensor', defaultRoute: '/sensor' },
-          },
-        ]);
-      service = await createService({ moduleAssignmentFind });
+      const assignmentReads = [
+        [{ code: 'farm', name: 'Farm', defaultRoute: '/farm', role: 'MODULE_MANAGER' }],
+        [{ code: 'sensor', name: 'Sensor', defaultRoute: '/sensor', role: 'MODULE_USER' }],
+      ];
+      service = await createService({
+        query: buildQueryRouter({
+          onModuleAssignmentQuery: () => Promise.resolve(assignmentReads.shift() ?? []),
+        }),
+      });
       const user = buildUser({});
 
       await service.generateTokens(user);
       expect(capturedPayload().modules).toEqual(['farm']);
+      expect(capturedPayload().moduleAccess).toEqual({ farm: 'MODULE_MANAGER' });
 
       await service.generateTokens(user);
       expect(capturedPayload().modules).toEqual(['sensor']);
-      expect(moduleAssignmentFind).toHaveBeenCalledTimes(2);
+      expect(capturedPayload().moduleAccess).toEqual({ sensor: 'MODULE_USER' });
+      expect(assignmentReads).toHaveLength(0);
     });
 
     it('sees changed role permissions on the immediately following mint', async () => {
@@ -1395,10 +1387,6 @@ describe('TokenService — assignedSiteIds + mobileFeatures claims (SEC-HIGH-051
         {
           provide: getRepositoryToken(RefreshToken),
           useValue: { create: jest.fn((x: unknown) => x), save: jest.fn() },
-        },
-        {
-          provide: getRepositoryToken(UserModuleAssignment),
-          useValue: { find: jest.fn().mockResolvedValue([]) },
         },
         {
           provide: getRepositoryToken(UserSiteAssignment),

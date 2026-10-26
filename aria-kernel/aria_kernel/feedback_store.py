@@ -164,6 +164,13 @@ CONFIDENCE_SOURCES = ("self_reported", "provider_reported")
 # Consensus never treats two identical index sets as independent
 # corroboration.
 EVIDENCE_SELECTIONS = ("ref", "index")
+# J3 (SEPT-HARVEST S2/S3) — what the evidence-weighing arbiter rules on each
+# SIDE of a group (a verdict the seats voted) before it gives its own verdict:
+# the side's evidence holds (`upheld`), the refs it cites are not in the tree
+# (`evidence_missing`), the tree contradicts what it cites
+# (`evidence_contradicts`), or it is argument with nothing checkable
+# (`speculative`). Recorded on the arbiter's row as `side_rulings`.
+SIDE_RULINGS = ("upheld", "evidence_missing", "evidence_contradicts", "speculative")
 # Typed-judgment plan Phase 6 — the label queue's own sample (label_queue.py):
 # items are the judge groups themselves, in strata, so a label lands on the
 # exact group the judges voted on.
@@ -839,6 +846,9 @@ def record_operator_feedback(
     label_provenance: dict[str, Any] | None = None,
     request_ids: list[str] | None = None,
     target_sha: str | None = None,
+    # J3 — the arbiter's ruling on each side it weighed, each naming the seat
+    # answers (request ids) on that side. None on every other row.
+    side_rulings: list[dict[str, Any]] | None = None,
     # J1 (ARIA-MEDIUM-783) — the code identity the consensus judged, stamped
     # by its one producer (generate_ai_consensus via _store_cited_code_hash).
     # None stamps nothing: a row without it cannot say what code it judged.
@@ -881,6 +891,12 @@ def record_operator_feedback(
     # folds), never inferred later from whichever request is newest.
     if request_ids is not None and not _valid_string_list(request_ids):
         raise GovernanceError("request_ids must be an array of non-empty strings")
+    if side_rulings is not None:
+        for ruled in side_rulings:
+            if ruled.get("verdict") not in FEEDBACK_VERDICTS or ruled.get("ruling") not in SIDE_RULINGS:
+                raise GovernanceError(f"unknown side ruling: {ruled!r}")
+            if not _valid_string_list(ruled.get("request_ids")):
+                raise GovernanceError("side ruling request_ids must be an array of non-empty strings")
     if cost_usd is not None and (isinstance(cost_usd, bool) or not isinstance(cost_usd, (int, float))
                                  or cost_usd < 0 or cost_usd != cost_usd):
         raise GovernanceError("cost_usd must be a finite non-negative number")
@@ -1037,6 +1053,8 @@ def record_operator_feedback(
         # different commits). funnel_health joins the learning funnel on them.
         "request_ids": sorted(set(request_ids)) if request_ids else [],
         "target_sha": target_sha,
+        # J3 — present only on an arbiter row that weighed its sides.
+        **({"side_rulings": side_rulings} if side_rulings is not None else {}),
         # J1 — present only when stamped, so a legacy row reads as exactly
         # what it is: an anchor that cannot name the code it judged.
         **({"cited_code_hash": cited_code_hash} if cited_code_hash is not None else {}),
@@ -2294,8 +2312,9 @@ def record_arbiter_uncertainty(
     """F0.7 — the arbiter lane has ONE non-verdict: the terminal one.
 
     The arbiter is the last judgment lane, so whatever registered reason it
-    states for not answering (a legacy split's aggregation gate fails by
-    construction: ``judge_disagreement``), the group is recorded
+    states for not answering (``unverifiable`` when the evidence cannot be
+    weighed; ``judge_disagreement`` from an envelope minted before J3, whose
+    aggregation gate a split fails by construction), the group is recorded
     ``TERMINAL_UNCERTAINTY_REASON`` — outside truth, never re-asked, and
     counted by ``unverifiable_rate`` under its ceiling. A non-terminal reason
     here would leave the group owed to an arbiter that already answered at

@@ -304,6 +304,21 @@ export function StatusPanel() {
                         / "1736000000000-CreateHRModuleSchema.ts")
             active.parent.mkdir(parents=True)
             archived.parent.mkdir(parents=True)
+            # The migration directories are SCHEMA_REGISTRY's (the migrator's own
+            # answer), so the fixture workspace declares the one it scans.
+            registry = root / "apps" / "db-migrate" / "src" / "schema-registry.ts"
+            registry.parent.mkdir(parents=True)
+            registry.write_text(
+                "export const SCHEMA_REGISTRY = [\n"
+                "  {\n"
+                "    service: 'hr-service',\n"
+                "    schema: 'hr',\n"
+                "    migrationsGlob: ['apps/hr-service/src/database/migrations/[0-9]*{.ts,.js}'],\n"
+                "    reason: 'fixture',\n"
+                "  },\n"
+                "];\n",
+                encoding="utf-8",
+            )
             active.write_text(
                 "CREATE TYPE goal_status AS ENUM "
                 "('not_started', 'in_progress', 'completed', 'cancelled', 'on_hold');\n",

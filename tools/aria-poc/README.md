@@ -23,7 +23,7 @@ This PoC answers **"do we even need ARIA?"** in one week of zero-LLM mechanical 
    - `docs/adr/[0-9][0-9][0-9]-*.md` → `ADR_PRIORS.md` (canonical only, title + status)
    - `.claude/agents/*.md` → `AGENT_PRIORS.md` (frontmatter description per agent)
 6. Run `npx nx graph` (best-effort, optional)
-7. Mechanical drift scan: TypeScript `enum`, string-literal union types, string `as const` arrays, Zod `z.enum([...])`, GraphQL SDL enums, frontend literal option groups, and PostgreSQL `CREATE TYPE ... AS ENUM`.
+7. Mechanical drift scan: TypeScript `enum`, string-literal union types, string `as const` arrays, Zod `z.enum([...])`, GraphQL SDL enums, frontend literal option groups, and PostgreSQL `CREATE TYPE ... AS ENUM` (quoted and schema-qualified names included), read from the migration directories `SCHEMA_REGISTRY` (`apps/db-migrate/src/schema-registry.ts`) declares.
 8. Promote UI option groups only when they sit on a frontend UI surface and relate to a named value-set concept. Value overlap alone is not enough.
 9. Enrich candidates with git-blame metadata, named gate/test references, and summary counts.
 10. Generate `.aria-poc/aria-poc-report.md` with the operator decision gate.

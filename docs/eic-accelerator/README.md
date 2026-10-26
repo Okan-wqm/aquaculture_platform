@@ -12,18 +12,19 @@ one of the monthly batching dates).
 
 ## Files
 
-| File                                        | What it is                                                                                         |
-| ------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| `decisions.md`                              | The decisions the company takes before submitting, with the recommendation on timing.              |
-| `official-requirements.md`                  | Digest of the guide, the 2026 work programme and the Part B template, with page references.        |
-| `criteria-map.md`                           | The official questions, with where the technical answer is and what is missing.                    |
-| `claim-ledger.md`                           | Sentences we may write, with evidence, strength and tense; a table of sentences we must not write. |
-| `trl-justification.md`                      | Technology readiness of each component, with the evidence and the weakest point.                   |
-| `work-packages-24m.md`                      | A 24 month plan from TRL 5 to TRL 8 with measurable gates. Costs and headcount are not filled in.  |
-| `part-a-text.md`                            | Draft title, abstract and keywords for the portal.                                                 |
-| `pitch-deck-outline.md`, `video-outline.md` | Outlines for the annexes; technical parts drafted.                                                 |
-| `ai-use-disclosure.md`                      | Draft of the AI tool disclosure the template requires.                                             |
-| `company-supplied.md`                       | The facts only the company can provide, and notes on IP.                                           |
+| File                                        | What it is                                                                                                                                                                                   |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `decisions.md`                              | The decisions the company takes before submitting, with the recommendation on timing.                                                                                                        |
+| `official-requirements.md`                  | Digest of the guide, the 2026 work programme and the Part B template, with page references.                                                                                                  |
+| `part-b-section1-technology.md`             | Paste-ready text for Part B section 1 (Technology) in the official question order, with a verification table and the verifier's log. Numbers re-derived from the live records on 2026-10-26. |
+| `criteria-map.md`                           | The official questions, with where the technical answer is and what is missing.                                                                                                              |
+| `claim-ledger.md`                           | Sentences we may write, with evidence, strength and tense; a table of sentences we must not write.                                                                                           |
+| `trl-justification.md`                      | Technology readiness of each component, with the evidence and the weakest point.                                                                                                             |
+| `work-packages-24m.md`                      | A 24 month plan from TRL 5 to TRL 8 with measurable gates. Costs and headcount are not filled in.                                                                                            |
+| `part-a-text.md`                            | Draft title, abstract and keywords for the portal.                                                                                                                                           |
+| `pitch-deck-outline.md`, `video-outline.md` | Outlines for the annexes; technical parts drafted.                                                                                                                                           |
+| `ai-use-disclosure.md`                      | Draft of the AI tool disclosure the template requires.                                                                                                                                       |
+| `company-supplied.md`                       | The facts only the company can provide, and notes on IP.                                                                                                                                     |
 
 ## Rules used to write these files
 

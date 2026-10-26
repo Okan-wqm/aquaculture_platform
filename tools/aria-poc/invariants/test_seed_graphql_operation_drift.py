@@ -299,6 +299,14 @@ class GraphqlOperationDriftSeedTests(_TreeCase):
         self.assertIn("minted 0 findings", second.stdout)
         self.assertIn("1 already recorded", second.stdout)
 
+    def test_the_owners_whole_list_reaches_the_seeder_past_the_size_of_a_pipe(self) -> None:
+        # A pipe takes 64 KiB at once: an owner that exits right after writing a longer list is read
+        # cut, and the seeder would parse half a document or none. 300 drifts are well past it.
+        tree = self.tree({f"{HOOKS}/useBulk{n}.ts": document(f"Bulk{n}", "shelfLifeDays") for n in range(300)})
+        section = seeder.run_graphql_operations(tree.repo, str(tree.supergraph))
+        self.assertEqual(section["status"], "ok", section)
+        self.assertEqual(len(section["drifts"]), 300)
+
     def test_an_absent_supergraph_is_a_named_observation_never_findings(self) -> None:
         tree = self.tree({HOOK: document("Chemical", "shelfLifeDays")})
         missing = str(self.base / "artifact" / "not-fetched.graphql")
@@ -361,6 +369,14 @@ class GraphqlOperationDriftRecheckTests(_TreeCase):
         fixed = tree.commit("select the field the type serves")
         verdict = self._recheck(tree, key, fixed, str(tree.supergraph))
         self.assertEqual(verdict["verdict"], seeder.VERDICT_ABSENT, verdict)
+
+    def test_the_recheck_resolves_graphql_in_a_worktree_with_no_node_modules_of_its_own(self) -> None:
+        # A dependency install is not a tracked path: the detached worktree of a revision has none, and
+        # the owner's `import 'graphql'` must still resolve there, or every recheck reads "unavailable".
+        tree = self.tree({HOOK: document("Chemical", "shelfLifeDays"), ".gitignore": "node_modules\n"})
+        key = self._seeded_subject(tree)
+        verdict = self._recheck(tree, key, tree.git("rev-parse", "HEAD"), str(tree.supergraph))
+        self.assertEqual(verdict["verdict"], seeder.VERDICT_REPRODUCES, verdict)
 
     def test_the_recheck_without_the_supergraph_is_unverifiable_even_after_the_fix(self) -> None:
         tree = self.tree({HOOK: document("Chemical", "shelfLifeDays")})

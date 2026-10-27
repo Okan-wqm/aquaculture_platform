@@ -256,7 +256,7 @@ Allowed truth buckets:
 | `DEPLOY-CRITICAL-017` | OPEN           | 2026-09-05   | infra-expert               | real-open                 |
 | `HR-CRITICAL-065`     | OPEN           | 2026-11-30   | hr-expert                  | real-open                 |
 | `FARM-CRITICAL-466`   | OPEN           | 2026-11-30   | farm-expert                | real-open                 |
-| `SEC-CRITICAL-206`    | OPEN           | 2026-11-30   | auth-security-expert       | real-open                 |
+| `SEC-CRITICAL-206`    | OPEN           | 2026-11-30   | auth-security-expert       | already-fixed-needs-close |
 | `SEC-CRITICAL-207`    | OPEN           | 2026-11-30   | auth-security-expert       | real-open                 |
 
 Updated 2026-10-26 (module-boundaries program, PKG-00): four active CRITICALs added.
@@ -566,6 +566,16 @@ main-reachable closer after merge and moves this row to `Resolved Evidence`.
   validator refused farm-service's cold start; two new
   migrations recreate them idempotently, proven against a Postgres shaped like production. The row
   stays OPEN until the post-merge close ceremony records the main-reachable closing commit.
+
+- `SEC-CRITICAL-206` (2026-10-27, module-boundaries PKG-10, release R4): the /farms socket joins a
+  member only to the rooms `decideAccess` allows from the token's `moduleAccess` and assigned sites
+  (`t:{tenant}:m:farm[:site:{id}]`, `t:{tenant}:registry:{module}`), and every farm event is
+  emitted through `FarmGateway.broadcastFarmEvent`, whose rooms derive from `FARM_WS_EVENT_ACCESS`
+  (`apps/gateway-api/src/websocket/farm-ws-event-access.ts`); no builder makes a tenant-wide room.
+  Proof: `farm.gateway.rooms.spec.ts`, `farm-ws-event-access.spec.ts`,
+  `libs/backend-common/src/websocket/__tests__/module-socket-rooms.spec.ts` and
+  `tests/invariants/ws-module-scoped-rooms.spec.ts`. The row stays OPEN until the post-merge close
+  ceremony records the main-reachable closing commit; the branch merges behind the R4 entry gate.
 
 The 2026-06-20 registry close follow-up left no OTHER active CRITICAL in
 `already-fixed-needs-close`; reconciled items moved to `Resolved Evidence`.

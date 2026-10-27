@@ -18,8 +18,12 @@ import {
 } from '@nestjs/websockets';
 import { firstValueFrom, timeout } from 'rxjs';
 import { Server, Socket } from 'socket.io';
-import { isAiPersonaId, isModuleAccess, type ModuleAccess } from '@aquaculture/shared-contracts';
-import { TenantConnectionLimiter, WsTokenRevalidator } from '@aquaculture/backend-common/websocket';
+import { isAiPersonaId, type ModuleAccess } from '@aquaculture/shared-contracts';
+import {
+  TenantConnectionLimiter,
+  WsTokenRevalidator,
+  socketMemberOf,
+} from '@aquaculture/backend-common/websocket';
 
 /** JWT claims we consume — the full claim set (incl. resourcePermissions) rides along. */
 interface TokenPayload {
@@ -46,22 +50,20 @@ interface AiClient {
 }
 
 /**
- * The module grants and sites a verified handshake token carries (ADR-051 §2 Transport): an
- * absent claim means none; a claim of any other shape refuses the handshake, exactly as the
- * subgraph middleware answers it with 400.
+ * The module grants and sites a verified handshake token carries (ADR-051 §2 Transport), read by
+ * the one socket parse every gateway shares (`socketMemberOf`): an absent claim means none; a
+ * claim of any other shape refuses the handshake, exactly as the subgraph middleware answers it
+ * with 400.
  */
 function memberScopeOf(
   payload: TokenPayload,
 ): Pick<AiClient, 'moduleAccess' | 'assignedSiteIds'> | null {
-  const moduleAccess: unknown =
-    payload['moduleAccess'] === undefined ? {} : payload['moduleAccess'];
-  const assignedSiteIds: unknown =
-    payload['assignedSiteIds'] === undefined ? [] : payload['assignedSiteIds'];
-  if (!isModuleAccess(moduleAccess)) return null;
-  if (!Array.isArray(assignedSiteIds) || !assignedSiteIds.every((id) => typeof id === 'string')) {
-    return null;
-  }
-  return { moduleAccess, assignedSiteIds: [...assignedSiteIds] };
+  const member = socketMemberOf(payload);
+  if (member === null) return null;
+  return {
+    moduleAccess: member.caller.moduleAccess,
+    assignedSiteIds: [...member.assignedSiteIds],
+  };
 }
 
 interface AiChatMessagePayload {

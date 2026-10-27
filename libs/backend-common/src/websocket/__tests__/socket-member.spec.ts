@@ -1,4 +1,4 @@
-import { isUserCaller } from '@aquaculture/shared-contracts';
+import { decideAccess } from '@aquaculture/shared-contracts';
 
 import { socketMemberOf, type SocketMember } from '../socket-member';
 
@@ -36,7 +36,10 @@ describe('socketMemberOf', () => {
 
     expect(member.tenantId).toBe(TENANT);
     expect(member.assignedSiteIds).toEqual([SITE]);
-    expect(isUserCaller(member.caller)).toBe(true);
+    // Only a caller userCaller built passes decideAccess: a copy of one fails every kind.
+    expect(decideAccess(member.caller, { spec: { kind: 'self' }, intent: 'read' }).allowed).toBe(
+      true,
+    );
     expect(member.caller.userId).toBe(USER);
     expect(member.caller.tenantId).toBe(TENANT);
     expect(member.caller.moduleAccess).toEqual({ farm: 'MODULE_USER' });

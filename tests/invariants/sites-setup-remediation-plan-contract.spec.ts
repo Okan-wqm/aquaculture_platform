@@ -159,8 +159,9 @@ describe('INVARIANT: sites setup remediation plan is durable and registry-backed
     const deleteTank = read('apps/farm-service/src/tank/handlers/delete-tank.handler.ts');
     const farmEvents = read('libs/event-contracts/src/farm-events.ts');
     const farmEventSchemas = read('libs/event-contracts/src/schemas/farm-events.schema.ts');
-    const farmBridge = read('apps/gateway-api/src/websocket/farm-nats-bridge.service.ts');
-    const farmGateway = read('apps/gateway-api/src/websocket/farm.gateway.ts');
+    // The bridge subscribes to, and the gateway emits, exactly the events of the access map
+    // (SEC-CRITICAL-206): an event is bridged when it has an entry there.
+    const farmEventAccess = read('apps/gateway-api/src/websocket/farm-ws-event-access.ts');
     const farmRealtimeHook = read('web/modules/farm-module/src/hooks/useFarmRealtimeStream.ts');
 
     expect(outboxEntity).toContain("name: 'outbox_events'");
@@ -250,19 +251,12 @@ describe('INVARIANT: sites setup remediation plan is durable and registry-backed
     ]) {
       expect(farmEventSchemas).toContain(`| '${eventType}'`);
       expect(farmEventSchemas).toContain(`${eventType}:`);
-      expect(farmBridge).toContain(`events.*.${eventType}`);
+      expect(farmEventAccess).toMatch(new RegExp(`^\\s+${eventType}: [A-Z_]+,$`, 'm'));
       const frontendEventName = eventType.charAt(0).toLowerCase() + eventType.slice(1);
       expect(farmRealtimeHook).toContain(`${frontendEventName}:`);
     }
     expect(farmEventSchemas).toContain("'aggregateId'");
     expect(farmEventSchemas).toContain("'aggregateType'");
-    expect(farmGateway).toContain('broadcastSiteContactsChanged');
-    expect(farmGateway).toContain('broadcastTankCreated');
-    expect(farmGateway).toContain('broadcastTankStatusChanged');
-    expect(farmGateway).toContain('broadcastEquipmentCreated');
-    expect(farmGateway).toContain('broadcastSubEquipmentCreated');
-    expect(farmGateway).toContain('broadcastSupplierApprovedSitesChanged');
-    expect(farmGateway).toContain('broadcastFeederCalibrationsSaved');
   });
 
   it('routes tank-like equipment writes through the Tank aggregate, not generic equipment persistence (FARM-HIGH-003 Phase 4.3)', () => {

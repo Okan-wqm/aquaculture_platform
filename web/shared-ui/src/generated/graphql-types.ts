@@ -9538,9 +9538,25 @@ export type ModuleAccessInput = {
   sensor?: InputMaybe<ModuleRole>;
 };
 
+export type ModuleAccessReadiness = {
+  /** Members holding no grant in any enabled owner module, by users.role. */
+  membersWithoutGrants: Array<ReadinessRoleCount>;
+  modules: Array<ModuleReadiness>;
+  payrollViewers: PayrollViewerReadiness;
+  windowDays: Scalars['Int']['output'];
+};
+
 export type ModulePrimaryManager = {
   moduleCode: Scalars['String']['output'];
   userId: Scalars['ID']['output'];
+};
+
+export type ModuleReadiness = {
+  /** The members' live grants, by module role. */
+  grantsByRole: Array<ReadinessRoleCount>;
+  moduleCode: Scalars['String']['output'];
+  /** Members without the grant who wrote to the module within the window. */
+  recentWritersWithoutGrant: RecentWriterReadiness;
 };
 
 export type ModuleRole =
@@ -14554,6 +14570,13 @@ export type PayrollStatus =
   | 'PENDING_APPROVAL'
   | 'PROCESSING';
 
+export type PayrollViewerReadiness = {
+  /** Who reaches payroll today, by users.role. */
+  byGlobalRole: Array<ReadinessRoleCount>;
+  /** Who reaches payroll once hr decides by grants (D6). */
+  byGrant: Array<ReadinessRoleCount>;
+};
+
 export type PendingAttendanceApprovalsConnection = {
   /** Whether there is a next page */
   hasNextPage: Scalars['Boolean']['output'];
@@ -15979,6 +16002,7 @@ export type Query = {
   me: MePayload;
   messages: MessagePageType;
   messagesSince: Array<Message>;
+  moduleAccessReadiness: ModuleAccessReadiness;
   modulePrimaryManagers: Array<ModulePrimaryManager>;
   moduleUsageStats: Array<ModuleUsageStatResponse>;
   moduleUsers: Array<User>;
@@ -18764,6 +18788,11 @@ export type ReadHistoricalDataInput = {
   startTime: Scalars['DateTime']['input'];
 };
 
+export type ReadinessRoleCount = {
+  count: Scalars['Int']['output'];
+  role: Role;
+};
+
 /** Why a source the bind would accept was passed over for its value */
 export type ReadingProblem =
   | 'NO_SAMPLE'
@@ -18819,6 +18848,18 @@ export type RecentLoginResponse = {
   userAgent?: Maybe<Scalars['String']['output']>;
   userId: Scalars['String']['output'];
 };
+
+export type RecentWriterReadiness = {
+  /** By users.role; empty unless ANSWERED. */
+  byUserRole: Array<ReadinessRoleCount>;
+  status: RecentWriterReadinessStatus;
+};
+
+/** ANSWERED: the owner module counted. NOT_TRACKED: the module has no writer query. UNAVAILABLE: the owner did not answer; the count is unknown, not zero. */
+export type RecentWriterReadinessStatus =
+  | 'ANSWERED'
+  | 'NOT_TRACKED'
+  | 'UNAVAILABLE';
 
 export type RecordBulkConsentInput = {
   consents: Array<ConsentItemInput>;

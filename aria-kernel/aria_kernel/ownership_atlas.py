@@ -57,6 +57,9 @@ FAMILIES: dict[str, Family] = {
                                  ledgers=(("plan_convergence_events", "plans/events.jsonl"),)),
     "agent_performance_episodes": Family("learning-memory", f"{_K}agent_eval.py:observe_agent_performance",
                                          ledgers=(("memory_procedural", "memory/procedural.jsonl"),)),
+    # F1.1: goldset and pr_tracking record through the owner, whose event kinds are a closed vocabulary.
+    "learning_log": Family("learning-memory", f"{_K}memory.py:record_learning_event",
+                           ledgers=(("memory_learning_events", "memory/learning-events.jsonl"),)),
     "fitness_report": Family("learning-memory", f"{_K}fitness.py:generate_fitness_report",
                              ("generate_fitness_report",), (("fitness_reports", "fitness/fitness-reports.jsonl"),)),
     "calibration_gate": Family("judgment", f"{_K}genesis_policy.py:effective_calibration_gate",
@@ -96,9 +99,6 @@ FAMILIES: dict[str, Family] = {
     "impact_analysis": Family("planning-impl", f"{_K}impact_graph.py:plan_downstream_impact",
                               ("plan_downstream_impact", "plan_impact", "compute_recursive_impact", "plan_new_merge_impact"),
                               plan_package="SE-4", finding="ARIA-MEDIUM-903"),
-    "learning_log": Family("learning-memory", f"{_K}memory.py:_record_learning_event",
-                           ledgers=(("memory_learning_events", "memory/learning-events.jsonl"),),
-                           plan_package="F1.1", finding="ARIA-LOW-732"),
 }
 
 

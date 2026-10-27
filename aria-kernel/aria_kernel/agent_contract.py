@@ -612,6 +612,7 @@ def render_response_validator_contract() -> str:
     kernel "reads `id` + `verdict` only". Rendered from the constants and
     the checks themselves — edit the validator and this text follows.
     """
+    from .change_review import render_defect_claim_rules
     from .judgment_bridge import render_judge_verdict_rules
     from .plan_contract import render_plan_contract_rules
 
@@ -655,6 +656,12 @@ def render_response_validator_contract() -> str:
         "### Judge verdict contract (judge roles; ARIA-HIGH-242)",
         "",
         *render_judge_verdict_rules(),
+        "",
+        "### Defect claims (role `change_intelligence`; WP-D3)",
+        "",
+        "Rendered from aria_kernel.change_review, which is what the supporting bridge enforces:",
+        "",
+        *render_defect_claim_rules(),
     )) + "\n"
 
 

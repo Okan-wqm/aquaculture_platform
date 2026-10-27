@@ -26,7 +26,6 @@ interface AdapterInput {
   // source through the GraphQL field or the route they call, not an import.
   readonly coverageRoots?: readonly string[];
   readonly allowlist?: readonly string[];
-  readonly includeWriteBoundaryFindings?: boolean;
   readonly repo_snapshot?: {
     readonly allowed_paths?: readonly string[];
     readonly snapshot_hash?: string;
@@ -220,7 +219,7 @@ export function analyzeTestGaps(input: AdapterInput, workspaceRoot = process.cwd
       });
       continue;
     }
-    if (input.includeWriteBoundaryFindings === true && risk.highRisk && risk.writeBoundary) {
+    if (risk.highRisk && risk.writeBoundary) {
       highRiskWithoutTest += 1;
       result.findings.push({
         id: `high-risk-source-without-adjacent-test:${source.relativePath}`,

@@ -40,6 +40,7 @@ from .self_improvement import (
     kernel_authority_set,
 )
 from .bridge_exceptions import BridgeContractRefused
+from .pressure_evidence import untrusted_context_fields
 from .tool_registry import GovernanceError, ensure_tools_dir
 
 SELF_CHANGE_REQUEST_SCHEMA = "aria/self-change-request/v1"
@@ -91,20 +92,28 @@ def mission_id_of(request: dict[str, Any]) -> str | None:
 
 
 def build_self_change_prompt(*, queue_item_id: str, source_cycle_id: str | None, mission_row: dict[str, Any]) -> dict[str, Any]:
-    """The sealed prompt: the mission, the boundary, and the answer shape — no free text."""
+    """The sealed prompt: the mission, the boundary, and the answer shape.
+
+    The mission's title and source id are composed from check reasons, deadline
+    consequences and capability-gap keys, so they travel as data in the
+    planner's untrusted-context block (`pressure_evidence.untrusted_context_fields`),
+    never as top-level prompt values; the kernel's own ids stay top-level.
+    """
     return {
         "$schema": SELF_CHANGE_REQUEST_SCHEMA,
         "queue_item_id": queue_item_id,
         "source_cycle_id": source_cycle_id,
         "mission_id": str(mission_row.get("mission_id") or ""),
-        "source_id": mission_row.get("source_id"),
-        "title": mission_row.get("title"),
         "next_action": SELF_CHANGE_NEXT_ACTION,
         "response_details_fields": list(SELF_CHANGE_FIELDS),
         "allowed_prefixes": list(SELF_CHANGE_ALLOWED_PREFIXES),
         # The set `authority_surface_violations` judges the answer by (B1).
         "authority_surfaces": list(kernel_authority_set()),
         "validation_command": DEFAULT_VALIDATION_COMMAND,
+        **untrusted_context_fields({
+            "mission_title": mission_row.get("title"),
+            "mission_source_id": mission_row.get("source_id"),
+        }),
     }
 
 

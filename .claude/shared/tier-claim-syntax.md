@@ -77,14 +77,14 @@ const parsed = rawMqttPayload as any;
 // auditor-override: <FINDING-ID> | owner:<@user> | deadline:<YYYY-MM-DD> | tracked:<docs-path>
 ```
 
-- `FINDING-ID` — stable ID in the finding state registry (`docs/reviews/_registry/findings.jsonl`, W10). Format: `AUDIT-{NNN}` for auditor-raised findings; slice prefixes (`DATA-*`, `SEC-*`, etc.) for domain-specific.
+- `FINDING-ID` — stable ID in the finding state registry (read with `finding-registry project`; `docs/reviews/_registry/findings.jsonl` is its frozen genesis segment, W10). Format: `AUDIT-{NNN}` for auditor-raised findings; slice prefixes (`DATA-*`, `SEC-*`, etc.) for domain-specific.
 - `owner` — GitHub handle of the person accountable for closing. CODEOWNERS-gated on `.claude/allowlists/**` routes to `@okan` by default.
 - `deadline` — ISO date. After deadline, sweep workflow auto-transitions the finding to STALE (+1 severity next review cycle).
 - `tracked` — markdown file capturing the full justification, architecture discussion, and acceptance criteria for lifting the override.
 
 ### Lifecycle
 
-1. Author writes override inline + creates registry entry in `docs/reviews/_registry/findings.jsonl` (hash-chained; W10).
+1. Author writes override inline + records the registry entry with `npm run findings:add` (a `CREATED` event in `docs/reviews/_registry/findings/<PREFIX>/<ID>.jsonl`, hash-chained; W10, MF-2).
 2. `commit-msg-validator.ts` (W7) verifies the finding ID exists in the registry AND the registry entry is in `BLOCKED` state AND the commit that registered the finding was signed.
 3. CI `closes-footer` job cross-references override IDs in commits to ensure registry reflects reality.
 4. Scheduled `finding-state-sweep.yml` (W10) runs daily: past-deadline overrides escalate.

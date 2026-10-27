@@ -216,6 +216,10 @@
       "readers": "imported by the registry CLI; aria_kernel/report_ingestion.py run_registry_cli runs it; same suite tests (tests/_helpers/witness_sources.py tool_closure_paths derives the closure, test_kernel_surface pins it)"
     },
     {
+      "glob": "tools/gates/finding-registry-events.ts",
+      "readers": "imported by the registry CLI; aria_kernel/report_ingestion.py run_registry_cli runs it; same suite tests (tests/_helpers/witness_sources.py tool_closure_paths derives the closure, test_kernel_surface pins it)"
+    },
+    {
       "glob": "tools/gates/finding-registry-owners.ts",
       "readers": "imported by the registry CLI; aria_kernel/report_ingestion.py run_registry_cli runs it; same suite tests (tests/_helpers/witness_sources.py tool_closure_paths derives the closure, test_kernel_surface pins it)"
     },

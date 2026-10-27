@@ -189,6 +189,11 @@ class PromotionDecisionTests(_ToolsCase):
         self.assertLessEqual(promoted / 100, ALPHA, f"A/A promoted {promoted}/100 trials")
 
     def test_mock_runs_never_make_a_promotion(self) -> None:
+        # The comparison is anchored at the EVAL_WINDOW entry (F1.8(a)): 40 days ago is the baseline,
+        # 5 days ago the candidate window. Without the entry the gate answers insufficient_evidence
+        # whatever the rows are, and removing the real-only filter would go unnoticed. With it, 10
+        # fail -> pass pairs read 'improved' (E = 2047/11) if a mock run were ever scored.
+        _enter_eval_window(self.tools, "cand", datetime.now(timezone.utc) - timedelta(days=20))
         rows = [_row("cand", f"CASE-{i:03d}", False, days_ago=40, mock_mode=True) for i in range(10)]
         rows += [_row("cand", f"CASE-{i:03d}", True, days_ago=5, mock_mode=True) for i in range(10)]
         _write_runs(self.tools, rows)

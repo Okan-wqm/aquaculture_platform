@@ -920,7 +920,8 @@ def _render_experiment_night_section(reflection: dict[str, Any]) -> list[str]:
         return []
     lines = ["", "## Experiment Night", ""]
     planned = night.get("planned_problem", 0)
-    if not planned and not night.get("planned_regression", 0):
+    cut = night.get("cut_problem", 0)
+    if not planned and not night.get("planned_regression", 0) and not cut:
         lines.append(
             "- ran EMPTY: zero admissible experiments "
             f"(unresolvable bindings: {night.get('unresolvable_bindings', 0)}) — "
@@ -934,6 +935,10 @@ def _render_experiment_night_section(reflection: dict[str, Any]) -> list[str]:
         skipped = night.get("skipped_problem", 0) + night.get("skipped_regression", 0)
         if skipped:
             lines.append(f"- skipped over budget: {skipped}")
+        if cut:
+            lines.append(f"- hypotheses cut after repeated non-matching observations: {cut}")
+    if night.get("unknown_exemptions", 0):
+        lines.append(f"- exempt experiments no experiment carries: {night.get('unknown_exemptions')}")
     if night.get("errors", 0):
         lines.append(f"- errors: {night.get('errors')}")
     return lines

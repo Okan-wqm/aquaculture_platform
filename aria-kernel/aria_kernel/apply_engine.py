@@ -918,6 +918,14 @@ _RED_FIRST_PLAN_ORIGIN = "plan_origin"
 # The only changes exempt from a proof. The wider vocabulary (a capability or
 # pure-addition marker, ARIA-HIGH-671) is F3.6's one definition, not this one.
 RED_FIRST_EXEMPTIONS: tuple[str, ...] = (_RED_FIRST_OPERATOR_LANE, _RED_FIRST_PLAN_ORIGIN)
+# The ceiling each of the proof's runs is bounded by: the ONE number the gate
+# runs the prover under and the delivery prices a proof run at
+# (`implementation_delivery.delivery_worst_case_seconds`). The proof runs one
+# test file's command, not the suite, so it is bounded by its own ceiling and
+# not by the suite's: staging always carries the canonical suite at 2.7M ms, and
+# two more runs at THAT ceiling (5400 s) put every finding-origin request past
+# the executor's drain window, which then skips it by name and never claims it.
+RED_FIRST_PROOF_TIMEOUT_MS = 120_000
 # Derived from the prover's verdicts, never retyped: a verdict added there is
 # a blocker here, and `proven` is the only verdict that passes.
 RED_FIRST_BLOCKERS: tuple[str, ...] = (
@@ -1007,15 +1015,15 @@ def _lift_pin_files(root: Path, base_sha: str, tip_sha: str) -> dict[str, str]:
 
 def _run_red_first_proof(
     *, files: dict[str, str], command: str, failure_signature: str, finding_id: str,
-    base_sha: str, tip_sha: str, root: Path, runner_identity: str, base_dir: str | Path | None, timeout_ms: int,
+    base_sha: str, tip_sha: str, root: Path, runner_identity: str, base_dir: str | Path | None,
 ) -> dict[str, Any]:
     """The gate's ONE call of ``prove_red_first``: red at the staged base,
-    green at the branch tip, under the staged ceiling (the suite's, so the
-    delivery prices it with the same number)."""
+    green at the branch tip, each run under ``RED_FIRST_PROOF_TIMEOUT_MS`` (the
+    number the delivery prices a proof run at)."""
     return prove_red_first(
         base_sha, tip_sha,
         {"files": files, "command": command, "failure_signature": failure_signature, "expectation_ref": finding_id},
-        workspace_root=root, runner_identity=runner_identity, base_dir=base_dir, timeout_ms=timeout_ms,
+        workspace_root=root, runner_identity=runner_identity, base_dir=base_dir, timeout_ms=RED_FIRST_PROOF_TIMEOUT_MS,
     )
 
 
@@ -1025,7 +1033,7 @@ def _red_first_blocked(blocker: str, *, reason: str | None = None) -> dict[str, 
 
 def _red_first_decision(
     requirement: RedFirstClass, declared: Mapping[str, Any] | None, *, base_sha: str, tip_sha: str, root: Path,
-    runner_identity: str, base_dir: str | Path | None, timeout_ms: int,
+    runner_identity: str, base_dir: str | Path | None,
 ) -> dict[str, Any]:
     """What the red-first proof does to this promotion: ``not_required``,
     ``proven``, or ``blocked`` by one name of ``RED_FIRST_BLOCKERS``.
@@ -1051,7 +1059,6 @@ def _red_first_decision(
         proof = _run_red_first_proof(
             files=files, command=command, failure_signature=signature, finding_id=str(requirement.finding_id),
             base_sha=base_sha, tip_sha=tip_sha, root=root, runner_identity=runner_identity, base_dir=base_dir,
-            timeout_ms=timeout_ms,
         )
     except GovernanceError as refusal:
         return _red_first_blocked("red_first_proof_refused", reason=str(refusal).split(":", 1)[0])
@@ -1182,8 +1189,7 @@ def run_apply_gate(
         fallback=f"aria-kernel:apply-gate:{proposal_id}",
     )
     # The ceiling the BASELINE was measured under, off the staged row. Two
-    # sides measured under different timeouts are not a comparison, and the
-    # proof runs under the same number.
+    # sides measured under different timeouts are not a comparison.
     timeout_ms = int(action.get("validation_timeout_ms") or CANONICAL_VALIDATION_TIMEOUT_MS)
     candidate = run_validation_commands(
         commands=list(action.get("validation_commands") or []),
@@ -1207,7 +1213,7 @@ def run_apply_gate(
     )
     red_first = _red_first_decision(
         requirement, red_first_declared, base_sha=str(action["base_sha"]), tip_sha=branch_sha, root=root,
-        runner_identity=gate_identity, base_dir=base_dir, timeout_ms=timeout_ms,
+        runner_identity=gate_identity, base_dir=base_dir,
     )
     return gate_apply_action(
         proposal_id=proposal_id,

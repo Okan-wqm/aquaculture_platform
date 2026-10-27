@@ -221,6 +221,7 @@ from .implementation_safety import (
     verify_no_secret_in_envelope,
     wrap_validation_in_sandbox,
 )
+from .apply_engine import RED_FIRST_PROOF_TIMEOUT_MS
 from .pr_manager import GH_PR_CREATE_TIMEOUT_SECONDS
 from .state_store import GIT_TIMEOUT_SECONDS as _GIT_TIMEOUT_SECONDS
 from .validation import SpawnWrapper, parse_allowed_command
@@ -287,8 +288,10 @@ AGENT_DISPOSITIONS_FIELD = "uncovered_intended_dispositions"
 AGENT_RED_FIRST_FIELD = "red_first"
 RED_FIRST_DECLARATION_KEYS: tuple[str, ...] = ("command", "failure_signature")
 # The commands a red-first proof adds to a delivery: the prover's two sides
-# (`validation.prove_red_first` runs the pin at the tip and at the base),
-# each at the staged ceiling. Pinned against the prover's own run rows.
+# (`validation.prove_red_first` runs the pin at the tip and at the base), each
+# bounded by `apply_engine.RED_FIRST_PROOF_TIMEOUT_MS`, the number the gate runs
+# the prover under and `delivery_worst_case_seconds` prices a proof run at.
+# Pinned against the prover's own run rows.
 RED_FIRST_PROOF_RUNS = 2
 # Governance rows.
 IMPLEMENTATION_DELIVERED_EVENT = "implementation_delivered"
@@ -331,8 +334,9 @@ def delivery_worst_case_seconds(
     action whose suite is ``validation_commands`` at ``validation_timeout_ms``
     per command — the ONE derivation every consumer of "how long can the
     delivery take" reads (ARIA-HIGH-124, round 3). ``proof_runs`` more
-    commands run at the same ceiling when the change needs a red-first proof
-    (``_staged_proof_runs``, F3.5a):
+    commands run, each at the proof's own ceiling
+    (``apply_engine.RED_FIRST_PROOF_TIMEOUT_MS``, never the suite's), when the
+    change needs a red-first proof (``_staged_proof_runs``, F3.5a):
 
     * the executor's ``child_worst_case_seconds`` for an implementation
       child (the drain starts one only while it fits the window; the
@@ -354,8 +358,10 @@ def delivery_worst_case_seconds(
     if proof_runs < 0:
         raise ValueError("proof_runs must not be negative")
     per_command = int(math.ceil(validation_timeout_ms / 1000))
+    per_proof_run = int(math.ceil(RED_FIRST_PROOF_TIMEOUT_MS / 1000))
     return int(
-        (len(validation_commands) + proof_runs) * per_command
+        len(validation_commands) * per_command
+        + proof_runs * per_proof_run
         + DELIVERY_GIT_CALLS * _GIT_TIMEOUT_SECONDS
         + DELIVERY_COMMIT_IDENTITY_SECONDS
         + DELIVERY_RESULT_ADMISSIBLE_SECONDS

@@ -13,6 +13,11 @@
  *     pointing nowhere would silently admit an unknown id;
  *  2. no alias shadows a real ledger id — otherwise a live finding could be
  *     redirected to a different row;
+ *
+ * "The ledger" is the registry the projection folds: the frozen genesis segment
+ * and the findings born after the freeze (ARIA-MEDIUM-984). Reading the frozen
+ * file alone judged an alias to an event-born finding dangling and let an alias
+ * spelled like one shadow it unnoticed.
  *  3. no id is aliased twice, and no alias equals its own canonical;
  *  4. every alias carries the evidence a reader needs to audit it: the review
  *     file whose heading raises it, at least one merged commit that names it,
@@ -32,20 +37,15 @@ import {
 } from '../../tools/gates/finding-id-aliases';
 import { parseFindingId } from '../../tools/gates/finding-id-grammar';
 import { claimedIdsForDomain } from '../../tools/gates/finding-registry';
+import { readRegistryRows } from '../../tools/gates/finding-registry-projection';
 import { nextFindingId } from '../../tools/gates/finding-registry-store';
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const REGISTRY_PATH = path.join(REPO_ROOT, 'docs/reviews/_registry/findings.jsonl');
 
+/** Every finding id the registry holds, genesis and event-born: the projection's rows. */
 function ledgerIds(): Set<string> {
-  const raw = fs.readFileSync(REGISTRY_PATH, 'utf8').trim();
-  const ids = new Set<string>();
-  for (const line of raw.split('\n')) {
-    if (!line) continue;
-    const entry = JSON.parse(line) as { id?: unknown };
-    if (typeof entry.id === 'string') ids.add(entry.id);
-  }
-  return ids;
+  return new Set(readRegistryRows(REPO_ROOT).map((row) => row.id));
 }
 
 function commitExists(sha: string): boolean {

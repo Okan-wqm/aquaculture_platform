@@ -70,7 +70,6 @@
  *     (sibling — runs AJV against the relaxed pattern)
  */
 
-import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 import {
@@ -78,9 +77,9 @@ import {
   requiresCanonicalFindingEvidence,
   STRICT_FINDING_EVIDENCE_CUTOVER_UTC,
 } from '../../tools/gates/finding-evidence-shape';
+import { readRegistryRows } from '../../tools/gates/finding-registry-projection';
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
-const REGISTRY_PATH = path.join(REPO_ROOT, 'docs', 'reviews', '_registry', 'findings.jsonl');
 
 /**
  * Cutover date (UTC). Entries whose `created_at` parses to a date >= this
@@ -96,11 +95,13 @@ interface FindingEntry {
   evidence?: unknown;
 }
 
+/**
+ * The registry's rows as the projection folds them: the frozen genesis segment,
+ * the findings born after the freeze, and any evidence an AMENDED event rewrote
+ * (ARIA-MEDIUM-984). Reading findings.jsonl alone never saw the last two.
+ */
 function readEntries(): FindingEntry[] {
-  if (!fs.existsSync(REGISTRY_PATH)) return [];
-  const content = fs.readFileSync(REGISTRY_PATH, 'utf8').trim();
-  if (content.length === 0) return [];
-  return content.split('\n').map((line) => JSON.parse(line) as FindingEntry);
+  return readRegistryRows(REPO_ROOT);
 }
 
 function isFutureEntry(entry: FindingEntry): boolean {
@@ -125,7 +126,7 @@ describe('finding evidence shape — future-only Tier-3 advisory', () => {
         .map((v) => `  ${v.id} evidence[${v.index}]: ${JSON.stringify(v.evidence)}`)
         .join('\n');
       throw new Error(
-        `findings.jsonl contains ${violations.length} evidence string(s) on entries ` +
+        `The registry holds ${violations.length} evidence string(s) on entries ` +
           `created on or after ${STRICT_FINDING_EVIDENCE_CUTOVER_UTC} that do not match the canonical ` +
           `path-shape contract.\n\n` +
           `Canonical shapes: 'file', 'file:line', 'file:start-end', ` +

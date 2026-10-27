@@ -42,6 +42,7 @@ import unittest
 from pathlib import Path
 
 from aria_kernel.impact import plan_impact
+from tests._helpers.service_facts import NO_CONTRACT_FACTS
 from aria_kernel.impact_graph import _discover_projects, _project_for_path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -208,6 +209,7 @@ class ImpactPlanningUnblockedTests(unittest.TestCase):
                 action_class="code_change",
                 workspace_root=repo,
                 base_dir=Path(tmp) / "aria-tools",
+                service_facts=NO_CONTRACT_FACTS,
             )
             self.assertNotIn("impact_graph_unknown", plan["blocked_by"])
             self.assertEqual(plan["direct_projects"], ["kernel"])

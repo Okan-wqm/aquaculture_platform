@@ -66,6 +66,13 @@
 //                             and a one-pipeline probe carry an explicit reason
 //                             on their observation instead.
 //
+// A workflow or composite action under a `.github/` directory that is not the
+// repository root's is dead: GitHub runs only `.github/workflows/<name>.yml`
+// and `.github/actions/<name>/action.yml` at the root, which is also the scope
+// of the pin gate (`isActionPinScopedPath`). Such a file raises no finding and
+// is no workflow here, but it is observed (`workflow_shell_nested_workflow_dir`)
+// so the dead file is visible and not skipped in silence.
+//
 // Data is not a command: a comment, a quoted string, a heredoc fed to `cat`
 // and a non-shell `run:` step (`shell: python`) are never read as commands.
 // A file whose YAML or shell does not parse is an observation with
@@ -138,6 +145,11 @@ const AUTHORITY_PATHS: readonly string[] = [
 ];
 
 const DOWNLOADERS: ReadonlySet<string> = new Set(['curl', 'wget']);
+/** A path inside the `workflows/` or `actions/` directory of some `.github/`, the root one or a nested one. */
+const WORKFLOW_DIR_YAML = /(?:^|\/)\.github\/(?:workflows|actions)\//;
+const NESTED_WORKFLOW_REASON =
+  'GitHub never runs it: only .github/workflows/<name>.yml and .github/actions/<name>/action.yml ' +
+  'at the repository root run';
 const FIXTURE_SEGMENTS: ReadonlySet<string> = new Set([
   'fixtures',
   '__fixtures__',
@@ -468,13 +480,19 @@ export function analyzeWorkflowShellSafety(
     kind: 'workflow' | 'composite_action';
     details: Record<string, unknown>;
   }[] = [];
+  const nestedWorkflowDirs: { path: string; fixture: boolean }[] = [];
 
   for (const absolute of candidates) {
     const path = normalizeWorkspacePath(relative(workspaceRoot, absolute));
     const repoPath = repoShapedPath(path, pathBase);
     if (repoPath === null || isArchivedWorkspacePath(repoPath)) continue;
     const isYaml = /\.ya?ml$/.test(path);
-    if (isYaml && !isActionPinScopedPath(repoPath)) continue;
+    if (isYaml && !isActionPinScopedPath(repoPath)) {
+      if (WORKFLOW_DIR_YAML.test(repoPath)) {
+        nestedWorkflowDirs.push({ path, fixture: isFixturePath(repoPath) });
+      }
+      continue;
+    }
     if (workspace.entry(path) !== 'file') continue;
     const text = workspace.readFile(path);
     readPaths.add(path);
@@ -920,6 +938,14 @@ export function analyzeWorkflowShellSafety(
       details: { kind: 'other_executable', interpreter },
     });
   }
+  for (const { path, fixture } of nestedWorkflowDirs) {
+    observations.push({
+      id: `${TOOL_ID}:nested-workflow-dir:${path}`,
+      type: 'workflow_shell_nested_workflow_dir',
+      path,
+      details: { reason: NESTED_WORKFLOW_REASON, owner: PIN_OWNER, fixture },
+    });
+  }
   for (const { site, detail } of hooksPathOverrides) {
     const line = lineOf(site);
     observations.push({
@@ -979,6 +1005,7 @@ export function analyzeWorkflowShellSafety(
       composite_actions: yamlFiles.filter((entry) => entry.kind === 'composite_action').length,
       shell_scripts: scripts.length,
       other_executables: otherExecutables.length,
+      nested_workflow_dirs: nestedWorkflowDirs.length,
       fixture_files: [
         ...yamlFiles.map((entry) => entry.file),
         ...scripts.map((entry) => entry.file),

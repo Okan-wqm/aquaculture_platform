@@ -135,15 +135,18 @@ class AStoreTheCopyAlreadyServed(_Store):
 
     def test_a_merge_asked_about_from_the_copy_is_not_asked_again(self) -> None:
         # The request the copy-reading dispatcher minted: same producer, same subject.
+        # The mint takes a change's seat only under an admission decided for that
+        # change, so the decision names it as the producer does.
+        subject = change_intelligence_subject_ref(pr_number=1906, head_sha=HEAD)
         admission = admit_request("change_review.merge_feed", CHANGE_INTELLIGENCE_ROLE,
-                                  base_dir=self.tools, cycle_id="cyc-legacy")
+                                  base_dir=self.tools, cycle_id="cyc-legacy", subject_ref=subject)
         self.assertTrue(admission.admitted)
         create_agent_invocation_request(
             target_agent=CHANGE_INTELLIGENCE_AGENT, role=CHANGE_INTELLIGENCE_ROLE,
             suggested_prompt="Plan the revalidation impact of this merge.",
             must_satisfy=[{"id": "impact-map", "description": "details.impact_map"}],
             allowed_scope=["**"],
-            subject_ref=change_intelligence_subject_ref(pr_number=1906, head_sha=HEAD),
+            subject_ref=subject,
             cycle_id="cyc-legacy", target_sha=HEAD, base_dir=self.tools, admission=admission,
         )
 

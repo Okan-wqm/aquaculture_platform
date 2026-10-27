@@ -472,6 +472,7 @@ def compute_admission_scope(
 ) -> dict[str, Any] | None:
     """The bound a plan is admitted with, or None for a plan with no finding origin."""
     from .impact_graph import plan_downstream_impact
+    from .plan_coverage import compute_service_facts_at_head
     from .tool_registry import append_tools_governance_once
 
     origin = plan_origin(plan_content)
@@ -483,7 +484,13 @@ def compute_admission_scope(
             f"closure of its admitted surfaces, which needs the workspace to compute it in"
         )
     admitted = _admitted_surfaces(plan_content)
-    impact = plan_downstream_impact(changed_files=admitted, workspace_root=workspace_root, base_dir=base_dir)
+    impact = plan_downstream_impact(
+        changed_files=admitted, workspace_root=workspace_root, base_dir=base_dir,
+        service_facts=compute_service_facts_at_head(workspace_root=workspace_root),
+    )
+    if "hold" in impact:
+        # SE-4 — the bound is the closure over contract edges too; without them there is none.
+        raise GovernanceError(f"{ADMISSION_SCOPE_MISSING}: {impact['hold']}")
     projects = sorted({*impact["changed_projects"], *impact["downstream_projects"]})
     roots = sorted({root for root in map(_bound_path, impact["project_roots"].values()) if root})
     # ADR-0021 D9 — read-only: a dependency root under a closure root is

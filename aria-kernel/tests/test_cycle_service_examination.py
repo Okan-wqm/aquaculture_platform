@@ -18,6 +18,7 @@ if str(_KERNEL) not in sys.path:
     sys.path.insert(0, str(_KERNEL))
 
 import aria_kernel.impact_graph as ig  # noqa: E402
+from tests._helpers.service_facts import NO_CONTRACT_FACTS  # noqa: E402
 
 
 def _mini_repo(td: Path) -> Path:
@@ -76,7 +77,8 @@ class ExaminationTests(unittest.TestCase):
             root = _mini_repo(tdp)
             tools = tdp / "tools"
             ex = ig.cycle_service_examination(
-                workspace_root=root, base_dir=tools, changed_files=["libs/shared/src/i.ts"]
+                workspace_root=root, base_dir=tools, changed_files=["libs/shared/src/i.ts"],
+                service_facts=NO_CONTRACT_FACTS,
             )
             self.assertEqual(ex["changed_projects"], ["shared"])
             self.assertEqual(ex["impacted_projects"], ["shared", "svc"])  # ripple
@@ -84,14 +86,17 @@ class ExaminationTests(unittest.TestCase):
             self.assertEqual(order, ["shared", "svc"])  # upstream examined first
             by = {e["project"]: e for e in ex["examination_order"]}
             self.assertEqual(by["shared"]["reason"], "changed")
-            self.assertEqual(by["svc"]["reason"], "downstream_impact")
+            # SE-4 — a reached entry names its edge: svc imports shared.
+            self.assertEqual(by["svc"]["reason"], "import")
 
     def test_no_change_yields_empty_examination(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             tdp = Path(td)
             root = _mini_repo(tdp)
             tools = tdp / "tools"
-            ex = ig.cycle_service_examination(workspace_root=root, base_dir=tools, changed_files=[])
+            ex = ig.cycle_service_examination(
+                workspace_root=root, base_dir=tools, changed_files=[], service_facts=NO_CONTRACT_FACTS,
+            )
             self.assertEqual(ex["examination_order"], [])
             self.assertEqual(ex["changed_projects"], [])
 

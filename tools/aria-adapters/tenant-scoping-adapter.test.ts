@@ -208,4 +208,107 @@ assert.equal(
   'RawQueryService.load',
 );
 
+// B04 — the guard rule reads each app.module.ts as a syntax tree: only an
+// APP_GUARD provider whose class, alias or factory names a tenant guard is a
+// registration, and only an import specifier is an import. A mention in an
+// export list, a comment or a plain provider beside a JwtAuthGuard APP_GUARD is
+// neither. Each module that must be flagged has a near-miss where the guard is
+// really registered.
+type GuardOutcome = 'flagged' | 'registered' | 'absent';
+type GuardRow = readonly [name: string, outcome: GuardOutcome, ...lines: string[]];
+const guard = (provider: string): string => `{ provide: APP_GUARD, ${provider} }`;
+const mod = (providers: string, exports = ''): string =>
+  `import { APP_GUARD } from '@nestjs/core';\n@Module({ providers: [${providers}]${exports} })`;
+const imp = (names: string): string => `import { ${names} } from './guards';`;
+const JWT = guard('useClass: JwtAuthGuard');
+const TENANT = guard('useClass: TenantGuard');
+const BOTH = imp('JwtAuthGuard, TenantGuard');
+const ONLY = imp('TenantGuard');
+const EXPORT = ', exports: [TenantGuard]';
+const NOTE = '// TenantGuard is applied at the gateway';
+// Longer than the 240 characters a text window reaches: what is above it is not
+// "next to" the APP_GUARD below it.
+const FAR = `// ${'-'.repeat(260)}`;
+const guardRows: readonly GuardRow[] = [
+  ['jwt-class-exports-tenant', 'flagged', BOTH, mod(JWT, EXPORT)],
+  ['tenant-class-exports-tenant', 'registered', BOTH, mod(TENANT, EXPORT)],
+  [
+    'jwt-factory-and-comment',
+    'flagged',
+    NOTE,
+    ONLY,
+    mod(guard('useFactory: (): JwtAuthGuard => jwt()')),
+  ],
+  [
+    'factory-returns-tenant',
+    'registered',
+    ONLY,
+    mod(guard('useFactory: (): TenantGuard => build()')),
+  ],
+  [
+    'factory-constructs-tenant',
+    'registered',
+    ONLY,
+    mod(guard('useFactory: () => new TenantGuard()')),
+  ],
+  [
+    'plain-tenant-provider-jwt-alias',
+    'flagged',
+    BOTH,
+    mod(`{ provide: TenantGuard, useClass: TenantGuard }, ${guard('useExisting: JwtAuthGuard')}`),
+  ],
+  ['alias-of-tenant', 'registered', ONLY, mod(guard('useExisting: TenantGuard'))],
+  ['gql-imported-jwt-registered', 'flagged', imp('GqlTenantGuard, JwtAuthGuard'), mod(JWT)],
+  ['gql-registered', 'registered', imp('GqlTenantGuard'), mod(guard('useClass: GqlTenantGuard'))],
+  ['import-far-from-jwt', 'flagged', NOTE, ONLY, FAR, mod(JWT)],
+  ['guard-only-in-a-comment', 'absent', NOTE, FAR, mod(JWT)],
+  ['no-tenant-guard', 'absent', imp('JwtAuthGuard'), mod(JWT)],
+];
+const guardWorkspace = makeFixtureTree('aria-tenant-guard-ast-');
+for (const [name, , ...lines] of guardRows) {
+  const moduleDir = join(guardWorkspace, 'apps', name, 'src');
+  mkdirSync(moduleDir, { recursive: true });
+  writeFileSync(
+    join(moduleDir, 'app.module.ts'),
+    `${lines.join('\n')}\nexport class AppModule {}\n`,
+  );
+}
+const guardOutput = analyzeTenantScoping({ roots: ['apps'] }, guardWorkspace);
+const guardMismatches: string[] = [];
+for (const [name, outcome, ...lines] of guardRows) {
+  const path = `apps/${name}/src/app.module.ts`;
+  const observation = guardOutput.observations.find(
+    (item) => item.id === `tenant-guard-registration:${path}`,
+  );
+  assert.ok(observation?.details, `${name}: the module has a registration observation`);
+  const finding = guardOutput.findings.find((item) => item.id === `tenant-guard-missing:${path}`);
+  // The finding sits on the guard's import specifier, never on a comment above it.
+  const importLine = lines
+    .join('\n')
+    .split('\n')
+    .findIndex((l) => /^import .*TenantGuard/.test(l));
+  const expected = {
+    importsTenantGuard: outcome !== 'absent',
+    registersTenantGuard: outcome === 'registered',
+    findingLine: outcome === 'flagged' ? importLine + 1 : null,
+  };
+  const observed = {
+    importsTenantGuard: observation.details.importsTenantGuard,
+    registersTenantGuard: observation.details.registersTenantGuard,
+    findingLine: finding ? finding.line : null,
+  };
+  if (JSON.stringify(observed) !== JSON.stringify(expected)) {
+    guardMismatches.push(
+      `${name}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(observed)}`,
+    );
+  }
+}
+assert.deepEqual(guardMismatches, []);
+for (const finding of guardOutput.findings.filter((item) => item.rule === 'tenant_guard_missing')) {
+  assert.equal(
+    finding.message,
+    'App module imports TenantGuard but does not register it as an APP_GUARD.',
+  );
+}
+
 process.stdout.write('tenant-scoping-adapter tests passed\n');

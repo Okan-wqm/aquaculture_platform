@@ -77,7 +77,7 @@ const parsed = rawMqttPayload as any;
 // auditor-override: <FINDING-ID> | owner:<@user> | deadline:<YYYY-MM-DD> | tracked:<docs-path>
 ```
 
-- `FINDING-ID` — stable ID in the finding state registry (`docs/reviews/_registry/findings.jsonl`, W10). Format: `AUDIT-{NNN}` for auditor-raised findings; slice prefixes (`DATA-*`, `SEC-*`, etc.) for domain-specific.
+- `FINDING-ID` — stable ID in the finding state registry (read with `finding-registry project`; `docs/reviews/_registry/findings.jsonl` is its frozen genesis segment, W10). Format: `AUDIT-{NNN}` for auditor-raised findings; slice prefixes (`DATA-*`, `SEC-*`, etc.) for domain-specific.
 - `owner` — GitHub handle of the person accountable for closing. CODEOWNERS-gated on `.claude/allowlists/**` routes to `@okan` by default.
 - `deadline` — ISO date. After deadline, sweep workflow auto-transitions the finding to STALE (+1 severity next review cycle).
 - `tracked` — markdown file capturing the full justification, architecture discussion, and acceptance criteria for lifting the override.

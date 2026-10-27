@@ -18,6 +18,7 @@ from aria_kernel.tool_registry import covered_tool_ledgers, ensure_tools_dir
 from aria_kernel.workspace import ensure_workspace, workspace_paths
 from aria_kernel.request_admission import admit_request
 from tests._helpers.declared_fixtures import append_declared_fixture
+from tests._helpers.service_facts import NO_CONTRACT_FACTS
 
 
 class Phase4AgentNetworkInvocationTests(unittest.TestCase):
@@ -157,7 +158,10 @@ class Phase4AgentNetworkInvocationTests(unittest.TestCase):
     def test_impact_graph_normalization_preserves_dot_github(self):
         (self.repo / ".github" / "workflows").mkdir(parents=True)
         (self.repo / ".github" / "workflows" / "ci.yml").write_text("name: ci\n", encoding="utf-8")
-        result = plan_downstream_impact(changed_files=[".github/workflows/ci.yml:1"], workspace_root=self.repo, base_dir=self.tools_dir)
+        result = plan_downstream_impact(
+            changed_files=[".github/workflows/ci.yml:1"], workspace_root=self.repo, base_dir=self.tools_dir,
+            service_facts=NO_CONTRACT_FACTS,
+        )
         self.assertIn(".github/workflows/ci.yml", result["unknown_files"])
 
 

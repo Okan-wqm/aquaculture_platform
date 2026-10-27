@@ -48,7 +48,7 @@ import { projectRegistry } from './finding-registry-projection';
 import { indexFixtureTree } from './fixture-git-index';
 import { removeFixtureTree } from './fixture-tree';
 import { hermeticGitEnv } from './hermetic-git';
-import { loadNatsServices } from './nats-services';
+import { loadNatsServices, type NatsServiceEntry } from './nats-services';
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const scratch = mkdtempSync(join(tmpdir(), 'event-consumer-index-spec-'));
@@ -324,6 +324,101 @@ void test('eventConsumersFor unites code sites and grants naming the event; catc
   assert.deepEqual(
     harvested.consumers.map((c) => [c.application, c.sources, c.matchingPattern]),
     [['notification-service', ['acl_grant'], 'events.*.BatchHarvested']],
+  );
+});
+
+/** One services entry in memory: the given event grants beside the schema's grant minimums. */
+function aclService(
+  name: string,
+  publish: readonly string[],
+  subscribe: readonly string[],
+): NatsServiceEntry {
+  return {
+    name,
+    application: name.replace(/_/g, '-'),
+    description: 'a fixture service',
+    publish: [...publish, '$JS.API.INFO', '_INBOX.>'],
+    subscribe: [...subscribe, `_INBOX${name.toUpperCase()}.>`],
+  };
+}
+
+void test('ARIA-HIGH-313: a catch-all grant is a permission, not a consumer; eventConsumersFor lists it apart', () => {
+  const services = [
+    aclService('farm_service', ['events.*.BatchHarvested', 'events.*.Literal'], []),
+    // Admits every event through `events.>` and names none of them: a permission to receive.
+    aclService('gateway_service', [], ['events.>']),
+    aclService('notification_service', [], ['events.*.BatchHarvested']),
+    // An explicit grant naming the event wins over the catch-all one on the same service.
+    aclService('audit_service', [], ['events.>', 'events.*.BatchHarvested']),
+    // Subscribes to Literal in code (the fixture's demo-service) and holds the catch-all too.
+    aclService('demo_service', [], ['events.>']),
+  ];
+  const harvested = eventConsumersFor('BatchHarvested', fixture(), services);
+  assert.deepEqual(
+    harvested.consumers.map((c) => [c.application, c.sources, c.matchingPattern]),
+    [
+      ['audit-service', ['acl_grant'], 'events.*.BatchHarvested'],
+      ['notification-service', ['acl_grant'], 'events.*.BatchHarvested'],
+    ],
+  );
+  assert.deepEqual(
+    harvested.aclCatchAll.map(({ service: s, grant, catchAll }) => [
+      s.application,
+      grant,
+      catchAll,
+    ]),
+    [
+      ['gateway-service', 'events.>', true],
+      ['demo-service', 'events.>', true],
+    ],
+  );
+
+  // A catch-all holder whose code subscribes to the event consumes it through that code site
+  // alone; its catch-all grant adds no acl_grant source and is still listed apart.
+  const literal = eventConsumersFor('Literal', fixture(), services);
+  assert.deepEqual(
+    literal.consumers.map((c) => [c.application, c.sources, c.acl]),
+    [['demo-service', ['code_subscription'], null]],
+  );
+  assert.deepEqual(
+    literal.aclCatchAll.map(({ service: s }) => s.application),
+    ['gateway-service', 'audit-service', 'demo-service'],
+  );
+});
+
+void test('eventConsumersFor follows the root the publish grants declare; events.*.<T> only when none declares <T>', () => {
+  // Each subscriber names the event on one root, so the root the publishers declare decides which
+  // one consumes it (the old plan-coverage witness case, now on the one consumer function).
+  const subscribers = [
+    aclService('gateway_service', [], ['events.*.BatchHarvested']),
+    aclService('notification_service', [], ['telemetry.*.BatchHarvested']),
+  ];
+  const declared = eventConsumersFor('BatchHarvested', fixture(), [
+    aclService('farm_service', ['telemetry.*.BatchHarvested'], []),
+    ...subscribers,
+  ]);
+  assert.deepEqual(declared.subjects, ['telemetry.*.BatchHarvested']);
+  assert.deepEqual(
+    declared.consumers.map((c) => [c.application, c.sources, c.matchingPattern, c.subject]),
+    [
+      [
+        'notification-service',
+        ['acl_grant'],
+        'telemetry.*.BatchHarvested',
+        'telemetry.*.BatchHarvested',
+      ],
+    ],
+  );
+
+  // Declared by no service: the event bus's default root.
+  const undeclared = eventConsumersFor('BatchHarvested', fixture(), [
+    aclService('farm_service', ['events.*.OtherEvent'], []),
+    ...subscribers,
+  ]);
+  assert.deepEqual(undeclared.subjects, ['events.*.BatchHarvested']);
+  assert.deepEqual(
+    undeclared.consumers.map((c) => [c.application, c.sources, c.matchingPattern, c.subject]),
+    [['gateway-service', ['acl_grant'], 'events.*.BatchHarvested', 'events.*.BatchHarvested']],
   );
 });
 
@@ -1403,8 +1498,6 @@ const KNOWN_PRODUCER_READERS: Readonly<Record<string, readonly string[]>> = {
 const KNOWN_DEFINITION_READERS: Readonly<Record<string, readonly string[]>> = {
   // Its `eventType: 'X'` literal regex, part of the same producer reader.
   'CONTRACT-MEDIUM-015': ['e2e/tests/integration/nats-invariants.spec.ts'],
-  // extractEventTypes; removed with the witness's event-consumer nodes by SE-4.
-  'ARIA-MEDIUM-793': ['tools/gates/plan-coverage-witness.ts'],
   'CONTRACT-MEDIUM-016': [
     'tests/invariants/feeding-event-delivery-semantics.spec.ts',
     'tests/invariants/pii-events-mandatory-crypto-shred.spec.ts',

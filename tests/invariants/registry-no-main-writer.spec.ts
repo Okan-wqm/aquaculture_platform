@@ -230,7 +230,10 @@ describe('MF-1 — no lane moves main to record a closure', () => {
  *
  *   - .gitattributes binds no merge attribute under docs/reviews/_registry/
  *     (GitHub honours none, and git's own text merge is the correct one for
- *     per-finding files: a same-finding race must conflict);
+ *     per-finding files: a same-finding race must conflict), and no merge
+ *     attribute anywhere names a driver git does not ship: with the
+ *     registration manifest gone nothing registers a custom driver, and
+ *     GitHub would not run one;
  *   - the driver, its merge function, its installer, its registration file,
  *     its `prepare` step and its spec are gone, and the kernel's branch-update
  *     modules no longer reason about it;
@@ -257,19 +260,63 @@ describe('MF-2 — no merge driver and no writer of the frozen findings.jsonl', 
   ];
   const EVENT_PATH_CONTRACT = String.raw`^docs/reviews/_registry/findings/[A-Z0-9]+/[A-Z0-9-]+\.jsonl$`;
 
-  it('.gitattributes binds no merge attribute under docs/reviews/_registry/', () => {
-    const bound = readFileSync(join(REPO_ROOT, '.gitattributes'), 'utf8')
+  /** The attribute lines of a .gitattributes text: comments and blanks dropped, each split into its pattern and attributes. */
+  const attributeLines = (text: string): { pattern: string; attributes: string[] }[] =>
+    text
       .split('\n')
       .map((line) => line.trim())
       .filter((line) => line !== '' && !line.startsWith('#'))
-      .filter((line) => {
+      .map((line) => {
         const [pattern = '', ...attributes] = line.split(/\s+/);
-        return (
-          pattern.startsWith('docs/reviews/_registry') &&
-          attributes.some((attribute) => /^-?merge(?:=|$)/.test(attribute))
-        );
+        return { pattern, attributes };
       });
+
+  /** The merge drivers git ships; `-merge` (binary) and a bare `merge` (text) name none. */
+  const GIT_BUILT_IN_MERGE_DRIVERS = ['text', 'binary', 'union'];
+
+  /** Every `<pattern> merge=<name>` of `text` whose driver is not one git ships. */
+  const customMergeDrivers = (text: string): string[] =>
+    attributeLines(text).flatMap(({ pattern, attributes }) =>
+      attributes.flatMap((attribute) => {
+        const name = /^merge=(.+)$/.exec(attribute)?.[1];
+        return name === undefined || GIT_BUILT_IN_MERGE_DRIVERS.includes(name)
+          ? []
+          : [`${pattern} merge=${name}`];
+      }),
+    );
+
+  it('.gitattributes binds no merge attribute under docs/reviews/_registry/', () => {
+    const bound = attributeLines(readFileSync(join(REPO_ROOT, '.gitattributes'), 'utf8')).filter(
+      ({ pattern, attributes }) =>
+        pattern.startsWith('docs/reviews/_registry') &&
+        attributes.some((attribute) => /^-?merge(?:=|$)/.test(attribute)),
+    );
     expect(bound).toEqual([]);
+  });
+
+  it('every merge= attribute of .gitattributes is text, binary or union: GitHub runs no custom merge driver', () => {
+    // The classifier first: it must name a dead driver and pass the built-in
+    // ones, or the scan of the real file below proves nothing.
+    expect(
+      customMergeDrivers(
+        [
+          '# docs/commented.md merge=ours',
+          'docs/ours.md merge=ours',
+          'docs/union.md merge=union',
+          'docs/text.md merge=text eol=lf',
+          'docs/binary.bin merge=binary',
+          'docs/unset.bin -merge',
+          'docs/set.md merge',
+          'docs/registry.jsonl merge=findings-registry',
+          '',
+        ].join('\n'),
+      ),
+    ).toEqual(['docs/ours.md merge=ours', 'docs/registry.jsonl merge=findings-registry']);
+    // A declared custom driver is dead on every PR merge (GitHub reads no merge
+    // driver configuration, and nothing in this repository registers one): git
+    // falls back to its text merge and the pin never takes effect.
+    // `docs/aria/CURRENT_STATE.md merge=ours` was exactly that.
+    expect(customMergeDrivers(readFileSync(join(REPO_ROOT, '.gitattributes'), 'utf8'))).toEqual([]);
   });
 
   it('the driver, its installer, its registration, its prepare step and its spec are gone', () => {

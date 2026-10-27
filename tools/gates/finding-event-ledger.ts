@@ -49,6 +49,55 @@ const REPO_ROOT = resolve(__dirname, '..', '..');
 /** Serialises every ledger writer: one mirror or recorded parity run at a time. */
 const LEDGER_APPEND_LOCK = 'event_store.finding_events.append';
 
+/** One ledger row as the mirror reads it back: the git line it holds. */
+export interface LedgerRow {
+  readonly payload: FindingEventLine;
+}
+
+/**
+ * What the mirror needs of a database connection: run a statement, read rows.
+ * `pg`'s `Client` is one; a test's recording stub is another, so the mirror's
+ * statements can be executed and read without a Postgres.
+ */
+export interface LedgerSession {
+  query(
+    text: string,
+    values?: readonly unknown[],
+  ): Promise<{ readonly rows: readonly LedgerRow[] }>;
+}
+
+/**
+ * The statement that writes one git event line into the ledger. Its columns and
+ * the values `findingEventInsertValues` returns correspond by position.
+ */
+export const INSERT_FINDING_EVENT_SQL = `INSERT INTO event_store.finding_events
+           (event_id, finding_id, version, event_type, payload, main_sha,
+            occurred_at, prev_hash, content_hash)
+         VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7,$8,$9)`;
+
+/**
+ * The values of `INSERT_FINDING_EVENT_SQL` for `event` read at `mainSha`. The
+ * `payload` is the git line itself (what `serializeEventLines` writes, without
+ * its newline); every other column is that line's own field, which is what the
+ * table's `finding_events_git_mirror_chk` holds equal.
+ */
+export function findingEventInsertValues(
+  event: FindingEventLine,
+  mainSha: string,
+): readonly [string, string, number, string, string, string, string, string, string] {
+  return [
+    event.event_id,
+    event.finding_id,
+    event.version,
+    event.event_type,
+    JSON.stringify(event),
+    mainSha,
+    event.occurred_at,
+    event.prev_hash,
+    event.content_hash,
+  ];
+}
+
 /** Every event line the store holds, in (finding, version) order. */
 export function storeEvents(store: RegistryStore): FindingEventLine[] {
   return [...store.logs.values()]
@@ -151,25 +200,31 @@ function registryAtMain(mainSha: string): RegistryStore {
   return readRegistryStoreAt(REPO_ROOT, mainSha);
 }
 
-async function readLedger(client: Client): Promise<FindingEventLine[]> {
-  const result = await client.query<{ payload: FindingEventLine }>(
+async function readLedger(session: LedgerSession): Promise<FindingEventLine[]> {
+  const result = await session.query(
     `SELECT payload FROM event_store.finding_events ORDER BY ledger_seq ASC`,
   );
   return result.rows.map((row) => row.payload);
 }
 
-async function acquireAppendLock(client: Client): Promise<void> {
-  await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [LEDGER_APPEND_LOCK]);
+async function acquireAppendLock(session: LedgerSession): Promise<void> {
+  await session.query('SELECT pg_advisory_xact_lock(hashtext($1))', [LEDGER_APPEND_LOCK]);
 }
 
-async function mirror(mainSha: string): Promise<void> {
-  const store = registryAtMain(mainSha);
-  const client = new Client(databaseConfig());
-  await client.connect();
+/**
+ * Append to the ledger every event line `store` holds that it lacks, in one
+ * transaction under the append lock; returns how many it appended. Refuses,
+ * and writes nothing, when a ledger row is not the git line with its event id.
+ */
+export async function mirrorInto(
+  session: LedgerSession,
+  store: RegistryStore,
+  mainSha: string,
+): Promise<number> {
+  await session.query('BEGIN');
   try {
-    await client.query('BEGIN');
-    await acquireAppendLock(client);
-    const ledger = await readLedger(client);
+    await acquireAppendLock(session);
+    const ledger = await readLedger(session);
     const git = new Map(storeEvents(store).map((event) => [event.event_id, event]));
     const foreign = ledger.filter(
       (row) =>
@@ -185,29 +240,23 @@ async function mirror(mainSha: string): Promise<void> {
     const known = new Set(ledger.map((row) => row.event_id));
     const missing = storeEvents(store).filter((event) => !known.has(event.event_id));
     for (const event of missing) {
-      await client.query(
-        `INSERT INTO event_store.finding_events
-           (event_id, finding_id, version, event_type, payload, main_sha,
-            occurred_at, prev_hash, content_hash)
-         VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7,$8,$9)`,
-        [
-          event.event_id,
-          event.finding_id,
-          event.version,
-          event.event_type,
-          JSON.stringify(event),
-          mainSha,
-          event.occurred_at,
-          event.prev_hash,
-          event.content_hash,
-        ],
-      );
+      await session.query(INSERT_FINDING_EVENT_SQL, findingEventInsertValues(event, mainSha));
     }
-    await client.query('COMMIT');
-    process.stdout.write(`mirrored ${missing.length} git event line(s) at ${mainSha}\n`);
+    await session.query('COMMIT');
+    return missing.length;
   } catch (error) {
-    await client.query('ROLLBACK');
+    await session.query('ROLLBACK');
     throw error;
+  }
+}
+
+async function mirror(mainSha: string): Promise<void> {
+  const store = registryAtMain(mainSha);
+  const client = new Client(databaseConfig());
+  await client.connect();
+  try {
+    const appended = await mirrorInto(client, store, mainSha);
+    process.stdout.write(`mirrored ${appended} git event line(s) at ${mainSha}\n`);
   } finally {
     await client.end();
   }

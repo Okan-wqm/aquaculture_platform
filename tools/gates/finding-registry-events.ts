@@ -35,7 +35,7 @@
  * these lines verbatim (finding-event-ledger.ts), so the repository has one
  * event vocabulary.
  */
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -62,6 +62,7 @@ import {
   readRegistryStoreIn,
   REGISTRY_RELATIVE_PATH,
   type RegistryLayout,
+  type RegistrySnapshot,
   type RegistryStore,
 } from './finding-registry-projection';
 import { RegistryWriteRefused, rowContractViolations } from './finding-registry-rows';
@@ -382,9 +383,63 @@ export function serializeGenesisPin(pin: GenesisPin): string {
 }
 
 /**
- * The two ways a segment and its pin come apart, and what to run for each:
- * a branch that still wrote findings.jsonl converts its rows to events; a
- * landing that merged origin/main before the freeze re-pins.
+ * What a change's base froze: the base the change is judged against and the
+ * bytes of the genesis.json it holds. A base that predates the freeze holds
+ * no genesis.json and has no `Freeze`: the cutover itself, and the landing of
+ * a branch that merged origin/main before it, are the only times the segment
+ * may still move.
+ */
+export interface Freeze {
+  readonly base: string;
+  readonly pin: Buffer;
+}
+
+/** The freeze `base` carries; null when `base` holds no genesis.json. An unknown `base` throws. */
+export function freezeAt(repoRoot: string, base: string): Freeze | null {
+  const listed = gitBytes(repoRoot, [
+    'ls-tree',
+    '--name-only',
+    base,
+    '--',
+    GENESIS_PIN_RELATIVE_PATH,
+  ])
+    .toString('utf8')
+    .trim();
+  return listed === ''
+    ? null
+    : { base, pin: gitBytes(repoRoot, ['show', `${base}:${GENESIS_PIN_RELATIVE_PATH}`]) };
+}
+
+/**
+ * The commit this checkout is judged against: the merge-base of HEAD and
+ * origin/main, the base the always-run integrity spec holds the event logs and
+ * the freeze to. Null when origin/main is not a ref of this repository (a
+ * checkout that has not fetched main has no base to name).
+ */
+export function mergeBaseWithMain(repoRoot: string): string | null {
+  const main = spawnSync(
+    'git',
+    ['-C', repoRoot, 'rev-parse', '--verify', '--quiet', 'origin/main'],
+    { env: repoPinnedEnv() },
+  );
+  if (main.error !== undefined) throw main.error;
+  if (main.status !== 0) return null;
+  return gitBytes(repoRoot, ['merge-base', 'HEAD', 'origin/main']).toString('utf8').trim();
+}
+
+/** The freeze of the base this checkout is judged against; null before the freeze lands. */
+export function currentFreeze(repoRoot: string): Freeze | null {
+  const base = mergeBaseWithMain(repoRoot);
+  return base === null ? null : freezeAt(repoRoot, base);
+}
+
+/**
+ * The three ways a segment and its pin come apart, and what to run for each.
+ * Before the freeze (the base holds no genesis.json): a branch that still
+ * wrote findings.jsonl converts its rows to events, and a landing that merged
+ * origin/main re-pins. Once the base froze the segment, it is final: nothing
+ * re-pins it, and the only way forward is to put the segment back and record
+ * the change as events.
  */
 export const GENESIS_REMEDY =
   'A branch that edited or appended findings.jsonl rows converts them to events with ' +
@@ -392,23 +447,41 @@ export const GENESIS_REMEDY =
   '--base=origin/main`; a landing that merged origin/main before the freeze re-pins the ' +
   'segment with `npm run findings:genesis`.';
 
+/** The remedy once `freeze.base` froze the segment: no re-pin is offered, because none is allowed. */
+export function frozenRemedy(freeze: Freeze): string {
+  return (
+    `${freeze.base} froze findings.jsonl and the freeze is final: a change to the segment is ` +
+    `recorded as events. Convert the rows this branch wrote with ` +
+    '`ts-node --project tools/gates/tsconfig.json tools/gates/finding-registry-migrate-branch.ts ' +
+    '--base=origin/main`, which restores findings.jsonl and genesis.json to the base.'
+  );
+}
+
 function readPin(layout: RegistryLayout): GenesisPin | null {
   return existsSync(layout.pinPath)
     ? (JSON.parse(readFileSync(layout.pinPath, 'utf8')) as GenesisPin)
     : null;
 }
 
-/** Why the genesis segment at `layout` is not the one its pin names; empty when it is. */
-export function genesisPinDefects(layout: RegistryLayout): string[] {
-  const pin = readPin(layout);
-  const actual = genesisPin(readFileSync(layout.genesisPath));
-  if (pin === null) return [`${GENESIS_PIN_RELATIVE_PATH} is missing. ${GENESIS_REMEDY}`];
+/**
+ * Why the genesis segment of `snapshot` is not the one its pin names; empty
+ * when it is. The remedy follows the base: `freeze` is the freeze the change's
+ * base holds, and once there is one the message does not offer a re-pin.
+ */
+export function genesisPinDefects(snapshot: RegistrySnapshot, freeze: Freeze | null): string[] {
+  const remedy = freeze === null ? GENESIS_REMEDY : frozenRemedy(freeze);
+  const pin =
+    snapshot.pinBytes === null
+      ? null
+      : (JSON.parse(snapshot.pinBytes.toString('utf8')) as GenesisPin);
+  const actual = genesisPin(snapshot.genesisBlob);
+  if (pin === null) return [`${GENESIS_PIN_RELATIVE_PATH} is missing. ${remedy}`];
   return (Object.keys(actual) as (keyof GenesisPin)[])
     .filter((key) => pin[key] !== actual[key])
     .map(
       (key) =>
         `findings.jsonl ${key} is ${JSON.stringify(actual[key])}, ${GENESIS_PIN_RELATIVE_PATH} ` +
-        `pins ${JSON.stringify(pin[key])}. ${GENESIS_REMEDY}`,
+        `pins ${JSON.stringify(pin[key])}. ${remedy}`,
     );
 }
 
@@ -432,11 +505,15 @@ function reanchor(events: readonly FindingEventLine[], anchor: string): FindingE
  * origin/main brought rows written before the freeze: the logs of findings
  * born on this branch were anchored on the previous tip, so they are
  * re-anchored on the new one (no decision changes). Once the freeze is on
- * main the segment never changes, so a rerun rewrites nothing.
+ * main the segment never changes, so a rerun rewrites nothing. And once the
+ * change's base holds the freeze (`freeze`), the pin it would write must be
+ * the base's: a re-pin that moves a frozen segment is refused, so the command
+ * is never the way around the freeze.
  */
 export function pinGenesis(
   layout: RegistryLayout,
   lease: RegistryLockLease,
+  freeze: Freeze | null,
 ): { pin: GenesisPin; reanchored: string[] } {
   const blob = readFileSync(layout.genesisPath);
   const rows = parseRegistryJsonl(blob.toString('utf8'));
@@ -445,6 +522,13 @@ export function pinGenesis(
     throw new RegistryWriteRefused([`findings.jsonl does not verify: ${chain.reason}`]);
   }
   const pin = genesisPin(blob);
+  if (freeze !== null && !freeze.pin.equals(Buffer.from(serializeGenesisPin(pin), 'utf8'))) {
+    throw new RegistryWriteRefused([
+      `genesis refused: findings.jsonl is not the segment ${freeze.base} froze ` +
+        `(${GENESIS_PIN_RELATIVE_PATH} there pins another blob), and re-pinning would move it. ` +
+        frozenRemedy(freeze),
+    ]);
+  }
   const previous = readPin(layout);
   const reanchored: string[] = [];
   if (previous !== null && previous.tip_content_hash !== pin.tip_content_hash) {
@@ -523,20 +607,28 @@ function logDefects(
 }
 
 /**
- * Why the registry at `layout` is not intact; empty when it is: the genesis
- * segment's chain and pin, every log's chain and anchors, the vocabulary,
- * unique event ids, a fold that every reader can take, and the row contract
- * on every row an event wrote. Without a pin the registry has not been frozen:
- * its segment's chain is all there is, and an event store is refused (its
- * lines would anchor on a segment nothing pins).
+ * Why the registry `snapshot` holds is not intact; empty when it is: the
+ * genesis segment's chain and pin, every log's chain and anchors, the
+ * vocabulary, unique event ids, a fold that every reader can take, and the row
+ * contract on every row an event wrote. The contracts are `layout`'s (the
+ * schemas of the checkout that judges), the data is the snapshot's: the
+ * working tree's, or a commit's (`verify --ref`). Without a pin the registry
+ * has not been frozen: its segment's chain is all there is, and an event store
+ * is refused (its lines would anchor on a segment nothing pins). A change whose
+ * base holds the freeze (`freeze`) is refused without its pin too, and no
+ * message offers a re-pin.
  */
-export function registryDefects(layout: RegistryLayout): string[] {
-  const store = readRegistryStoreIn(layout.dir);
+export function registryDefects(
+  layout: RegistryLayout,
+  snapshot: RegistrySnapshot,
+  freeze: Freeze | null,
+): string[] {
+  const { store } = snapshot;
   const defects: string[] = [];
   const chain = verify(store.genesis);
   if (!chain.ok) defects.push(`findings.jsonl: ${chain.reason}`);
-  if (existsSync(layout.pinPath) || store.logs.size > 0) {
-    defects.push(...genesisPinDefects(layout));
+  if (snapshot.pinBytes !== null || store.logs.size > 0 || freeze !== null) {
+    defects.push(...genesisPinDefects(snapshot, freeze));
   }
   const eventIds = new Map<string, string>();
   for (const log of store.logs.values()) {
@@ -582,10 +674,11 @@ function gitBytes(repoRoot: string, args: readonly string[]): Buffer {
 /**
  * Why the working tree is not an append-only extension of `base`: every
  * event log `base` holds must still exist and start with its bytes at `base`,
- * and a pin `base` holds must be unchanged (the freeze is final).
+ * and once `base` holds the freeze, genesis.json and the segment it pins must
+ * be unchanged (the freeze is final).
  */
 export function appendOnlyDefects(repoRoot: string, base: string): string[] {
-  const listed = gitBytes(repoRoot, [
+  const logs = gitBytes(repoRoot, [
     'ls-tree',
     '-r',
     '-z',
@@ -593,13 +686,14 @@ export function appendOnlyDefects(repoRoot: string, base: string): string[] {
     base,
     '--',
     `${EVENT_STORE_RELATIVE_PATH}/`,
-    GENESIS_PIN_RELATIVE_PATH,
   ])
     .toString('utf8')
     .split('\0')
     .filter(Boolean);
+  const frozen =
+    freezeAt(repoRoot, base) === null ? [] : [GENESIS_PIN_RELATIVE_PATH, REGISTRY_RELATIVE_PATH];
   const defects: string[] = [];
-  for (const rel of listed) {
+  for (const rel of [...logs, ...frozen]) {
     const now = join(repoRoot, rel);
     if (!existsSync(now)) {
       defects.push(`${rel}: deleted since ${base}`);
@@ -607,16 +701,10 @@ export function appendOnlyDefects(repoRoot: string, base: string): string[] {
     }
     const before = gitBytes(repoRoot, ['show', `${base}:${rel}`]);
     const here = readFileSync(now);
-    const extends_ =
-      rel === GENESIS_PIN_RELATIVE_PATH
-        ? here.equals(before)
-        : here.subarray(0, before.length).equals(before);
-    if (!extends_) {
-      defects.push(
-        rel === GENESIS_PIN_RELATIVE_PATH
-          ? `${rel}: changed since ${base} (the freeze is final)`
-          : `${rel}: rewritten since ${base} (only appends are allowed)`,
-      );
+    if (frozen.includes(rel)) {
+      if (!here.equals(before)) defects.push(`${rel}: changed since ${base} (the freeze is final)`);
+    } else if (!here.subarray(0, before.length).equals(before)) {
+      defects.push(`${rel}: rewritten since ${base} (only appends are allowed)`);
     }
   }
   return defects;

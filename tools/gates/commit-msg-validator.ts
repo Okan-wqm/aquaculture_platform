@@ -74,6 +74,18 @@ function writeStderr(message = ''): void {
 }
 
 /**
+ * Where a finding id is looked up, for the messages that tell an author what
+ * the gate searched. The registry is the whole store (MF-2): the frozen
+ * genesis segment `findings.jsonl` plus one event log per finding born after
+ * the freeze, `findings/<PREFIX>/<ID>.jsonl`. The gate reads it through the
+ * projection (`findingTrailerTargets`), so a message that names the segment
+ * alone sends an author to a file that cannot hold the id they just filed.
+ */
+const FINDING_REGISTRY_LOCATION =
+  'the finding registry (docs/reviews/_registry: the frozen genesis segment findings.jsonl ' +
+  'plus the event logs findings/<PREFIX>/<ID>.jsonl)';
+
+/**
  * Conventional-commit subject prefixes that REQUIRE a Closes: trailer.
  *
  *   fix()                         — closes a bug finding
@@ -399,7 +411,9 @@ const PRE_PHASE6_SHAS: ReadonlySet<string> = new Set([
   // (derivation applies the same binding) and cannot be amended without a
   // force-push. The root cause is the allocator's per-clone reservation
   // ledger: two clones can mint the same sequence with no knowledge of each
-  // other, and only the merge driver's duplicate-id refusal caught it.
+  // other. Since MF-2 two clones that mint one id write the same event-log
+  // path, an add/add conflict git raises at merge, and the integrity
+  // invariant refuses an id held twice.
   'ac780802', // fix(admin-panel): a price sheet that failed was offered anyway, at a guessed price (trailer names ADMIN-HIGH-135; finding is ADMIN-HIGH-159)
   // 2026-10-22 WP-J landing (PLAN-v2 F0.3, branch landing/aria-wp-j-l). Added
   // by PROGRAM-LEAD DECISION (WP-J landing item 5, under the operator's ARIA
@@ -676,7 +690,7 @@ function validateCommit(
         out.push({
           sha: commit.shortSha,
           subject: commit.subject,
-          reason: `Closes: trailer references unknown ORPHAN finding ID: ${findingId} (no matching "## ${findingId}" heading in docs/reviews/orphan-findings.md, and no such id in docs/reviews/_registry/findings.jsonl)`,
+          reason: `Closes: trailer references unknown ORPHAN finding ID: ${findingId} (no matching "## ${findingId}" heading in docs/reviews/orphan-findings.md, and no such id in ${FINDING_REGISTRY_LOCATION})`,
         });
       } else if (
         registryTarget !== undefined &&
@@ -698,7 +712,7 @@ function validateCommit(
         out.push({
           sha: commit.shortSha,
           subject: commit.subject,
-          reason: `Closes: trailer references unknown finding ID: ${findingId} (not in docs/reviews/_registry/findings.jsonl)`,
+          reason: `Closes: trailer references unknown finding ID: ${findingId} (not in ${FINDING_REGISTRY_LOCATION})`,
         });
       } else if (!messageClosesFinding(commit.body, target)) {
         // The id exists, but this trailer could never CLOSE it: the closure
@@ -754,7 +768,8 @@ function report(violations: Violation[]): void {
   writeStderr('Every fix/security/refactor(agentic,phase-*) commit must carry:');
   writeStderr('  Closes: docs/reviews/<agent>/<date>-<topic>.md#<FINDING-ID>');
   writeStderr('');
-  writeStderr('Finding IDs live in: docs/reviews/_registry/findings.jsonl');
+  writeStderr(`Finding IDs live in: ${FINDING_REGISTRY_LOCATION}`);
+  writeStderr('List them with:      npm run findings:list:all');
   writeStderr('Finding-ID regex:    {PREFIX}-(CRITICAL|HIGH|MEDIUM|LOW)-NNN');
   writeStderr(
     'Phase 6 reference:   docs/plans/2026-04-17-agentic-post-audit-consolidation-plan.md#Phase-6',
@@ -845,6 +860,7 @@ if (require.main === module) {
 // helper shipped without unit tests).
 export {
   CLOSES_TRAILER_REGEX,
+  FINDING_REGISTRY_LOCATION,
   ORPHAN_HEADING_REGEX,
   REQUIRE_CLOSES_TYPES,
   commitFromMsgFile,

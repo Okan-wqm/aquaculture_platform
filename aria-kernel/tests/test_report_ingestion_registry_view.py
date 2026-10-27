@@ -80,7 +80,14 @@ class RegistryViewContractTests(unittest.TestCase):
         ]
         view = read_registry_view(_REPO_ROOT)
         self.assertEqual([row["id"] for row in view.rows], chain_ids + born)
-        self.assertEqual({entry.source for entry in view.entries}, {_BASE_REF})
+        # Each finding's source is the file that holds it: its event log when it has one (born
+        # after the freeze, or amended since), the frozen segment otherwise.
+        logs = {path.stem: path.relative_to(_REPO_ROOT).as_posix() for path in store.glob("*/*.jsonl")}
+        self.assertEqual(
+            [entry.source for entry in view.entries],
+            [logs.get(entry.row["id"], _BASE_REF) for entry in view.entries],
+        )
+        self.assertTrue(any(source != _BASE_REF for source in (entry.source for entry in view.entries)))
 
 
 @unittest.skipUnless((_REPO_ROOT / "node_modules/.bin/ts-node").is_file(),

@@ -12,7 +12,10 @@ WHY PYTHON, NOT THE .mjs. Python's own parser is the only exact reader of Python
 parenthesised multi-line imports, imports inside functions, relative imports, and the
 import-shaped text fixtures carry inside string literals all come out right with ``ast``
 and wrong with a regex over source text. Nothing is executed. python3 is already a hard
-dependency of the hook, since the suite it gates is Python.
+dependency of the hook, since the suite it gates is Python. The parse itself, the source
+roots, module naming and the path-literal rules are ``aria_kernel.source_facts``'s: the
+F0.9b ownership atlas reads the same facts, and a second parser beside this one answered
+differently for the same module (review F0.9b r1-arch B1).
 
 EDGES (a node is an importable module under aria-kernel/ or tools/aria-poc/):
   import     ``import a.b``, ``from a import b`` (absolute or relative), a literal
@@ -39,7 +42,9 @@ TIERS (the selector's budget spends them in this order):
 
 COST. Parsing ~1,200 modules takes seconds on a loaded host, so per-file facts are cached
 by content digest (``--cache``, a file under .git/, never committed). A hit returns exactly
-what a parse would; the helper's own digest keys the cache, so editing this file empties it.
+what a parse would; the digest of this file and of ``source_facts`` keys the cache, so
+editing either empties it. Only the import layer is asked for: the atlas's symbol layer
+would quintuple the cache.
 
 Input (stdin, JSON): {"changed": [repo paths], "tracked": [repo paths]}.
 Output (stdout, JSON): the selection, ordered by (tier, path).
@@ -48,28 +53,28 @@ Output (stdout, JSON): the selection, ordered by (tier, path).
 from __future__ import annotations
 
 import argparse
-import ast
 import hashlib
 import json
 import os
 import sys
 from collections import defaultdict
-from collections.abc import Iterable, Iterator
 from fnmatch import fnmatchcase
+from pathlib import Path
 from typing import Any
+
+# The parse and its primitives have one owner in the kernel (PLAN-v2 F0.9: the ownership
+# atlas reads the same facts; a second parser drifts). This script runs as plain
+# ``python3`` from any cwd, so the kernel root comes from the script's own location.
+FACTS_OWNER_FILE = Path(__file__).resolve().parents[2] / "aria-kernel" / "aria_kernel" / "source_facts.py"
+sys.path.insert(0, str(FACTS_OWNER_FILE.parents[1]))
+from aria_kernel.source_facts import (  # noqa: E402  (after the sys.path entry above)
+    KERNEL_PACKAGE, KERNEL_ROOT, Facts, deepest_module, extract, iter_modules, module_name, path_parts,
+)
 
 SCHEMA = "aria-import-graph/v1"
 CACHE_SCHEMA = "aria-import-graph-cache/v1"
-KERNEL_ROOT = "aria-kernel"
-KERNEL_PACKAGE = "aria_kernel"
-# Import roots in PYTHONPATH order: aria-suite-run.sh exports aria-kernel first, and the
-# tests that drive the executors put tools/aria-poc on sys.path themselves.
-SOURCE_ROOTS = (KERNEL_ROOT, "tools/aria-poc")
 # unittest's `discover -p` and pyproject's python_files share this pattern.
 TEST_PATTERN = "*test*.py"
-SKIP_DIRS = frozenset({"__pycache__", "node_modules"})
-EXPORT_TABLE = "_EXPORT_MODULES"
-PATH_CALLS = frozenset({"Path", "PurePath", "PurePosixPath", "joinpath", "join"})
 TIER_NAMES = ("changed", "owner", "direct", "indirect")
 CHANGED, OWNER, DIRECT, INDIRECT = range(4)
 
@@ -79,163 +84,6 @@ CHANGED, OWNER, DIRECT, INDIRECT = range(4)
 SURFACE_CONTRACTS = (
     ("tools/aria-adapters/", "aria-kernel/tests/test_adapter_fixture_evidence_contract.py"),
 )
-
-Facts = dict[str, Any]
-
-
-def module_name(path: str) -> str | None:
-    """Dotted import name of a repo path under a source root, existing or not."""
-    if not path.endswith(".py"):
-        return None
-    for root in SOURCE_ROOTS:
-        if path.startswith(root + "/"):
-            parts = path[len(root) + 1 : -3].split("/")
-            if parts[-1] == "__init__":
-                parts = parts[:-1]
-            return ".".join(parts) if parts else None
-    return None
-
-
-def iter_sources(repo: str, root: str) -> Iterator[str]:
-    """Importable .py files: the root's own files and those inside package chains."""
-    base = os.path.join(repo, root)
-    for dirpath, dirnames, filenames in os.walk(base):
-        rel = os.path.relpath(dirpath, base)
-        if rel != "." and "__init__.py" not in filenames:
-            dirnames[:] = []
-            continue
-        dirnames[:] = sorted(d for d in dirnames if d not in SKIP_DIRS and not d.startswith("."))
-        prefix = root if rel == "." else f"{root}/{rel.replace(os.sep, '/')}"
-        for name in sorted(filenames):
-            if name.endswith(".py"):
-                yield f"{prefix}/{name}"
-
-
-def path_parts(text: str) -> tuple[str, ...]:
-    """Literal path components; a wildcard (``*.yml``, ``**``) ends the literal prefix."""
-    parts: list[str] = []
-    for part in text.strip().split("/"):
-        if any(ch in part for ch in "*?["):
-            break
-        if part not in ("", ".", ".."):
-            parts.append(part)
-    return tuple(parts)
-
-
-def chain_runs(operands: Iterable[ast.expr]) -> Iterator[tuple[str, ...]]:
-    """Runs of consecutive string literals in a path expression, joined component-wise."""
-    run: list[str] = []
-    for operand in operands:
-        if isinstance(operand, ast.Constant) and isinstance(operand.value, str):
-            run.extend(path_parts(operand.value))
-            continue
-        if len(run) >= 2:
-            yield tuple(run)
-        run = []
-    if len(run) >= 2:
-        yield tuple(run)
-
-
-def flatten_div(node: ast.expr) -> list[ast.expr]:
-    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
-        return flatten_div(node.left) + flatten_div(node.right)
-    return [node]
-
-
-def module_bindings(tree: ast.Module) -> list[str]:
-    """Names a module binds at import time (module level, through if/try/with blocks)."""
-    names: set[str] = set()
-
-    def visit(statements: Iterable[ast.stmt]) -> None:
-        for stmt in statements:
-            if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                names.add(stmt.name)
-                continue
-            if isinstance(stmt, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
-                for target in stmt.targets if isinstance(stmt, ast.Assign) else [stmt.target]:
-                    names.update(n.id for n in ast.walk(target) if isinstance(n, ast.Name))
-            elif isinstance(stmt, ast.Import):
-                names.update(a.asname or a.name.split(".")[0] for a in stmt.names)
-            elif isinstance(stmt, ast.ImportFrom):
-                names.update(a.asname or a.name for a in stmt.names if a.name != "*")
-            for attr in ("body", "orelse", "finalbody"):
-                block = getattr(stmt, attr, None)
-                if isinstance(block, list):
-                    visit(block)
-            for handler in getattr(stmt, "handlers", None) or []:
-                visit(handler.body)
-
-    visit(tree.body)
-    return sorted(names)
-
-
-def export_table(tree: ast.Module) -> list[str]:
-    for stmt in tree.body:
-        if (
-            isinstance(stmt, ast.Assign)
-            and any(isinstance(t, ast.Name) and t.id == EXPORT_TABLE for t in stmt.targets)
-            and isinstance(stmt.value, (ast.Tuple, ast.List))
-        ):
-            return [
-                e.value
-                for e in stmt.value.elts
-                if isinstance(e, ast.Constant) and isinstance(e.value, str)
-            ]
-    return []
-
-
-def extract(source: str, path: str, name: str, is_package: bool) -> Facts:
-    """Everything the graph needs from one module, independent of every other module."""
-    tree = ast.parse(source, filename=path)
-    package = name.split(".") if is_package else name.split(".")[:-1]
-    imports: set[tuple[str, ...]] = set()
-    refs: set[tuple[str, ...]] = set()
-    tests = 0
-    for sub in ast.walk(tree):
-        kind = type(sub)
-        if kind is ast.Import:
-            imports.update(("name", a.name) for a in sub.names)
-        elif kind is ast.ImportFrom:
-            if sub.level:
-                if sub.level - 1 > len(package):
-                    continue
-                base_parts = package[: len(package) - (sub.level - 1)]
-                base = ".".join(base_parts + ([sub.module] if sub.module else []))
-            else:
-                base = sub.module or ""
-            if base:
-                imports.add(("name", base))
-                imports.update(("from", base, a.name) for a in sub.names if a.name != "*")
-        elif kind is ast.Call:
-            func = sub.func
-            called = func.id if isinstance(func, ast.Name) else getattr(func, "attr", None)
-            if called == "import_module" and sub.args:
-                first = sub.args[0]
-                if isinstance(first, ast.Constant) and isinstance(first.value, str):
-                    imports.add(("name", first.value))
-            elif called in PATH_CALLS:
-                refs.update(chain_runs(sub.args))
-        elif kind is ast.BinOp and isinstance(sub.op, ast.Div):
-            refs.update(chain_runs(flatten_div(sub)))
-        elif kind is ast.Constant and isinstance(sub.value, str):
-            text = sub.value
-            if not text or any(ch.isspace() for ch in text):
-                continue  # prose, not a path or a dotted name
-            if "/" not in text and text.split(".")[0] == KERNEL_PACKAGE and "." in text:
-                imports.add(("dotted", text))
-                continue
-            parts = path_parts(text)
-            if len(parts) >= 2 or (len(parts) == 1 and "." in parts[0].strip(".")):
-                refs.add(parts)
-        elif kind in (ast.FunctionDef, ast.AsyncFunctionDef) and sub.name.startswith("test"):
-            tests += 1
-    return {
-        "imports": sorted(list(item) for item in imports),
-        "refs": sorted(list(ref) for ref in refs),
-        "tests": tests,
-        "bindings": module_bindings(tree),
-        "exports": export_table(tree),
-    }
 
 
 class Graph:
@@ -258,8 +106,11 @@ class Graph:
                 self.refs[tuple(ref)].add(path)
 
     def _load(self, repo: str, cache_path: str | None) -> None:
-        with open(__file__, "rb") as handle:
-            extractor = hashlib.sha1(handle.read()).hexdigest()
+        hasher = hashlib.sha1()
+        for source in (__file__, FACTS_OWNER_FILE):  # the facts change when either does
+            with open(source, "rb") as handle:
+                hasher.update(handle.read())
+        extractor = hasher.hexdigest()
         cache: dict[str, Any] = {}
         if cache_path and os.path.exists(cache_path):
             try:
@@ -270,50 +121,38 @@ class Graph:
             except (OSError, ValueError, KeyError, AttributeError):
                 cache = {}  # a torn or foreign cache costs a re-parse, never a wrong answer
         fresh: dict[str, Any] = {}
-        for root in SOURCE_ROOTS:
-            for path in iter_sources(repo, root):
-                name = module_name(path)
-                if not name or name in self.by_name:
-                    continue  # first root wins, as on sys.path
-                with open(os.path.join(repo, path), "rb") as handle:
-                    data = handle.read()
-                digest = hashlib.sha1(data).hexdigest()
-                hit = cache.get(path)
-                is_package = path.endswith("/__init__.py")
-                if hit and hit.get("sha") == digest:
-                    facts = hit["facts"]
-                else:
-                    try:
-                        facts = extract(data.decode("utf-8"), path, name, is_package)
-                    except (SyntaxError, UnicodeDecodeError, ValueError):
-                        facts = None
-                fresh[path] = {"sha": digest, "facts": facts}
-                if facts is None:
-                    self.unparsed.append(path)
-                    continue
-                basename = path.rsplit("/", 1)[-1]
-                self.paths[path] = name
-                self.by_name[name] = path
-                self.facts[path] = facts
-                self.is_test[path] = (
-                    root == KERNEL_ROOT
-                    and name.split(".")[0] != KERNEL_PACKAGE
-                    and fnmatchcase(basename, TEST_PATTERN)
-                )
+        for root, path, name in iter_modules(repo):
+            with open(os.path.join(repo, path), "rb") as handle:
+                data = handle.read()
+            digest = hashlib.sha1(data).hexdigest()
+            hit = cache.get(path)
+            is_package = path.endswith("/__init__.py")
+            if hit and hit.get("sha") == digest:
+                facts = hit["facts"]
+            else:
+                try:
+                    facts = extract(data.decode("utf-8"), path, name, is_package, symbols=False)
+                except (SyntaxError, UnicodeDecodeError, ValueError):
+                    facts = None
+            fresh[path] = {"sha": digest, "facts": facts}
+            if facts is None:
+                self.unparsed.append(path)
+                continue
+            basename = path.rsplit("/", 1)[-1]
+            self.paths[path] = name
+            self.by_name[name] = path
+            self.facts[path] = facts
+            self.is_test[path] = (
+                root == KERNEL_ROOT
+                and name.split(".")[0] != KERNEL_PACKAGE
+                and fnmatchcase(basename, TEST_PATTERN)
+            )
         if cache_path and fresh != cache:
             payload = {"schema": CACHE_SCHEMA, "extractor": extractor, "files": fresh}
             pending = f"{cache_path}.{os.getpid()}.tmp"
             with open(pending, "w", encoding="utf-8") as handle:
                 json.dump(payload, handle, separators=(",", ":"))
             os.replace(pending, cache_path)
-
-    def _deepest(self, dotted: str) -> str | None:
-        parts = dotted.split(".")
-        for end in range(len(parts), 0, -1):
-            candidate = ".".join(parts[:end])
-            if candidate in self.by_name:
-                return candidate
-        return None
 
     def _resolve(self, path: str, facts: Facts) -> set[str]:
         names: set[str] = set()
@@ -324,7 +163,7 @@ class Graph:
             if kind == "name":
                 names.add(dotted)
             elif kind == "dotted":
-                deepest = self._deepest(dotted)
+                deepest = deepest_module(dotted, self.by_name)
                 if deepest:
                     names.update({dotted, deepest})
             else:

@@ -19,6 +19,7 @@ import {
   PLAN_LEVEL,
   toPlatformCapabilities,
   type PlatformCapability,
+  type ResolveCallerCapabilitiesResult,
 } from '@platform/event-contracts';
 import * as bcrypt from 'bcryptjs';
 import { DataSource, EntityManager, IsNull, Repository } from 'typeorm';
@@ -555,14 +556,16 @@ export class TokenService {
    * SEC-HIGH-051: resolve the user's assigned farm-service Site ids for the
    * `assignedSiteIds` JWT claim.
    *
-   * The caller already holds the canonical User row FOR UPDATE. Assignment
-   * rows are read under the same transaction so the principal fence, site
-   * claim and RefreshToken INSERT form one ordered authorization snapshot.
+   * At mint the caller already holds the canonical User row FOR UPDATE and
+   * passes its transaction (`lockedBy`): assignment rows are read under it with
+   * a read lock, so the principal fence, site claim and RefreshToken INSERT form
+   * one ordered authorization snapshot. resolveCallerCapabilities passes none
+   * and reads without a lock.
    */
   private async getUserAssignedSites(
-    user: User,
+    user: Pick<User, 'id' | 'role' | 'tenantId'>,
     issuedAtEpochSeconds: number,
-    activeManager: EntityManager,
+    lockedBy?: EntityManager,
   ): Promise<AssignedSiteSnapshot> {
     if (
       user.role === Role.SUPER_ADMIN ||
@@ -576,7 +579,9 @@ export class TokenService {
     }
     const tenantId = user.tenantId;
 
-    const assignmentRepository = activeManager.withRepository(this.userSiteAssignmentRepository);
+    const assignmentRepository = lockedBy
+      ? lockedBy.withRepository(this.userSiteAssignmentRepository)
+      : this.userSiteAssignmentRepository;
     // JWT times have whole-second precision. An assignment that expires
     // before the next representable token second cannot safely be carried
     // as a claim, even when a few milliseconds remain on the wall clock.
@@ -586,7 +591,7 @@ export class TokenService {
       user.id,
       tenantId,
       claimBoundary,
-      { lock: 'pessimistic_read' },
+      lockedBy ? { lock: 'pessimistic_read' } : {},
     );
 
     return {
@@ -827,31 +832,40 @@ export class TokenService {
    * exists under another tenant is reported as `found: false`, identical to a
    * nonexistent one, so the surface cannot become a cross-tenant probe.
    * Deactivated users resolve `found: true, active: false` — callers must
-   * fail closed on BOTH flags.
+   * fail closed on BOTH flags. RBAC-HIGH-028: the reply also carries the
+   * `moduleAccess` grants and `assignedSiteIds` a fresh token would carry, so
+   * the bridge can build the member caller without a JWT.
    */
   async resolveCallerCapabilities(
     tenantId: string,
     userId: string,
-  ): Promise<{ found: boolean; active: boolean; roles: string[]; resourcePermissions: string[] }> {
+  ): Promise<Omit<ResolveCallerCapabilitiesResult, 'success' | 'errorCode' | 'error'>> {
     const user = await this.userRepository.findOne({
       select: ['id', 'role', 'tenantId', 'isActive'],
       where: { id: userId, tenantId },
     });
 
     if (!user) {
-      return { found: false, active: false, roles: [], resourcePermissions: [] };
+      const none = { roles: [], resourcePermissions: [], moduleAccess: {}, assignedSiteIds: [] };
+      return { found: false, active: false, ...none };
     }
 
     // PERF-HIGH-001 (a) applies here too: a permission-read failure THROWS
     // (fail loud) — the caller surfaces it as an authorization failure, never
     // as "no permissions granted" pretending to be a definitive answer.
-    const resourcePermissions = await this.getUserResourcePermissions(user);
+    const [resourcePermissions, access, sites] = await Promise.all([
+      this.getUserResourcePermissions(user),
+      this.readModuleAccess(user),
+      this.getUserAssignedSites(user, Math.floor(Date.now() / 1000)),
+    ]);
 
     return {
       found: true,
       active: user.isActive === true,
       roles: [user.role],
       resourcePermissions,
+      moduleAccess: access.moduleAccess,
+      assignedSiteIds: sites.siteIds,
     };
   }
 }

@@ -1,3 +1,4 @@
+import type { ModuleAccess } from '@aquaculture/shared-contracts';
 import { Request } from 'express';
 
 /**
@@ -38,6 +39,13 @@ export interface VerifiedUserAssertion {
   assertionId?: string;
   /** ADR-0007: present only for a validated SUPER_ADMIN cross-tenant act-as. */
   actAs?: ActAsAssertionClaims;
+  /**
+   * RBAC-HIGH-028 (ADR-051 §2 Transport): the caller's per-module grants, owner module →
+   * MODULE_MANAGER | MODULE_USER. The gateway always sends it (`{}` for no grant) inside the
+   * HMAC-bound body; the middleware answers a malformed one with 400. Absent — an assertion from
+   * a gateway of the previous release — means no grants.
+   */
+  moduleAccess?: ModuleAccess;
   /**
    * SEC-HIGH-051: farm-service Site ids the user is assigned to. Threaded from
    * the JWT `assignedSiteIds` claim through the HMAC-bound assertion so the
@@ -106,6 +114,12 @@ export interface JwtUser {
   mfaVerified?: boolean;
   /** User email address, decoded from JWT if present */
   email?: string;
+  /**
+   * RBAC-HIGH-028: the per-module grants (`moduleAccess` claim), rebuilt from the verified
+   * assertion or read from the direct JWT. Absent means no grants; the member caller of
+   * ADR-051 (`userCaller`, shared-contracts) is built from it and never from `roles`.
+   */
+  moduleAccess?: ModuleAccess;
   /**
    * SEC-HIGH-051: farm-service Site ids the user is assigned to (object-level
    * site authorization). Populated from the verified assertion / direct JWT.

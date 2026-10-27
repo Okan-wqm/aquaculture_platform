@@ -1,0 +1,81 @@
+{
+  "tool_id": "change-review",
+  "kind": "llm_amplified_skill",
+  "version": "1.0.0",
+  "status": "SHADOW",
+  "security_class": false,
+  "declared_scope": ["**"],
+  "output_schema": {
+    "type": "object",
+    "required": ["defect_claims", "read_paths"]
+  },
+  "health_thresholds": {
+    "precision_min": 0.85,
+    "non_critical_false_positives_30d": 3,
+    "critical_false_positives": 0,
+    "crash_rate_last_10": 0.2
+  },
+  "allowed_read_globs": ["**"],
+  "forbidden_read_globs": [".git/**", "node_modules/**", "dist/**"],
+  "claim_types": [
+    "regression",
+    "wrong_code",
+    "test_disagreement",
+    "contradiction",
+    "convention_inconsistency"
+  ],
+  "owner": "platform",
+  "rules": {
+    "behaviour_regression": {
+      "claim_type": "regression",
+      "severity_cap": "HIGH",
+      "defect_claim": "The change removes or alters behaviour that a contract, a type, a test or another caller outside the changed lines still states.",
+      "premises": [
+        "The cited lines are changed by this change.",
+        "The expectation source lies outside the changed lines and states the behaviour the change no longer has.",
+        "Nothing in the change itself, such as its commit message or the contract it also edits, declares the behaviour change intended."
+      ]
+    },
+    "wrong_logic": {
+      "claim_type": "wrong_code",
+      "severity_cap": "HIGH",
+      "defect_claim": "The changed code computes or decides something its own surrounding code or a stated contract shows to be wrong.",
+      "premises": [
+        "The cited lines are changed by this change.",
+        "The expectation source states what the cited lines must compute or decide, and the cited lines do not."
+      ]
+    },
+    "test_contradiction": {
+      "claim_type": "test_disagreement",
+      "severity_cap": "MEDIUM",
+      "defect_claim": "A test or fixture outside the changed lines asserts behaviour the changed code no longer provides.",
+      "premises": [
+        "The test or fixture is not edited by this change.",
+        "The cited changed lines make the test's assertion false."
+      ]
+    },
+    "contract_contradiction": {
+      "claim_type": "contradiction",
+      "severity_cap": "MEDIUM",
+      "defect_claim": "Two places the change reaches state incompatible things, such as a type, a schema, an event or an API and the code that consumes it.",
+      "premises": [
+        "Both places exist at the change's head.",
+        "At least one of the two is changed by this change.",
+        "The two statements cannot both hold."
+      ]
+    },
+    "convention_break": {
+      "claim_type": "convention_inconsistency",
+      "severity_cap": "LOW",
+      "defect_claim": "The change departs from a convention that the code around it follows consistently.",
+      "premises": [
+        "The cited lines are changed by this change.",
+        "The expectation source shows the convention in at least two other places that this change does not edit."
+      ]
+    }
+  },
+  "runner": {
+    "type": "agent"
+  },
+  "schema_version": 1
+}

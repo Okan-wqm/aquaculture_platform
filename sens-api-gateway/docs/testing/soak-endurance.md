@@ -22,7 +22,7 @@ The soak workload is a mixed-protocol realistic production shape:
 
 - MQTT publish: 1000 msg/s sustained, QoS 1, against `mosquitto` broker on a second SBC.
 - MQTT subscribe: 100 command messages/hour with signed envelope; RBAC policy applied; ~5% rejected by authz (exercises the deny path).
-- Modbus TCP read-loop: 50 devices × 20 registers × 1 Hz = 1000 reg/s against `rodbus::server` simulator.
+- Modbus TCP read-loop: 50 devices × 20 registers × 1 Hz = 1000 reg/s against a `tokio-modbus` server simulator.
 - Modbus TCP write: 10 writes/minute with **readback-ACK** (once the code change lands — see [integration-tests.md](./integration-tests.md) §4).
 - Audit chain append: on every command and on every authz decision, ~200 appends/s.
 - Offline-queue: randomly induce broker disconnect for 5 min every 4 h — queue must drain on reconnect.

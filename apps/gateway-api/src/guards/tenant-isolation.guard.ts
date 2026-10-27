@@ -223,14 +223,15 @@ export class TenantIsolationGuard implements CanActivate {
   }
 
   /**
-   * Build tenant context from user and tenant ID
+   * Build tenant context from user and tenant ID. It carries no module list: the module grants
+   * travel to the subgraphs only in the HMAC-bound assertion (RBAC-HIGH-028), and a copy here
+   * that nothing read looked like a grant check that never ran.
    */
   private buildTenantContext(tenantId: string, user: AuthenticatedUser): TenantContext {
     return {
       tenantId,
       tenantName: user.tenantName,
       plan: user.plan,
-      modules: user.modules ?? [],
       isActive: user.tenantActive !== false,
     };
   }

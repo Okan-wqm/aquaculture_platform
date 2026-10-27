@@ -1,3 +1,4 @@
+import type { TenantCapability } from '@aquaculture/shared-contracts';
 import {
   Injectable,
   Inject,
@@ -8,6 +9,7 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { GqlExecutionContext } from '@nestjs/graphql';
+
 import {
   REQUIRED_TENANT_PERMISSIONS_KEY,
   hasAllResourcePermissions,
@@ -65,7 +67,7 @@ export class TenantPermissionGuard implements CanActivate {
     }
 
     // Get required permissions from decorator (handler-level takes precedence, then class-level)
-    const requiredPermissions = this.reflector.getAllAndOverride<string[]>(
+    const requiredPermissions = this.reflector.getAllAndOverride<TenantCapability[]>(
       REQUIRED_TENANT_PERMISSIONS_KEY,
       [context.getHandler(), context.getClass()],
     );
@@ -91,9 +93,7 @@ export class TenantPermissionGuard implements CanActivate {
     const userId = user.sub || user.userId || 'unknown';
     const granted = user.resourcePermissions || [];
     const missing = requiredPermissions.filter((p) => !granted.includes(p));
-    this.logger.debug(
-      `Permission denied for user ${userId}: missing [${missing.join(', ')}]`,
-    );
+    this.logger.debug(`Permission denied for user ${userId}: missing [${missing.join(', ')}]`);
     throw new ForbiddenException('Access denied');
   }
 

@@ -142,6 +142,21 @@ export * from './water-chemistry';
 
 export * from './preview';
 
+// ============================================================================
+// Build identity (FE-MEDIUM-380) — what every federation build names itself by
+// (federation/buildManifestPlugin.ts writes it); the shell's build-skew check
+// reads the shell's and each loaded remote's here.
+// ============================================================================
+
+export {
+  BUILD_MANIFEST_FILE,
+  buildIdFromManifest,
+  buildIdOfDocument,
+  buildIdOfRemoteEntry,
+  buildManifestUrlBeside,
+  type BuildIdDocument,
+} from './federation/buildManifest';
+
 // Error Types
 export {
   ErrorCode,

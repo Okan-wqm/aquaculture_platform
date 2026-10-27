@@ -5,9 +5,13 @@ import { DataSource, QueryRunner } from 'typeorm';
 import { AuditLogService } from '../../../audit/audit-log.service';
 import { DurableUserTokenInvalidationService } from '../../authentication/services/durable-user-token-invalidation.service';
 import { CapabilityAuthorityService } from '../services/capability-authority';
+import { DEFAULT_ROLE_PERMISSIONS, DEFAULT_TENANT_ROLES } from '../services/default-tenant-roles';
 import { CATALOGUE_CAPABILITIES, isKnownCapability } from '../services/permission-catalogue';
-import { DEFAULT_ROLE_PERMISSIONS, TenantRoleService } from '../services/tenant-role.service';
+import { TenantRoleService } from '../services/tenant-role.service';
 import { colors } from '@aquaculture/shared-contracts';
+
+/** The shipped default roles a seed creates (five operational roles and Company Viewer). */
+const DEFAULT_ROLE_COUNT = DEFAULT_TENANT_ROLES.length;
 
 // ============================================================================
 // Constants
@@ -281,30 +285,40 @@ describe('TenantRoleService', () => {
       resource_permissions: [...CATALOGUE_CAPABILITIES],
     });
 
-    it('should create 5 default roles with SERIALIZABLE transaction', async () => {
+    it('ships the five operational roles and Company Viewer (plan PKG-03)', () => {
+      expect(DEFAULT_TENANT_ROLES.map((role) => role.name)).toEqual([
+        'Supervisor',
+        'Technician',
+        'Feed Manager',
+        'Operator',
+        'Viewer',
+        'Company Viewer',
+      ]);
+      expect(Object.keys(DEFAULT_ROLE_PERMISSIONS)).toEqual(
+        DEFAULT_TENANT_ROLES.map((role) => role.name),
+      );
+    });
+
+    it('should create every default role with SERIALIZABLE transaction', async () => {
       mockQueryRunner.query
         .mockResolvedValueOnce([]) // existence SELECT: none
         .mockResolvedValueOnce([]); // entitlement SELECT: core-only
 
-      // For each of 5 roles: INSERT RETURNING id + INSERT permissions
-      for (let i = 0; i < 5; i++) {
+      // For each default role: INSERT RETURNING id + INSERT permissions
+      for (let i = 0; i < DEFAULT_ROLE_COUNT; i++) {
         mockQueryRunner.query
           .mockResolvedValueOnce([{ id: `default-role-${i}` }]) // role INSERT
           .mockResolvedValueOnce([]); // permission INSERT
       }
 
       // After commit, getTenantRoles is called which uses dataSource.query
-      mockDataSource.query.mockResolvedValue([
-        createMockRoleRow({ name: 'Supervisor' }),
-        createMockRoleRow({ name: 'Technician' }),
-        createMockRoleRow({ name: 'Feed Manager' }),
-        createMockRoleRow({ name: 'Operator' }),
-        createMockRoleRow({ name: 'Viewer' }),
-      ]);
+      mockDataSource.query.mockResolvedValue(
+        DEFAULT_TENANT_ROLES.map((role) => createMockRoleRow({ name: role.name })),
+      );
 
       const result = await service.seedDefaultRoles(TENANT_ID, ADMIN_USER_ID);
 
-      expect(result).toHaveLength(5);
+      expect(result).toHaveLength(DEFAULT_ROLE_COUNT);
       expect(mockQueryRunner.startTransaction).toHaveBeenCalledWith('SERIALIZABLE');
       expect(mockQueryRunner.commitTransaction).toHaveBeenCalled();
       expect(mockQueryRunner.release).toHaveBeenCalled();
@@ -314,7 +328,7 @@ describe('TenantRoleService', () => {
       mockQueryRunner.query
         .mockResolvedValueOnce([]) // existence
         .mockResolvedValueOnce([]); // entitlement
-      for (let i = 0; i < 5; i++) {
+      for (let i = 0; i < DEFAULT_ROLE_COUNT; i++) {
         mockQueryRunner.query
           .mockResolvedValueOnce([{ id: `default-role-${i}` }])
           .mockResolvedValueOnce([]);
@@ -354,7 +368,7 @@ describe('TenantRoleService', () => {
           },
         ]) // existence
         .mockResolvedValueOnce([]); // entitlement
-      for (let i = 0; i < 5; i++) {
+      for (let i = 0; i < DEFAULT_ROLE_COUNT; i++) {
         mockQueryRunner.query
           .mockResolvedValueOnce([{ id: `default-role-${i}` }]) // role INSERT
           .mockResolvedValueOnce([]); // permission INSERT
@@ -367,7 +381,7 @@ describe('TenantRoleService', () => {
         (call) =>
           typeof call[0] === 'string' && call[0].includes('INSERT INTO "auth"."tenant_roles"'),
       );
-      expect(roleInserts).toHaveLength(5);
+      expect(roleInserts).toHaveLength(DEFAULT_ROLE_COUNT);
       // The TENANT_ADMIN row is not a shipped default name → never reconciled.
       const reconcileUpdates = mockQueryRunner.query.mock.calls.filter(
         (call) =>
@@ -380,13 +394,7 @@ describe('TenantRoleService', () => {
 
     it('is idempotent: creates and reconciles nothing when every default already carries the full catalogue', async () => {
       mockQueryRunner.query
-        .mockResolvedValueOnce([
-          fullyReconciledRow('Supervisor'),
-          fullyReconciledRow('Technician'),
-          fullyReconciledRow('Feed Manager'),
-          fullyReconciledRow('Operator'),
-          fullyReconciledRow('Viewer'),
-        ]) // existence: all defaults present, already fully granted
+        .mockResolvedValueOnce(DEFAULT_TENANT_ROLES.map((role) => fullyReconciledRow(role.name))) // existence: all defaults present, already fully granted
         .mockResolvedValueOnce([{ code: 'hr' }, { code: 'ai' }]); // entitlement: all modules
       mockDataSource.query.mockResolvedValue([]);
 
@@ -401,7 +409,7 @@ describe('TenantRoleService', () => {
 
     it('RBAC-MEDIUM-015: additively tops-up an existing system default missing an entitled capability', async () => {
       // Supervisor exists as a system default with NO stored grants; the other
-      // four already carry the full catalogue (no-op). The reconcile phase must
+      // defaults already carry the full catalogue (no-op). The reconcile phase must
       // UPDATE only Supervisor, write a ROLES_RECONCILED audit, and revoke its
       // active holders' tokens.
       mockQueryRunner.query
@@ -413,10 +421,9 @@ describe('TenantRoleService', () => {
             panel_permissions: {},
             resource_permissions: [],
           },
-          fullyReconciledRow('Technician'),
-          fullyReconciledRow('Feed Manager'),
-          fullyReconciledRow('Operator'),
-          fullyReconciledRow('Viewer'),
+          ...DEFAULT_TENANT_ROLES.filter((role) => role.name !== 'Supervisor').map((role) =>
+            fullyReconciledRow(role.name),
+          ),
         ]) // existence
         .mockResolvedValueOnce([{ code: 'hr' }, { code: 'ai' }]) // entitlement: all modules
         .mockResolvedValueOnce([]) // reconcile UPDATE for Supervisor
@@ -435,7 +442,7 @@ describe('TenantRoleService', () => {
       // Scoped to Supervisor's role_id; resource_permissions is a non-empty UNION.
       expect(updates[0]![1]).toEqual([
         expect.any(String),
-        expect.arrayContaining(['sites:view']),
+        expect.arrayContaining(['users:view']),
         'sup-1',
       ]);
 
@@ -464,7 +471,7 @@ describe('TenantRoleService', () => {
       mockQueryRunner.query
         .mockResolvedValueOnce([]) // existence: none
         .mockResolvedValueOnce([]); // entitlement: no modules → core-only
-      for (let i = 0; i < 5; i++) {
+      for (let i = 0; i < DEFAULT_ROLE_COUNT; i++) {
         mockQueryRunner.query
           .mockResolvedValueOnce([{ id: `default-role-${i}` }])
           .mockResolvedValueOnce([]);
@@ -478,23 +485,23 @@ describe('TenantRoleService', () => {
           typeof call[0] === 'string' &&
           call[0].includes('INSERT INTO "auth"."tenant_role_permissions"'),
       );
-      expect(permInserts).toHaveLength(5);
+      expect(permInserts).toHaveLength(DEFAULT_ROLE_COUNT);
       for (const insert of permInserts) {
         const resources = insert[1]![2] as string[];
         expect(resources).not.toContain('ai_assistant:use');
         expect(resources).not.toContain('ai_settings:manage');
-        expect(resources).not.toContain('employees:view');
+        expect(resources).not.toContain('ai_specialties:farm');
       }
       // Supervisor (first created) still gets its core capabilities.
       const supervisorResources = permInserts[0]![1]![2] as string[];
-      expect(supervisorResources).toContain('sites:view');
+      expect(supervisorResources).toContain('users:view');
     });
 
     it('RBAC-HIGH-010: an entitled (module-enabled) capability IS seeded', async () => {
       mockQueryRunner.query
         .mockResolvedValueOnce([]) // existence: none
         .mockResolvedValueOnce([{ code: 'ai' }, { code: 'hr' }]); // entitlement: AI+HR on
-      for (let i = 0; i < 5; i++) {
+      for (let i = 0; i < DEFAULT_ROLE_COUNT; i++) {
         mockQueryRunner.query
           .mockResolvedValueOnce([{ id: `default-role-${i}` }])
           .mockResolvedValueOnce([]);
@@ -510,7 +517,41 @@ describe('TenantRoleService', () => {
       );
       const supervisorResources = permInserts[0]![1]![2] as string[];
       expect(supervisorResources).toContain('ai_assistant:use');
-      expect(supervisorResources).toContain('employees:view');
+      expect(supervisorResources).toContain('ai_settings:manage');
+    });
+
+    it('Company Viewer holds exactly company:view, on every tenant (plan PKG-03; ADR-051 role B)', async () => {
+      mockQueryRunner.query
+        .mockResolvedValueOnce([]) // existence: none
+        .mockResolvedValueOnce([]); // entitlement: no modules — the Company layer is core
+      for (let i = 0; i < DEFAULT_ROLE_COUNT; i++) {
+        mockQueryRunner.query
+          .mockResolvedValueOnce([{ id: `default-role-${i}` }])
+          .mockResolvedValueOnce([]);
+      }
+      mockDataSource.query.mockResolvedValue([]);
+
+      await service.seedDefaultRoles(TENANT_ID, ADMIN_USER_ID);
+
+      const roleInserts = mockQueryRunner.query.mock.calls.filter(
+        (call) =>
+          typeof call[0] === 'string' && call[0].includes('INSERT INTO "auth"."tenant_roles"'),
+      );
+      const permInserts = mockQueryRunner.query.mock.calls.filter(
+        (call) =>
+          typeof call[0] === 'string' &&
+          call[0].includes('INSERT INTO "auth"."tenant_role_permissions"'),
+      );
+      const index = roleInserts.findIndex((call) => call[1]![1] === 'Company Viewer');
+      expect(index).toBeGreaterThanOrEqual(0);
+      expect(permInserts[index]![1]![2]).toEqual(['company:view']);
+      expect(JSON.parse(permInserts[index]![1]![1] as string)).toEqual({
+        company: { company: { view: true } },
+      });
+      // No operational default role reaches the Company layer by default.
+      permInserts
+        .filter((_insert, i) => i !== index)
+        .forEach((insert) => expect(insert[1]![2]).not.toContain('company:view'));
     });
 
     it('every capability the seed template grants is a catalogue capability (a typo cannot silently no-op at seed time)', () => {
@@ -535,8 +576,14 @@ describe('TenantRoleService', () => {
           }
         }
       }
-      // Every seed role carries the farm specialty grant (tier gating is elsewhere).
+      // Every operational seed role carries the farm specialty grant (tier gating is
+      // elsewhere). Company Viewer carries none: a Company role never reaches
+      // module-private data (plan D2), and a farm specialist is farm-private.
       for (const [roleName, categories] of Object.entries(DEFAULT_ROLE_PERMISSIONS)) {
+        if (roleName === 'Company Viewer') {
+          expect(categories).toEqual({ company: { company: { view: true } } });
+          continue;
+        }
         expect({
           roleName,
           farm: categories['ai_specialists']?.['ai_specialties']?.['farm'],
@@ -553,7 +600,7 @@ describe('TenantRoleService', () => {
         mockQueryRunner.query
           .mockResolvedValueOnce([]) // existence: none
           .mockResolvedValueOnce(modules); // entitlement
-        for (let i = 0; i < 5; i++) {
+        for (let i = 0; i < DEFAULT_ROLE_COUNT; i++) {
           mockQueryRunner.query
             .mockResolvedValueOnce([{ id: `default-role-${i}` }])
             .mockResolvedValueOnce([]);
@@ -565,7 +612,7 @@ describe('TenantRoleService', () => {
             typeof call[0] === 'string' &&
             call[0].includes('INSERT INTO "auth"."tenant_role_permissions"'),
         );
-        expect(permInserts).toHaveLength(5);
+        expect(permInserts).toHaveLength(DEFAULT_ROLE_COUNT);
         // Supervisor (first created) is the template that grants the specialty.
         return permInserts[0]![1]![2] as string[];
       };
@@ -593,7 +640,7 @@ describe('TenantRoleService', () => {
       mockQueryRunner.query
         .mockResolvedValueOnce([]) // existence
         .mockResolvedValueOnce([]); // entitlement
-      for (let i = 0; i < 5; i++) {
+      for (let i = 0; i < DEFAULT_ROLE_COUNT; i++) {
         mockQueryRunner.query
           .mockResolvedValueOnce([{ id: `role-${i}` }])
           .mockResolvedValueOnce([]);
@@ -1164,33 +1211,41 @@ describe('TenantRoleService', () => {
   // ==========================================================================
 
   describe('getPermissionCategories', () => {
-    it('returns every category (incl. hr/ai) for a fully-licensed tenant', async () => {
-      mockDataSource.query.mockResolvedValueOnce([{ code: 'hr' }, { code: 'ai' }]);
+    it('returns every category (incl. hr/sensor/ai) for a fully-licensed tenant', async () => {
+      mockDataSource.query.mockResolvedValueOnce([
+        { code: 'hr' },
+        { code: 'sensor' },
+        { code: 'ai' },
+        { code: 'farm' },
+      ]);
 
       const categories = await service.getPermissionCategories(TENANT_ID);
 
-      expect(categories.farm).toBeDefined();
-      expect(categories.farm!.name).toBe('Farm Management');
-      expect(categories.batch).toBeDefined();
-      expect(categories.operations).toBeDefined();
-      expect(categories.hr).toBeDefined();
-      expect(categories.ai).toBeDefined();
-      expect(categories.reports).toBeDefined();
-      expect(categories.admin).toBeDefined();
+      expect(Object.keys(categories)).toEqual([
+        'company',
+        'admin',
+        'hr',
+        'sensor',
+        'messaging',
+        'ai',
+        'ai_specialists',
+      ]);
+      expect(categories.company!.name).toBe('Company');
       // Entitlement resolution is tenant-bound (never interpolated).
       expect(mockDataSource.query).toHaveBeenCalledWith(expect.any(String), [TENANT_ID]);
     });
 
-    it('RBAC-HIGH-010: drops the hr/ai categories wholesale for an unlicensed tenant', async () => {
+    it('RBAC-HIGH-010: drops the module-gated categories wholesale for an unlicensed tenant', async () => {
       mockDataSource.query.mockResolvedValueOnce([]); // no modules enabled → core-only
 
       const categories = await service.getPermissionCategories(TENANT_ID);
 
       // Module-gated categories are ABSENT (not empty groups)…
       expect(categories.hr).toBeUndefined();
+      expect(categories.sensor).toBeUndefined();
       expect(categories.ai).toBeUndefined();
       // …while every core category still offers its full action set.
-      expect(categories.farm).toBeDefined();
+      expect(categories.company!.resources['company']!.actions).toEqual(['view']);
       expect(categories.messaging).toBeDefined();
       expect(categories.admin!.resources['roles']!.actions).toContain('create');
     });

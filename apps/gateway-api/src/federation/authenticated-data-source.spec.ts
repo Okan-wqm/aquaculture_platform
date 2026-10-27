@@ -2,6 +2,7 @@ import { createHash } from 'crypto';
 
 import { buildSignedInternalHeaders } from '@aquaculture/backend-common/http';
 import { verifyServiceIdentityRequest } from '@aquaculture/backend-common/utils';
+import type { ModuleAccess } from '@aquaculture/shared-contracts';
 
 import { AuthenticatedDataSource } from './authenticated-data-source';
 import type { GatewayContext } from './authenticated-data-source';
@@ -310,6 +311,36 @@ describe('AuthenticatedDataSource service identity signing', () => {
     ) as { clientIp?: string; clientUserAgent?: string };
     expect(assertion.clientIp).toBe('193.212.164.37');
     expect(assertion.clientUserAgent).toBe('Mozilla/5.0 (Windows NT 10.0)');
+  });
+
+  // RBAC-HIGH-028: the per-module grant reaches every subgraph inside the HMAC-bound assertion
+  // (ADR-051 §2 Transport): always present, `{}` when the token holds no grant.
+  const GRANTS: ModuleAccess = { farm: 'MODULE_MANAGER', hr: 'MODULE_USER' };
+  it.each<[string, ModuleAccess | undefined, ModuleAccess]>([
+    ['the token claim', GRANTS, GRANTS],
+    ['an empty claim for a token minted before moduleAccess', undefined, {}],
+  ])('RBAC-HIGH-028: binds %s into the assertion', (_label, claim, expected) => {
+    const { dataSource } = createCapturingDataSource();
+    const { headers, record } = createHeaderCollector();
+    const context = createContext(TENANT_ID);
+    const user = context.req.user;
+    if (!user) throw new Error('expected an authenticated context');
+    context.req.user = claim === undefined ? user : { ...user, moduleAccess: claim };
+
+    dataSource.willSendRequest(
+      willSendRequestOptions(
+        {
+          query: 'query Batches { batches { id } }',
+          http: { method: 'POST', url: 'http://farm-service:3000/graphql', headers },
+        },
+        context,
+      ),
+    );
+
+    const assertionHeader = record['x-verified-user-assertion'];
+    if (!assertionHeader) throw new Error('expected an x-verified-user-assertion header');
+    const assertion: unknown = JSON.parse(Buffer.from(assertionHeader, 'base64url').toString('utf8'));
+    expect(assertion).toEqual(expect.objectContaining({ moduleAccess: expected }));
   });
 
   it('drops the authorization credential when no verified user exists (expired/silent JWT)', () => {

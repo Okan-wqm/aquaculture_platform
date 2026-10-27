@@ -9,6 +9,7 @@ import {
   SESSION_MANAGER,
   USER_TOKEN_REVOCATION,
 } from '@aquaculture/backend-common/security';
+import type { ModuleAccess } from '@aquaculture/shared-contracts';
 import { Injectable, Logger, Optional, Inject, ForbiddenException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
@@ -18,6 +19,7 @@ import {
   PLAN_LEVEL,
   toPlatformCapabilities,
   type PlatformCapability,
+  type ResolveCallerCapabilitiesResult,
 } from '@platform/event-contracts';
 import * as bcrypt from 'bcryptjs';
 import { DataSource, EntityManager, IsNull, Repository } from 'typeorm';
@@ -25,6 +27,7 @@ import { DataSource, EntityManager, IsNull, Repository } from 'typeorm';
 import { parseHashRefreshTokens } from '../../../config/hash-refresh-tokens';
 import { parseAccessTokenLifetimeSeconds } from '../../../config/jwt-lifetime';
 import { SECURITY_CONSTANTS } from '../../../constants/auth.constants';
+import { recordModuleAccessDrops } from '../../../metrics/module-access.metrics';
 import { LIVE_PLATFORM_CAPABILITY_GRANT_SQL } from '../../tenant/entities/platform-capability-grant.entity';
 import { MobileSettingsService } from '../../tenant/services/mobile-settings.service';
 import { resolveEntitledCapabilities } from '../../tenant/services/permission-catalogue';
@@ -34,9 +37,13 @@ import {
 } from '../../tenant/services/permission-overrides.util';
 import { AuthPayload } from '../dto/auth-response.dto';
 import { RefreshToken } from '../entities/refresh-token.entity';
-import { UserModuleAssignment } from '../entities/user-module-assignment.entity';
 import { UserSiteAssignment } from '../entities/user-site-assignment.entity';
 import { User } from '../entities/user.entity';
+import {
+  readModuleAccess,
+  type ModuleAccessRead,
+  type UserModuleSummary,
+} from './module-access-reader';
 import { readEffectiveUserSiteAssignments } from './user-site-assignment-reader';
 
 /**
@@ -71,7 +78,18 @@ export interface JwtPayload {
    * (until the next token refresh) is acceptable for feature gating.
    */
   planLevel?: number;
+  /**
+   * Legacy module code list, read by the release-R1 web until it moves to moduleAccess in R2
+   * (C1). Joined to the tenant's enabled modules; includes alert and ai, which carry no grant.
+   */
   modules?: string[];
+  /**
+   * RBAC-HIGH-027 / ADR-051 §2: the per-module grants, owner module → MODULE_MANAGER |
+   * MODULE_USER, built by the one module-access reader. Every token minted since release R1
+   * carries it, `{}` for no grant; it is optional here only because a verified token minted
+   * before R1 lacks it, which means no grants. Same staleness contract as `modules`.
+   */
+  moduleAccess?: ModuleAccess;
   resourcePermissions?: string[];
   /**
    * ADR-0016: platform-operator capabilities projected from
@@ -116,12 +134,6 @@ export interface JwtPayload {
   jti?: string; // JWT ID for blacklisting
   iat?: number;
   exp?: number;
-}
-
-interface TenantModuleRow {
-  code: string;
-  name: string;
-  defaultRoute: string;
 }
 
 interface AssignedSiteSnapshot {
@@ -171,8 +183,6 @@ export class TokenService {
     private readonly userRepository: Repository<User>,
     @InjectRepository(RefreshToken)
     private readonly refreshTokenRepository: Repository<RefreshToken>,
-    @InjectRepository(UserModuleAssignment)
-    private readonly userModuleAssignmentRepository: Repository<UserModuleAssignment>,
     @InjectRepository(UserSiteAssignment)
     private readonly userSiteAssignmentRepository: Repository<UserSiteAssignment>,
     private readonly dataSource: DataSource,
@@ -330,26 +340,28 @@ export class TokenService {
       ? bcrypt.hash(transportedRefreshSecret, SECURITY_CONSTANTS.BCRYPT_SALT_ROUNDS)
       : Promise.resolve(transportedRefreshSecret);
 
-    // Hot-path reads run concurrently: the user's module codes, tenant-level
-    // resource permissions, the tenant's plan-tier ordinal (the MT-MEDIUM-001
-    // JWT claim), the user's assigned site ids (SEC-HIGH-051) and enabled mobile
-    // features (SEC-HIGH-052) are independent, so a single Promise.all keeps
-    // token mint to one read latency instead of five serial round-trips.
+    // Hot-path reads run concurrently: the user's module access (grants + legacy
+    // codes), tenant-level resource permissions, the tenant's plan-tier ordinal
+    // (the MT-MEDIUM-001 JWT claim), the user's assigned site ids (SEC-HIGH-051)
+    // and enabled mobile features (SEC-HIGH-052) are independent, so a single
+    // Promise.all keeps token mint to one read latency, not serial round-trips.
     const [
-      modules,
+      moduleAccessRead,
       resourcePermissions,
       tenantPolicy,
       assignedSites,
       mobileFeatures,
       platformCapabilities,
     ] = await Promise.all([
-      this.getUserModules(user),
+      this.readModuleAccess(user),
       this.getUserResourcePermissions(user),
       this.resolveTenantTokenPolicy(effectiveTenantId),
       this.getUserAssignedSites(user, issuedAtEpochSeconds, options.manager),
       this.getUserMobileFeatures(user),
       this.getPlatformCapabilities(user),
     ]);
+    recordModuleAccessDrops(moduleAccessRead.dropped);
+    const modules = moduleAccessRead.modules;
     const moduleCodes = modules.map((m) => m.code);
     const planLevel = tenantPolicy.planLevel;
     const assignedSiteIds = assignedSites.siteIds;
@@ -365,11 +377,14 @@ export class TokenService {
      * Downstream services needing user profile data should query auth-service
      * via NATS request (auth.user.get) or the /users/:id REST endpoint.
      */
-    const payload: JwtPayload = {
+    const payload: JwtPayload & { moduleAccess: ModuleAccess } = {
       sub: user.id,
       role: user.role,
       roles: [user.role],
       tenantId: effectiveTenantId,
+      // RBAC-HIGH-027: always present (`{}` = no grant), so a token minted
+      // before R1 — which lacks it — stays distinguishable.
+      moduleAccess: moduleAccessRead.moduleAccess,
       ...(planLevel !== undefined ? { planLevel } : {}),
       // OMIT the keys entirely when empty (spread, not `: undefined`) so the
       // payload object has no `modules`/`resourcePermissions` property at all —
@@ -525,70 +540,32 @@ export class TokenService {
     throw new ForbiddenException('Access-token issuance is temporarily unavailable');
   }
 
-  async getUserModules(
-    user: User,
-  ): Promise<Array<{ code: string; name: string; defaultRoute: string }>> {
-    if (user.role === Role.SUPER_ADMIN) {
-      // SUPER_ADMIN sees ALL active modules (platform-wide, not tenant-scoped).
-      // Previous behavior returned [] which made the sidebar empty.
-      const allModules = await this.dataSource.query<
-        Array<{ code: string; name: string; defaultRoute: string }>
-      >(
-        `SELECT code, name, "defaultRoute"
-         FROM auth.modules
-         WHERE "isActive" = true
-         ORDER BY "sortOrder" ASC, name ASC`,
-      );
-      return allModules;
-    }
-
-    let modules: Array<{ code: string; name: string; defaultRoute: string }>;
-
-    if (user.role === Role.TENANT_ADMIN && user.tenantId) {
-      const tenantModules = await this.dataSource.query<TenantModuleRow[]>(
-        `SELECT m.code, m.name, m."defaultRoute"
-         FROM auth.tenant_modules tm
-         JOIN auth.modules m ON tm."moduleId" = m.id
-         WHERE tm."tenantId" = $1 AND tm."isEnabled" = true
-         ORDER BY m.name`,
-        [user.tenantId],
-      );
-
-      modules = tenantModules.map((tm) => ({
-        code: tm.code,
-        name: tm.name,
-        defaultRoute: tm.defaultRoute,
-      }));
-    } else {
-      const assignments = await this.userModuleAssignmentRepository.find({
-        where: { userId: user.id, isActive: true },
-        relations: ['module'],
-      });
-
-      modules = assignments
-        .filter((a) => a.isAccessible() && a.module)
-        .map((a) => ({
-          code: a.module.code,
-          name: a.module.name,
-          defaultRoute: a.module.defaultRoute,
-        }));
-    }
-
-    return modules;
+  /**
+   * The user's module access (RBAC-HIGH-027, RBAC-MEDIUM-029): the `moduleAccess` grants and the
+   * legacy `modules` list, from the one module-access reader. The mint and `me` both read it.
+   */
+  async readModuleAccess(user: Pick<User, 'id' | 'role' | 'tenantId'>): Promise<ModuleAccessRead> {
+    return readModuleAccess((sql, params) => this.dataSource.query(sql, [...params]), {
+      id: user.id,
+      role: user.role,
+      tenantId: user.tenantId ?? null,
+    });
   }
 
   /**
    * SEC-HIGH-051: resolve the user's assigned farm-service Site ids for the
    * `assignedSiteIds` JWT claim.
    *
-   * The caller already holds the canonical User row FOR UPDATE. Assignment
-   * rows are read under the same transaction so the principal fence, site
-   * claim and RefreshToken INSERT form one ordered authorization snapshot.
+   * At mint the caller already holds the canonical User row FOR UPDATE and
+   * passes its transaction (`lockedBy`): assignment rows are read under it with
+   * a read lock, so the principal fence, site claim and RefreshToken INSERT form
+   * one ordered authorization snapshot. resolveCallerCapabilities passes none
+   * and reads without a lock.
    */
   private async getUserAssignedSites(
-    user: User,
+    user: Pick<User, 'id' | 'role' | 'tenantId'>,
     issuedAtEpochSeconds: number,
-    activeManager: EntityManager,
+    lockedBy?: EntityManager,
   ): Promise<AssignedSiteSnapshot> {
     if (
       user.role === Role.SUPER_ADMIN ||
@@ -602,7 +579,9 @@ export class TokenService {
     }
     const tenantId = user.tenantId;
 
-    const assignmentRepository = activeManager.withRepository(this.userSiteAssignmentRepository);
+    const assignmentRepository = lockedBy
+      ? lockedBy.withRepository(this.userSiteAssignmentRepository)
+      : this.userSiteAssignmentRepository;
     // JWT times have whole-second precision. An assignment that expires
     // before the next representable token second cannot safely be carried
     // as a claim, even when a few milliseconds remain on the wall clock.
@@ -612,7 +591,7 @@ export class TokenService {
       user.id,
       tenantId,
       claimBoundary,
-      { lock: 'pessimistic_read' },
+      lockedBy ? { lock: 'pessimistic_read' } : {},
     );
 
     return {
@@ -824,10 +803,7 @@ export class TokenService {
     return permissions;
   }
 
-  private getRedirectUrl(
-    user: User,
-    modules: Array<{ code: string; name: string; defaultRoute: string }>,
-  ): string {
+  private getRedirectUrl(user: User, modules: readonly UserModuleSummary[]): string {
     switch (user.role) {
       case Role.SUPER_ADMIN:
         return '/admin';
@@ -856,31 +832,40 @@ export class TokenService {
    * exists under another tenant is reported as `found: false`, identical to a
    * nonexistent one, so the surface cannot become a cross-tenant probe.
    * Deactivated users resolve `found: true, active: false` — callers must
-   * fail closed on BOTH flags.
+   * fail closed on BOTH flags. RBAC-HIGH-028: the reply also carries the
+   * `moduleAccess` grants and `assignedSiteIds` a fresh token would carry, so
+   * the bridge can build the member caller without a JWT.
    */
   async resolveCallerCapabilities(
     tenantId: string,
     userId: string,
-  ): Promise<{ found: boolean; active: boolean; roles: string[]; resourcePermissions: string[] }> {
+  ): Promise<Omit<ResolveCallerCapabilitiesResult, 'success' | 'errorCode' | 'error'>> {
     const user = await this.userRepository.findOne({
       select: ['id', 'role', 'tenantId', 'isActive'],
       where: { id: userId, tenantId },
     });
 
     if (!user) {
-      return { found: false, active: false, roles: [], resourcePermissions: [] };
+      const none = { roles: [], resourcePermissions: [], moduleAccess: {}, assignedSiteIds: [] };
+      return { found: false, active: false, ...none };
     }
 
     // PERF-HIGH-001 (a) applies here too: a permission-read failure THROWS
     // (fail loud) — the caller surfaces it as an authorization failure, never
     // as "no permissions granted" pretending to be a definitive answer.
-    const resourcePermissions = await this.getUserResourcePermissions(user);
+    const [resourcePermissions, access, sites] = await Promise.all([
+      this.getUserResourcePermissions(user),
+      this.readModuleAccess(user),
+      this.getUserAssignedSites(user, Math.floor(Date.now() / 1000)),
+    ]);
 
     return {
       found: true,
       active: user.isActive === true,
       roles: [user.role],
       resourcePermissions,
+      moduleAccess: access.moduleAccess,
+      assignedSiteIds: sites.siteIds,
     };
   }
 }

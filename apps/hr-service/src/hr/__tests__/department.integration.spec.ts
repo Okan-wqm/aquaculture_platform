@@ -24,7 +24,7 @@ import { UpdateDepartmentCommand } from '../commands/update-department.command';
 import { GetDepartmentsQuery, GetDepartmentQuery } from '../queries/get-departments.query';
 import { GetHRDashboardStatsQuery } from '../queries/get-hr-dashboard-stats.query';
 import { DepartmentHR } from '../entities/department.entity';
-import { HrModuleCode } from '../../common/enums';
+import { OWNER_MODULE } from '@aquaculture/shared-contracts';
 import { HEAD_COUNT_EXCLUDED_STATUS } from '../../common/head-count';
 
 // ============================================================================
@@ -226,12 +226,12 @@ describe('Department Management Integration Tests', () => {
 
       const command = new CreateDepartmentCommand(
         tenantId,
-        { name: 'Seed Room', code: 'SEED', moduleCode: HrModuleCode.HYDROPONICS },
+        { name: 'Seed Room', code: 'SEED', moduleCode: OWNER_MODULE.HYDROPONICS },
         userId,
       );
 
       const result = await handler.execute(command);
-      expect(result.moduleCode).toBe(HrModuleCode.HYDROPONICS);
+      expect(result.moduleCode).toBe(OWNER_MODULE.HYDROPONICS);
     });
 
     it('should leave moduleCode unset for a company-wide department', async () => {
@@ -292,17 +292,17 @@ describe('Department Management Integration Tests', () => {
     });
 
     it('should move a department to another module', async () => {
-      const existing = createMockDepartment({ moduleCode: HrModuleCode.FARM });
+      const existing = createMockDepartment({ moduleCode: OWNER_MODULE.FARM });
       mockRepo.findOne.mockResolvedValue(existing);
 
       const command = new UpdateDepartmentCommand(
         tenantId,
-        { id: existing.id, moduleCode: HrModuleCode.SENSOR },
+        { id: existing.id, moduleCode: OWNER_MODULE.SENSOR },
         userId,
       );
 
       const result = await handler.execute(command);
-      expect(result.moduleCode).toBe(HrModuleCode.SENSOR);
+      expect(result.moduleCode).toBe(OWNER_MODULE.SENSOR);
     });
 
     it('should throw NotFoundException for non-existent department', async () => {
@@ -488,11 +488,11 @@ describe('Department Management Integration Tests', () => {
     it('should list only the departments of the requested module', async () => {
       departmentRepository.find.mockResolvedValue([]);
 
-      const query = new GetDepartmentsQuery(tenantId, undefined, undefined, HrModuleCode.FARM);
+      const query = new GetDepartmentsQuery(tenantId, undefined, undefined, OWNER_MODULE.FARM);
       await handler.execute(query);
 
       expect(departmentRepository.find).toHaveBeenCalledWith({
-        where: { tenantId, isDeleted: false, moduleCode: HrModuleCode.FARM },
+        where: { tenantId, isDeleted: false, moduleCode: OWNER_MODULE.FARM },
         order: { sortOrder: 'ASC', name: 'ASC' },
       });
     });

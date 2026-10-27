@@ -198,7 +198,6 @@ export function buildPreAuthServiceGraph(runtime: DataSource): PreAuthServiceGra
   const tokenService = new TokenService(
     runtime.getRepository(User) as Repository<User>,
     runtime.getRepository(RefreshToken) as Repository<RefreshToken>,
-    runtime.getRepository(UserModuleAssignment) as Repository<UserModuleAssignment>,
     runtime.getRepository(UserSiteAssignment) as Repository<UserSiteAssignment>,
     runtime,
     jwt,

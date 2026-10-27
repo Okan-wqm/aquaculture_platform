@@ -1,3 +1,4 @@
+import { MODULE_ROLES, type ModuleRole } from '@aquaculture/shared-contracts';
 import { ObjectType, Field, ID } from '@nestjs/graphql';
 import {
   Entity,
@@ -9,6 +10,7 @@ import {
   ManyToOne,
   JoinColumn,
   Unique,
+  Check,
 } from 'typeorm';
 
 import { Module } from '../../system-module/entities/module.entity';
@@ -19,16 +21,19 @@ import { User } from './user.entity';
 /**
  * UserModuleAssignment Entity
  *
- * Links users to specific modules they have access to.
- * - TENANT_ADMIN: Can access ALL modules assigned to their tenant (no entries needed)
- * - MODULE_MANAGER: Has entries for modules they manage
- * - MODULE_USER: Has entries for modules they can access
- *
- * This entity is only used for MODULE_MANAGER and MODULE_USER roles.
- * TENANT_ADMINs inherit access from TenantModule assignments.
+ * A member's grant in one module, with the member's role in it (`role`, ADR-051 §2). The
+ * `moduleAccess` token claim is built from these rows by the module-access reader
+ * (services/module-access-reader.ts); TENANT_ADMIN needs no rows — the reader lists every module
+ * the tenant has enabled — and users.role grants no module (it is an account role).
  */
 @ObjectType()
 @Entity('user_module_assignments', { schema: 'auth' })
+// RBAC-HIGH-027: the store admits only the module roles. Mirrors the CHECK added by
+// 1819300000000-AddUserModuleAssignmentRole, so the drift validator's class-G count stays even.
+@Check(
+  'CHK_user_module_assignments_role',
+  `"role" IN (${MODULE_ROLES.map((role) => `'${role}'`).join(', ')})`,
+)
 @Unique('UQ_user_module', ['userId', 'moduleId'])
 @Index('IDX_user_module_assignments_user', ['userId'])
 @Index('IDX_user_module_assignments_module', ['moduleId'])
@@ -73,6 +78,15 @@ export class UserModuleAssignment {
   @Field()
   @Column({ type: 'boolean', default: true })
   isActive!: boolean;
+
+  /**
+   * The member's role in this module (RBAC-HIGH-027): MODULE_MANAGER or MODULE_USER. Nullable in
+   * release R1 (C3): containers of the previous release insert rows without it until they are
+   * replaced, and the module-access reader grants nothing for such a row. PKG-06 re-runs the
+   * backfill and sets NOT NULL in R3. Every writer sets it through moduleAssignmentGrant.
+   */
+  @Column({ type: 'varchar', length: 32, nullable: true })
+  role!: ModuleRole | null;
 
   /**
    * Custom permissions within the module (JSON)

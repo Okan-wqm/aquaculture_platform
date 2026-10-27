@@ -11,11 +11,11 @@
 import type { SelectQueryBuilder } from 'typeorm';
 
 import type { AlertHistory } from '../entities/alert-history.entity';
-import type { AlertModule } from '../entities/alert-module.enum';
+import type { OwnerModuleCode } from '@aquaculture/shared-contracts';
 
 export interface AlertHistoryScope {
   readonly siteId?: string;
-  readonly module?: AlertModule;
+  readonly module?: OwnerModuleCode;
 }
 
 export function applyAlertHistoryScope(

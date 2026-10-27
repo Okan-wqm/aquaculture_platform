@@ -14,7 +14,7 @@ import { createPaginatedQueryResult } from '@platform/cqrs';
 import type { GraphQLSchema } from 'graphql';
 import type { Repository } from 'typeorm';
 
-import { HrModuleCode } from '../../common/enums';
+import { OWNER_MODULE } from '@aquaculture/shared-contracts';
 import type { Employee } from '../../hr/entities/employee.entity';
 import { GetOvertimeSummaryQuery } from '../queries/get-overtime-summary.query';
 import { GetTeamWeeklyOverviewQuery } from '../queries/get-team-weekly-overview.query';
@@ -80,7 +80,7 @@ describe('scheduling API — module scope contract', () => {
         context,
         undefined,
         undefined,
-        HrModuleCode.FARM,
+        OWNER_MODULE.FARM,
       );
 
       expect(queryBus.execute).toHaveBeenCalledWith(
@@ -89,7 +89,7 @@ describe('scheduling API — module scope contract', () => {
           '2026-10-19',
           undefined,
           undefined,
-          HrModuleCode.FARM,
+          OWNER_MODULE.FARM,
         ),
       );
     });
@@ -104,7 +104,7 @@ describe('scheduling API — module scope contract', () => {
         undefined,
         20,
         1,
-        HrModuleCode.SENSOR,
+        OWNER_MODULE.SENSOR,
       );
 
       expect(queryBus.execute).toHaveBeenCalledWith(
@@ -117,7 +117,7 @@ describe('scheduling API — module scope contract', () => {
           undefined,
           20,
           1,
-          HrModuleCode.SENSOR,
+          OWNER_MODULE.SENSOR,
         ),
       );
     });
@@ -129,7 +129,7 @@ describe('scheduling API — module scope contract', () => {
         context,
         undefined,
         undefined,
-        HrModuleCode.HYDROPONICS,
+        OWNER_MODULE.HYDROPONICS,
       );
 
       expect(queryBus.execute).toHaveBeenCalledWith(
@@ -139,7 +139,7 @@ describe('scheduling API — module scope contract', () => {
           2026,
           undefined,
           undefined,
-          HrModuleCode.HYDROPONICS,
+          OWNER_MODULE.HYDROPONICS,
         ),
       );
     });

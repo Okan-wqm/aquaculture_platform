@@ -37,9 +37,18 @@ const finance: Department = {
   isActive: true,
   sortOrder: 2,
 };
+/** An HR-owned department: the service accepts HR from R1, the web offers it from R2. */
+const people: Department = {
+  id: 'dept-ppl',
+  name: 'People',
+  code: 'PPL',
+  moduleCode: 'HR',
+  isActive: true,
+  sortOrder: 3,
+};
 
 vi.mock('../../hooks', () => ({
-  useDepartments: () => ({ data: [operations, finance], isLoading: false, error: null }),
+  useDepartments: () => ({ data: [operations, finance, people], isLoading: false, error: null }),
   useCreateDepartment: () => ({ mutateAsync: mocks.create, isPending: false }),
   useUpdateDepartment: () => ({ mutateAsync: mocks.update, isPending: false }),
   useIsWorkforceManager: () => mocks.isManager.current,
@@ -80,7 +89,7 @@ describe('DepartmentsPage', () => {
     renderPage(null);
 
     expect(screen.getByRole('button', { name: /New Department/ })).toBeInTheDocument();
-    expect(screen.getAllByRole('button', { name: 'Edit department' })).toHaveLength(2);
+    expect(screen.getAllByRole('button', { name: 'Edit department' })).toHaveLength(3);
   });
 
   it('offers neither to a reader the service would reject, but still lists the departments', () => {
@@ -97,6 +106,7 @@ describe('DepartmentsPage', () => {
 
     expect(screen.getByText('OPS · Production')).toBeInTheDocument();
     expect(screen.getByText('FIN · Company-wide')).toBeInTheDocument();
+    expect(screen.getByText('PPL · Human resources')).toBeInTheDocument();
   });
 
   it('says in its header which workspace’s departments it lists', () => {
@@ -153,7 +163,9 @@ describe('DepartmentsPage', () => {
   });
 
   describe('in the Company workspace', () => {
-    it('offers company-wide and every module when creating', () => {
+    // WHY: R1 adds HR to the wire enum and contract rule C1 lets the web send it from R2
+    // (PKG-01 PR2, RBAC-MEDIUM-032), which adds 'Human resources' to this list.
+    it('offers company-wide and every module but HR when creating', () => {
       renderPage(null);
       fireEvent.click(screen.getByRole('button', { name: /New Department/ }));
 
@@ -163,6 +175,20 @@ describe('DepartmentsPage', () => {
         'Greenhouse',
         'Control & sensors',
       ]);
+    });
+
+    it('shows an HR department in HR when it is edited, and keeps it there', async () => {
+      renderPage(null);
+      fireEvent.click(screen.getAllByRole('button', { name: 'Edit department' })[2]!);
+
+      expect(moduleSelect()).toHaveValue('HR');
+      expect(Array.from(moduleSelect().options).map((option) => option.textContent)).toContain(
+        'Human resources',
+      );
+      fireEvent.click(screen.getByRole('button', { name: 'Update' }));
+
+      await waitFor(() => expect(mocks.update).toHaveBeenCalledTimes(1));
+      expect(mocks.update.mock.calls[0]?.[0]).toMatchObject({ id: 'dept-ppl', moduleCode: 'HR' });
     });
 
     it('creates a department in the chosen module', async () => {

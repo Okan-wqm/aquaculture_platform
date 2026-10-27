@@ -22,6 +22,7 @@ PostgreSQL documentation is explicit: *"An `ACCESS EXCLUSIVE` lock is acquired u
 The subset of operations that are instantaneous (effectively O(1) metadata changes):
 
 - `ADD COLUMN ... DEFAULT <non-volatile>` (PG 11+). *"The default value is evaluated at the time of the statement and the result stored in the table's metadata."* Critical distinction: `DEFAULT now()` is **volatile** and rewrites the table. `DEFAULT CURRENT_DATE` is also volatile. `DEFAULT 'some_literal'` is non-volatile and fast.
+  - ADR-053 supersedes this line: `now()` and `CURRENT_DATE` are stable and do not rewrite.
 - `ADD CONSTRAINT ... NOT VALID` (check / foreign key). *"With `NOT VALID`, the `ADD CONSTRAINT` command does not scan the table and can be committed immediately."*
 - `DROP CONSTRAINT` (metadata only)
 - `DROP COLUMN` (logical drop — metadata mark only; storage reclaimed by VACUUM FULL later)
@@ -166,6 +167,7 @@ For CREATE INDEX CONCURRENTLY, disable `statement_timeout` (`SET LOCAL statement
 - Bare `CREATE TABLE` / `CREATE INDEX` / `CREATE POLICY` without `IF NOT EXISTS` or a `pg_catalog` existence check = **HIGH**.
 - Missing `SET LOCAL lock_timeout` and `SET LOCAL statement_timeout` at the top of a DDL transaction = **MEDIUM**.
 - `ADD COLUMN` with a volatile `DEFAULT` (e.g., `now()`, `clock_timestamp()`, `gen_random_uuid()` on a large table) without documented rewrite-cost analysis = **HIGH**.
+  - ADR-053 supersedes the `now()` example: `now()` is stable and does not rewrite the table.
 - `ALTER COLUMN ... TYPE` that requires a rewrite on a table with >1M rows, without a documented two-phase migration plan = **HIGH**.
 - `CREATE INDEX CONCURRENTLY` co-located with other DDL in the same migration file = **HIGH**.
 - `DROP COLUMN`, `DROP TABLE`, `DROP SCHEMA ... CASCADE`, `TRUNCATE`, or narrowing `ALTER COLUMN ... TYPE` without documented `pg_dump` backup step and rollback migration = **CRITICAL**.

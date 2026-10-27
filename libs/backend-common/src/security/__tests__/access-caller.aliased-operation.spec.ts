@@ -1,3 +1,5 @@
+import type { Server } from 'node:http';
+
 import { ApolloFederationDriver, type ApolloFederationDriverConfig } from '@nestjs/apollo';
 import {
   Module,
@@ -21,7 +23,6 @@ import {
 } from '@nestjs/graphql';
 import { Test } from '@nestjs/testing';
 import type { NextFunction, Request, Response } from 'express';
-import type { Server } from 'node:http';
 import request from 'supertest';
 
 import { AccessCaller } from '../../decorators/access-caller.decorator';

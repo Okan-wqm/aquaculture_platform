@@ -189,6 +189,23 @@ describe('leave queries — module scope', () => {
       expect(queryBuilder['innerJoin']).not.toHaveBeenCalled();
     });
 
+    // "No department" must never read as "every department" (HR-HIGH-056).
+    it('returns an empty page, not every department, for a manager placed in none', async () => {
+      const queryBuilder = await run(new GetPendingApprovalsQuery(tenantId, approverId), {
+        id: approverId,
+        departmentHrId: null,
+      });
+
+      expect(queryBuilder['getManyAndCount']).not.toHaveBeenCalled();
+    });
+
+    it('returns an empty page for a manager who has no employee record', async () => {
+      const queryBuilder = await run(new GetPendingApprovalsQuery(tenantId, null));
+
+      expect(approverLookup).not.toHaveBeenCalled();
+      expect(queryBuilder['getManyAndCount']).not.toHaveBeenCalled();
+    });
+
     it('never narrows a tenant admin implicitly, even one with an employee record', async () => {
       const queryBuilder = await run(
         new GetPendingApprovalsQuery(tenantId, approverId, undefined, 20, 1, undefined, false),

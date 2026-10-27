@@ -37,8 +37,8 @@ export class GetPendingAttendanceApprovalsHandler
       moduleCode,
       narrowToOwnDepartment,
     });
-    if (scope.kind === 'unknown-approver') {
-      // Return an empty set rather than leaking cross-department data.
+    if (scope.kind === 'unplaced-approver') {
+      // An approver with no department sees an empty queue, never every department's.
       return createPaginatedQueryResult([], page, limit, 0);
     }
 

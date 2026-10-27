@@ -1,13 +1,13 @@
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
-import { BadRequestException, NotFoundException, ForbiddenException, Logger } from '@nestjs/common';
+import { BadRequestException, NotFoundException, Logger } from '@nestjs/common';
 import { OutboxPublisher } from '@platform/outbox';
 import { ApproveLeaveRequestCommand } from '../commands/approve-leave-request.command';
 import { LeaveRequest, LeaveRequestStatus } from '../entities/leave-request.entity';
 import { LeaveStateMachine } from '../leave-state-machine';
 import { LeaveBalance } from '../entities/leave-balance.entity';
-import { Employee } from '../../hr/entities/employee.entity';
+import { assertNotOwnRecord, findViewerEmployee } from '../../common/viewer';
 import { createLeaveApprovedEvent } from '../events/leave.events';
 
 @CommandHandler(ApproveLeaveRequestCommand)
@@ -46,14 +46,12 @@ export class ApproveLeaveRequestHandler
       }
 
       // Resolve the approver's employee ID from auth userId to prevent cross-namespace comparison
-      const approverEmployee = await queryRunner.manager.findOne(Employee, {
-        where: { userId, tenantId, isDeleted: false },
-      });
-
-      // Cannot approve own leave request
-      if (approverEmployee && leaveRequest.employeeId === approverEmployee.id) {
-        throw new ForbiddenException('You cannot approve your own leave request');
-      }
+      const approverEmployee = await findViewerEmployee(queryRunner.manager, tenantId, { sub: userId });
+      assertNotOwnRecord(
+        approverEmployee,
+        leaveRequest.employeeId,
+        'You cannot approve your own leave request',
+      );
 
       // HR-HIGH-008: Use centralized state machine for transition validation.
       // Invalid transitions (e.g., APPROVED→APPROVED, CANCELLED→APPROVED) throw immediately.

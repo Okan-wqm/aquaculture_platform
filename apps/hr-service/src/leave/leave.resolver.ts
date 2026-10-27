@@ -37,6 +37,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
 import { HrModuleCode } from '../common/enums';
+import { findViewerEmployee, isTenantAdmin } from '../common/viewer';
 import { GqlAuthGuard } from '../common/guards/gql-auth.guard';
 import { RolesGuard } from '@aquaculture/backend-common/guards';
 import { Employee } from '../hr/entities/employee.entity';
@@ -130,9 +131,8 @@ export class LeaveResolver {
    * These are different: Employee.userId links the two.
    */
   private async resolveEmployeeId(userId: string, tenantId: string): Promise<string> {
-    const employee = await this.employeeRepository.findOne({
-      where: { userId, tenantId, isDeleted: false },
-      select: ['id'],
+    const employee = await findViewerEmployee(this.employeeRepository.manager, tenantId, {
+      sub: userId,
     });
     if (!employee) {
       throw new NotFoundException(
@@ -146,6 +146,8 @@ export class LeaveResolver {
   // Leave Type Queries
   // =====================
   @Query(() => [LeaveType], { name: 'leaveTypes' })
+  @UseGuards(RolesGuard)
+  @ModuleUserOrHigher()
   async getLeaveTypes(
     @Context() context: GraphQLContext,
     @Args('isActive', { nullable: true }) isActive?: boolean,
@@ -176,6 +178,8 @@ export class LeaveResolver {
   }
 
   @Query(() => [LeaveBalance], { name: 'myLeaveBalances' })
+  @UseGuards(RolesGuard)
+  @ModuleUserOrHigher()
   async getMyLeaveBalances(
     @Context() context: GraphQLContext,
     @Args('year', { type: () => Int, nullable: true }) year?: number,
@@ -239,6 +243,8 @@ export class LeaveResolver {
   }
 
   @Query(() => [LeaveRequest], { name: 'myLeaveRequests' })
+  @UseGuards(RolesGuard)
+  @ModuleUserOrHigher()
   async getMyLeaveRequests(
     @Context() context: GraphQLContext,
     @Args('status', { type: () => LeaveRequestStatus, nullable: true }) status?: LeaveRequestStatus,
@@ -278,12 +284,8 @@ export class LeaveResolver {
     @Args('moduleCode', { type: () => HrModuleCode, nullable: true }) moduleCode?: HrModuleCode,
   ): Promise<IStandardPaginatedResult<LeaveRequest>> {
     const tenantId = this.getTenantId(context);
-    const userId = this.getUserId(context);
     // Admin users may not have an employee record — resolve optionally
-    const employee = await this.employeeRepository.findOne({
-      where: { userId, tenantId, isDeleted: false },
-      select: ['id'],
-    });
+    const employee = await findViewerEmployee(this.employeeRepository.manager, tenantId, viewer);
     const employeeId = employee?.id ?? null;
     const result = await this.queryBus.execute<
       GetPendingApprovalsQuery,
@@ -297,13 +299,15 @@ export class LeaveResolver {
         page,
         moduleCode,
         // A tenant admin approves across departments; only a manager is narrowed to their own.
-        !viewer.roles?.some((role) => role === Role.TENANT_ADMIN),
+        !isTenantAdmin(viewer),
       ),
     );
     return fromCqrsPaginated(result);
   }
 
   @Query(() => [LeaveCalendarEntry], { name: 'teamLeaveCalendar' })
+  @UseGuards(RolesGuard)
+  @ModuleUserOrHigher()
   async getTeamLeaveCalendar(
     @Context() context: GraphQLContext,
     @Args('startDate') startDate: string,
@@ -321,6 +325,8 @@ export class LeaveResolver {
   // Leave Validation Queries
   // =====================
   @Query(() => LeaveOverlapResult, { name: 'checkLeaveOverlap' })
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async checkLeaveOverlap(
     @Args('employeeId', { type: () => ID }) employeeId: string,
     @Args('startDate') startDate: string,
@@ -335,6 +341,8 @@ export class LeaveResolver {
   }
 
   @Query(() => LeaveDaysResult, { name: 'calculateLeaveDays' })
+  @UseGuards(RolesGuard)
+  @ModuleUserOrHigher()
   async calculateLeaveDays(
     @Args('leaveTypeId', { type: () => ID }) leaveTypeId: string,
     @Args('startDate') startDate: string,
@@ -479,6 +487,8 @@ export class LeaveResolver {
   // Leave Request Mutations
   // =====================
   @Mutation(() => LeaveRequest)
+  @UseGuards(RolesGuard)
+  @ModuleUserOrHigher()
   @AuditLog({
     action: 'CREATE_LEAVE_REQUEST',
     resource: 'LeaveRequest',

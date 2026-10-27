@@ -86,30 +86,40 @@ describe('resolveApprovalDepartment', () => {
     expect(findOne).not.toHaveBeenCalled();
   });
 
-  it('never narrows a viewer with no employee record', async () => {
+  it('gives a manager with no employee record an empty queue, not the whole tenant', async () => {
     const { repository, findOne } = employeeRepository(null);
 
     const resolved = await resolveApprovalDepartment(repository, { ...request, approverId: null });
 
-    expect(resolved).toEqual({ kind: 'narrow', departmentId: undefined });
+    expect(resolved).toEqual({ kind: 'unplaced-approver' });
     expect(findOne).not.toHaveBeenCalled();
   });
 
-  it('lists everything for an approver placed in no department', async () => {
+  it('gives a manager placed in no department an empty queue, not the whole tenant', async () => {
     const { repository } = employeeRepository({ id: approverId, departmentHrId: null });
 
     expect(await resolveApprovalDepartment(repository, request)).toEqual({
-      kind: 'narrow',
-      departmentId: null,
+      kind: 'unplaced-approver',
     });
   });
 
-  it('reports an approver who is not an employee of the tenant, so the queue is empty rather than wide', async () => {
+  it('gives an approver who is not an employee of the tenant an empty queue', async () => {
     const { repository } = employeeRepository(null);
 
     expect(await resolveApprovalDepartment(repository, request)).toEqual({
-      kind: 'unknown-approver',
+      kind: 'unplaced-approver',
     });
+  });
+
+  it('still lets a manager with no department work through the module view or a named department', async () => {
+    const { repository } = employeeRepository({ id: approverId, departmentHrId: null });
+
+    expect(
+      await resolveApprovalDepartment(repository, { ...request, moduleCode: HrModuleCode.FARM }),
+    ).toEqual({ kind: 'narrow', departmentId: undefined });
+    expect(
+      await resolveApprovalDepartment(repository, { ...request, departmentId: 'dept-x' }),
+    ).toEqual({ kind: 'narrow', departmentId: 'dept-x' });
   });
 });
 

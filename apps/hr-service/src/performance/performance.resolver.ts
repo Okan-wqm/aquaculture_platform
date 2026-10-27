@@ -1,10 +1,15 @@
 import { Resolver, Query, Mutation, Args, ID, Context, Int, ObjectType, Float } from '@nestjs/graphql';
 import { UnauthorizedException, UseGuards } from '@nestjs/common';
 import { GqlAuthGuard } from '../common/guards/gql-auth.guard';
-import { Roles, Role, AuditLog } from '@aquaculture/backend-common/decorators';
+import { findViewerEmployee } from '../common/viewer';
+import type { ViewerEmployee } from '../common/viewer';
+import { Employee } from '../hr/entities/employee.entity';
+import { Roles, Role, AuditLog, ModuleUserOrHigher } from '@aquaculture/backend-common/decorators';
 import { StandardPaginatedResponse, IStandardPaginatedResult, fromCqrsPaginated } from '@aquaculture/backend-common/pagination';
 import { RolesGuard } from '@aquaculture/backend-common/guards';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { PerformanceReview } from './entities/performance-review.entity';
 import { Goal } from './entities/goal.entity';
 import { EmployeeKPI } from './entities/kpi.entity';
@@ -86,6 +91,8 @@ export class PerformanceResolver {
   constructor(
     private readonly commandBus: CommandBus,
     private readonly queryBus: QueryBus,
+    @InjectRepository(Employee)
+    private readonly employeeRepository: Repository<Employee>,
   ) {}
 
   private getTenantId(context: GraphQLContext): string {
@@ -102,6 +109,21 @@ export class PerformanceResolver {
       throw new UnauthorizedException('User ID is required - authentication required');
     }
     return userId;
+  }
+
+  /**
+   * The viewer's HR employee record. Reviews and goals are keyed by the HR employee id, which is a
+   * different uuid from the JWT `sub` (the auth user id) — they are linked only by `Employee.userId`.
+   * Null for a user with no employee record (a tenant administrator or owner need not have one),
+   * who has no reviews or goals of their own.
+   */
+  private resolveViewerEmployee(
+    context: GraphQLContext,
+    tenantId: string,
+  ): Promise<ViewerEmployee | null> {
+    return findViewerEmployee(this.employeeRepository.manager, tenantId, {
+      sub: this.getUserId(context),
+    });
   }
 
   // =====================
@@ -126,6 +148,8 @@ export class PerformanceResolver {
   }
 
   @Query(() => PerformanceReview, { name: 'performanceReview' })
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async getPerformanceReview(
     @Args('id', { type: () => ID }) id: string,
     @Context() context: GraphQLContext,
@@ -135,18 +159,25 @@ export class PerformanceResolver {
   }
 
   @Query(() => [PerformanceReview], { name: 'myPerformanceReviews' })
+  @UseGuards(RolesGuard)
+  @ModuleUserOrHigher()
   async getMyPerformanceReviews(
     @Context() context: GraphQLContext,
     @Args('status', { nullable: true }) status?: string,
   ): Promise<PerformanceReview[]> {
     const tenantId = this.getTenantId(context);
-    const userId = this.getUserId(context);
+    const employee = await this.resolveViewerEmployee(context, tenantId);
+    if (!employee) {
+      return [];
+    }
     return this.queryBus.execute(
-      new GetMyPerformanceReviewsQuery(tenantId, userId, status),
+      new GetMyPerformanceReviewsQuery(tenantId, employee.id, status),
     );
   }
 
   @Query(() => [PerformanceReview], { name: 'pendingReviews' })
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async getPendingReviews(
     @Args('reviewerId', { type: () => ID }) reviewerId: string,
     @Context() context: GraphQLContext,
@@ -156,6 +187,8 @@ export class PerformanceResolver {
   }
 
   @Query(() => PerformanceSummary, { name: 'performanceSummary' })
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async getPerformanceSummary(
     @Args('employeeId', { type: () => ID }) employeeId: string,
     @Context() context: GraphQLContext,
@@ -234,6 +267,8 @@ export class PerformanceResolver {
   }
 
   @Query(() => Goal, { name: 'goal' })
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async getGoal(
     @Args('id', { type: () => ID }) id: string,
     @Context() context: GraphQLContext,
@@ -243,13 +278,18 @@ export class PerformanceResolver {
   }
 
   @Query(() => [Goal], { name: 'myGoals' })
+  @UseGuards(RolesGuard)
+  @ModuleUserOrHigher()
   async getMyGoals(
     @Context() context: GraphQLContext,
     @Args('status', { nullable: true }) status?: string,
   ): Promise<Goal[]> {
     const tenantId = this.getTenantId(context);
-    const userId = this.getUserId(context);
-    return this.queryBus.execute(new GetMyGoalsQuery(tenantId, userId, status));
+    const employee = await this.resolveViewerEmployee(context, tenantId);
+    if (!employee) {
+      return [];
+    }
+    return this.queryBus.execute(new GetMyGoalsQuery(tenantId, employee.id, status));
   }
 
   @Query(() => [Goal], { name: 'teamGoals' })
@@ -295,6 +335,8 @@ export class PerformanceResolver {
   // =====================
 
   @Query(() => [EmployeeKPI], { name: 'employeeKPIs' })
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async getEmployeeKPIs(
     @Args('employeeId', { type: () => ID }) employeeId: string,
     @Context() context: GraphQLContext,
@@ -363,6 +405,8 @@ export class PerformanceResolver {
   }
 
   @Mutation(() => PerformanceReview)
+  @UseGuards(RolesGuard)
+  @ModuleUserOrHigher()
   async submitSelfAssessment(
     @Args('input') input: SubmitSelfAssessmentInput,
     @Context() context: GraphQLContext,
@@ -427,6 +471,8 @@ export class PerformanceResolver {
   }
 
   @Mutation(() => PerformanceReview)
+  @UseGuards(RolesGuard)
+  @ModuleUserOrHigher()
   async acknowledgeReview(
     @Args('reviewId', { type: () => ID }) reviewId: string,
     @Context() context: GraphQLContext,
@@ -459,6 +505,8 @@ export class PerformanceResolver {
   // =====================
 
   @Mutation(() => Goal)
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async createGoal(
     @Args('input') input: CreateGoalInput,
     @Context() context: GraphQLContext,
@@ -484,6 +532,8 @@ export class PerformanceResolver {
   }
 
   @Mutation(() => Goal)
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async updateGoal(
     @Args('input') input: UpdateGoalInput,
     @Context() context: GraphQLContext,
@@ -505,6 +555,8 @@ export class PerformanceResolver {
   }
 
   @Mutation(() => Goal)
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async updateGoalProgress(
     @Args('input') input: UpdateGoalProgressInput,
     @Context() context: GraphQLContext,
@@ -524,6 +576,8 @@ export class PerformanceResolver {
   }
 
   @Mutation(() => Goal)
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async completeGoal(
     @Args('goalId', { type: () => ID }) goalId: string,
     @Context() context: GraphQLContext,
@@ -537,6 +591,8 @@ export class PerformanceResolver {
   }
 
   @Mutation(() => Goal)
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async cancelGoal(
     @Args('goalId', { type: () => ID }) goalId: string,
     @Args('reason') reason: string,
@@ -550,6 +606,8 @@ export class PerformanceResolver {
   }
 
   @Mutation(() => Goal)
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async deferGoal(
     @Args('goalId', { type: () => ID }) goalId: string,
     @Args('newTargetDate') newTargetDate: string,
@@ -564,6 +622,8 @@ export class PerformanceResolver {
   }
 
   @Mutation(() => Goal)
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async addKeyResult(
     @Args('goalId', { type: () => ID }) goalId: string,
     @Args('keyResult') keyResult: KeyResultInput,
@@ -577,6 +637,8 @@ export class PerformanceResolver {
   }
 
   @Mutation(() => Goal)
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async updateKeyResult(
     @Args('goalId', { type: () => ID }) goalId: string,
     @Args('keyResultId', { type: () => ID }) keyResultId: string,
@@ -591,6 +653,8 @@ export class PerformanceResolver {
   }
 
   @Mutation(() => Goal)
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async addMilestone(
     @Args('goalId', { type: () => ID }) goalId: string,
     @Args('milestone') milestone: MilestoneInput,
@@ -604,6 +668,8 @@ export class PerformanceResolver {
   }
 
   @Mutation(() => Goal)
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async completeMilestone(
     @Args('goalId', { type: () => ID }) goalId: string,
     @Args('milestoneId', { type: () => ID }) milestoneId: string,

@@ -1,11 +1,11 @@
 import { CommandHandler, ICommandHandler, EventBus } from '@nestjs/cqrs';
 import { DataSource } from 'typeorm';
-import { BadRequestException, NotFoundException, ForbiddenException, Logger } from '@nestjs/common';
+import { BadRequestException, NotFoundException, Logger } from '@nestjs/common';
 import { RejectLeaveRequestCommand } from '../commands/reject-leave-request.command';
 import { LeaveRequest, LeaveRequestStatus } from '../entities/leave-request.entity';
 import { LeaveStateMachine } from '../leave-state-machine';
 import { LeaveBalance } from '../entities/leave-balance.entity';
-import { Employee } from '../../hr/entities/employee.entity';
+import { assertNotOwnRecord, findViewerEmployee } from '../../common/viewer';
 import { createLeaveRejectedEvent } from '../events/leave.events';
 
 @CommandHandler(RejectLeaveRequestCommand)
@@ -38,14 +38,12 @@ export class RejectLeaveRequestHandler
       }
 
       // Resolve the rejector's employee ID from auth userId to prevent cross-namespace comparison
-      const rejectorEmployee = await queryRunner.manager.findOne(Employee, {
-        where: { userId, tenantId, isDeleted: false },
-      });
-
-      // Cannot reject own leave request
-      if (rejectorEmployee && leaveRequest.employeeId === rejectorEmployee.id) {
-        throw new ForbiddenException('You cannot reject your own leave request');
-      }
+      const rejectorEmployee = await findViewerEmployee(queryRunner.manager, tenantId, { sub: userId });
+      assertNotOwnRecord(
+        rejectorEmployee,
+        leaveRequest.employeeId,
+        'You cannot reject your own leave request',
+      );
 
       // HR-HIGH-008: Use centralized state machine for transition validation.
       LeaveStateMachine.transition(leaveRequest.status, LeaveRequestStatus.REJECTED);

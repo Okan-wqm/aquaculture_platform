@@ -98,6 +98,8 @@ export function makeWorld(seed: WorldSeed): World {
   const invalidations: InvalidationRecord[] = [];
   const savedUsers: User[] = [];
   let inTransaction = false;
+  // The transaction-local RLS settings (set_config(..., true)): they end with the transaction.
+  const rls: { tenant: string | null; bypass: string | null } = { tenant: null, bypass: null };
 
   const users = new Map(
     seed.users.map((user) => [
@@ -229,6 +231,12 @@ export function makeWorld(seed: WorldSeed): World {
     query: stubMember<EntityManager['query']>((sql: string, parameters?: unknown[]) => {
       if (sql.includes('set_config') && parameters?.[0] === 'app.current_tenant') {
         steps.push(`rls:${String(parameters[1])}`);
+        rls.tenant = String(parameters[1]);
+      } else if (sql.includes('set_config') && parameters?.[0] === 'app.bypass_rls') {
+        rls.bypass = 'off';
+      } else if (sql.includes('current_setting')) {
+        // The binding read-back: what the transaction-local settings resolve to.
+        return Promise.resolve([{ tenant: rls.tenant, bypass: rls.bypass }]);
       }
       return Promise.resolve([]);
     }),
@@ -256,6 +264,8 @@ export function makeWorld(seed: WorldSeed): World {
           return await work(manager);
         } finally {
           inTransaction = false;
+          rls.tenant = null;
+          rls.bypass = null;
         }
       },
     ),

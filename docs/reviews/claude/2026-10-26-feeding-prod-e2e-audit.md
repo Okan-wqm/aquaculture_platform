@@ -1,5 +1,7 @@
 # Feeding production E2E audit — four defects fixed, four tracked (2026-10-26)
 
+<!-- markdownlint-disable MD013 -->
+
 An end-to-end audit of the ten Production > Feeding tabs on the Codex Test Tenant (frontend, GraphQL, handlers, database; read, create,
 edit, delete) found, among others, four defects that stopped the Feeding engine and the web session. This file registers them, with the
 evidence that was read on production, and the four follow-ups that were found on the way and are NOT fixed here.

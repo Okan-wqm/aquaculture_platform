@@ -16,11 +16,10 @@ describe('finding registry allocation scale', () => {
     // Well past V8's argument ceiling (~65k–125k depending on the frame).
     const perRegistry = 2_000;
     const registries = 100;
+    // Opaque strings, unique per row: only the concatenation is under test, so
+    // these are not ids of the grammar (which ends at 9999) and are not read as ids.
     const registryIds = Array.from({ length: registries }, (_, r) =>
-      Array.from(
-        { length: perRegistry },
-        (_, i) => `ARIA-HIGH-${String(r * perRegistry + i + 1).padStart(3, '0')}`,
-      ),
+      Array.from({ length: perRegistry }, (_, i) => `ARIA-HIGH-${r * perRegistry + i + 1}`),
     );
     const readRegistry = jest.fn((registryPath: string): ReadonlyArray<string> => {
       const index = Number.parseInt(registryPath.slice(registryPath.lastIndexOf('/') + 1), 10);

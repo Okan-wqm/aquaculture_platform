@@ -58,6 +58,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
 
 import { loadAliasReviewFiles, loadCanonicalToAliases } from './finding-id-aliases';
+import { compareFindingIds, parseFindingIdShape } from './finding-id-grammar';
 import { type Finding, parseRegistryJsonl } from './finding-registry-chain';
 import type { FindingEventLine } from './finding-registry-events';
 import { rowContractViolations } from './finding-registry-rows';
@@ -85,8 +86,8 @@ const GIT_LOG_MAX_BUFFER_BYTES = 512 * 1024 * 1024;
 const FIELD_SEP = '\x1f';
 const RECORD_SEP = '\x1e';
 const FULL_SHA = /^[0-9a-f]{40}$/;
-/** `<PREFIX>/<ID>.jsonl` under the store: the prefix is the id's leading segment. */
-const EVENT_LOG_PATH = /^([A-Z][A-Z0-9]*)\/([A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+)\.jsonl$/;
+/** `<PREFIX>/<ID>.jsonl` under the store: the prefix is the id's domain. */
+const EVENT_LOG_PATH = /^([^/]+)\/([^/]+)\.jsonl$/;
 
 /** Every file of one registry directory, by role. */
 export interface RegistryLayout {
@@ -133,9 +134,9 @@ export function eventLogRelativePath(findingId: string): string {
 
 /** The finding id a store-relative path names, or null when it is not `<PREFIX>/<ID>.jsonl`. */
 export function eventLogFindingId(storeRelativePath: string): string | null {
-  const match = EVENT_LOG_PATH.exec(storeRelativePath);
-  const [, prefix, id] = match ?? [];
-  return prefix !== undefined && id !== undefined && id.split('-')[0] === prefix ? id : null;
+  const [, prefix, id] = EVENT_LOG_PATH.exec(storeRelativePath) ?? [];
+  if (prefix === undefined || id === undefined) return null;
+  return parseFindingIdShape(id)?.domain === prefix ? id : null;
 }
 
 /** One event log as stored: its store-relative path, its bytes and its lines. */
@@ -174,6 +175,18 @@ export function parseEventLog(path: string, bytes: Buffer): EventLog {
   return { path, findingId, bytes, events };
 }
 
+/**
+ * `logs` keyed by finding id, in the registry's order of ids (the sequence as
+ * a number), not in the order of their paths: a path order puts 1000 before 999.
+ */
+function inFindingOrder(logs: readonly EventLog[]): Map<string, EventLog> {
+  return new Map(
+    [...logs]
+      .sort((left, right) => compareFindingIds(left.findingId, right.findingId))
+      .map((log) => [log.findingId, log]),
+  );
+}
+
 function walkFiles(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {
     const full = join(dir, name);
@@ -183,14 +196,12 @@ function walkFiles(dir: string): string[] {
 
 /** The event logs under `storeDir` of a working tree; none when the store does not exist. */
 export function readEventLogs(storeDir: string): Map<string, EventLog> {
-  const logs = new Map<string, EventLog>();
-  if (!existsSync(storeDir)) return logs;
-  for (const full of walkFiles(storeDir).sort()) {
-    const path = relative(storeDir, full).split(sep).join('/');
-    const log = parseEventLog(path, readFileSync(full));
-    logs.set(log.findingId, log);
-  }
-  return logs;
+  if (!existsSync(storeDir)) return new Map();
+  return inFindingOrder(
+    walkFiles(storeDir).map((full) =>
+      parseEventLog(relative(storeDir, full).split(sep).join('/'), readFileSync(full)),
+    ),
+  );
 }
 
 function git(repoRoot: string, args: readonly string[], input?: string | Buffer): Buffer {
@@ -219,13 +230,13 @@ function readEventLogsAt(repoRoot: string, ref: string): Map<string, EventLog> {
     .split('\0')
     .filter(Boolean)
     .sort();
-  const logs = new Map<string, EventLog>();
-  if (listed.length === 0) return logs;
+  if (listed.length === 0) return new Map();
   const batch = git(
     repoRoot,
     ['cat-file', '--batch'],
     listed.map((path) => `${ref}:${path}\n`).join(''),
   );
+  const logs: EventLog[] = [];
   let offset = 0;
   for (const path of listed) {
     const headerEnd = batch.indexOf(0x0a, offset);
@@ -236,14 +247,12 @@ function readEventLogsAt(repoRoot: string, ref: string): Map<string, EventLog> {
     }
     const start = headerEnd + 1;
     const end = start + Number.parseInt(size, 10);
-    const log = parseEventLog(
-      path.slice(EVENT_STORE_RELATIVE_PATH.length + 1),
-      batch.subarray(start, end),
+    logs.push(
+      parseEventLog(path.slice(EVENT_STORE_RELATIVE_PATH.length + 1), batch.subarray(start, end)),
     );
-    logs.set(log.findingId, log);
     offset = end + 1;
   }
-  return logs;
+  return inFindingOrder(logs);
 }
 
 /**

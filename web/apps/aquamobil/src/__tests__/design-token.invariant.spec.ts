@@ -23,7 +23,7 @@
  *      paints one theme then snaps to another on hydration.
  */
 
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 import { describe, it, expect } from 'vitest';
@@ -160,11 +160,27 @@ describe('design-token invariant (AquaMobil v4)', () => {
     }
     // …and the self-hosted faces must actually be declared.
     expect(TOKENS_CSS).toMatch(/@font-face/);
-    expect(TOKENS_CSS).toMatch(/\/mobile\/fonts\/geist-latin\.woff2/);
+    expect(TOKENS_CSS).toMatch(/\/mobile\/fonts\/inter-latin\.woff2/);
     // latin-ext carries the Turkish glyph set and the default locale is Turkish.
     expect(TOKENS_CSS, 'latin-ext subset missing — Turkish glyphs would fall back').toMatch(
-      /geist-latin-ext\.woff2/,
+      /inter-latin-ext\.woff2/,
     );
+    // Inter is the one text face; Geist Mono stays for code and IDs only.
+    expect(TOKENS_CSS, 'a Geist sans face is still declared').not.toMatch(
+      /font-family:\s*'Geist';/,
+    );
+    expect(TOKENS_CSS).toMatch(/\/mobile\/fonts\/geist-mono-latin\.woff2/);
+  });
+
+  it('ships every declared font file with its licence notice', () => {
+    const fontsDir = join(APP_DIR, 'public/fonts');
+    const files = [...TOKENS_CSS.matchAll(/url\('\/mobile\/fonts\/([^']+)'\)/g)].map(
+      ([, file]) => file ?? '',
+    );
+    expect(files.length).toBeGreaterThanOrEqual(4);
+    expect(files.filter((file) => !existsSync(join(fontsDir, file)))).toEqual([]);
+    for (const notice of ['LICENSE-inter.txt', 'LICENSE-geist-mono.txt'])
+      expect(existsSync(join(fontsDir, notice)), notice).toBe(true);
   });
 
   it('keeps the pre-paint script EXTERNAL — an inline one is blocked by the production CSP', () => {

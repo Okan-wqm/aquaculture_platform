@@ -6,7 +6,7 @@
  * gray / success / info to the graphite ramp, primary to the workspace accent,
  * warning and accent (Severity's "high" tier, README §7.5) to the hazard amber,
  * error to the hazard red, every radius token to square, the sans and display
- * faces to Barlow — so a page written against those scales paints Industry
+ * faces to Inter — so a page written against those scales paints Industry
  * with no skin of its own (web-theme-token-parity.spec.ts pins each mapping).
  * What the scope cannot reach is whatever does not read those tokens:
  *

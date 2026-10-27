@@ -220,7 +220,7 @@ export function LeaveRequestPage(): JSX.Element {
           <Card className="bg-acc-dim border-acc p-3">
             <p className="text-body text-acc">
               Available:{' '}
-              <span className="font-bold font-mono">{selectedBalance.remainingDays}</span> days
+              <span className="font-bold tabular-nums">{selectedBalance.remainingDays}</span> days
               (Used: {selectedBalance.usedDays} / Total: {selectedBalance.totalEntitlement})
             </p>
           </Card>
@@ -268,9 +268,7 @@ export function LeaveRequestPage(): JSX.Element {
       {totalDays > 0 && (
         <div className="mx-4 mt-3">
           <Card className="bg-acc-dim border-acc p-3 text-center">
-            <span className="text-display font-mono font-bold text-acc tabular-nums">
-              {totalDays}
-            </span>
+            <span className="text-display font-bold text-acc tabular-nums">{totalDays}</span>
             <span className="text-body text-acc ml-1">day{totalDays !== 1 ? 's' : ''}</span>
           </Card>
         </div>

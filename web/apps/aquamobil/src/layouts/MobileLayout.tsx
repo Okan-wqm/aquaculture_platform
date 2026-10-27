@@ -277,7 +277,7 @@ function DockTab({
       )}
     >
       {badge > 0 && (
-        <span className="absolute top-1 right-2 min-w-[16px] h-4 px-1 rounded-full bg-crit text-white text-meta font-mono font-semibold inline-flex items-center justify-center">
+        <span className="absolute top-1 right-2 min-w-[16px] h-4 px-1 rounded-full bg-crit text-white text-meta font-semibold tabular-nums inline-flex items-center justify-center">
           {badge > 99 ? '99+' : badge}
         </span>
       )}

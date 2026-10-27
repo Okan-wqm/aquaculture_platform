@@ -152,7 +152,7 @@ function EventRow({ event }: { event: StockEvent }): JSX.Element {
         }
         subtitle={`${event.quantity} fish`}
         trailing={
-          <time dateTime={event.createdAt} className="font-mono tabular-nums">
+          <time dateTime={event.createdAt} className="tabular-nums">
             {formatRelativeTime(event.createdAt)}
           </time>
         }

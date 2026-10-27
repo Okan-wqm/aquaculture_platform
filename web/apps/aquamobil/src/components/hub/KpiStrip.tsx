@@ -82,10 +82,7 @@ export function KpiStrip({ items }: KpiStripProps): ReactElement | null {
             <div className="h-7 w-12 mx-auto rounded-lg skeleton" aria-hidden />
           ) : (
             <div
-              className={clsx(
-                'text-head font-mono font-bold tabular-nums',
-                item.valueColor ?? 'text-ink-1',
-              )}
+              className={clsx('text-head font-bold tabular-nums', item.valueColor ?? 'text-ink-1')}
             >
               {item.value}
             </div>

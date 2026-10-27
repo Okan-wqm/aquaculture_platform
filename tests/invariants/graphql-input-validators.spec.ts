@@ -34,7 +34,6 @@ const KNOWN_GAPS: Readonly<Record<string, number>> = {
   'apps/auth-service/src/modules/support/dto/support.dto.ts': 2,
   'apps/auth-service/src/modules/tenant/dto/mobile-settings.dto.ts': 1,
   'apps/auth-service/src/modules/tenant/dto/tenant-role.dto.ts': 1,
-  'apps/farm-service/src/batch/dto/batch-resolver.dto.ts': 16,
   'apps/farm-service/src/farm/dto/create-farm.input.ts': 1,
   'apps/farm-service/src/growth/resolvers/growth.resolver.ts': 30,
   'apps/farm-service/src/maintenance/resolvers/spare-part.resolver.ts': 3,

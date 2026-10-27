@@ -25,10 +25,10 @@ Cross-references to deeper chapters use relative paths under `sens-api-gateway/d
 
 | Protocol | Status | Evidence | Cross-reference |
 |----------|--------|----------|----------------|
-| Modbus-TCP | PRESENT | `Cargo.toml:70` (`rodbus = "=1.4.0"`), `src/modbus.rs` | → `protocols/modbus.md` · ORPHAN-002 (version pin) · ORPHAN-008 FIXED-IN-CODE (write routing) · ORPHAN-009 OPEN (truncation on analog write) |
-| Modbus-RTU (serial) | PRESENT | `Cargo.toml:72` (`tokio-serial = "5.4"`), `src/modbus.rs` | → `protocols/modbus.md` |
-| Modbus TLS (server-only, no mTLS) | PRESENT | `Cargo.toml:66-69` (rodbus empty-Path pin), `src/modbus.rs` | → `protocols/modbus.md` — ORPHAN-002 |
-| Modbus TLS (full mTLS) | ROADMAP-Q2 | Tracked via ORPHAN-002 removal + rodbus upgrade plan | Not claimed as shipping |
+| Modbus-TCP | PRESENT | `Cargo.toml:88` (`tokio-modbus = "~0.17"`), `src/modbus.rs` | → `protocols/modbus.md` · ORPHAN-008 FIXED-IN-CODE (write routing) · ORPHAN-009 OPEN (truncation on analog write) |
+| Modbus-RTU (serial) | PRESENT | `Cargo.toml:88-91` (`tokio-modbus` `rtu` + `tokio-serial = "5.4"`), `src/modbus.rs` | → `protocols/modbus.md` |
+| Modbus TLS (server-only, no mTLS) | PRESENT | `Cargo.toml:89` (`tokio-rustls = "0.26"`), `src/modbus.rs` (`TlsMode::ServerOnly` → rustls `with_no_client_auth()`) | → `protocols/modbus.md` |
+| Modbus TLS (full mTLS) | PRESENT | `Cargo.toml:89` (`tokio-rustls = "0.26"`), `src/modbus.rs` (`TlsMode::Full` → rustls `with_client_auth_cert`); in-process mTLS transport test in `src/modbus.rs` | → `protocols/modbus.md` |
 | OPC UA Server (1.04) | PRESENT (feature-gated) | `Cargo.toml:266` (`opcua = "0.12"`), feature `opc-ua-server` (`Cargo.toml:379`), `src/plc_programming/opcua.rs` (5 787 LOC) | → `protocols/opcua.md` — handrolled surface evaluation pending |
 | OPC UA Client | PRESENT | `src/plc_programming/opcua.rs` | → `protocols/opcua.md` |
 | S7comm (Siemens S7-300/400/1200/1500) | PRESENT | `src/plc_programming/s7comm.rs` | → `protocols/s7comm.md` · → `integration/siemens/` (owned by siemens-integration-writer) |
@@ -196,4 +196,4 @@ Cross-references to deeper chapters use relative paths under `sens-api-gateway/d
 - `sens-api-gateway/docs/SCENARIOS_BEYOND_SCADA.md` — capability scenarios
 - `docs/adr/017-st-bytecode-runtime.md`, `018-edge-rbac-abac-model.md`, `019-edge-firmware-signing-ab-partition.md`, `020-audit-log-hmac-chain.md`, `021-platform-key-ceremony-lifecycle.md`, `022-edge-schema-placement.md`, `023-sl3-upgrade-path.md`
 - `docs/reviews/edge-expert/2026-04-05-s2-high-findings.md:141-198` — Modbus defense-in-depth status
-- `docs/reviews/orphan-findings.md#ORPHAN-002`, `#ORPHAN-006`, `#ORPHAN-008`, `#ORPHAN-009`, `#ORPHAN-010`, `#ORPHAN-018` — tracked defects referenced above
+- `docs/reviews/orphan-findings.md#ORPHAN-006`, `#ORPHAN-008`, `#ORPHAN-009`, `#ORPHAN-010`, `#ORPHAN-018` — tracked defects referenced above

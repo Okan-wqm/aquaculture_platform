@@ -23,7 +23,7 @@ import {
 } from '@aquaculture/backend-common/database';
 import { TenantExecutionContextModule } from '@aquaculture/backend-common/context';
 import {
-  RolesGuard,
+  accessGuardProviders,
   ServiceIdentityGuard,
   TenantGuard,
   TenantPermissionGuard,
@@ -391,12 +391,9 @@ interface ApolloGraphQLContext {
         new TenantGuard(reflector, undefined, configService),
       inject: [Reflector, ConfigService],
     },
-    // SECURITY: Roles guard - enforces @Roles() decorator authorization
-    {
-      provide: APP_GUARD,
-      useFactory: (reflector: Reflector): RolesGuard => new RolesGuard(reflector),
-      inject: [Reflector],
-    },
+    // SECURITY: RolesGuard enforces @Roles(); once this service is enrolled in ADR-051 its
+    // MODULE_ACCESS_ENROLMENT entry adds the access-classification guard (RBAC-HIGH-030).
+    ...accessGuardProviders('hr-service'),
     // SECURITY: Tenant-permission guard — enforces @RequireTenantPermission()
     // fine-grained capabilities (e.g. hr_finance:view_salary). Opt-in: routes
     // without the decorator pass through. Global registration is the SSoT so the

@@ -179,7 +179,11 @@ const mockTokenService = {
     tokenType: 'Bearer',
     redirectUrl: '/dashboard',
   })),
-  getUserModules: jest.fn().mockResolvedValue([]),
+  readModuleAccess: jest.fn().mockResolvedValue({
+    moduleAccess: {},
+    modules: [],
+    dropped: { not_owner_module: 0, unknown_code: 0, role_missing: 0 },
+  }),
 };
 
 const mockMfaService = {

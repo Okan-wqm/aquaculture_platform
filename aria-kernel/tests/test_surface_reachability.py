@@ -44,6 +44,7 @@ import ast
 import unittest
 from pathlib import Path
 
+from aria_kernel.finding_id_grammar import parse_finding_id
 from aria_kernel.literal_provenance import ProductionIndex, argument_for
 from aria_kernel.surface_reachability import (
     declared_surfaces,
@@ -160,9 +161,7 @@ class SurfaceReachabilityTests(unittest.TestCase):
                     )
                 # Without an ID nothing gets worked — which is how
                 # twenty-five TypeScript waivers reached one shared expiry.
-                self.assertRegex(
-                    entry["finding_id"], r"^[A-Z]+-(CRITICAL|HIGH|MEDIUM|LOW)-\d{3}$"
-                )
+                self.assertIsNotNone(parse_finding_id(entry["finding_id"]), f"waiver for {key}: not a finding id")
 
     def test_a_waiver_expires_against_the_clock_not_against_a_regex(self) -> None:
         # THE LESSON. `invariant-reachability.spec.ts` checked this field's

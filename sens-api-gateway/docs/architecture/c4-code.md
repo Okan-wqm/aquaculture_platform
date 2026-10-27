@@ -34,10 +34,10 @@ flowchart LR
 
     handle["ModbusHandle / GpioHandle / I2cHandle\n(Send + Sync, cheaply cloneable)"]
     channel["tokio::sync::mpsc (bounded)"]
-    actor["ModbusActor / GpioActor / I2cActor\n(!Send — LocalSet-bound)\nowns hardware context"]
+    actor["ModbusActor / GpioActor / I2cActor\n(LocalSet-bound)\nowns hardware context"]
     circuit["CircuitBreaker\n(AtomicU8 state + failure_count)"]
     timeout["with_timeout wrapper"]
-    hw["Hardware (rodbus 1.4 / rppal / /dev/i2c-*)"]
+    hw["Hardware (tokio-modbus / rppal / /dev/i2c-*)"]
 
     ioPoll -->|"ReadAll { response: oneshot }"| handle
     scriptEngine -->|"WriteRegister / WritePin"| handle
@@ -61,20 +61,20 @@ flowchart LR
 | Command enum | `ModbusCommand` (per `docs/ARCHITECTURE.md:86-95`) | Variant per operation; every variant carries a `tokio::sync::oneshot::Sender<R>` for the response. |
 | Handle | `ModbusHandle`, `GpioHandle`, `I2cHandle` (public types in `src/modbus.rs`, `src/gpio.rs`, `src/i2c.rs`) | Wraps the mpsc `Sender<Command>`. `Clone`, `Send`, `Sync`. Public API = one `async fn` per command variant. |
 | Channel | `tokio::sync::mpsc::channel::<Command>(capacity)` | Bounded; default capacity small (8-16) because handle calls are `await`ed and backpressure is the desired behaviour on overload. |
-| Actor | `ModbusActor` / `GpioActor` / `I2cActor` (non-public types) | Owns the hardware context (rodbus `client::Context`, rppal `Gpio`, i2cdev). Single consumer of the mpsc receiver. `!Send` on Modbus because rodbus 1.4 is not Send. |
+| Actor | `ModbusActor` / `GpioActor` / `I2cActor` (non-public types) | Owns the hardware context (tokio-modbus `client::Context`, rppal `Gpio`, i2cdev). Single consumer of the mpsc receiver. Spawned with `spawn_local` on the `LocalSet`; the tokio-modbus `Context` itself is `Send`. |
 | Circuit breaker | `resilience::circuit_breaker::CircuitBreaker` | `AtomicU8` state (0=Closed, 1=Open, 2=HalfOpen) + `AtomicU32` failure_count. Opens at threshold 3, recovers after 30 s. |
 | Timeout wrapper | `resilience::timeout::with_timeout` | Wraps the actor call with `tokio::time::timeout`; default budgets per operation class (Modbus 5 s, GPIO 5 s, connect 10 s). |
 
 ### Invariants
 
-- **Handle type is `Send+Sync`; actor type is `!Send`.** This is the whole reason the pattern exists. A Modbus `client::Context` is `!Send`; the script engine runs on a Tokio multi-thread runtime; without the actor the two cannot coexist.
+- **Handle type is `Send+Sync`; the actor runs on the `LocalSet`.** Consumers on the Tokio multi-thread runtime (e.g. the script engine) reach hardware only through the handle. The tokio-modbus `client::Context` is `Send`; for Modbus the actor provides serialised, isolated per-device access rather than a `Send` boundary.
 - **No shared mutable state between consumers and actor.** Everything flows through the command enum + oneshot response pair. A handle never hands out a `&mut` to hardware state.
 - **Timeout + circuit breaker wrap every hardware touch.** If a read takes longer than the configured budget, the caller gets `Err(TimeoutError)`; repeated timeouts trip the breaker; the breaker's Open state fast-fails subsequent calls without touching hardware until the recovery window elapses.
 - **Handle drop does not drop the actor.** The actor task is spawned on the `LocalSet` at `main.rs:559`; it outlives any single handle. The actor exits only when the shutdown coordinator broadcasts.
 
 ### Why this matters for Level 4
 
-The actor pattern is the reason the gateway can keep a rodbus 1.4 client under a multi-thread runtime, keep GPIO writes panic-isolated from script execution, and keep hardware calls rate-shaped without touching the caller. It is the single most-reused piece of internal structure.
+The actor pattern is the reason the gateway can serialise per-device Modbus access under a multi-thread runtime, keep GPIO writes panic-isolated from script execution, and keep hardware calls rate-shaped without touching the caller. It is the single most-reused piece of internal structure.
 
 ---
 

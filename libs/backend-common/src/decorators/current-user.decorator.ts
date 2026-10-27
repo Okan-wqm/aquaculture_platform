@@ -1,3 +1,4 @@
+import type { ModuleAccess } from '@aquaculture/shared-contracts';
 import { createParamDecorator, ExecutionContext, UnauthorizedException } from '@nestjs/common';
 import { GqlExecutionContext } from '@nestjs/graphql';
 
@@ -38,9 +39,16 @@ export interface CurrentUserPayload {
   roles: (Role | string)[];
 
   /**
-   * Module codes user has access to
+   * Legacy module code list (the release-R1 web reads it). Not a grant: decisions read
+   * `moduleAccess`.
    */
   modules?: string[];
+
+  /**
+   * RBAC-HIGH-028: the per-module grants (owner module → MODULE_MANAGER | MODULE_USER) from the
+   * verified assertion or JWT. Absent means no grants.
+   */
+  moduleAccess?: ModuleAccess;
 
   /**
    * Tenant-level resource permissions (e.g., "tanks:create", "sensors:configure").

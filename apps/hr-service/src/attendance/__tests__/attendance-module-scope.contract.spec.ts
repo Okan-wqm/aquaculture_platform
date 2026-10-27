@@ -14,7 +14,7 @@ import { createPaginatedQueryResult } from '@platform/cqrs';
 import type { GraphQLSchema } from 'graphql';
 import type { Repository } from 'typeorm';
 
-import { HrModuleCode } from '../../common/enums';
+import { OWNER_MODULE } from '@aquaculture/shared-contracts';
 import type { Employee } from '../../hr/entities/employee.entity';
 import { AttendanceResolver } from '../attendance.resolver';
 import { GetAttendanceRecordsQuery } from '../queries/get-attendance-records.query';
@@ -86,18 +86,18 @@ describe('attendance API — module scope contract', () => {
     });
 
     it('hands todaysAttendance the module', async () => {
-      await resolver.getTodaysAttendance(context, undefined, HrModuleCode.FARM);
+      await resolver.getTodaysAttendance(context, undefined, OWNER_MODULE.FARM);
 
       expect(queryBus.execute).toHaveBeenCalledWith(
-        new GetTodaysAttendanceQuery(tenantId, undefined, HrModuleCode.FARM),
+        new GetTodaysAttendanceQuery(tenantId, undefined, OWNER_MODULE.FARM),
       );
     });
 
     it('hands dailyAttendanceOverview the module', async () => {
-      await resolver.getDailyAttendanceOverview(context, '2026-10-22', HrModuleCode.SENSOR);
+      await resolver.getDailyAttendanceOverview(context, '2026-10-22', OWNER_MODULE.SENSOR);
 
       expect(queryBus.execute).toHaveBeenCalledWith(
-        new GetDailyAttendanceOverviewQuery(tenantId, '2026-10-22', HrModuleCode.SENSOR),
+        new GetDailyAttendanceOverviewQuery(tenantId, '2026-10-22', OWNER_MODULE.SENSOR),
       );
     });
 
@@ -112,7 +112,7 @@ describe('attendance API — module scope contract', () => {
         undefined,
         20,
         1,
-        HrModuleCode.HYDROPONICS,
+        OWNER_MODULE.HYDROPONICS,
       );
 
       expect(queryBus.execute).toHaveBeenCalledWith(
@@ -126,14 +126,14 @@ describe('attendance API — module scope contract', () => {
           undefined,
           20,
           1,
-          HrModuleCode.HYDROPONICS,
+          OWNER_MODULE.HYDROPONICS,
         ),
       );
     });
 
     describe('pendingAttendanceApprovals', () => {
       it('hands the queue the module', async () => {
-        await resolver.getPendingAttendanceApprovals(context, undefined, 20, 1, HrModuleCode.FARM);
+        await resolver.getPendingAttendanceApprovals(context, undefined, 20, 1, OWNER_MODULE.FARM);
 
         expect(queryBus.execute).toHaveBeenCalledWith(
           new GetPendingAttendanceApprovalsQuery(
@@ -142,7 +142,7 @@ describe('attendance API — module scope contract', () => {
             undefined,
             20,
             1,
-            HrModuleCode.FARM,
+            OWNER_MODULE.FARM,
             false,
           ),
         );
@@ -210,7 +210,7 @@ describe('attendance API — module scope contract', () => {
           'dept-explicit',
           20,
           1,
-          HrModuleCode.SENSOR,
+          OWNER_MODULE.SENSOR,
         );
 
         expect(queryBus.execute).toHaveBeenCalledWith(
@@ -220,7 +220,7 @@ describe('attendance API — module scope contract', () => {
             'dept-explicit',
             20,
             1,
-            HrModuleCode.SENSOR,
+            OWNER_MODULE.SENSOR,
             true,
           ),
         );
@@ -236,7 +236,7 @@ describe('attendance API — module scope contract', () => {
           undefined,
           20,
           1,
-          HrModuleCode.FARM,
+          OWNER_MODULE.FARM,
         );
 
         expect(queryBus.execute).toHaveBeenCalledWith(
@@ -246,7 +246,7 @@ describe('attendance API — module scope contract', () => {
             undefined,
             20,
             1,
-            HrModuleCode.FARM,
+            OWNER_MODULE.FARM,
             false,
           ),
         );
@@ -278,10 +278,10 @@ describe('attendance API — module scope contract', () => {
     it('shows the team roster to a manager who has no employee record', async () => {
       employeeRepository.findOne.mockResolvedValue(null);
 
-      await resolver.getTodaysAttendance(context, undefined, HrModuleCode.FARM);
+      await resolver.getTodaysAttendance(context, undefined, OWNER_MODULE.FARM);
 
       expect(queryBus.execute).toHaveBeenCalledWith(
-        new GetTodaysAttendanceQuery(tenantId, undefined, HrModuleCode.FARM),
+        new GetTodaysAttendanceQuery(tenantId, undefined, OWNER_MODULE.FARM),
       );
     });
 

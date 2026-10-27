@@ -1,5 +1,7 @@
 import { randomUUID } from 'crypto';
 
+import type { ModuleAccess } from '@aquaculture/shared-contracts';
+
 import type { ActAsAssertionClaims, VerifiedUserAssertion } from '../types/tenant-request.interface';
 
 export interface GatewayVerifiedUserAssertionInput {
@@ -11,6 +13,12 @@ export interface GatewayVerifiedUserAssertionInput {
   readonly mfaVerified?: boolean;
   readonly assertionId?: string;
   readonly issuedAt?: Date;
+  /**
+   * RBAC-HIGH-028: the verified token's `moduleAccess` claim, or undefined for a token minted
+   * before it existed. Required as a key, so no builder call site can leave the grants out; the
+   * assertion always carries the claim, `{}` for none.
+   */
+  readonly moduleAccess: ModuleAccess | undefined;
   /** SEC-HIGH-051: farm-service Site ids the user is assigned to. */
   readonly assignedSiteIds?: readonly string[];
   /** SEC-HIGH-052: enabled mobile feature keys the user is entitled to. */
@@ -53,6 +61,10 @@ export function buildGatewayVerifiedUserAssertion(
     mfaVerified: input.mfaVerified === true,
     issuedAt: (input.issuedAt ?? new Date()).toISOString(),
     assertionId: input.assertionId ?? randomUUID(),
+    // RBAC-HIGH-028 (ADR-051 §2 Transport): the module grants ride the same HMAC-protected blob
+    // as every claim below, ALWAYS — `{}` when the token holds none — so a subgraph tells no
+    // grant from a gateway that dropped it. The subgraph validates it (400 when malformed).
+    moduleAccess: { ...(input.moduleAccess ?? {}) },
     // SEC-HIGH-051 / SEC-HIGH-052: carry the object-level authorization claims
     // into the HMAC-protected blob ONLY when present (mirrors the JWT's
     // length>0 ? : undefined shape). The assertionHash already covers the full

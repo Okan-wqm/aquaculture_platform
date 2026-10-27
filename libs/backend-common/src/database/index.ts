@@ -59,6 +59,10 @@ export * from './tenant-schema.utils';
 // Bounded concurrency + per-tenant Node+DB timeout + error isolation + rotation.
 export * from './for-each-tenant-schema';
 
+// Cross-tenant discovery under each tenant's own RLS context: "which tenants have X?"
+// asked per tenant through runInTenantTransaction, tenants listed from the platform ledger.
+export * from './tenant-discovery';
+
 // Migration Logger (structured logging for TypeORM migrations outside DI)
 export { MigrationLogger } from './migration-logger';
 

@@ -43,8 +43,8 @@ quadrantChart
 |---------|---------------|----------------|-------------------|--------------------|---------------------|---------------------|----------------------|
 | Native MQTT 3.1.1 / v5 | Yes (via MQTT bridge / Greengrass MQTT) | Yes (Edge Hub) | Yes | Yes | Yes | App-level | **Yes** — `Cargo.toml:33` `rumqttc = "0.25"`, `src/mqtt.rs` |
 | MQTT to cloud over mTLS (cert-is-identity) | Yes | Yes | Yes | Yes | Yes | App-level | **ROADMAP-Q2** — device leg is user/pass today (`src/mqtt.rs:203-237`). Competitors win this row today. |
-| Native Modbus-TCP | Partner / Lambda component | Partner / module | Yes | Yes | Yes | Partner / app | **Yes** — `Cargo.toml:70` rodbus 1.4, `src/modbus.rs` |
-| Native Modbus-RTU | Partner | Partner | Yes | Yes | Yes | Partner | **Yes** — `Cargo.toml:72` tokio-serial |
+| Native Modbus-TCP | Partner / Lambda component | Partner / module | Yes | Yes | Yes | Partner / app | **Yes** — `Cargo.toml:88` tokio-modbus 0.17, `src/modbus.rs` |
+| Native Modbus-RTU | Partner | Partner | Yes | Yes | Yes | Partner | **Yes** — `Cargo.toml:91` tokio-serial |
 | Native OPC UA server (IEC 62541) | Partner component | Yes (preview / module) | Yes (client) | Yes | Yes | Partner | **Yes, feature-gated** — `Cargo.toml:266, 379`, `src/plc_programming/opcua.rs` (handrolled, 5 787 LOC; vendor-stack review is ROADMAP-Q3) |
 | Native S7comm (Siemens 300/400/1200/1500) | No | No | **Yes (Siemens-native)** | Yes | Optional | No | **Yes** — `src/plc_programming/s7comm.rs` |
 | PROFINET device / IO-Device | No | No | **Yes** | Partial | Partial | No | **NOT-PLANNED** — certified stack missing; MindConnect Nano wins this row |

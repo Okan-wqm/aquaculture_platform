@@ -298,6 +298,62 @@ describe('api-client', () => {
       );
     });
 
+    // FE-MEDIUM-380 (PKG-42): a document the router refuses is the mark of a tab whose bundle
+    // predates the schema; the shell's build-skew check listens through the shared-ui signal.
+    describe('GRAPHQL_VALIDATION_FAILED reaches the build-skew signal', () => {
+      const VALIDATION_FAILURE = {
+        errors: [
+          {
+            message: 'Cannot query field "ownerModule" on type "Department".',
+            extensions: { code: 'GRAPHQL_VALIDATION_FAILED' },
+          },
+        ],
+      };
+
+      it('reports it from the authenticated client and still throws the coded error', async () => {
+        const signal = await import('../graphql-validation-signal');
+        const listener = vi.fn();
+        signal.onGraphqlValidationFailure(listener);
+        mockFetch.mockResolvedValueOnce(mockResponse(400, VALIDATION_FAILURE));
+
+        await expect(
+          apiClient.graphqlClient.request('{ departments { ownerModule } }'),
+        ).rejects.toMatchObject({
+          name: 'GraphQLClientError',
+          code: 'GRAPHQL_VALIDATION_FAILED',
+        });
+        expect(listener).toHaveBeenCalledTimes(1);
+      });
+
+      it('reports it from the pre-auth client', async () => {
+        const signal = await import('../graphql-validation-signal');
+        const listener = vi.fn();
+        signal.onGraphqlValidationFailure(listener);
+        mockFetch.mockResolvedValueOnce(mockResponse(400, VALIDATION_FAILURE));
+
+        await expect(
+          apiClient.publicGraphqlClient.request('{ invitation { ownerModule } }'),
+        ).rejects.toThrow(apiClient.GraphQLClientError);
+        expect(listener).toHaveBeenCalledTimes(1);
+      });
+
+      it('does not report any other GraphQL error', async () => {
+        const signal = await import('../graphql-validation-signal');
+        const listener = vi.fn();
+        signal.onGraphqlValidationFailure(listener);
+        mockFetch.mockResolvedValueOnce(
+          mockResponse(200, {
+            errors: [{ message: 'Not found', extensions: { code: 'NOT_FOUND' } }],
+          }),
+        );
+
+        await expect(apiClient.graphqlClient.request('{ users { id } }')).rejects.toThrow(
+          apiClient.GraphQLClientError,
+        );
+        expect(listener).not.toHaveBeenCalled();
+      });
+    });
+
     describe('401 retry with token refresh', () => {
       it('should retry once after successful token refresh on HTTP 401', async () => {
         apiClient.setTokens('expired-token');
@@ -442,11 +498,10 @@ describe('api-client', () => {
           } as Response),
         );
 
-        const request = apiClient.graphqlClient.request(
-          '{ ok }',
-          undefined,
-          { timeout: 25, signal: caller.signal },
-        );
+        const request = apiClient.graphqlClient.request('{ ok }', undefined, {
+          timeout: 25,
+          signal: caller.signal,
+        });
         const rejection = expect(request).rejects.toMatchObject({
           name: 'GraphQLClientError',
           code: 'TIMEOUT',

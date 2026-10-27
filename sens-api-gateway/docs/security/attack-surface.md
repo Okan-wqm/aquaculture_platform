@@ -16,7 +16,7 @@
 | 4842 | TCP (WebSocket over HTTP) | SCADA display kiosk server | Local-LAN trust assumption | Medium — renders current tag values | `Cargo.toml:338` optional `scada-display` feature | CORS middleware via `tower-http` (`Cargo.toml:301`); read-only in v1.6.0 (no WS-initiated tag writes) |
 | 1883 / 8883 | MQTT | **Outbound only** from agent to broker | Username+password TODAY (`src/mqtt.rs:237`); per-device X.509 ROADMAP (ORPHAN-EDGE-003) | High — control plane | `Cargo.toml:32` `rumqttc` | TLS mandatory in production; system-CA or pinned-CA (`src/mqtt.rs:744-786`); 1 MiB packet size cap (`src/mqtt.rs:245`); leaf-cert pinning ROADMAP Sprint 6.8 |
 | 443 | HTTPS | **Outbound only** to cloud provisioning API | Token-based (single-use) | High — tenant-onboarding token | `Cargo.toml:30` `reqwest` rustls-tls-manual-roots | No cross-origin redirects (`src/provisioning.rs:221`); rustls-only build (no OpenSSL); body truncation on error paths (`src/provisioning.rs:316-329`) |
-| Varies | Modbus-TCP | **Outbound only** to PLCs | Modbus TLS (rodbus 1.4, `Cargo.toml:70`) or plain TCP per deployment | High | `Cargo.toml:70` `rodbus = "=1.4.0"` pin (see `ORPHAN-002`) | TLS where supported; CRC-16 protocol-level integrity at minimum |
+| Varies | Modbus-TCP | **Outbound only** to PLCs | Modbus TLS (`tokio-modbus` over `tokio-rustls`, `Cargo.toml:88-89`) or plain TCP per deployment | High | `Cargo.toml:88` `tokio-modbus = "~0.17"` pin | TLS where supported; CRC-16 protocol-level integrity at minimum |
 | 502 | Modbus-TCP | **Inbound** Modbus slave in selected configurations | Plain protocol — no auth primitive | High | same crate | Not recommended for exposed interfaces; gateway deployment should limit to OT-LAN |
 
 Notable absences:

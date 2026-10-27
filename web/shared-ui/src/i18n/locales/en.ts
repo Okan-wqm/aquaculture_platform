@@ -742,6 +742,18 @@ export const en = {
   'm.chat.channelSettings': 'Channel settings',
   'm.chat.closeSearch': 'Close search',
   'm.chat.searchChannels': 'Search channels',
+  // PKG-42 (ADR-051 C6): offline replays the server rejected, listed for re-entry.
+  'm.sync.rejected.title': 'Needs re-entry',
+  'm.sync.rejected.intro':
+    'The server refused these entries, so they were not saved. Enter each one again where it still belongs, then dismiss it here.',
+  'm.sync.rejected.recordedAt': 'Recorded {time}',
+  'm.sync.rejected.entered': 'What you entered',
+  'm.sync.rejected.dismiss': 'Dismiss — entered again',
+  'm.sync.rejected.reason.forbidden': 'You no longer have access to record this.',
+  'm.sync.rejected.reason.unauthenticated': 'Your session was not accepted when this was sent.',
+  'm.sync.rejected.reason.invalid': 'The server did not accept the entry as recorded.',
+  'm.sync.rejected.reason.outdated': 'This entry was recorded with an older version of the app.',
+  'm.sync.rejected.reason.notFound': 'The record this entry refers to no longer exists.',
   'm.account.title': 'Account',
   'm.account.biometric.title': 'Biometric Authentication',
   'm.account.biometric.close': 'Close biometric setup',
@@ -1223,6 +1235,7 @@ export const en = {
   'hr.orgChart.expand': 'Expand {name}',
   'hr.module.companyWide': 'Company-wide',
   'hr.module.allModules': 'All modules',
+  'hr.module.hr': 'Human resources',
   'hr.module.showing': 'Showing {label}',
   'hr.departments.moduleLabel': 'Module',
   'hr.departments.moduleMoveHint':

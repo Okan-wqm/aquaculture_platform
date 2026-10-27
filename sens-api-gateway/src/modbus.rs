@@ -20,22 +20,29 @@
 //! When `tls.enabled = true` in device config, connections use encrypted TLS.
 //! This provides IEC 62443 SL2 FR4 (Data Confidentiality) compliance.
 //!
-//! ## rodbus Migration (v1.2.0)
-//! Uses rodbus crate instead of tokio-modbus for native TLS support.
-//! The rodbus crate provides:
-//! - Native TLS/mTLS support for Modbus TCP
-//! - Request queuing and retry strategies
-//! - Better error handling with granular error types
+//! ## Transport
+//! `tokio-modbus` provides the Modbus/TCP and RTU framing; this module owns the
+//! transport underneath it:
+//! - plain TCP, or Modbus/TCP Security over `tokio-rustls` (server-only TLS or
+//!   mTLS, TLS 1.2 floor, PLC certificate verified against the configured CA)
+//! - RTU over `tokio-serial`
+//! - automatic re-open of a dropped transport with doubling backoff (2 s → 30 s)
+//!   — see [`Link`]
 
 use anyhow::{Context, Result};
 use futures::future::join_all;
-use rodbus::client::{Channel, RequestParam};
-use rodbus::{AddressRange, DecodeLevel, UnitId};
+use rustls::pki_types::pem::PemObject;
+use rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName};
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::net::TcpStream;
 use tokio::sync::{Mutex, mpsc, oneshot};
+use tokio::time::Instant;
+use tokio_modbus::Slave;
+use tokio_modbus::client::{Client as _, Context as ModbusContext, Reader as _, Writer as _, tcp};
+use tokio_rustls::TlsConnector;
 use tracing::{debug, error, info, warn};
 
 use crate::config::{ByteOrder, ModbusDeviceConfig, ModbusRegisterConfig, ModbusSecurityConfig};
@@ -66,6 +73,12 @@ const FC_WRITE_SINGLE_REGISTER: u8 = 6;
 /// v1.2.6: Maximum errors to collect per read operation (prevents unbounded growth)
 const MAX_ERRORS_PER_READ: usize = 50;
 // FC 15, 16 (Write Multiple) not implemented - use single writes
+
+/// TLS versions offered on Modbus/TCP Security links. The Modbus/TCP Security
+/// specification sets TLS 1.2 as the floor; TLS 1.3 is negotiated whenever the
+/// PLC supports it.
+const MODBUS_TLS_VERSIONS: &[&rustls::SupportedProtocolVersion] =
+    &[&rustls::version::TLS13, &rustls::version::TLS12];
 
 // ============================================================================
 // Actor Pattern Types
@@ -395,15 +408,76 @@ impl ModbusActor {
 // Core Modbus Types
 // ============================================================================
 
+/// Reconnect schedule for a dropped Modbus transport: wait `min`, then double
+/// the wait after every failed re-open, up to `max`.
+#[derive(Debug, Clone, Copy)]
+struct ReconnectPolicy {
+    min: Duration,
+    max: Duration,
+}
+
+impl ReconnectPolicy {
+    const DEFAULT: Self = Self {
+        min: Duration::from_secs(2),
+        max: Duration::from_secs(30),
+    };
+
+    /// A down link whose next open attempt is `wait` from now. If that attempt
+    /// fails, the following one waits twice as long (clamped to `min..=max`).
+    fn down_after(self, wait: Duration) -> Link {
+        Link::Down {
+            retry_at: Instant::now() + wait,
+            next_delay: wait.saturating_mul(2).clamp(self.min, self.max),
+        }
+    }
+}
+
+/// An open Modbus transport.
+struct LiveLink {
+    ctx: ModbusContext,
+    /// True while a request awaits its response. A request future dropped
+    /// mid-flight (outer timeout) leaves it set, and that request's late reply
+    /// can still arrive on this stream — RTU frames carry no transaction id to
+    /// reject it — so the next request retires the transport instead of
+    /// reusing it.
+    in_flight: bool,
+}
+
+/// Connection state of one Modbus device.
+enum Link {
+    /// Never connected, or disconnected on request. Never re-opened
+    /// automatically.
+    Idle,
+    /// Transport open.
+    Up(LiveLink),
+    /// Transport lost or failed to open; the first request at or after
+    /// `retry_at` re-opens it.
+    Down {
+        retry_at: Instant,
+        next_delay: Duration,
+    },
+}
+
+/// Run one request on the device's live transport: re-open the transport if
+/// due (see [`Link`]), bound the request by `MODBUS_TIMEOUT`, mark it in
+/// flight for the duration, and classify the outcome via `settle_outcome`.
+macro_rules! modbus_request {
+    ($client:expr, $op:expr, |$ctx:ident| $call:expr) => {{
+        let live = $client.live_transport().await?;
+        live.in_flight = true;
+        let $ctx = &mut live.ctx;
+        let outcome = tokio::time::timeout(MODBUS_TIMEOUT, $call).await;
+        live.in_flight = false;
+        $client.settle_outcome($op, outcome)
+    }};
+}
+
 /// Modbus client wrapper with circuit breaker and rate limiter
 ///
 /// # Security Features (IEC 62443 SL2)
 /// - FR3: Function code whitelist validation
 /// - FR4: TLS encryption for data confidentiality (v1.2.0)
 /// - FR5: Rate limiting to prevent resource exhaustion
-///
-/// # rodbus Migration (v1.2.0)
-/// Uses rodbus `Channel` for Modbus communication with native TLS support.
 pub struct ModbusClient {
     /// Device configuration (without registers to avoid large clones)
     config: ModbusDeviceConfig,
@@ -411,10 +485,12 @@ pub struct ModbusClient {
     registers: Arc<Vec<ModbusRegisterConfig>>,
     /// Security configuration
     security: ModbusSecurityConfig,
-    /// rodbus channel for Modbus communication (v1.2.0)
-    channel: Option<Channel>,
+    /// Transport state (see [`Link`])
+    link: Link,
+    /// Re-open schedule for a dropped transport
+    reconnect: ReconnectPolicy,
     /// Unit ID (slave ID) for Modbus requests
-    unit_id: UnitId,
+    slave: Slave,
     /// Circuit breaker for fault tolerance
     circuit_breaker: CircuitBreaker,
     /// Read rate limiter (FC1–FC4): 10 ops/sec, burst 20
@@ -497,14 +573,15 @@ impl ModbusClient {
         let security = config.security.clone();
 
         // Create unit ID from slave ID
-        let unit_id = UnitId::new(config.slave_id);
+        let slave = Slave(config.slave_id);
 
         Self {
             config,
             registers,
             security,
-            channel: None,
-            unit_id,
+            link: Link::Idle,
+            reconnect: ReconnectPolicy::DEFAULT,
+            slave,
             circuit_breaker,
             rate_limiter,
             write_rate_limiter,
@@ -658,64 +735,68 @@ impl ModbusClient {
         self.circuit_breaker.state_name()
     }
 
-    /// Connect to Modbus device with timeout
+    /// Open the transport to the device (TCP, Modbus/TCP Security, or RTU).
+    ///
+    /// On failure the device stays registered and the link is scheduled for
+    /// automatic re-open, so a PLC that is unreachable at boot or provision
+    /// time is picked up by a later read without operator action.
     pub async fn connect(&mut self) -> Result<()> {
         // Reset circuit breaker on reconnection attempt
         self.circuit_breaker.reset();
 
-        let result = match self.config.connection_type.as_str() {
-            "tcp" => {
-                // Clone name first to avoid borrow conflict with self.connect_tcp_inner()
-                let timeout_msg = format!("Modbus TCP connect {}", self.config.name);
-                with_timeout(self.connect_tcp_inner(), CONNECT_TIMEOUT, &timeout_msg)
-                    .await
-                    .map_err(|e| anyhow::anyhow!("{}", e))?
+        match self.open_transport(CONNECT_TIMEOUT).await {
+            Ok(ctx) => {
+                self.link = Link::Up(LiveLink {
+                    ctx,
+                    in_flight: false,
+                });
+                self.circuit_breaker.record_success();
+                Ok(())
             }
-            "rtu" => self.connect_rtu().await,
-            other => Err(anyhow::anyhow!("Unknown connection type: {}", other)),
-        };
-
-        match &result {
-            Ok(_) => self.circuit_breaker.record_success(),
-            Err(_) => self.circuit_breaker.record_failure(),
+            Err(e) => {
+                self.link = self.reconnect.down_after(self.reconnect.min);
+                self.circuit_breaker.record_failure();
+                Err(e)
+            }
         }
-
-        result
     }
 
-    /// Connect via Modbus TCP with optional TLS (v1.2.0)
+    /// Open a fresh transport for this device. Every network step of the
+    /// open shares one deadline, `budget` from now; an RTU port opens
+    /// synchronously.
+    async fn open_transport(&self, budget: Duration) -> Result<ModbusContext> {
+        match self.config.connection_type.as_str() {
+            "tcp" => self.open_tcp(Instant::now() + budget).await,
+            "rtu" => self.open_rtu(),
+            other => Err(anyhow::anyhow!("Unknown connection type: {other}")),
+        }
+    }
+
+    /// Open a Modbus TCP transport with optional TLS (v1.2.0)
     ///
     /// # TLS Support
     /// When `config.tls.enabled = true`, uses encrypted TLS connection.
     /// This provides IEC 62443 SL2 FR4 (Data Confidentiality) compliance.
-    async fn connect_tcp_inner(&mut self) -> Result<()> {
-        // Parse address as SocketAddr to extract host and port
+    ///
+    /// The TCP connect and the TLS handshake both end at `deadline`.
+    async fn open_tcp(&self, deadline: Instant) -> Result<ModbusContext> {
         let socket_addr: SocketAddr = self
             .config
             .address
             .parse()
             .with_context(|| format!("Invalid TCP address: {}", self.config.address))?;
 
-        // Create HostAddr from socket address
-        let host_addr = rodbus::client::HostAddr::ip(socket_addr.ip(), socket_addr.port());
-
-        // Retry strategy for connection resilience (doubling backoff)
-        let retry = rodbus::doubling_retry_strategy(
-            Duration::from_secs(2),  // Min retry delay
-            Duration::from_secs(30), // Max retry delay
-        );
-
         // Batch 22 ARC-007: convert the serde-deserialized TLS
         // config to the type-level TlsMode enum. Validation
-        // happens at load time here — half-configured combinations
-        // (e.g., client cert without client key) fail-fast with
-        // an operator-actionable error string before any socket
-        // is opened.
+        // happens here — half-configured combinations (e.g.,
+        // client cert without client key) and unreadable
+        // certificate files fail-fast with an operator-actionable
+        // error string before any socket is opened.
         let tls_mode = self.config.tls.to_mode().map_err(|e| {
             anyhow::anyhow!("Modbus '{}' TLS config invalid: {}", self.config.name, e)
         })?;
 
-        let channel = match tls_mode {
+        let tls = match tls_mode {
             crate::config::TlsMode::Full {
                 ref server_name,
                 ref ca_cert_path,
@@ -727,24 +808,13 @@ impl ModbusClient {
                     "Connecting to Modbus TCP/mTLS device '{}' at {} (mutual TLS)",
                     self.config.name, socket_addr
                 );
-
-                let tls_config = rodbus::client::TlsClientConfig::full_pki(
-                    Some(server_name.clone()),
-                    std::path::Path::new(ca_cert_path),
-                    std::path::Path::new(client_cert_path),
-                    std::path::Path::new(client_key_path),
-                    None, // Private key password (None = unencrypted)
-                    rodbus::client::MinTlsVersion::V1_2,
-                )
-                .with_context(|| "Failed to create mTLS config")?;
-
-                rodbus::client::spawn_tls_client_task(
-                    host_addr,
-                    1,
-                    retry,
-                    tls_config,
-                    DecodeLevel::default(),
-                    None,
+                Some(
+                    modbus_tls_client(
+                        server_name,
+                        ca_cert_path,
+                        Some((client_cert_path, client_key_path)),
+                    )
+                    .with_context(|| "Failed to create mTLS config")?,
                 )
             }
             crate::config::TlsMode::ServerOnly {
@@ -760,34 +830,13 @@ impl ModbusClient {
                     "Server-only TLS for '{}' (no client certificate)",
                     self.config.name
                 );
-
-                // rodbus full_pki() requires paths even for server-
-                // only auth. Empty paths signal "no client cert"
-                // to the rodbus API (checks path.as_os_str().
-                // is_empty()).
-                let empty_path = std::path::Path::new("");
-                let tls_config = rodbus::client::TlsClientConfig::full_pki(
-                    Some(server_name.clone()),
-                    std::path::Path::new(ca_cert_path),
-                    empty_path,
-                    empty_path,
-                    None,
-                    rodbus::client::MinTlsVersion::V1_2,
-                )
-                .with_context(|| {
-                    format!(
-                        "Failed to create server-only TLS config for '{}'. Ensure CA certificate at '{}' is valid PEM format.",
-                        self.config.name, ca_cert_path
-                    )
-                })?;
-
-                rodbus::client::spawn_tls_client_task(
-                    host_addr,
-                    1,
-                    retry,
-                    tls_config,
-                    DecodeLevel::default(),
-                    None,
+                Some(
+                    modbus_tls_client(server_name, ca_cert_path, None).with_context(|| {
+                        format!(
+                            "Failed to create server-only TLS config for '{}'. Ensure CA certificate at '{}' is valid PEM format.",
+                            self.config.name, ca_cert_path
+                        )
+                    })?,
                 )
             }
             crate::config::TlsMode::Disabled => {
@@ -795,36 +844,64 @@ impl ModbusClient {
                     "Connecting to Modbus TCP device '{}' at {} (plaintext)",
                     self.config.name, socket_addr
                 );
-
-                rodbus::client::spawn_tcp_client_task(
-                    host_addr,
-                    1,
-                    retry,
-                    DecodeLevel::default(),
-                    None,
-                )
+                None
             }
         };
 
-        self.channel = Some(channel);
+        let stream = tokio::time::timeout_at(deadline, TcpStream::connect(socket_addr))
+            .await
+            .map_err(|_| {
+                anyhow::anyhow!(
+                    "TCP connect to Modbus device '{}' at {} timed out",
+                    self.config.name,
+                    socket_addr
+                )
+            })?
+            .with_context(|| {
+                format!(
+                    "TCP connect to Modbus device '{}' at {} failed",
+                    self.config.name, socket_addr
+                )
+            })?;
 
-        if self.config.tls.enabled {
-            info!(
-                "Connected to Modbus TCP/TLS device '{}' (TLS encrypted)",
-                self.config.name
-            );
-        } else {
-            info!("Connected to Modbus TCP device '{}'", self.config.name);
-        }
+        let ctx = match tls {
+            Some((tls_config, server_name)) => {
+                let handshake = TlsConnector::from(tls_config).connect(server_name, stream);
+                let tls_stream = tokio::time::timeout_at(deadline, handshake)
+                    .await
+                    .map_err(|_| {
+                        anyhow::anyhow!(
+                            "TLS handshake with Modbus device '{}' at {} timed out",
+                            self.config.name,
+                            socket_addr
+                        )
+                    })?
+                    .with_context(|| {
+                        format!(
+                            "TLS handshake with Modbus device '{}' at {} failed",
+                            self.config.name, socket_addr
+                        )
+                    })?;
+                info!(
+                    "Connected to Modbus TCP/TLS device '{}' (TLS encrypted)",
+                    self.config.name
+                );
+                tcp::attach_slave(tls_stream, self.slave)
+            }
+            None => {
+                info!("Connected to Modbus TCP device '{}'", self.config.name);
+                tcp::attach_slave(stream, self.slave)
+            }
+        };
 
-        Ok(())
+        Ok(ctx)
     }
 
-    /// Connect via Modbus RTU (serial)
+    /// Open a Modbus RTU (serial) transport
     ///
     /// Note: RTU connections do not support TLS (serial communication).
     /// For secure RTU, use physical security measures.
-    async fn connect_rtu(&mut self) -> Result<()> {
+    fn open_rtu(&self) -> Result<ModbusContext> {
         #[cfg(target_os = "linux")]
         {
             let baud_rate = self.config.baud_rate.unwrap_or(9600);
@@ -834,35 +911,21 @@ impl ModbusClient {
                 self.config.name, self.config.address, baud_rate
             );
 
-            // Retry strategy for connection resilience (doubling backoff)
-            let retry = rodbus::doubling_retry_strategy(
-                Duration::from_secs(2),  // Min retry delay
-                Duration::from_secs(30), // Max retry delay
-            );
+            // 8N1, no flow control
+            let port_settings = tokio_serial::new(&self.config.address, baud_rate)
+                .data_bits(tokio_serial::DataBits::Eight)
+                .stop_bits(tokio_serial::StopBits::One)
+                .parity(tokio_serial::Parity::None)
+                .flow_control(tokio_serial::FlowControl::None);
+            let port = tokio_serial::SerialStream::open(&port_settings).with_context(|| {
+                format!(
+                    "Failed to open serial port '{}' for Modbus RTU device '{}'",
+                    self.config.address, self.config.name
+                )
+            })?;
 
-            // Create serial port settings using rodbus 1.4 API
-            let path = &self.config.address;
-            let serial_settings = rodbus::SerialSettings {
-                baud_rate, // u32 directly
-                data_bits: rodbus::DataBits::Eight,
-                stop_bits: rodbus::StopBits::One,
-                parity: rodbus::Parity::None,
-                flow_control: rodbus::FlowControl::None,
-            };
-
-            let channel = rodbus::client::spawn_rtu_client_task(
-                path,
-                serial_settings,
-                1, // max queued requests
-                retry,
-                DecodeLevel::default(),
-                None, // listener
-            );
-
-            self.channel = Some(channel);
             info!("Connected to Modbus RTU device '{}'", self.config.name);
-
-            Ok(())
+            Ok(tokio_modbus::client::rtu::attach_slave(port, self.slave))
         }
 
         #[cfg(not(target_os = "linux"))]
@@ -873,12 +936,21 @@ impl ModbusClient {
 
     /// Disconnect from device
     ///
-    /// Note: rodbus channels are dropped automatically when the reference is dropped.
-    /// This method clears the channel reference to trigger cleanup.
+    /// Closes the transport (TLS close_notify / TCP FIN) and returns the link
+    /// to `Link::Idle`, which is never re-opened automatically.
     pub async fn disconnect(&mut self) {
-        if let Some(channel) = self.channel.take() {
-            // Channel shutdown is handled by rodbus when dropped
-            drop(channel);
+        if let Link::Up(mut live) = std::mem::replace(&mut self.link, Link::Idle) {
+            match tokio::time::timeout(MODBUS_TIMEOUT, live.ctx.disconnect()).await {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => debug!(
+                    "Closing Modbus transport for '{}' reported: {}",
+                    self.config.name, e
+                ),
+                Err(_) => debug!(
+                    "Closing Modbus transport for '{}' timed out",
+                    self.config.name
+                ),
+            }
         }
         info!("Disconnected from Modbus device '{}'", self.config.name);
     }
@@ -886,7 +958,76 @@ impl ModbusClient {
     /// Check if connected
     #[allow(dead_code)]
     pub fn is_connected(&self) -> bool {
-        self.channel.is_some()
+        matches!(self.link, Link::Up(_))
+    }
+
+    /// The open transport. A link that is down is re-opened first once its
+    /// backoff has elapsed; `Link::Idle` (never connected, or disconnected on
+    /// request) is reported as "Not connected" and never re-opened here.
+    async fn live_transport(&mut self) -> Result<&mut LiveLink> {
+        if matches!(&self.link, Link::Up(live) if live.in_flight) {
+            warn!(
+                "Modbus device '{}': previous request was abandoned mid-flight; reopening transport",
+                self.config.name
+            );
+            self.link = self.reconnect.down_after(Duration::ZERO);
+        }
+
+        if let Link::Down {
+            retry_at,
+            next_delay,
+        } = self.link
+        {
+            let now = Instant::now();
+            if now < retry_at {
+                return Err(anyhow::anyhow!(
+                    "Not connected (reconnect in {}ms)",
+                    retry_at.duration_since(now).as_millis()
+                ));
+            }
+
+            // Schedule the follow-up attempt before awaiting, so an attempt
+            // cancelled by an outer timeout still honours the backoff.
+            self.link = self.reconnect.down_after(next_delay);
+            let ctx = self.open_transport(MODBUS_TIMEOUT).await.with_context(|| {
+                format!("Reconnect to Modbus device '{}' failed", self.config.name)
+            })?;
+            info!("Reconnected to Modbus device '{}'", self.config.name);
+            self.link = Link::Up(LiveLink {
+                ctx,
+                in_flight: false,
+            });
+        }
+
+        match &mut self.link {
+            Link::Up(live) => Ok(live),
+            Link::Idle | Link::Down { .. } => Err(anyhow::anyhow!("Not connected")),
+        }
+    }
+
+    /// Classify one request outcome. A Modbus exception is the device's answer
+    /// and leaves the transport up; a transport/protocol error or a timeout
+    /// leaves the stream in an unknown state, so the transport is retired and
+    /// re-opened by a later request after the reconnect backoff.
+    fn settle_outcome<T>(
+        &mut self,
+        op: &str,
+        outcome: std::result::Result<tokio_modbus::Result<T>, tokio::time::error::Elapsed>,
+    ) -> Result<T> {
+        match outcome {
+            Ok(Ok(Ok(value))) => Ok(value),
+            Ok(Ok(Err(exception))) => Err(anyhow::anyhow!("{op}: device exception: {exception}")),
+            Ok(Err(e)) => {
+                self.link = self.reconnect.down_after(self.reconnect.min);
+                Err(anyhow::anyhow!("{op}: {e}"))
+            }
+            Err(_) => {
+                self.link = self.reconnect.down_after(self.reconnect.min);
+                Err(anyhow::anyhow!(
+                    "{op}: no response within {MODBUS_TIMEOUT:?}"
+                ))
+            }
+        }
     }
 
     /// Read all configured registers with circuit breaker protection
@@ -918,7 +1059,7 @@ impl ModbusClient {
             return result;
         }
 
-        if self.channel.is_none() {
+        if matches!(self.link, Link::Idle) {
             result.errors.push("Not connected".to_string());
             return result;
         }
@@ -989,15 +1130,12 @@ impl ModbusClient {
         .map_err(|e| anyhow::anyhow!("{}", e))?
     }
 
-    /// Read a single register using rodbus (v1.2.0)
+    /// Read a single register (v1.2.0)
     ///
     /// # Security
     /// - Validates function code against whitelist
     /// - Enforces rate limiting
     /// - Validates register count limits
-    ///
-    /// # rodbus API
-    /// Uses rodbus channel for Modbus communication with native TLS support.
     ///
     /// `cycle_timestamp` is the RFC 3339 string generated once at the enclosing
     /// `read_all()` boundary and shared across all registers in this cycle
@@ -1032,57 +1170,29 @@ impl ModbusClient {
         };
         self.validate_function_code(function_code)?;
 
-        let channel = self
-            .channel
-            .as_mut()
-            .ok_or_else(|| anyhow::anyhow!("Not connected"))?;
-
-        // Create request parameters with unit ID and timeout
-        let params = RequestParam::new(self.unit_id, MODBUS_TIMEOUT);
-
-        // Create address range for the request
-        let addr_range = AddressRange::try_from(register.address, register_count)
-            .map_err(|e| anyhow::anyhow!("Invalid address range: {:?}", e))?;
-
-        // rodbus returns Vec<Indexed<T>>, we extract the .value from each
+        let address = register.address;
         let raw_values: Vec<u16> = match register.register_type.as_str() {
             "holding" => {
-                let result = channel
-                    .read_holding_registers(params, addr_range)
-                    .await
-                    .map_err(|e| anyhow::anyhow!("Failed to read holding registers: {:?}", e))?;
-                // Extract .value from each Indexed<u16>
-                result.into_iter().map(|indexed| indexed.value).collect()
+                checked_address_range(address, register_count)?;
+                modbus_request!(self, "Failed to read holding registers", |ctx| ctx
+                    .read_holding_registers(address, register_count))?
             }
             "input" => {
-                let result = channel
-                    .read_input_registers(params, addr_range)
-                    .await
-                    .map_err(|e| anyhow::anyhow!("Failed to read input registers: {:?}", e))?;
-                // Extract .value from each Indexed<u16>
-                result.into_iter().map(|indexed| indexed.value).collect()
+                checked_address_range(address, register_count)?;
+                modbus_request!(self, "Failed to read input registers", |ctx| ctx
+                    .read_input_registers(address, register_count))?
             }
             "coil" => {
-                let coil_range = AddressRange::try_from(register.address, 1)
-                    .map_err(|e| anyhow::anyhow!("Invalid coil address: {:?}", e))?;
-                let coils = channel
-                    .read_coils(params, coil_range)
-                    .await
-                    .map_err(|e| anyhow::anyhow!("Failed to read coil: {:?}", e))?;
-                // Extract first coil value and convert bool to u16
-                let first_coil = coils.into_iter().next().map(|i| i.value).unwrap_or(false);
-                vec![if first_coil { 1u16 } else { 0u16 }]
+                let coils = modbus_request!(self, "Failed to read coil", |ctx| ctx
+                    .read_coils(address, 1))?;
+                // First coil value as u16
+                vec![u16::from(coils.first().copied().unwrap_or(false))]
             }
             "discrete" => {
-                let di_range = AddressRange::try_from(register.address, 1)
-                    .map_err(|e| anyhow::anyhow!("Invalid discrete input address: {:?}", e))?;
-                let inputs = channel
-                    .read_discrete_inputs(params, di_range)
-                    .await
-                    .map_err(|e| anyhow::anyhow!("Failed to read discrete input: {:?}", e))?;
-                // Extract first input value and convert bool to u16
-                let first_input = inputs.into_iter().next().map(|i| i.value).unwrap_or(false);
-                vec![if first_input { 1u16 } else { 0u16 }]
+                let inputs = modbus_request!(self, "Failed to read discrete input", |ctx| ctx
+                    .read_discrete_inputs(address, 1))?;
+                // First input value as u16
+                vec![u16::from(inputs.first().copied().unwrap_or(false))]
             }
             other => return Err(anyhow::anyhow!("Unknown register type: {}", other)),
         };
@@ -1113,7 +1223,7 @@ impl ModbusClient {
         })
     }
 
-    /// Write to a holding register using rodbus (v1.2.0)
+    /// Write to a holding register (v1.2.0)
     ///
     /// # Security
     /// - Validates write operations are allowed
@@ -1126,20 +1236,8 @@ impl ModbusClient {
         self.validate_function_code(FC_WRITE_SINGLE_REGISTER)?;
         self.acquire_write_rate_limit()?;
 
-        let channel = self
-            .channel
-            .as_mut()
-            .ok_or_else(|| anyhow::anyhow!("Not connected"))?;
-
-        // Create request parameters with unit ID and timeout
-        let params = RequestParam::new(self.unit_id, MODBUS_TIMEOUT);
-
-        // rodbus uses Indexed<u16> to combine address and value
-        let indexed_value = rodbus::Indexed::new(address, value);
-        channel
-            .write_single_register(params, indexed_value)
-            .await
-            .map_err(|e| anyhow::anyhow!("Failed to write register: {:?}", e))?;
+        modbus_request!(self, "Failed to write register", |ctx| ctx
+            .write_single_register(address, value))?;
 
         let mut receipt = ModbusWriteReceipt {
             device_name: self.config.name.clone(),
@@ -1188,23 +1286,17 @@ impl ModbusClient {
                 tokio::time::sleep(settle).await;
             }
 
-            let channel = self
-                .channel
-                .as_mut()
-                .ok_or_else(|| anyhow::anyhow!("Not connected"))?;
-            let params = RequestParam::new(self.unit_id, MODBUS_TIMEOUT);
-            let addr_range = AddressRange::try_from(address, 1)
-                .map_err(|e| anyhow::anyhow!("Invalid readback address range: {:?}", e))?;
-
-            match channel.read_holding_registers(params, addr_range).await {
+            match modbus_request!(self, "readback failed", |ctx| ctx
+                .read_holding_registers(address, 1))
+            {
                 Ok(values) => {
-                    if let Some(indexed) = values.into_iter().next() {
-                        return Ok(indexed.value);
+                    if let Some(value) = values.first() {
+                        return Ok(*value);
                     }
                     last_error = Some(anyhow::anyhow!("empty readback response"));
                 }
                 Err(e) => {
-                    last_error = Some(anyhow::anyhow!("readback failed: {:?}", e));
+                    last_error = Some(e);
                 }
             }
         }
@@ -1212,7 +1304,7 @@ impl ModbusClient {
         Err(last_error.unwrap_or_else(|| anyhow::anyhow!("readback did not run")))
     }
 
-    /// Write to a coil using rodbus (v1.2.0)
+    /// Write to a coil (v1.2.0)
     ///
     /// # Security
     /// - Validates write operations are allowed
@@ -1225,20 +1317,8 @@ impl ModbusClient {
         self.validate_function_code(FC_WRITE_SINGLE_COIL)?;
         self.acquire_write_rate_limit()?;
 
-        let channel = self
-            .channel
-            .as_mut()
-            .ok_or_else(|| anyhow::anyhow!("Not connected"))?;
-
-        // Create request parameters with unit ID and timeout
-        let params = RequestParam::new(self.unit_id, MODBUS_TIMEOUT);
-
-        // rodbus uses Indexed<bool> to combine address and value
-        let indexed_value = rodbus::Indexed::new(address, value);
-        channel
-            .write_single_coil(params, indexed_value)
-            .await
-            .map_err(|e| anyhow::anyhow!("Failed to write coil: {:?}", e))?;
+        modbus_request!(self, "Failed to write coil", |ctx| ctx
+            .write_single_coil(address, value))?;
 
         // v1.2.6: Enhanced Modbus write logging
         info!(
@@ -1330,6 +1410,81 @@ impl ModbusClient {
             }
         }
     }
+}
+
+/// Reject a register range that runs past the 16-bit Modbus address space.
+fn checked_address_range(start: u16, count: u16) -> Result<()> {
+    if count == 0 || u32::from(start) + u32::from(count) - 1 > u32::from(u16::MAX) {
+        return Err(anyhow::anyhow!(
+            "Invalid address range: {} register(s) from address {}",
+            count,
+            start
+        ));
+    }
+    Ok(())
+}
+
+/// Build the TLS client side of a Modbus/TCP Security link.
+///
+/// The PLC certificate chain is verified against the CA bundle at
+/// `ca_cert_path` and must match `server_name`. `client_identity` =
+/// (certificate chain PEM path, private key PEM path) enables mutual TLS.
+/// Files are read on every (re)connect, so a rotated certificate takes effect
+/// without restarting the agent.
+fn modbus_tls_client(
+    server_name: &str,
+    ca_cert_path: &str,
+    client_identity: Option<(&str, &str)>,
+) -> Result<(Arc<rustls::ClientConfig>, ServerName<'static>)> {
+    let mut roots = rustls::RootCertStore::empty();
+    for cert in CertificateDer::pem_file_iter(ca_cert_path)
+        .with_context(|| format!("Cannot read CA certificate file '{}'", ca_cert_path))?
+    {
+        let cert =
+            cert.with_context(|| format!("Invalid PEM certificate in '{}'", ca_cert_path))?;
+        roots
+            .add(cert)
+            .with_context(|| format!("Unusable CA certificate in '{}'", ca_cert_path))?;
+    }
+    if roots.is_empty() {
+        return Err(anyhow::anyhow!(
+            "CA certificate file '{}' contains no certificates",
+            ca_cert_path
+        ));
+    }
+
+    let builder = rustls::ClientConfig::builder_with_provider(Arc::new(
+        rustls::crypto::ring::default_provider(),
+    ))
+    .with_protocol_versions(MODBUS_TLS_VERSIONS)
+    .context("TLS protocol versions rejected by the crypto provider")?
+    .with_root_certificates(roots);
+
+    let config = match client_identity {
+        None => builder.with_no_client_auth(),
+        Some((cert_path, key_path)) => {
+            let chain = CertificateDer::pem_file_iter(cert_path)
+                .with_context(|| format!("Cannot read client certificate file '{}'", cert_path))?
+                .collect::<std::result::Result<Vec<_>, _>>()
+                .with_context(|| format!("Invalid PEM certificate in '{}'", cert_path))?;
+            if chain.is_empty() {
+                return Err(anyhow::anyhow!(
+                    "Client certificate file '{}' contains no certificates",
+                    cert_path
+                ));
+            }
+            let key = PrivateKeyDer::from_pem_file(key_path)
+                .with_context(|| format!("Cannot read client private key '{}'", key_path))?;
+            builder
+                .with_client_auth_cert(chain, key)
+                .context("Client certificate and private key do not form a usable TLS identity")?
+        }
+    };
+
+    let server_name = ServerName::try_from(server_name.to_string())
+        .with_context(|| format!("Invalid TLS server_name '{}'", server_name))?;
+
+    Ok((Arc::new(config), server_name))
 }
 
 /// Modbus device manager - handles multiple Modbus connections
@@ -1430,10 +1585,9 @@ impl ModbusManager {
     /// as I/O waits can overlap.
     ///
     /// # Design note — join_all vs tokio::spawn
-    /// `rodbus` channel types are `!Send`, so the futures produced by `read_all()`
-    /// cannot be moved to another Tokio worker thread via `tokio::spawn`.
-    /// `join_all` polls all futures on the *calling* task's thread, which avoids
-    /// the `!Send` constraint while still achieving I/O concurrency through
+    /// `join_all` polls every per-device future on the *calling* (actor) task,
+    /// so a parallel read cycle spawns no extra tasks that would need tracking
+    /// or cancellation on shutdown, while I/O concurrency still comes from
     /// cooperative yielding inside each future.
     ///
     /// # Performance
@@ -1670,9 +1824,9 @@ mod tests {
     use crate::config::ModbusTlsConfig;
 
     /// Build a minimal plaintext-TCP device config for manager-level tests.
-    /// rodbus establishes the TCP channel lazily (background retry), so
-    /// `connect()` returns immediately even against a dead port — these tests
-    /// exercise the additive/remove bookkeeping, not a live socket.
+    /// `connect()` against a dead port fails fast but the device stays
+    /// registered (its link is scheduled for re-open) — these tests exercise
+    /// the additive/remove bookkeeping, not a live socket.
     fn provision_test_config(name: &str, address: &str) -> ModbusDeviceConfig {
         ModbusDeviceConfig {
             name: name.to_string(),
@@ -1865,19 +2019,8 @@ mod tests {
         });
 
         // unit_id should be created from slave_id
-        assert_eq!(client.unit_id.value, 42);
+        assert_eq!(client.slave.0, 42);
     }
-
-    // ============================================================================
-    // TLS Integration Tests (v1.2.0)
-    // ============================================================================
-    // These tests require a running Modbus TLS server and are marked with #[ignore].
-    // Run with: cargo test --features tls_integration -- --ignored
-    //
-    // To set up a test environment:
-    // 1. Generate test certificates (CA, server, client)
-    // 2. Start a Modbus TLS server (e.g., using rodbus server example)
-    // 3. Configure paths in the test fixtures
 
     #[test]
     fn test_tls_config_server_only() {
@@ -1934,42 +2077,608 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Requires TLS server: MODBUS_TLS_TEST_SERVER env var"]
-    fn test_tls_connection_integration() {
-        // Integration test - requires running Modbus TLS server
-        // Set MODBUS_TLS_TEST_SERVER=192.168.1.100:8802 to run
-        //
-        // Expected behavior:
-        // 1. Connect to TLS-enabled Modbus server
-        // 2. Verify TLS handshake completes
-        // 3. Read holding registers successfully
-        // 4. Disconnect cleanly
-        //
-        // This test validates IEC 62443 SL2 FR4 (Data Confidentiality)
+    fn checked_address_range_rejects_overflow_and_empty() {
+        assert!(checked_address_range(0, 1).is_ok());
+        assert!(checked_address_range(u16::MAX, 1).is_ok());
+        assert!(checked_address_range(u16::MAX - 1, 2).is_ok());
+        assert!(checked_address_range(u16::MAX, 2).is_err());
+        assert!(checked_address_range(10, 0).is_err());
     }
 
-    #[test]
-    #[ignore = "Requires TLS server with client cert verification"]
-    fn test_mtls_connection_integration() {
-        // Integration test - requires Modbus server with mTLS
-        //
-        // Expected behavior:
-        // 1. Connect with client certificate
-        // 2. Server verifies client identity
-        // 3. Mutual authentication succeeds
-        // 4. Read/write operations work
-        //
-        // This test validates IEC 62443 SL2 FR1 (Authentication)
+    // ============================================================================
+    // Transport tests against an in-process Modbus/TCP server
+    // ============================================================================
+    // Plain TCP, server-only TLS, mTLS, certificate rejection, reconnect after a
+    // PLC restart, and retirement of a transport whose request was abandoned.
+
+    use std::collections::HashMap;
+    use std::future::Future;
+    use std::pin::Pin;
+    use std::sync::Mutex as StdMutex;
+    use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+    use tokio::net::TcpListener;
+    use tokio::task::JoinHandle;
+    use tokio_modbus::server::tcp::{Server, accept_tcp_connection};
+    use tokio_modbus::{ExceptionCode, Request, Response};
+
+    /// DNS name in the test PLC's server certificate.
+    const TEST_PLC_NAME: &str = "plc.test.local";
+
+    /// Register image served by the in-process test PLC. Input registers mirror
+    /// the holding image; discrete inputs mirror the coil image.
+    #[derive(Clone, Default)]
+    struct TestPlc {
+        holding: Arc<StdMutex<HashMap<u16, u16>>>,
+        coils: Arc<StdMutex<HashMap<u16, bool>>>,
+        /// Transports accepted: TCP connections, or completed TLS handshakes.
+        accepted: Arc<AtomicUsize>,
+        /// Delay before each response, to let a client-side timeout fire.
+        response_delay_ms: Arc<AtomicU64>,
     }
 
-    #[test]
-    #[ignore = "Requires TLS server"]
-    fn test_tls_certificate_validation() {
-        // Test that invalid certificates are rejected
-        //
-        // Expected behavior:
-        // 1. Connection with wrong CA cert fails
-        // 2. Connection with expired cert fails
-        // 3. Connection with self-signed cert fails (unless insecure mode)
+    impl TestPlc {
+        fn with_holding(values: &[(u16, u16)]) -> Self {
+            let plc = Self::default();
+            if let Ok(mut image) = plc.holding.lock() {
+                image.extend(values.iter().copied());
+            }
+            plc
+        }
+
+        fn set_coil(&self, address: u16, value: bool) {
+            if let Ok(mut image) = self.coils.lock() {
+                image.insert(address, value);
+            }
+        }
+
+        fn holding_at(&self, address: u16) -> Option<u16> {
+            self.holding.lock().ok()?.get(&address).copied()
+        }
+
+        fn coil_at(&self, address: u16) -> Option<bool> {
+            self.coils.lock().ok()?.get(&address).copied()
+        }
+
+        fn accepted(&self) -> usize {
+            self.accepted.load(Ordering::SeqCst)
+        }
+
+        fn set_response_delay(&self, delay: Duration) {
+            let millis = u64::try_from(delay.as_millis()).unwrap_or(u64::MAX);
+            self.response_delay_ms.store(millis, Ordering::SeqCst);
+        }
+
+        fn read_words(&self, address: u16, count: u16) -> Result<Vec<u16>, ExceptionCode> {
+            let image = self
+                .holding
+                .lock()
+                .map_err(|_| ExceptionCode::ServerDeviceFailure)?;
+            (address..address.saturating_add(count))
+                .map(|a| {
+                    image
+                        .get(&a)
+                        .copied()
+                        .ok_or(ExceptionCode::IllegalDataAddress)
+                })
+                .collect()
+        }
+
+        fn read_bits(&self, address: u16, count: u16) -> Result<Vec<bool>, ExceptionCode> {
+            let image = self
+                .coils
+                .lock()
+                .map_err(|_| ExceptionCode::ServerDeviceFailure)?;
+            (address..address.saturating_add(count))
+                .map(|a| {
+                    image
+                        .get(&a)
+                        .copied()
+                        .ok_or(ExceptionCode::IllegalDataAddress)
+                })
+                .collect()
+        }
+
+        fn handle(&self, request: Request<'static>) -> Result<Response, ExceptionCode> {
+            match request {
+                Request::ReadHoldingRegisters(address, count) => self
+                    .read_words(address, count)
+                    .map(Response::ReadHoldingRegisters),
+                Request::ReadInputRegisters(address, count) => self
+                    .read_words(address, count)
+                    .map(Response::ReadInputRegisters),
+                Request::ReadCoils(address, count) => {
+                    self.read_bits(address, count).map(Response::ReadCoils)
+                }
+                Request::ReadDiscreteInputs(address, count) => self
+                    .read_bits(address, count)
+                    .map(Response::ReadDiscreteInputs),
+                Request::WriteSingleRegister(address, value) => {
+                    self.holding
+                        .lock()
+                        .map_err(|_| ExceptionCode::ServerDeviceFailure)?
+                        .insert(address, value);
+                    Ok(Response::WriteSingleRegister(address, value))
+                }
+                Request::WriteSingleCoil(address, value) => {
+                    self.coils
+                        .lock()
+                        .map_err(|_| ExceptionCode::ServerDeviceFailure)?
+                        .insert(address, value);
+                    Ok(Response::WriteSingleCoil(address, value))
+                }
+                _ => Err(ExceptionCode::IllegalFunction),
+            }
+        }
+    }
+
+    impl tokio_modbus::server::Service for TestPlc {
+        type Request = Request<'static>;
+        type Response = Response;
+        type Exception = ExceptionCode;
+        type Future = Pin<Box<dyn Future<Output = Result<Response, ExceptionCode>> + Send>>;
+
+        fn call(&self, request: Self::Request) -> Self::Future {
+            let delay = Duration::from_millis(self.response_delay_ms.load(Ordering::SeqCst));
+            let response = self.handle(request);
+            Box::pin(async move {
+                if !delay.is_zero() {
+                    tokio::time::sleep(delay).await;
+                }
+                response
+            })
+        }
+    }
+
+    /// Serve `plc` over plain Modbus/TCP until the returned task is aborted.
+    /// Aborting also closes every connection the server accepted.
+    fn spawn_plain_server(listener: TcpListener, plc: TestPlc) -> JoinHandle<()> {
+        tokio::spawn(async move {
+            let on_connected = |stream: TcpStream, socket_addr: SocketAddr| {
+                let plc = plc.clone();
+                async move {
+                    plc.accepted.fetch_add(1, Ordering::SeqCst);
+                    accept_tcp_connection(stream, socket_addr, move |_| Ok(Some(plc.clone())))
+                }
+            };
+            let _ = Server::new(listener)
+                .serve(&on_connected, |_err: std::io::Error| {})
+                .await;
+        })
+    }
+
+    /// Serve `plc` over Modbus/TCP Security behind `acceptor`. A failed
+    /// handshake rejects that connection only.
+    fn spawn_tls_server(
+        listener: TcpListener,
+        plc: TestPlc,
+        acceptor: tokio_rustls::TlsAcceptor,
+    ) -> JoinHandle<()> {
+        tokio::spawn(async move {
+            let on_connected = |stream: TcpStream, _socket_addr: SocketAddr| {
+                let plc = plc.clone();
+                let acceptor = acceptor.clone();
+                async move {
+                    let Ok(tls_stream) = acceptor.accept(stream).await else {
+                        return Ok(None);
+                    };
+                    plc.accepted.fetch_add(1, Ordering::SeqCst);
+                    Ok::<_, std::io::Error>(Some((plc, tls_stream)))
+                }
+            };
+            let _ = Server::new(listener)
+                .serve(&on_connected, |_err: std::io::Error| {})
+                .await;
+        })
+    }
+
+    async fn local_listener() -> anyhow::Result<(TcpListener, SocketAddr)> {
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        let address = listener.local_addr()?;
+        Ok((listener, address))
+    }
+
+    fn register(
+        name: &str,
+        address: u16,
+        register_type: &str,
+        data_type: &str,
+        scale: f64,
+    ) -> ModbusRegisterConfig {
+        ModbusRegisterConfig {
+            name: name.to_string(),
+            address,
+            register_type: register_type.to_string(),
+            data_type: data_type.to_string(),
+            byte_order: ByteOrder::BigEndian,
+            scale,
+            unit: None,
+            poll_interval_ms: None,
+            safe_state_value: None,
+        }
+    }
+
+    /// TCP device polling holding register 100, writes allowed on 100..=120.
+    fn device_config(name: &str, address: SocketAddr, tls: ModbusTlsConfig) -> ModbusDeviceConfig {
+        ModbusDeviceConfig {
+            name: name.to_string(),
+            connection_type: "tcp".to_string(),
+            address: address.to_string(),
+            slave_id: 1,
+            baud_rate: None,
+            registers: vec![register("level", 100, "holding", "u16", 1.0)],
+            security: ModbusSecurityConfig {
+                allowed_function_codes: vec![
+                    FC_READ_COILS,
+                    FC_READ_DISCRETE_INPUTS,
+                    FC_READ_HOLDING_REGISTERS,
+                    FC_READ_INPUT_REGISTERS,
+                    FC_WRITE_SINGLE_COIL,
+                    FC_WRITE_SINGLE_REGISTER,
+                ],
+                allow_writes: true,
+                allowed_write_ranges: vec![(100, 120)],
+                write_readback_settle_ms: 0,
+                ..Default::default()
+            },
+            tls,
+        }
+    }
+
+    fn raw_values(result: &ModbusReadResult) -> Vec<u16> {
+        result.values.iter().map(|v| v.raw_value).collect()
+    }
+
+    /// One CA issuing the PLC server certificate (SAN `plc.test.local`) and
+    /// the agent client certificate. Client-side files are written as PEM.
+    struct TestPki {
+        dir: tempfile::TempDir,
+        ca_pem: String,
+        server_cert_pem: String,
+        server_key_pem: String,
+    }
+
+    impl TestPki {
+        fn generate() -> anyhow::Result<Self> {
+            let ca_key = rcgen::KeyPair::generate()?;
+            let mut ca_params = rcgen::CertificateParams::new(Vec::<String>::new())?;
+            ca_params.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
+            ca_params
+                .distinguished_name
+                .push(rcgen::DnType::CommonName, "Test Modbus CA");
+            let ca_cert = ca_params.self_signed(&ca_key)?;
+
+            let server_key = rcgen::KeyPair::generate()?;
+            let mut server_params = rcgen::CertificateParams::new(vec![TEST_PLC_NAME.to_string()])?;
+            server_params.extended_key_usages = vec![rcgen::ExtendedKeyUsagePurpose::ServerAuth];
+            let server_cert = server_params.signed_by(&server_key, &ca_cert, &ca_key)?;
+
+            let client_key = rcgen::KeyPair::generate()?;
+            let mut client_params =
+                rcgen::CertificateParams::new(vec!["edge-agent.test.local".to_string()])?;
+            client_params.extended_key_usages = vec![rcgen::ExtendedKeyUsagePurpose::ClientAuth];
+            let client_cert = client_params.signed_by(&client_key, &ca_cert, &ca_key)?;
+
+            let dir = tempfile::tempdir()?;
+            std::fs::write(dir.path().join("ca.pem"), ca_cert.pem())?;
+            std::fs::write(dir.path().join("client.pem"), client_cert.pem())?;
+            std::fs::write(
+                dir.path().join("client-key.pem"),
+                client_key.serialize_pem(),
+            )?;
+
+            Ok(Self {
+                dir,
+                ca_pem: ca_cert.pem(),
+                server_cert_pem: server_cert.pem(),
+                server_key_pem: server_key.serialize_pem(),
+            })
+        }
+
+        fn path(&self, file: &str) -> String {
+            self.dir.path().join(file).to_string_lossy().into_owned()
+        }
+
+        /// Agent-side TLS settings; `mutual` adds the agent client certificate.
+        fn client_tls(&self, server_name: &str, mutual: bool) -> ModbusTlsConfig {
+            ModbusTlsConfig {
+                enabled: true,
+                server_name: Some(server_name.to_string()),
+                ca_cert_path: Some(self.path("ca.pem")),
+                client_cert_path: mutual.then(|| self.path("client.pem")),
+                client_key_path: mutual.then(|| self.path("client-key.pem")),
+                insecure_skip_verify: false,
+            }
+        }
+
+        /// PLC-side acceptor; `require_client_cert` turns on mutual TLS.
+        fn acceptor(&self, require_client_cert: bool) -> anyhow::Result<tokio_rustls::TlsAcceptor> {
+            let provider = Arc::new(rustls::crypto::ring::default_provider());
+            let chain = vec![CertificateDer::from_pem_slice(
+                self.server_cert_pem.as_bytes(),
+            )?];
+            let key = PrivateKeyDer::from_pem_slice(self.server_key_pem.as_bytes())?;
+            let builder = rustls::ServerConfig::builder_with_provider(Arc::clone(&provider))
+                .with_protocol_versions(MODBUS_TLS_VERSIONS)?;
+            let config = if require_client_cert {
+                let mut roots = rustls::RootCertStore::empty();
+                roots.add(CertificateDer::from_pem_slice(self.ca_pem.as_bytes())?)?;
+                let verifier = rustls::server::WebPkiClientVerifier::builder_with_provider(
+                    Arc::new(roots),
+                    provider,
+                )
+                .build()?;
+                builder
+                    .with_client_cert_verifier(verifier)
+                    .with_single_cert(chain, key)?
+            } else {
+                builder.with_no_client_auth().with_single_cert(chain, key)?
+            };
+            Ok(tokio_rustls::TlsAcceptor::from(Arc::new(config)))
+        }
+    }
+
+    #[tokio::test]
+    async fn plain_tcp_reads_every_register_type_and_verifies_writes() -> anyhow::Result<()> {
+        // f32 25.0 = 0x41C8_0000, big-endian word order
+        let plc = TestPlc::with_holding(&[(100, 2500), (200, 0x41C8), (201, 0x0000)]);
+        plc.set_coil(5, true);
+        let (listener, address) = local_listener().await?;
+        let _server = spawn_plain_server(listener, plc.clone());
+
+        let mut config = device_config("plc-plain", address, ModbusTlsConfig::default());
+        config.registers = vec![
+            register("level", 100, "holding", "u16", 0.01),
+            register("temperature", 200, "input", "f32", 1.0),
+            register("pump", 5, "coil", "u16", 1.0),
+            register("float_switch", 5, "discrete", "u16", 1.0),
+        ];
+        let mut client = ModbusClient::new(config);
+        client.connect().await?;
+
+        let result = client.read_all().await;
+        assert!(result.errors.is_empty(), "read errors: {:?}", result.errors);
+        let scaled: Vec<f64> = result.values.iter().map(|v| v.scaled_value).collect();
+        assert_eq!(scaled, vec![25.0, 25.0, 1.0, 1.0]);
+
+        let receipt = client.write_register(110, 1234).await?;
+        assert!(receipt.protocol_ack);
+        assert!(receipt.readback_enabled && receipt.readback_verified);
+        assert_eq!(receipt.readback_value, Some(1234));
+        assert_eq!(plc.holding_at(110), Some(1234));
+
+        client.write_coil(111, true).await?;
+        assert_eq!(plc.coil_at(111), Some(true));
+
+        assert_eq!(plc.accepted(), 1, "all requests share one transport");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn device_exception_is_reported_without_dropping_the_transport() -> anyhow::Result<()> {
+        let plc = TestPlc::with_holding(&[(100, 7)]);
+        let (listener, address) = local_listener().await?;
+        let _server = spawn_plain_server(listener, plc.clone());
+
+        let mut config = device_config("plc-exception", address, ModbusTlsConfig::default());
+        config.registers = vec![
+            register("unmapped", 300, "holding", "u16", 1.0),
+            register("level", 100, "holding", "u16", 1.0),
+        ];
+        let mut client = ModbusClient::new(config);
+        client.connect().await?;
+
+        let result = client.read_all().await;
+        assert_eq!(result.errors.len(), 1, "errors: {:?}", result.errors);
+        assert!(
+            result.errors.iter().all(|e| e.contains("device exception")),
+            "errors: {:?}",
+            result.errors
+        );
+        assert_eq!(raw_values(&result), vec![7]);
+        assert!(client.is_connected());
+        assert_eq!(plc.accepted(), 1);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn dropped_transport_is_reopened_after_backoff() -> anyhow::Result<()> {
+        let plc = TestPlc::with_holding(&[(100, 42)]);
+        let (listener, address) = local_listener().await?;
+        let server = spawn_plain_server(listener, plc.clone());
+
+        let mut client = ModbusClient::new(device_config(
+            "plc-restart",
+            address,
+            ModbusTlsConfig::default(),
+        ));
+        client.reconnect = ReconnectPolicy {
+            min: Duration::from_millis(20),
+            max: Duration::from_millis(80),
+        };
+        client.connect().await?;
+        assert_eq!(raw_values(&client.read_all().await), vec![42]);
+
+        // PLC restart: the server and every connection it accepted go away.
+        server.abort();
+        let _ = server.await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let during_outage = client.read_all().await;
+        assert!(during_outage.values.is_empty());
+        assert!(!during_outage.errors.is_empty());
+        assert!(!client.is_connected());
+
+        let _restarted = spawn_plain_server(TcpListener::bind(address).await?, plc.clone());
+        tokio::time::sleep(Duration::from_millis(30)).await;
+
+        let after_restart = client.read_all().await;
+        assert!(
+            after_restart.errors.is_empty(),
+            "errors: {:?}",
+            after_restart.errors
+        );
+        assert_eq!(raw_values(&after_restart), vec![42]);
+        assert!(client.is_connected());
+        assert_eq!(plc.accepted(), 2);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn abandoned_request_retires_the_transport() -> anyhow::Result<()> {
+        let plc = TestPlc::with_holding(&[(100, 42)]);
+        let (listener, address) = local_listener().await?;
+        let _server = spawn_plain_server(listener, plc.clone());
+
+        let mut client = ModbusClient::new(device_config(
+            "plc-slow",
+            address,
+            ModbusTlsConfig::default(),
+        ));
+        client.connect().await?;
+        let level = register("level", 100, "holding", "u16", 1.0);
+
+        // An outer timeout drops the request while its response is pending.
+        plc.set_response_delay(Duration::from_millis(200));
+        let abandoned =
+            tokio::time::timeout(Duration::from_millis(20), client.read_register(&level, "t"))
+                .await;
+        assert!(
+            abandoned.is_err(),
+            "request should be cut off by the outer timeout"
+        );
+
+        // The late reply must not be paired with the next request: the next
+        // request runs on a fresh transport and reads the right value.
+        plc.set_response_delay(Duration::ZERO);
+        let value = client.read_register(&level, "t").await?;
+        assert_eq!(value.raw_value, 42);
+        assert_eq!(plc.accepted(), 2, "transport must be re-opened, not reused");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn server_only_tls_round_trip() -> anyhow::Result<()> {
+        let pki = TestPki::generate()?;
+        let plc = TestPlc::with_holding(&[(100, 42)]);
+        let (listener, address) = local_listener().await?;
+        let _server = spawn_tls_server(listener, plc.clone(), pki.acceptor(false)?);
+
+        let mut client = ModbusClient::new(device_config(
+            "plc-tls",
+            address,
+            pki.client_tls(TEST_PLC_NAME, false),
+        ));
+        client.connect().await?;
+
+        let result = client.read_all().await;
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        assert_eq!(raw_values(&result), vec![42]);
+        assert_eq!(plc.accepted(), 1);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn mutual_tls_round_trip() -> anyhow::Result<()> {
+        let pki = TestPki::generate()?;
+        let plc = TestPlc::with_holding(&[(100, 42)]);
+        let (listener, address) = local_listener().await?;
+        let _server = spawn_tls_server(listener, plc.clone(), pki.acceptor(true)?);
+
+        let mut client = ModbusClient::new(device_config(
+            "plc-mtls",
+            address,
+            pki.client_tls(TEST_PLC_NAME, true),
+        ));
+        client.connect().await?;
+
+        let receipt = client.write_register(105, 77).await?;
+        assert!(receipt.readback_verified);
+        let result = client.read_all().await;
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        assert_eq!(raw_values(&result), vec![42]);
+        assert_eq!(plc.holding_at(105), Some(77));
+        assert_eq!(plc.accepted(), 1);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn mutual_tls_plc_rejects_agent_without_client_certificate() -> anyhow::Result<()> {
+        let pki = TestPki::generate()?;
+        let plc = TestPlc::with_holding(&[(100, 42)]);
+        let (listener, address) = local_listener().await?;
+        let _server = spawn_tls_server(listener, plc.clone(), pki.acceptor(true)?);
+
+        let mut client = ModbusClient::new(device_config(
+            "plc-mtls-no-cert",
+            address,
+            pki.client_tls(TEST_PLC_NAME, false),
+        ));
+        // With TLS 1.3 the client may finish its side of the handshake before
+        // the PLC rejects it, so the rejection can surface on connect or on
+        // the first request — either way no data may flow.
+        let connected = client.connect().await;
+        let result = client.read_all().await;
+        assert!(connected.is_err() || !result.errors.is_empty());
+        assert!(result.values.is_empty());
+        assert_eq!(plc.accepted(), 0);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn tls_rejects_plc_certificate_from_unknown_ca() -> anyhow::Result<()> {
+        let plc_pki = TestPki::generate()?;
+        let other_pki = TestPki::generate()?;
+        let plc = TestPlc::with_holding(&[(100, 42)]);
+        let (listener, address) = local_listener().await?;
+        let _server = spawn_tls_server(listener, plc.clone(), plc_pki.acceptor(false)?);
+
+        let mut client = ModbusClient::new(device_config(
+            "plc-unknown-ca",
+            address,
+            other_pki.client_tls(TEST_PLC_NAME, false),
+        ));
+        let Err(err) = client.connect().await else {
+            panic!("handshake with a PLC certificate from an unknown CA must fail");
+        };
+        assert!(format!("{err:#}").contains("TLS handshake"), "{err:#}");
+        assert!(!client.is_connected());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn tls_rejects_plc_certificate_for_another_name() -> anyhow::Result<()> {
+        let pki = TestPki::generate()?;
+        let plc = TestPlc::with_holding(&[(100, 42)]);
+        let (listener, address) = local_listener().await?;
+        let _server = spawn_tls_server(listener, plc.clone(), pki.acceptor(false)?);
+
+        let mut client = ModbusClient::new(device_config(
+            "plc-wrong-name",
+            address,
+            pki.client_tls("other-plc.test.local", false),
+        ));
+        let Err(err) = client.connect().await else {
+            panic!("handshake with a certificate for another name must fail");
+        };
+        assert!(format!("{err:#}").contains("TLS handshake"), "{err:#}");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn half_configured_mtls_fails_before_opening_a_socket() -> anyhow::Result<()> {
+        let pki = TestPki::generate()?;
+        let plc = TestPlc::with_holding(&[(100, 42)]);
+        let (listener, address) = local_listener().await?;
+        let _server = spawn_tls_server(listener, plc.clone(), pki.acceptor(true)?);
+
+        let mut tls = pki.client_tls(TEST_PLC_NAME, true);
+        tls.client_key_path = None;
+        let mut client = ModbusClient::new(device_config("plc-half-mtls", address, tls));
+        let Err(err) = client.connect().await else {
+            panic!("client certificate without key must be rejected");
+        };
+        assert!(format!("{err:#}").contains("TLS config invalid"), "{err:#}");
+        assert_eq!(plc.accepted(), 0);
+        Ok(())
     }
 }

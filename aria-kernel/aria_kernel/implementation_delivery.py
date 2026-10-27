@@ -190,7 +190,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
-from .change_paths import name_status_args, parse_name_status_z
+from .change_paths import name_status_args, parse_change_z
+from .decision_stamp import DECISION_STAMP_FIELD, build_decision_stamp
 from .delivery_credentials import (
     DELIVERY_CREDENTIAL_CONSUMPTION_SECONDS,
     DELIVERY_CREDENTIAL_WORST_CASE_SECONDS,
@@ -207,6 +208,7 @@ from .git_containment import (
     derive_git_containment,
 )
 from .evidence_probe import EVIDENCE_VERIFICATION_LIVENESS_SECONDS
+from .independence_check import executed_route_of
 from .implementation_safety import (
     CANONICAL_VALIDATION_TIMEOUT_MS,
     COMMIT_SIGNATURE_VERIFY_TIMEOUT_SECONDS,
@@ -287,8 +289,9 @@ KERNEL_STAMPED_DELIVERY_FIELDS: tuple[str, ...] = (
 )
 _PUSH_REMOTE = "origin"
 # The git subprocesses `deliver_implementation` runs, each at the store's git
-# cap: the tip's `rev-parse`, `diff --name-status --no-renames` (the scope
-# verdict), the push, and `diff` (the stamp's hash).
+# cap: the tip's `rev-parse`, `diff --raw --numstat --no-renames` (ONE combined
+# read: the scope verdict's path set and the decision stamp's line counts),
+# the push, and `diff` (the stamp's hash).
 DELIVERY_GIT_CALLS = 4
 # The `commit_identity` stage's own bounded subprocess: one `git
 # verify-commit` (round 4). Its registry read and anchor write are work,
@@ -438,6 +441,9 @@ class ImplementationDelivery:
     pr_url: str
     pr_number: int
     validation_gate_ref: str
+    # The executed route and the change's numstat (``decision_stamp``): stamped
+    # beside, not among, the eight kernel-stamped fields the agent contract quotes.
+    decision_stamp: dict[str, Any]
     validation_results: tuple[dict[str, Any], ...] = field(default_factory=tuple)
 
     def record_fields(self) -> dict[str, Any]:
@@ -866,13 +872,17 @@ def deliver_implementation(
     #    ARIA-CRITICAL-214 — read through the one change-path reader: a
     #    rename is its source AND its target, so moving an unplanned file
     #    into a planned path is refused by the scope verdict for its source.
-    touched = _git(name_status_args(base_sha, branch_tip_sha), cwd=workspace, env=git_env)
+    #    ARIA-LOW-741 — the same call carries the change's line counts (the
+    #    decision stamp's numstat): the git budget has no room for a second
+    #    read, and one parse cannot disagree with itself about the path set.
+    touched = _git(name_status_args(base_sha, branch_tip_sha, churn=True), cwd=workspace, env=git_env)
     if touched.returncode != 0:
         raise ImplementationDeliveryRefusal("change_ledger", f"diff_unresolvable:{_first_line(touched.stderr)}")
     try:
-        actual_affected_files = sorted({path for _status, path in parse_name_status_z(touched.stdout)})
+        change_entries, change_churn = parse_change_z(touched.stdout)
     except GovernanceErrorType as exc:
         raise ImplementationDeliveryRefusal("change_ledger", f"diff_unresolvable:{str(exc)[:160]}") from exc
+    actual_affected_files = sorted({path for _status, path in change_entries})
     try:
         verify_change_scope(
             change_id=change_id, actual_affected_files=actual_affected_files,
@@ -886,6 +896,13 @@ def deliver_implementation(
     if diff.returncode != 0:
         raise ImplementationDeliveryRefusal("change_ledger", f"diff_unresolvable:{_first_line(diff.stderr)}")
     diff_hash = sha256_digest_text(diff.stdout)
+    # The decision stamp: which route executed this envelope (the executor's
+    # stamp, or the native attempt row), and the size of the change just read.
+    # Built here, before anything external; no route is a null, not a refusal.
+    try:
+        decision_stamp = build_decision_stamp(executed_route_of(envelope, base_dir=base_dir), change_churn)
+    except GovernanceErrorType as exc:
+        raise ImplementationDeliveryRefusal("change_ledger", f"decision_stamp_unbuildable:{str(exc)[:160]}") from exc
 
     # 1a. The patch's own secret scan (round 6): the branch's WHOLE diff,
     #     `base_sha..tip`, through the scanner whose docstring has promised
@@ -1105,7 +1122,8 @@ def deliver_implementation(
         branch=branch, branch_tip_sha=branch_tip_sha, base_branch_sha=base_sha,
         diff_hash=diff_hash,
         pr_url=str(opened["url"]), pr_number=int(opened["pr_number"]),
-        validation_gate_ref=validation_gate_ref, validation_results=validation_results,
+        validation_gate_ref=validation_gate_ref, decision_stamp=decision_stamp,
+        validation_results=validation_results,
     )
 
 
@@ -1125,7 +1143,10 @@ def stamp_implementation_delivery(
     from the kernel's is replaced and recorded on governance
     (``implementation_delivery_overridden``) with the field names and the
     agent's values — the agent's claim is data about the agent, never the
-    identity of the delivery.
+    identity of the delivery. The decision stamp (``DECISION_STAMP_FIELD``,
+    the executed route and the numstat) rides the same rule on the same
+    record, outside ``KERNEL_STAMPED_DELIVERY_FIELDS`` on purpose: that tuple
+    is what the agent contract quotes, and the agent is not told this one.
     """
     from .implementation_identity import implementation_record
     from .tool_registry import append_tools_governance
@@ -1135,10 +1156,10 @@ def stamp_implementation_delivery(
         details = {}
         envelope["details"] = details
     record = implementation_record(details)
-    facts = delivery.record_fields()
+    facts = {**delivery.record_fields(), DECISION_STAMP_FIELD: delivery.decision_stamp}
     overridden: dict[str, Any] = {}
     changed = False
-    for name in KERNEL_STAMPED_DELIVERY_FIELDS:
+    for name in (*KERNEL_STAMPED_DELIVERY_FIELDS, DECISION_STAMP_FIELD):
         supplied = record.get(name)
         if supplied == facts[name]:
             continue

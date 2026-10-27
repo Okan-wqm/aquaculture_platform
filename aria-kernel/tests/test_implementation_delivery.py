@@ -91,6 +91,7 @@ def _delivery(**overrides: object) -> ImplementationDelivery:
         branch=BRANCH, branch_tip_sha="a" * 40, base_branch_sha="0" * 40, diff_hash="sha256:" + "b" * 64,
         pr_url="https://github.com/fixture/r/pull/7", pr_number=7, validation_gate_ref="sha256:" + "c" * 64,
         validation_results=({"command": "npx nx affected --target=test", "exit_code": 0},),
+        decision_stamp=DECISION_STAMP,
     )
     fields.update(overrides)
     return ImplementationDelivery(**fields)

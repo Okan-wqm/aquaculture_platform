@@ -1,6 +1,6 @@
 import { buildNatsConnectionOptions } from '@aquaculture/backend-common/nats';
 import { ConfigService } from '@nestjs/config';
-import { connect } from 'nats';
+import { connect } from '@nats-io/transport-node';
 
 // The gateway bridge shape the RCA names: the factory builds the options, then the bridge
 // writes user/pass/token around it from its own reads, without looking at the auth mode.

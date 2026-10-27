@@ -113,7 +113,7 @@ for (const [name, body, written] of VARIANTS) {
 
 // READ rule, bench probe form: the gateway bridge rebuilds the credentials around the factory.
 const BRIDGE = [
-  `import { connect } from 'nats';`,
+  `import { connect } from '@nats-io/transport-node';`,
   `import { buildNatsConnectionOptions } from '@aquaculture/backend-common/nats';`,
   `export class BridgeService {`,
   `  constructor(private readonly configService: { get<T>(key: string): T | undefined }) {}`,

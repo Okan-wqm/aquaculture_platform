@@ -33,7 +33,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .tool_registry import GovernanceError
+from .tool_registry import GovernanceError, is_agent_backed
 
 FIXTURE_CASES_DIRNAME = "cases"
 # The only status a fixture case may expect of a registered adapter. The
@@ -84,7 +84,14 @@ def assert_fixture_backed(manifest: dict[str, Any], workspace_root: str | Path) 
 
     Returns the case paths that make the contract, so a caller that wants
     to run them does not resolve the directory a second time.
+
+    An agent-backed tool (``tool_registry.is_agent_backed``) has no program
+    whose output a case could pin: each of its runs is an agent's answer, and
+    its evidence is checked answer by answer at the commit that answer is about
+    (``change_review``), so it owns no fixture suite and holds no case.
     """
+    if is_agent_backed(manifest):
+        return []
     tool_id = str(manifest.get("tool_id") or "")
     cases = fixture_cases_for_manifest(manifest, workspace_root)
     if not cases:

@@ -1,7 +1,10 @@
+import { UUID_PATTERN } from './schemas/common.schema';
 import { tenantIdForScope, type EventTenantScope } from './tenant-scope';
 
 /**
- * Branded type for event IDs. Can ONLY be produced by `createBaseEvent()`.
+ * Branded type for event IDs. Minted ONLY by `createBaseEvent()` (random) and
+ * `deriveEventId()` (deterministic); an id read back from storage re-enters the
+ * type only through `restoreEventId()`. No call site casts to `EventId`.
  *
  * ARCHITECTURAL INVARIANT: This branded type makes inline event construction
  * a compile-time error. You CANNOT assign a plain `string` to `EventId`:
@@ -389,6 +392,26 @@ export function deriveEventId(seed: string, namespace: string = AQUA_EVENT_ID_NA
     '',
   );
   return `${hex.substring(0, 8)}-${hex.substring(8, 12)}-${hex.substring(12, 16)}-${hex.substring(16, 20)}-${hex.substring(20)}` as EventId;
+}
+
+const EVENT_ID_REGEX = new RegExp(UUID_PATTERN, 'i');
+
+/**
+ * The one sanctioned re-brand of a STORED event id (a persisted proof, an
+ * outbox row): the value is a plain `string` again once it leaves the event, and
+ * `EventId` is otherwise minted only by `createBaseEvent` / `deriveEventId`, so
+ * every call site that needed the original id back used to cast it inline.
+ *
+ * The id is returned unchanged: identity is what keeps a re-emission
+ * idempotent (the event-bus stamps `Nats-Msg-Id` from `eventId`). It must be a
+ * UUID, the shape both minters produce; anything else is a corrupt row and
+ * fails closed here instead of reaching the outbox.
+ */
+export function restoreEventId(stored: string): EventId {
+  if (!EVENT_ID_REGEX.test(stored)) {
+    throw new TypeError(`restoreEventId: stored event id is not a UUID: ${JSON.stringify(stored)}`);
+  }
+  return stored as EventId;
 }
 
 /**

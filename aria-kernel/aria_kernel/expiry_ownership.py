@@ -171,8 +171,8 @@ ROLE_OWNERSHIP: Mapping[str, Ownership] = {
         ("autonomy_orchestrator.py::_find_projected_queue_request", "next_cycle_queue.py::reoffer_item"),
     ),
     "consensus_arbitration": Ownership(
-        OWNER_OPERATOR, "", "the fan-out counts the dead arbiter as dispatched; the anchor arm never "
-        "escalates", _never, _FANOUT_DEDUPE,
+        OWNER_OPERATOR, "", "the arbiter mint counts the dead arbiter as dispatched for its bound inputs; "
+        "the anchor arm never escalates", _never, ("judge_fanout.py::_minted_arbiter_inputs",),
     ),
     "verification": Ownership(
         OWNER_OPERATOR, "", f"already_questioned counts dead requests; {_NOBODY}", _never,

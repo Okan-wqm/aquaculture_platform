@@ -22,7 +22,7 @@ import re
 from pathlib import Path
 
 from aria_kernel import report_ingestion
-from aria_kernel.plan_coverage import WITNESS_RELPATH, WITNESS_TSCONFIG
+from aria_kernel.plan_coverage import EVENT_FACTS_RELPATH, MODULE_FACTS_RELPATH, WITNESS_RELPATH, WITNESS_TSCONFIG
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -58,11 +58,41 @@ def tool_closure_paths(*entries: str, repo_root: Path = REPO_ROOT) -> tuple[str,
     return tuple(sorted(path.relative_to(repo_root.resolve()).as_posix() for path in seen))
 
 
-def witness_tool_paths(repo_root: Path = REPO_ROOT) -> tuple[str, ...]:
-    """The witness, its tsconfig and every file it imports relatively, transitively; repo-relative."""
-    ordered = list(tool_closure_paths(WITNESS_RELPATH, repo_root=repo_root))
+def plan_coverage_tool_paths(repo_root: Path = REPO_ROOT) -> tuple[str, ...]:
+    """Every repository source a plan-coverage run executes, repo-relative, the witness first: the
+    witness and the two code-fact entries (SE-4: the closure the witness consumes is computed over
+    their facts), their tsconfig and every file they import relatively, transitively."""
+    ordered = list(tool_closure_paths(WITNESS_RELPATH, EVENT_FACTS_RELPATH, MODULE_FACTS_RELPATH, repo_root=repo_root))
     ordered.remove(WITNESS_RELPATH)
     return (WITNESS_RELPATH, WITNESS_TSCONFIG, *ordered)
+
+
+NATS_SCHEMA_RELPATH = "infrastructure/nats/services.schema.json"
+
+
+def plan_coverage_ssot_files(application: str, schema: str) -> dict[str, str]:
+    """The smallest single-application SSoT inputs the code-fact entries read in a fixture tree:
+    services.yaml (with the schema's grant minimums, validated against the repository's own
+    schema), one MODULE_SCHEMAS module and its SCHEMA_REGISTRY owner."""
+    identity = application.replace("-", "_")
+    return {
+        NATS_SCHEMA_RELPATH: (REPO_ROOT / NATS_SCHEMA_RELPATH).read_text(encoding="utf-8"),
+        "infrastructure/nats/services.yaml": "\n".join([
+            "version: 1", "services:", f"  - name: {identity}", f"    application: {application}",
+            f"    description: fixture identity of {identity}",
+            "    publish:", "      - $JS.API.>", "      - $JS.ACK.>", "      - _INBOX.>",
+            "    subscribe:", "      - $JS.API.>", f"      - _INBOX{identity.upper()}.>", "",
+        ]),
+        "libs/backend-common/src/database/schema-manager.service.ts": (
+            f"export const MODULE_SCHEMAS = [\n  {{ moduleName: '{schema}', sourceSchema: '{schema}', "
+            f"infrastructureTables: [], tables: ['{schema}_fixture'] }},\n];\n"
+            "export const TENANT_SCOPED_MODULES: ReadonlySet<string> = new Set([]);\n"
+        ),
+        "apps/db-migrate/src/schema-registry.ts": (
+            f"export const SCHEMA_REGISTRY = [\n  {{ service: '{application}', schema: '{schema}', "
+            "migrationsGlob: [], reason: 'fixture' },\n];\n"
+        ),
+    }
 
 
 # The data the registry CLI reads on every kernel call beside its code: the row

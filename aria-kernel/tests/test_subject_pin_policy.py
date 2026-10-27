@@ -42,6 +42,7 @@ from aria_kernel.plan_origin import (
 from aria_kernel.tool_registry import GovernanceError
 from tests._helpers.git_fixtures import make_local_git_repo
 from tests.test_revision_scope_bound import FARM, _seed, _seed_workspace, _write_workspace
+from tests._helpers.service_facts import facts_without_contract_edges
 
 RUNBOOK_PIN = {"subject": "F-007", "paths": ["docs/runbooks/farm.md"]}
 
@@ -53,6 +54,8 @@ def _policy(pins: list[dict]) -> str:
 
 class SubjectPinPolicyTests(unittest.TestCase):
     def setUp(self) -> None:
+        # SE-4 — a fixture workspace has no TypeScript toolchain; its subject is not contract edges.
+        self.enterContext(facts_without_contract_edges())
         self.tmp = tempfile.TemporaryDirectory(prefix="aria-subject-pins-")
         self.addCleanup(self.tmp.cleanup)
         # ORPHAN-HIGH-519 — _seed_workspace creates and commits the four-project

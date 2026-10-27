@@ -48,7 +48,8 @@ from aria_kernel.judge_fanout import (
     anchor_candidate_groups,
     dispatch_arbiter_for_anchor_groups,
 )
-from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
+from aria_kernel.tool_registry import GovernanceError, ensure_tools_binding, ensure_tools_dir
+from tests._helpers.git_fixtures import commit_files, make_local_git_repo
 
 
 # The live fleet, read off .claude/agents/*.md frontmatter (2026-08-20).
@@ -485,16 +486,27 @@ class WeightedLaneAnchorTests(_LedgerCase):
         "aria-consensus-arbiter": 0.9,
     }
 
+    def setUp(self) -> None:
+        super().setUp()
+        # J1 (ARIA-MEDIUM-783) — an anchor suppresses only while the code it
+        # judged is still at HEAD of the store's declared workspace: these
+        # cases assert suppression, so every seat judges this real commit of
+        # a bound repository that carries the cited file (passed per call
+        # through _judge's one target_sha parameter, J5).
+        repo = make_local_git_repo(Path(self._tmp.name), name="repo")
+        self.judged_sha = commit_files(repo, {"src/f-1.ts": "export const f = 1;\n" * 12})
+        ensure_tools_binding(self.tools, workspace_root=repo)
+
     def _settle(self) -> dict:
         return generate_ai_consensus(
             tool_id="tool-a", base_dir=self.tools, judge_weights=self.WEIGHTS,
         )
 
     def test_the_refuting_arbiter_never_becomes_the_third_credential(self) -> None:
-        self._judge("aria-evidence-judge", verdict="false_positive")
-        self._judge("aria-adversarial-judge", verdict="false_positive")
+        self._judge("aria-evidence-judge", verdict="false_positive", target_sha=self.judged_sha)
+        self._judge("aria-adversarial-judge", verdict="false_positive", target_sha=self.judged_sha)
         self._settle()
-        self._judge("aria-consensus-arbiter", verdict="true_positive")
+        self._judge("aria-consensus-arbiter", verdict="true_positive", target_sha=self.judged_sha)
         result = self._settle()
         row = result["consensus"][0]
         self.assertEqual(row["judge_count"], 2, "only the agreeing judges back it")
@@ -509,10 +521,10 @@ class WeightedLaneAnchorTests(_LedgerCase):
     def test_a_weighted_majority_still_settles_the_precision_lane(self) -> None:
         """Not a regression of Z2a: the row exists and carries the winning
         verdict — it simply is not ground truth."""
-        self._judge("aria-evidence-judge", verdict="false_positive")
-        self._judge("aria-adversarial-judge", verdict="false_positive")
+        self._judge("aria-evidence-judge", verdict="false_positive", target_sha=self.judged_sha)
+        self._judge("aria-adversarial-judge", verdict="false_positive", target_sha=self.judged_sha)
         self._settle()
-        self._judge("aria-consensus-arbiter", verdict="true_positive")
+        self._judge("aria-consensus-arbiter", verdict="true_positive", target_sha=self.judged_sha)
         row = self._settle()["consensus"][0]
         self.assertEqual(row["verdict"], "false_positive")
         self.assertIn("dissenting", row["note"])
@@ -521,10 +533,10 @@ class WeightedLaneAnchorTests(_LedgerCase):
         """The dedup key is ATTENDANCE, so the 2-1 group settles once. Keyed
         on agreement it would re-settle forever and grow the ledger without
         bound."""
-        self._judge("aria-evidence-judge", verdict="false_positive")
-        self._judge("aria-adversarial-judge", verdict="false_positive")
+        self._judge("aria-evidence-judge", verdict="false_positive", target_sha=self.judged_sha)
+        self._judge("aria-adversarial-judge", verdict="false_positive", target_sha=self.judged_sha)
         self._settle()
-        self._judge("aria-consensus-arbiter", verdict="true_positive")
+        self._judge("aria-consensus-arbiter", verdict="true_positive", target_sha=self.judged_sha)
         self._settle()
         before = len(load_feedback(tool_id="tool-a", base_dir=self.tools))
         for _ in range(3):
@@ -534,10 +546,10 @@ class WeightedLaneAnchorTests(_LedgerCase):
         )
 
     def test_a_unanimous_third_judge_still_anchors_under_weights(self) -> None:
-        self._judge("aria-evidence-judge", verdict="false_positive")
-        self._judge("aria-adversarial-judge", verdict="false_positive")
+        self._judge("aria-evidence-judge", verdict="false_positive", target_sha=self.judged_sha)
+        self._judge("aria-adversarial-judge", verdict="false_positive", target_sha=self.judged_sha)
         self._settle()
-        self._judge("aria-consensus-arbiter", verdict="false_positive")
+        self._judge("aria-consensus-arbiter", verdict="false_positive", target_sha=self.judged_sha)
         row = self._settle()["consensus"][0]
         self.assertEqual((row["judge_count"], row["judges_voted"]), (3, 3))
         self.assertTrue(is_ground_truth_row(row))

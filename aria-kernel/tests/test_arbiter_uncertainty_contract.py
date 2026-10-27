@@ -21,6 +21,7 @@ from aria_kernel.feedback_store import (
     CONSENSUS_UNCERTAINTY_REASONS,
     record_consensus_uncertainty,
 )
+from aria_kernel.judge_fanout import ARBITER_SUBJECT_FINDING, arbiter_inputs
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
 
 
@@ -32,6 +33,8 @@ def _request() -> dict:
         "finding_id": "f-1",
         "judgment_group_id": "grp-1",
         "cycle_id": "cyc-1",
+        # J4 — bound to the group as it reads (no seats in this fixture).
+        "arbiter_inputs": arbiter_inputs(ARBITER_SUBJECT_FINDING, []),
     }
 
 
@@ -79,7 +82,9 @@ class ArbiterUncertaintyIsAValidOutcome(unittest.TestCase):
             base_dir=self.base,
         )
         self.assertEqual(row["kind"], "consensus_uncertainty")
-        self.assertEqual(row["reason"], "judge_disagreement")
+        # F0.7 — the arbiter's non-verdict is terminal whatever it states;
+        # the stated reason rides beside it.
+        self.assertEqual((row["reason"], row["arbiter_reason"]), ("unverifiable", "judge_disagreement"))
         self.assertTrue(row.get("escalation_id"))
         ledger = self.base / "feedback-consensus-uncertainties.jsonl"
         self.assertTrue(ledger.exists())
@@ -100,6 +105,45 @@ class ArbiterUncertaintyIsAValidOutcome(unittest.TestCase):
         rows = [json.loads(l) for l in ledger.read_text().splitlines() if l.strip()]
         total = sum(len(r["uncertainties"]) for r in rows)
         self.assertEqual(total, 1)
+
+    def test_the_arbiters_fold_goes_through_the_one_producer(self) -> None:
+        # ORPHAN-CRITICAL-735 — one producer, one vocabulary, one ledger.
+        # F0.7's terminal mapping is arbiter policy layered ON the producer,
+        # never a second writer with its own reason check and append (the
+        # closure-reachability gate caught exactly that: the one producer
+        # left with no production caller).
+        from unittest import mock
+
+        from aria_kernel import feedback_store
+
+        with mock.patch.object(
+            feedback_store, "record_consensus_uncertainty",
+            wraps=feedback_store.record_consensus_uncertainty,
+        ) as producer:
+            jb.record_judge_verdict_from_response(request=_request(), response=_uncertain_response(), base_dir=self.base)
+        producer.assert_called_once()
+        self.assertEqual(
+            (producer.call_args.kwargs["reason"], producer.call_args.kwargs["arbiter_reason"]),
+            ("unverifiable", "judge_disagreement"),
+        )
+
+    def test_an_unregistered_arbiter_reason_is_refused_by_the_one_producer(self) -> None:
+        with self.assertRaises(GovernanceError) as ctx:
+            record_consensus_uncertainty(
+                tool_id="t", run_id="r", finding_id="f", group_id="g",
+                reason="unverifiable", arbiter_reason="i_made_this_up", base_dir=self.base,
+            )
+        self.assertIn("unregistered_consensus_uncertainty_reason", str(ctx.exception))
+        self.assertFalse((self.base / "feedback-consensus-uncertainties.jsonl").exists())
+
+    def test_an_unbound_arbiter_envelope_is_refused_by_name(self) -> None:
+        # J4 — an envelope minted before the binding can prove nothing about
+        # what it was asked; its answer writes nothing.
+        unbound = {key: value for key, value in _request().items() if key != "arbiter_inputs"}
+        with self.assertRaises(GovernanceError) as ctx:
+            jb.record_judge_verdict_from_response(request=unbound, response=_uncertain_response(), base_dir=self.base)
+        self.assertIn("arbiter_inputs_unbound", str(ctx.exception))
+        self.assertFalse((self.base / "feedback-consensus-uncertainties.jsonl").exists())
 
     def test_unregistered_reason_is_refused_by_name(self) -> None:
         with self.assertRaises(GovernanceError) as ctx:
@@ -143,24 +187,13 @@ class ArbiterUncertaintyIsAValidOutcome(unittest.TestCase):
             },
         )
 
-    def test_every_reason_escalates_under_its_severity(self) -> None:
-        """A reason the sweep's severity table does not know is silently
-        dropped as ``benign_not_escalated`` (human_required), so the pin and
-        the table must move together — the vocabulary and its escalation are
-        one contract, not two."""
-        from aria_kernel.human_required import CONSENSUS_UNCERTAINTY_SEVERITY
+    def test_unverifiable_is_terminal_not_arbitrated(self) -> None:
+        """F0.7 — the arbiter's unverifiable answer is terminal: it is never
+        handed back to the arbiter, and no reason reaches a human."""
+        from aria_kernel.feedback_store import ARBITRATED_UNCERTAINTY_REASONS, TERMINAL_UNCERTAINTY_REASON
 
-        self.assertEqual(CONSENSUS_UNCERTAINTY_SEVERITY["unverifiable"], "HIGH")
-        self.assertEqual(
-            {
-                reason
-                for reason in CONSENSUS_UNCERTAINTY_REASONS
-                if reason not in CONSENSUS_UNCERTAINTY_SEVERITY
-            },
-            # single_judge is the one deliberate non-escalation: a group with
-            # one judge has nothing to settle yet, not a failure to weigh.
-            {"single_judge"},
-        )
+        self.assertEqual(TERMINAL_UNCERTAINTY_REASON, "unverifiable")
+        self.assertNotIn("unverifiable", ARBITRATED_UNCERTAINTY_REASONS)
 
 
 if __name__ == "__main__":

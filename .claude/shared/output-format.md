@@ -170,4 +170,4 @@ The cycle-state log (`append-only, exempt from compaction` per plan v3 A3) carri
 - `.claude/shared/operating-modes.md` — mode semantics
 - `.claude/shared/tier-claim-syntax.md` — tier vocabulary
 - `/root/.claude/plans/declarative-riding-shamir.md` D.6 (finding registry schema)
-- `docs/reviews/_registry/findings.jsonl` (W10) — persistent state store
+- `docs/reviews/_registry/` (W10) — persistent state store: read it with `finding-registry project`, file with `finding-registry add`; its `findings.jsonl` is the frozen genesis segment

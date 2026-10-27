@@ -34,7 +34,7 @@ from aria_kernel.tool_registry import ensure_tools_dir
 from aria_kernel.request_admission import admit_request
 from tests._helpers.declared_fixtures import segmented_ledger_bytes
 from tests._helpers.node_modules import installed_node_modules
-from tests._helpers.witness_sources import witness_tool_paths
+from tests._helpers.witness_sources import plan_coverage_ssot_files, plan_coverage_tool_paths
 from tests._helpers.operator_acts import operator_set_profile
 
 _SHA = "a" * 40
@@ -673,10 +673,16 @@ class NativeImplementationContextTests(unittest.TestCase):
         source_path = "apps/farm-service/src/sample-interval.ts"
         check_path = "apps/farm-service/check-sample.cjs"
         selected_repo = Path(__file__).resolve().parents[2]
-        native_tool_paths = witness_tool_paths()
+        native_tool_paths = plan_coverage_tool_paths()
         native_tool_bytes = {path: (selected_repo / path).read_bytes() for path in native_tool_paths}
         files = {
             **{path: data.decode("utf-8") for path, data in native_tool_bytes.items()},
+            **plan_coverage_ssot_files("native-implementation-fixture", "farm"),
+            # SE-4 — plan coverage computes the closure over the code facts of a clean HEAD, so
+            # the reviewer file production_converged_plan writes is already committed, byte-equal.
+            ".claude/agents/farm-expert.md": (
+                "---\nname: farm-expert\ndescription: Fixture reviewer.\n---\n\nOwns `apps/farm-service/**`."
+            ),
             ".gitignore": "/node_modules\n.nx/\naria-debts/\n",
             "package.json": json.dumps({"name": "pre-merge-native-fixture", "private": True,
                 "scripts": {"type-check": "tsc --noEmit --pretty false -p tsconfig.json",
@@ -749,7 +755,7 @@ class NativeImplementationContextTests(unittest.TestCase):
         initial_sha = git("rev-parse", "HEAD")
         os.environ["NX_BASE"] = initial_sha
         os.environ["NX_HEAD"] = "HEAD"
-        installed = installed_node_modules("nx", "typescript", "eslint", "ts-node")
+        installed = installed_node_modules("nx", "typescript", "eslint", "ts-node", "yaml", "ajv")
         (repo / "node_modules").symlink_to(installed, target_is_directory=True)
         operator_set_profile("strict", base_dir=tools)
         ensure_tools_binding(tools, workspace_root=repo)

@@ -61,6 +61,7 @@ from tests.test_autonomy_orchestrator import (
     _fake_skill_genesis_drainer,
 )
 from tests.test_revision_scope_bound import FARM, _seed, _seed_workspace
+from tests._helpers.service_facts import facts_without_contract_edges
 
 CI_WORKFLOW = ".github/workflows/ci-affected.yml"
 PLAN_ID = "plan-op-f007"
@@ -98,6 +99,8 @@ class _TwoCandidateCycle(unittest.TestCase):
     """One adopted operator plan for F-007, one failing_ci candidate per cycle."""
 
     def setUp(self) -> None:
+        # SE-4 — a fixture workspace has no TypeScript toolchain; its subject is not contract edges.
+        self.enterContext(facts_without_contract_edges())
         self.tmp = tempfile.TemporaryDirectory(prefix="aria-round-scope-")
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name) / "workspace"

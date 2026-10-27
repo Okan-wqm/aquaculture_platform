@@ -6209,10 +6209,13 @@ def _main(argv: list[str] | None = None) -> int:
 
     if args.command == "impact" and args.impact_command == "service-order":
         from aria_kernel.impact_graph import plan_service_analysis_order
+        from aria_kernel.plan_coverage import compute_service_facts_at_head
 
         workspace = paths.repo_root if paths is not None else Path(args.workspace_root).resolve()
         plan = plan_service_analysis_order(
             workspace_root=workspace,
+            service_facts=compute_service_facts_at_head(workspace_root=workspace),
+            base_dir=args.tools_dir,
             cycle_id=args.cycle_id,
             nx_graph_file=args.nx_graph,
             changed_files=args.changed_file,

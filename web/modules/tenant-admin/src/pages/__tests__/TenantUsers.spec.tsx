@@ -65,6 +65,8 @@ vi.mock('@aquaculture/shared-ui', async (importOriginal) => ({
     hasRoleOrHigher: mockHasPermission,
     user: { id: 'u1', email: 'admin@test.com', role: 'TENANT_ADMIN' },
     isAuthenticated: true,
+    // PKG-06: the module-access dialog reads the tenant's enabled modules from the session.
+    modules: [],
   }),
   getAccessToken: vi.fn(() => 'test-access-token'),
   getTenantId: vi.fn(() => 'tenant-1'),

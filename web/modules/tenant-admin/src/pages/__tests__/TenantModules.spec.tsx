@@ -38,8 +38,20 @@ vi.mock('../../hooks/useTenantData', () => ({
     error: null,
   }),
   useModuleUsageStats: () => ({ data: {}, error: null }),
-  useTenantUsers: () => ({ data: [], isLoading: false }),
+  useTenantUsers: () => ({
+    data: [{ id: 'user-ada', firstName: 'Ada', lastName: 'Lovelace', email: 'ada@example.test' }],
+    isLoading: false,
+  }),
   useAssignModuleManager: () => ({ mutateAsync: async (): Promise<void> => undefined }),
+}));
+
+// PKG-06: the card's manager comes from the primary-manager listing (the grant the token reads),
+// never from tenant_modules.managerId.
+vi.mock('../../hooks/useModuleAccess', () => ({
+  useModulePrimaryManagers: () => ({
+    data: [{ moduleCode: 'hr', userId: 'user-ada' }],
+    error: null,
+  }),
 }));
 
 import TenantModules from '../TenantModules';
@@ -71,5 +83,19 @@ describe('TenantModules module cards', () => {
       expect(tile.querySelector(`svg.lucide-${icon}`)).not.toBeNull();
       expect(tile).toHaveTextContent(/^$/);
     }
+  });
+
+  it("shows each owner module's designated manager, and Assign Manager only where it applies", () => {
+    render(
+      <MemoryRouter>
+        <TenantModules />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText('Ada Lovelace')).toBeInTheDocument();
+    expect(screen.getByText('ada@example.test')).toBeInTheDocument();
+    // hr shows its manager; hydroponics, an owner module without one, offers Assign Manager; a
+    // code the dictionary does not hold as an owner module has no manager to assign.
+    expect(screen.getAllByRole('button', { name: /Assign Manager/ })).toHaveLength(1);
   });
 });

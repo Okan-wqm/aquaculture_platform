@@ -26,3 +26,7 @@ export {
   decodeNatsJson,
 } from './nats-v3-codec';
 export type { SerializedNatsPayload } from './nats-v3-codec';
+
+// PKG-06 readiness: the one chokepoint of every request.<module>.recentWriterIds responder.
+export { answerRecentWriterIds, readWriterCount } from './recent-writer-ids';
+export type { RecentWriterCount } from './recent-writer-ids';

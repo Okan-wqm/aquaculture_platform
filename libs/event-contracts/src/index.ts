@@ -95,6 +95,8 @@ export * from './farm-site-access-queries';
 export * from './farm-time-zone-queries';
 export * from './sensor-channel-queries';
 export * from './farm-ai-queries';
+// PKG-06 readiness: count-only recentWriterIds queries, auth to each owner module.
+export * from './module-activity-queries';
 export * from './schemas';
 
 // Re-export all domain union types for convenience

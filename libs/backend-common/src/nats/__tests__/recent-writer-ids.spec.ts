@@ -1,15 +1,7 @@
-const mockRunInTenantRead = jest.fn();
-jest.mock('../../database/tenant-transaction', () => ({
-  ...jest.requireActual('../../database/tenant-transaction'),
-  runInTenantRead: (...args: unknown[]): unknown => mockRunInTenantRead(...args),
-}));
-
-import { collaborator } from '@aquaculture/testing';
 import { Logger } from '@nestjs/common';
 import type { RecentWriterIdsRequest } from '@platform/event-contracts';
-import type { DataSource, QueryRunner } from 'typeorm';
 
-import { answerRecentWriterIds } from '../recent-writer-ids';
+import { answerRecentWriterIds, readWriterCount } from '../recent-writer-ids';
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
 const USER_A = '22222222-2222-4222-8222-222222222222';
@@ -24,71 +16,52 @@ const request: RecentWriterIdsRequest = {
 
 /**
  * The chokepoint every recentWriterIds responder answers through (PKG-06; ADR-051 §3): decode
- * and decide the caller before any read, read inside the asked tenant's boundary, and answer a
- * count no larger than the ids asked about. A failed read is INTERNAL_ERROR, logged without ids.
+ * and decide the caller before the module counts anything, and answer a count no larger than the
+ * ids asked about. A failed read is INTERNAL_ERROR, logged without ids.
  */
 describe('answerRecentWriterIds', () => {
-  const dataSource = collaborator<DataSource>({}, 'DataSource');
-  const queryRunner = collaborator<QueryRunner>({}, 'QueryRunner');
   let error: jest.SpyInstance;
-  const source = { dataSource, module: 'farm' as const, sourceSchema: 'farm' };
 
   beforeEach(() => {
-    mockRunInTenantRead.mockReset();
     error = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
   });
 
-  it('counts inside the asked tenant and answers the count', async () => {
-    mockRunInTenantRead.mockImplementation(
-      (
-        _dataSource: unknown,
-        _schema: string,
-        _tenantId: string,
-        read: (runner: QueryRunner) => Promise<unknown>,
-      ) => read(queryRunner),
-    );
+  it("hands the admitted request to the module's count and answers the count", async () => {
     const count = jest.fn().mockResolvedValue(1);
 
-    await expect(answerRecentWriterIds(source, request, count)).resolves.toEqual({
+    await expect(answerRecentWriterIds('farm', request, count)).resolves.toEqual({
       ok: true,
       data: { recentWriterCount: 1 },
     });
-    expect(mockRunInTenantRead).toHaveBeenCalledWith(
-      dataSource,
-      'farm',
-      TENANT,
-      expect.any(Function),
-    );
-    expect(count).toHaveBeenCalledWith(queryRunner, request);
+    expect(count).toHaveBeenCalledWith(request);
   });
 
-  it('answers a malformed request INVALID_REQUEST without reading', async () => {
+  it('answers a malformed request INVALID_REQUEST without counting', async () => {
     const count = jest.fn();
 
     await expect(
-      answerRecentWriterIds(source, { ...request, userIds: [] }, count),
+      answerRecentWriterIds('farm', { ...request, userIds: [] }, count),
     ).resolves.toEqual({ ok: false, error: 'INVALID_REQUEST' });
-    expect(mockRunInTenantRead).not.toHaveBeenCalled();
     expect(count).not.toHaveBeenCalled();
   });
 
-  it('answers a service that is no declared sender FORBIDDEN without reading', async () => {
+  it('answers a service that is no declared sender FORBIDDEN without counting', async () => {
     const count = jest.fn();
 
     await expect(
       answerRecentWriterIds(
-        source,
+        'farm',
         { ...request, caller: { kind: 'service', service: 'messaging_service' } },
         count,
       ),
     ).resolves.toEqual({ ok: false, error: 'FORBIDDEN' });
-    expect(mockRunInTenantRead).not.toHaveBeenCalled();
+    expect(count).not.toHaveBeenCalled();
   });
 
   it('answers a failed read INTERNAL_ERROR and logs no id', async () => {
-    mockRunInTenantRead.mockRejectedValue(new TypeError('connection refused'));
+    const count = jest.fn().mockRejectedValue(new TypeError('connection refused'));
 
-    await expect(answerRecentWriterIds(source, request, jest.fn())).resolves.toEqual({
+    await expect(answerRecentWriterIds('farm', request, count)).resolves.toEqual({
       ok: false,
       error: 'INTERNAL_ERROR',
     });
@@ -107,11 +80,17 @@ describe('answerRecentWriterIds', () => {
     ['a fractional count', 0.5],
     ['a negative count', -1],
   ])('refuses %s as INTERNAL_ERROR', async (_label, counted) => {
-    mockRunInTenantRead.mockResolvedValue(counted);
+    const count = jest.fn().mockResolvedValue(counted);
 
-    await expect(answerRecentWriterIds(source, request, jest.fn())).resolves.toEqual({
+    await expect(answerRecentWriterIds('farm', request, count)).resolves.toEqual({
       ok: false,
       error: 'INTERNAL_ERROR',
     });
+  });
+
+  it('reads the integer writers column of the one row a counting query returns', () => {
+    expect(readWriterCount([{ writers: 4 }])).toBe(4);
+    expect(() => readWriterCount([])).toThrow(TypeError);
+    expect(() => readWriterCount([{ writers: '4' }])).toThrow(TypeError);
   });
 });

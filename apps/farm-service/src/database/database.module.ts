@@ -14,6 +14,7 @@ import { AUDIT_LOG_SERVICE } from '@aquaculture/backend-common/audit';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuditLog } from './entities/audit-log.entity';
+import { FarmRecentWriterIdsResponder } from './responders/recent-writer-ids.responder';
 import { CodeSequence } from './entities/code-sequence.entity';
 import { AuditLogService } from './services/audit-log.service';
 import { AuditRedactionService } from './services/audit-redaction.service';
@@ -34,6 +35,8 @@ import { MigrationRunnerService } from './services/migration-runner.service';
     CodeGeneratorService,
     MigrationRunnerService,
     FarmSeedService,
+    // PKG-06 readiness: request.farm.recentWriterIds, answered from farm_audit_logs.
+    FarmRecentWriterIdsResponder,
   ],
   exports: [
     AuditLogService,

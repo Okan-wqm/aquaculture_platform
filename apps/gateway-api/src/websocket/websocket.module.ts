@@ -63,9 +63,10 @@ import { GatewayTokenBlacklistModule } from '../guards/token-blacklist.module';
     STLanguageBridgeService,
     MessagingGateway,
     MessagingNatsBridgeService,
-    // Phase B — farm domain real-time bridge: subscribes to NATS subjects
-    // `events.*.{BatchCreated,MortalityRecorded,CullRecorded,...}` and
-    // forwards to FarmGateway → tenant-scoped Socket.IO rooms.
+    // Farm domain real-time bridge: subscribes to `events.*.{EventType}` for
+    // every key of FARM_WS_EVENT_ACCESS and forwards to FarmGateway, which
+    // emits to the module, site or registry rooms the entry derives
+    // (SEC-CRITICAL-206).
     FarmGateway,
     FarmNatsBridgeService,
     // AI assistant real-time gateway (/ai namespace) — forwards ai:chat over

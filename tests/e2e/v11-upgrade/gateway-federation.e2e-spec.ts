@@ -889,7 +889,6 @@ describe('5. WebSocket Gateway Initialization', () => {
           mockConfigService as ConfigService,
           newConnectionLimiter(),
           tokenRevalidator,
-          undefined, // sensorAuthService
         );
         tokenRevalidator.onModuleDestroy();
         deviceOwnershipService.onModuleDestroy();

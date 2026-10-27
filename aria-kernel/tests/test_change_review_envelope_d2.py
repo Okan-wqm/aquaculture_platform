@@ -205,7 +205,9 @@ class ChangeEnvelopeTests(_Fixture):
 
     def _one_prompt(self) -> str:
         prompts = self._review(self.repo, self.base, self.head)
-        self.assertEqual(len(prompts), 1, "one change-intelligence envelope for the operator's subject")
+        # SE-5 — the change touches one service (zz-core) and a code root: its service seat and the lens. Every seat
+        # is handed the same change data, so what these tests read is the service seat's prompt.
+        self.assertEqual(len(prompts), 2, "two change-intelligence envelopes (service seat, lens) for the operator's subject")
         return prompts[0]
 
     def test_the_hunks_render_inside_untrusted_diff(self) -> None:
@@ -308,8 +310,10 @@ class MergeFeedTests(_Fixture):
         return paths
 
     def _the_merge_prompt(self) -> str:
-        [row] = list_agent_invocation_requests(base_dir=self.tools, role=CHANGE_INTELLIGENCE_ROLE)
-        return render_invocation_prompt(row)
+        # SE-5 — the merge's two seats (service seat, lens) carry the same change data: read the first.
+        rows = list_agent_invocation_requests(base_dir=self.tools, role=CHANGE_INTELLIGENCE_ROLE)
+        self.assertEqual(len(rows), 2, "the merge's service seat (zz-core) and the lens")
+        return render_invocation_prompt(rows[0])
 
     @staticmethod
     def _diff_text(prompt: str) -> str:
@@ -322,7 +326,7 @@ class MergeFeedTests(_Fixture):
         paths = self._record(repo, merge_sha=merge_sha, head_sha=feature_head)
         with facts_without_contract_edges():
             dispatch = dispatch_change_intelligence(cycle_id="d2-merge", base_dir=self.tools, workspace=paths)
-        self.assertEqual(len(dispatch["minted"]), 1)
+        self.assertEqual(len(dispatch["minted"]), 2, "the merge's service seat (zz-core) and the lens")
         diff = self._diff_text(self._the_merge_prompt())
         self.assertIn("+export const x = 2;", diff, "the hunk the merge brought is not in <untrusted_diff>")
         self.assertNotIn("main-side-only", diff, "the diff is not merge^1..merge: it holds the mainline's own change")
@@ -334,11 +338,13 @@ class MergeFeedTests(_Fixture):
         paths = self._record(repo, merge_sha=merge_sha, head_sha=feature_head)
         with facts_without_contract_edges():
             dispatch_change_intelligence(cycle_id="d2-merge", base_dir=self.tools, workspace=paths)
-        [row] = list_agent_invocation_requests(base_dir=self.tools, role=CHANGE_INTELLIGENCE_ROLE)
-        self.assertIn("change_context", row, "the merge feed's envelope carries no change_context")
+        rows = list_agent_invocation_requests(base_dir=self.tools, role=CHANGE_INTELLIGENCE_ROLE)
+        self.assertEqual(len(rows), 2, "the merge's service seat (zz-core) and the lens")
         self.assertTrue(hasattr(pt, "envelope_file_set"), "pr_tracking.envelope_file_set does not exist")
-        self.assertEqual(row["change_context"]["impacted_roots"], ["libs/zz-core", "libs/mm-mid", "apps/aa-edge"])
-        self.assertEqual(pt.envelope_file_set(row), sorted({CHANGED, "libs/zz-core", "libs/mm-mid", "apps/aa-edge"}))
+        for row in rows:
+            self.assertIn("change_context", row, "the merge feed's envelope carries no change_context")
+            self.assertEqual(row["change_context"]["impacted_roots"], ["libs/zz-core", "libs/mm-mid", "apps/aa-edge"])
+            self.assertEqual(pt.envelope_file_set(row), sorted({CHANGED, "libs/zz-core", "libs/mm-mid", "apps/aa-edge"}))
 
     def test_a_merged_row_without_a_merge_sha_says_why_no_hunks_are_attached(self) -> None:
         repo, _merge_sha, feature_head = _merged_change_repo(self.tmp)
@@ -362,7 +368,7 @@ class MergeFeedTests(_Fixture):
         self.assertIsNone(context.change, "the standard cycle names no change: it takes the merge feed")
         with facts_without_contract_edges():
             outcome = phase.runner(context)
-        self.assertEqual(outcome["change_intelligence_requests_minted"], 1)
+        self.assertEqual(outcome["change_intelligence_requests_minted"], 2, "the merge's service seat (zz-core) and the lens")
         prompt = self._the_merge_prompt()
         self.assertIn("+export const x = 2;", self._diff_text(prompt))
         self.assertTrue(
@@ -383,9 +389,10 @@ class ChangedPathTrustTests(_Fixture):
             # Refused by name before the mint: nothing reaches an agent.
             self.assertFalse(list_agent_invocation_requests(base_dir=self.tools, role=CHANGE_INTELLIGENCE_ROLE))
             return
-        self.assertEqual(len(prompts), 1)
-        self.assertNotIn(PATH_MARK, _outside(prompts[0]), "path content planted a line outside every untrusted tag")
-        self.assertTrue(_inside(prompts[0], PATH_MARK), "the changed path is neither rendered as data nor refused")
+        self.assertEqual(len(prompts), 2, "the service seat (zz-core) and the lens")
+        for prompt in prompts:
+            self.assertNotIn(PATH_MARK, _outside(prompt), "path content planted a line outside every untrusted tag")
+            self.assertTrue(_inside(prompt, PATH_MARK), "the changed path is neither rendered as data nor refused")
 
     def test_a_merge_feed_path_cannot_plant_lines(self) -> None:
         from aria_kernel.merge_record import MERGED_BY_MERGE_LANE, record_merge
@@ -418,8 +425,9 @@ class ChangedPathTrustTests(_Fixture):
                 except GovernanceError:
                     self.assertFalse(list_agent_invocation_requests(base_dir=self.tools, role=CHANGE_INTELLIGENCE_ROLE))
                     continue
-                self.assertEqual(len(prompts), 1)
-                self._assert_the_path_is_data(prompts[0], marks)
+                self.assertEqual(len(prompts), 2, "the service seat (zz-core) and the lens")
+                for prompt in prompts:
+                    self._assert_the_path_is_data(prompt, marks)
 
     def test_a_space_free_markup_path_stays_inside_its_blocks_through_the_merge_feed(self) -> None:
         from aria_kernel.merge_record import MERGED_BY_MERGE_LANE, record_merge
@@ -461,17 +469,22 @@ class EnvelopeFileSetTests(_Fixture):
         (self.tools / TWIN_MAP_RELPATH).parent.mkdir(parents=True)
         (self.tools / TWIN_MAP_RELPATH).write_text(json.dumps(TWIN), encoding="utf-8")
         self._review(repo, base, head)
-        [row] = [
+        rows = [
             row for row in list_agent_invocation_requests(base_dir=self.tools, role=CHANGE_INTELLIGENCE_ROLE)
             if row.get("subject_ref") == f"change:{base}..{head}"
         ]
         self.assertTrue(hasattr(pr_tracking, "envelope_file_set"), "pr_tracking.envelope_file_set does not exist")
-        self.assertEqual(
-            row.get("change_context"),
-            {"changed_files": [CHANGED], "impacted_roots": ["libs/zz-core", "libs/mm-mid", "apps/aa-edge"]},
-            "the envelope carries the change's files and the impacted roots as data, in dependency order",
-        )
-        files = pr_tracking.envelope_file_set(row)
+        # SE-5 — the service seat (zz-core) and the lens: each carries the change's data, plus its own seat.
+        self.assertEqual(len(rows), 2, "the service seat (zz-core) and the lens")
+        for row, seat in zip(rows, ("service:zz-core", "lens")):
+            self.assertEqual(
+                row.get("change_context"),
+                {"changed_files": [CHANGED], "impacted_roots": ["libs/zz-core", "libs/mm-mid", "apps/aa-edge"],
+                 "seat": seat},
+                "the envelope carries the change's files and the impacted roots as data, in dependency order",
+            )
+        files = pr_tracking.envelope_file_set(rows[0])
+        self.assertEqual(pr_tracking.envelope_file_set(rows[1]), files, "the file set differs between seats")
         # The change, every impacted service's root, and the twin slice: nothing parsed from the prose.
         self.assertEqual(files, sorted({
             CHANGED, "libs/zz-core", "libs/mm-mid", "apps/aa-edge", *TWIN_SLICE,

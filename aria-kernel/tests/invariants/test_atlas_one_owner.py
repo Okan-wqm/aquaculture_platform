@@ -45,6 +45,12 @@ SINGLE_OWNER = {
     "python_source_facts": f"{_KERNEL}source_facts.py",
     # F1.1 — the learning journal: memory.record_learning_event, no other writer (goldset and pr_tracking routed).
     "learning_log": f"{_KERNEL}memory.py",
+    # SE-5 — the lifecycle state of an entity: current_lifecycle_state replays the entity's chain and is the only
+    # reader of the lifecycle ledger; agent_invocations._target_is_shadow, a second unverified replay, is deleted.
+    "lifecycle_state": f"{_KERNEL}genesis_lifecycle.py",
+    # SE-5 — which agents may serve a role: allowed_targets_for_role (the static pairing plus the per-service seat
+    # agents the ledger and the workspace grant) and resolve_seat_agent, in one module.
+    "role_agent_targets": f"{_KERNEL}agent_surface.py",
 }
 
 # One planted second owner per family: a second writer of the family's ledger
@@ -76,6 +82,14 @@ _PLANTED = {
         "append_jsonl(root / 'memory' / 'learning-events.jsonl', row)\n",
         "append_declared_jsonl(path, row, expected_surface='memory_learning_events')\n",
     ),
+    # SE-5 — the claim-side SHADOW predicate agent_invocations carried (a second, unverified replay of the ledger),
+    # and a second writer of the lifecycle ledger under its declared surface.
+    "lifecycle_state": (
+        "def _target_is_shadow(root, target):\n    return False\n",
+        "append_declared_jsonl(path, row, expected_surface='genesis_lifecycle_events')\n",
+    ),
+    # SE-5 — a second answer to 'which agents may serve this role', under the owner's name.
+    "role_agent_targets": ("def allowed_targets_for_role(role):\n    return ()\n",),
 }
 
 

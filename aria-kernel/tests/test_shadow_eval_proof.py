@@ -10,6 +10,7 @@ from aria_kernel.ledger import append_declared_jsonl
 from aria_kernel.ledger_refs import ledger_ref_for_row
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
 from aria_kernel.request_admission import admit_request
+from tests._helpers.lifecycle_chain import chain
 
 
 class ShadowEvalProofTests(unittest.TestCase):
@@ -18,16 +19,9 @@ class ShadowEvalProofTests(unittest.TestCase):
         self.tools = ensure_tools_dir(Path(self.tmp.name) / "aria-tools")
         self.transcript_hash = "sha256:" + "a" * 64
         self.refs = self._seed_provenance_chain()
-        append_declared_jsonl(
-            self.tools / "genesis-lifecycle" / "events.jsonl",
-            {
-                "schema_version": 1,
-                "entity_id": "aria-shadow-candidate",
-                "entity_kind": "agent",
-                "to_state": "SHADOW",
-            },
-            expected_surface="genesis_lifecycle_events",
-        )
+        # SE-5 — a chain the lifecycle owner replays (every transition legal, each row's own evidence), not a
+        # single hand-appended SHADOW row: the claim side blocks a chain that does not replay as invalid.
+        chain(self.tools, "aria-shadow-candidate", "SHADOW")
         append_declared_jsonl(
             self.tools / "fixture-runs.jsonl",
             {

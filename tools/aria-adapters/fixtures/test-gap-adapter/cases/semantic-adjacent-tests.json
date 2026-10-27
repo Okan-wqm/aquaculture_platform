@@ -4,8 +4,7 @@
   "input": {
     "roots": [
       "tools/aria-adapters/fixtures/test-gap-adapter/workspaces/semantic-testgap/apps/billing-service/src"
-    ],
-    "includeWriteBoundaryFindings": true
+    ]
   },
   "expected": {
     "status": "ok",

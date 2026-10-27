@@ -17,7 +17,7 @@ from .ledger import (
     load_declared_jsonl,
 )
 from .memory import latest_beliefs, record_learning_event
-from .tool_registry import GovernanceError, ensure_tools_dir, list_tools, utc_now
+from .tool_registry import FIXTURE_SET_FIELD, GovernanceError, ensure_tools_dir, list_tools, utc_now
 
 if TYPE_CHECKING:
     from .workspace import WorkspacePaths
@@ -296,6 +296,7 @@ def dispatch_change_intelligence(
     context-recall file set.
     """
     from .agent_invocations import create_agent_invocation_request, minted_subject_refs
+    from .change_review import CLAIMS_KEY
     from .pressure_evidence import split_citable_refs
     from .request_admission import admit_request
     from .text_safety import untrusted_block
@@ -388,7 +389,13 @@ def dispatch_change_intelligence(
             + "\nReturn details.impact_map with beliefs_needs_revalidation, "
             "findings_needs_revalidation, fixtures_requires_rerun and "
             "confirmed_unchanged. Ground every entry in the change's commits, "
-            "not in its description."
+            "not in its description.\n"
+            f"Also return details.{CLAIMS_KEY}: every defect this change introduces "
+            "that the repository at the change's head shows, each with its "
+            "evidence_refs, an expectation_ref outside the changed lines, a "
+            "verbatim quote and a confidence; an empty list says you found none. "
+            "The claim shape and the claim families are in your delivered "
+            "contract. A claim is a hypothesis the kernel measures, not a finding."
         )
         request = create_agent_invocation_request(
             target_agent=CHANGE_INTELLIGENCE_AGENT,
@@ -693,8 +700,12 @@ def _impacted_findings(root: Path, changed_files: list[str]) -> list[dict[str, A
 def _impacted_adapters(root: Path, changed_files: list[str]) -> list[dict[str, Any]]:
     impacted = []
     for tool in list_tools(base_dir=root):
+        if FIXTURE_SET_FIELD not in tool:
+            # An agent-backed tool owns no suite (tool_registry.required_tool_fields): a merge has no
+            # fixtures of it to rerun, and an empty name would match every path as the pattern "/**".
+            continue
         tool_id = str(tool.get("tool_id") or "")
-        fixture_set = str(tool.get("fixture_set") or "")
+        fixture_set = str(tool[FIXTURE_SET_FIELD])
         patterns = [
             "aria-tools/registry.json",
             "aria-tools/fixtures/**",

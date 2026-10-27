@@ -21,7 +21,8 @@ jobs:
         with:
           fail-on-severity: moderate
           # Allowlisted advisories — every entry MUST have a matching tracked
-          # finding in docs/reviews/_registry/findings.jsonl and mirror the
+          # finding in the registry (read with `finding-registry project`, file with
+          # `finding-registry add`) and mirror the
           # ignore entries in deny.toml [advisories] + .cargo/audit.toml. Drift
           # between these three lists is a review-blocker. Full rationale +
           # threat-model justification lives in deny.toml.

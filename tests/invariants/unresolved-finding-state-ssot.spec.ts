@@ -79,6 +79,20 @@ const SANCTIONED_SITES: readonly SanctionedSite[] = [
       'a BLOCKED row already carries one and a STALE row is already stale',
   },
   {
+    file: 'tools/gates/finding-registry-events.ts',
+    site: 'CREATED_STATES',
+    why:
+      'the event vocabulary: the states a CREATED event may record (finding-event.schema.json ' +
+      '$defs/created); a later state is a STATE_TRANSITIONED event',
+  },
+  {
+    file: 'tests/invariants/finding-registry-integrity.spec.ts',
+    site: 'GIT_STATE_TARGETS',
+    why:
+      'the integrity spec re-implements the event vocabulary independently of the writer, as it ' +
+      're-implements the hash chain, so a defect shared by the writer and its verifier fails here',
+  },
+  {
     file: 'tools/gates/finding-registry-projection.ts',
     site: 'applyClosureRejection',
     why:

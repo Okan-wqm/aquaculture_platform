@@ -46,13 +46,15 @@
  */
 
 import { strict as assert } from 'node:assert';
-import { execFileSync } from 'node:child_process';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { test } from 'node:test';
 
 import {
   CLOSES_TRAILER_REGEX,
+  FINDING_REGISTRY_LOCATION,
   ORPHAN_HEADING_REGEX,
   REQUIRE_CLOSES_TYPES,
   extractTrailers,
@@ -64,6 +66,7 @@ import {
 } from './commit-msg-validator';
 import type { FindingTrailerTarget } from './finding-traceability';
 import { removeFixtureTree } from './fixture-tree';
+import { hermeticGitEnv } from './hermetic-git';
 // Plan 018 Phase 4 fixtures live under aria-findings/.test-fixtures/ +
 // aria-debts/.test-fixtures/. The kernel's _refresh_index globs
 // `F-*.json` / `DEBT-*.json` so dot-prefixed dirs are excluded; commit-
@@ -402,10 +405,51 @@ void test('validateCommit: non-ORPHAN trailer with unknown ID fails with registr
   };
   const violations = validateCommit(commit, registry('ULTRA-HIGH-091'), new Set(), NEVER_PRE_GATE);
   const registryReason = violations.find((v) =>
-    v.reason.includes('not in docs/reviews/_registry/findings.jsonl'),
+    v.reason.includes(`not in ${FINDING_REGISTRY_LOCATION}`),
   );
   assert.notStrictEqual(registryReason, undefined);
   assert.match(registryReason?.reason ?? '', /unknown finding ID/);
+});
+
+// MF-2: the registry is the frozen genesis segment plus one event log per
+// finding born after the freeze. A message that sends an author to
+// findings.jsonl alone points at a file that cannot hold the id they just filed.
+void test('the registry location the messages name is the whole store, not the frozen segment alone', () => {
+  assert.match(FINDING_REGISTRY_LOCATION, /frozen genesis segment findings\.jsonl/);
+  assert.match(FINDING_REGISTRY_LOCATION, /findings\/<PREFIX>\/<ID>\.jsonl/);
+});
+
+void test('the CLI tells an author whose trailer names an unknown finding where finding ids live: the whole registry', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'commit-msg-validator-'));
+  try {
+    const msgFile = join(dir, 'COMMIT_EDITMSG');
+    writeFileSync(
+      msgFile,
+      'fix(tooling): unknown finding\n\nbody\n\nCloses: docs/reviews/nonexistent.md#ULTRA-HIGH-998\n',
+    );
+    const run = spawnSync(
+      join(REPO_ROOT, 'node_modules', '.bin', 'ts-node'),
+      [
+        '--project',
+        'tools/gates/tsconfig.json',
+        'tools/gates/commit-msg-validator.ts',
+        '--mode=msg-file',
+        msgFile,
+      ],
+      { cwd: REPO_ROOT, encoding: 'utf8', env: hermeticGitEnv(), timeout: 120_000 },
+    );
+    assert.strictEqual(run.status, 1, run.stderr);
+    // Both places the gate tells the author what it searched say the whole store.
+    assert.ok(run.stderr.includes(`(not in ${FINDING_REGISTRY_LOCATION})`), run.stderr);
+    assert.ok(run.stderr.includes(`Finding IDs live in: ${FINDING_REGISTRY_LOCATION}`), run.stderr);
+    assert.doesNotMatch(
+      run.stderr,
+      /Finding IDs live in: docs\/reviews\/_registry\/findings\.jsonl/,
+    );
+    assert.doesNotMatch(run.stderr, /\(not in docs\/reviews\/_registry\/findings\.jsonl\)/);
+  } finally {
+    removeFixtureTree(dir);
+  }
 });
 
 void test('validateCommit: multi-Closes (UH valid + ORPHAN valid) both route correctly', () => {

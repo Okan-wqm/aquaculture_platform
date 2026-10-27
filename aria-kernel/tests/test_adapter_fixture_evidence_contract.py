@@ -54,7 +54,12 @@ from aria_kernel.adapter_fixture_contract import (
     expected_run_status,
     fixture_cases_for_manifest,
 )
-from aria_kernel.fixture_runner import evaluate_fixture_expectation, run_fixture_suite
+from aria_kernel.fixture_runner import (
+    evaluate_fixture_expectation,
+    resolve_fixture_dir,
+    run_fixture_case,
+    run_fixture_suite,
+)
 from aria_kernel.tool_registry import (
     GovernanceError,
     ensure_tools_dir,
@@ -156,6 +161,51 @@ class ShippedManifestContractTests(unittest.TestCase):
                         f"{json.dumps(case['evidence_validation'].get('errors', []))[:400]} — "
                         f"stderr: {case['stderr_sample']}",
                     )
+
+
+class LintRulesPolicyPackFixtureCase(unittest.TestCase):
+    """ARIA-DET Z-B1 step 1 — the policy rules' findings meet the real evidence validator.
+
+    The suite test above holds a case to ``ok`` only: the nightly refresh is
+    where a case's expectations are judged. The repository-policy rules are
+    new emitters, and a policy finding is cited by line and judged against
+    the bytes at that line, so one case is held to its own expectations here
+    too: the console calls and the explicit ``any`` of ``flagged.ts`` are
+    found (counted rule by rule in the summary), nothing in ``near-miss.ts``
+    is, and the output passes ``validate_tool_output_evidence``. The case
+    sits under ``tools/aria-adapters/fixtures``, so the policy scope has to
+    take a path that is not rooted at ``apps/``.
+    """
+
+    CASE = "policy-pack.json"
+
+    def test_the_policy_pack_case_holds_its_expectations_through_the_real_validator(self) -> None:
+        manifest = json.loads((MANIFEST_DIR / "lint-rules-adapter.tool.json").read_text(encoding="utf-8"))
+        tmp = Path(tempfile.mkdtemp(prefix="aria-lint-policy-case-"))
+        self.addCleanup(shutil.rmtree, tmp, True)
+        tools = ensure_tools_dir(tmp / "aria-tools")
+        register_tool(manifest, base_dir=tools)
+        registered = get_tool(manifest["tool_id"], tools)
+        unavailable = _runner_unavailable(registered)
+        if unavailable is not None:
+            self.skipTest(f"{manifest['tool_id']}: {unavailable}")
+        saved = os.environ.get("ARIA_REPO_ROOT")
+        os.environ["ARIA_REPO_ROOT"] = str(REPO_ROOT)
+        self.addCleanup(
+            lambda: os.environ.__setitem__("ARIA_REPO_ROOT", saved) if saved is not None
+            else os.environ.pop("ARIA_REPO_ROOT", None),
+        )
+        fixture_dir = resolve_fixture_dir(registered, tools, workspace_root=REPO_ROOT)
+        case_path = fixture_dir / "cases" / self.CASE
+        case = json.loads(case_path.read_text(encoding="utf-8"))
+        result = run_fixture_case(registered, case, case_path, fixture_dir, REPO_ROOT, store=tools)
+        self.assertEqual(
+            result["status"], REQUIRED_EXPECTED_STATUS,
+            f"{result['status']} — {json.dumps(result['evidence_validation'].get('errors', []))[:400]} — "
+            f"stderr: {result['stderr_sample']}",
+        )
+        self.assertEqual(result["errors"], [])
+        self.assertTrue(result["passed"])
 
 
 class ManifestSyncRefusesUnbackedAdaptersTests(unittest.TestCase):

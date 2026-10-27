@@ -5,9 +5,10 @@ dispatch never saw WHY earlier decisions were taken; the agent re-derives,
 re-argues and re-spends tokens. Hermes keeps a memory file the model edits.
 ARIA compiles memory FROM the ledgers, deterministically, per dispatch:
 decisions with a stated reason, ranked by overlap with the request and by
-recency, cut to a token budget, hash-addressed, and rendered as DATA (a
-`<derived_context section="decision_memory">` block) — never instructions,
-never something the agent can rewrite.
+recency, cut to a token budget, hash-addressed, and rendered as DATA (an
+escaped `<untrusted_decision_memory>` block from prompt v8; a
+`<derived_context section="decision_memory">` block before) — never
+instructions, never something the agent can rewrite.
 
 WHAT: `collect_decisions` reads only rows that carry a why (recovery
 decisions, operator control, curation decisions, human-required records,

@@ -628,6 +628,49 @@ describe('NATS SSoT Invariants (ADR-015 cert-is-identity + ORPHAN-HIGH-317 subje
     expect(offenders).toEqual([]);
   });
 
+  it('every service that runs JetStream consumers may dead-letter: publish dlq.<tenant>.<type> and dlq.quarantine.<type>', () => {
+    // The event bus moves a message it cannot process to AQUACULTURE_DLQ
+    // (`dlq.<tenantId>.<eventType>`, `dlq.quarantine.<eventType>` when the
+    // tenant is unknown) and only then lets the consumer drop it. No service held
+    // that publish grant, so every dead-letter was refused with a Permissions
+    // Violation, the original was NAK'd instead ("not finished into loss") and a
+    // single poison message was redelivered every ~30 s for its whole 7-day
+    // budget — 20,000 rows of the alarm table per message, and the same on the
+    // notification side. The replay tool only READS the DLQ and the Rust
+    // ingestion sidecar runs no event-bus consumers.
+    const NO_DEAD_LETTERING = new Set(['dlq_replayer', 'sensor-ingestion']);
+    const offenders: string[] = [];
+    for (const svc of servicesDoc.services) {
+      if (NO_DEAD_LETTERING.has(svc.name)) continue;
+      if (!svc.publish.includes('$JS.API.CONSUMER.>')) continue; // runs no consumers
+      for (const subject of [
+        'dlq.11111111-1111-1111-1111-111111111111.PoisonedEvent',
+        'dlq.quarantine.PoisonedEvent',
+      ]) {
+        if (!isCovered(subject, svc.publish))
+          offenders.push(`${svc.name}: cannot publish ${subject}`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it('the dead-letter grant is exactly dlq.*.* — never the dlq.> root, never to the services that only read the DLQ', () => {
+    const offenders: string[] = [];
+    for (const svc of servicesDoc.services) {
+      for (const grant of svc.publish) {
+        if (grant.startsWith('dlq') && grant !== 'dlq.*.*')
+          offenders.push(`${svc.name}: publish ${grant}`);
+      }
+      if (
+        ['dlq_replayer', 'sensor-ingestion'].includes(svc.name) &&
+        svc.publish.some((g) => g.startsWith('dlq'))
+      ) {
+        offenders.push(`${svc.name}: must not hold a DLQ publish grant`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
   it('every generated user may answer the requests it receives (allow_responses) — the reply leg of request/reply', () => {
     // INFRA-HIGH-188: a requester's inbox is `_INBOX<ITS CN>.<nuid>` and no
     // responder holds a publish grant for another identity's inbox root, so

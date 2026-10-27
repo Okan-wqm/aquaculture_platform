@@ -190,7 +190,7 @@ def _repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
 
-def _parse_frontmatter_field(text: str, field: str) -> str | None:
+def parse_frontmatter_field(text: str, field: str) -> str | None:
     match = _FRONTMATTER_RX.match(text)
     if not match:
         return None
@@ -208,12 +208,12 @@ def _read_profile_cached(agent_name: str, repo_root_str: str | None) -> AgentRun
     if path is None:
         return AgentRuntimeProfile(agent_name, DEFAULT_MODEL, DEFAULT_EFFORT, "default_missing_file")
     text = path.read_text(encoding="utf-8")
-    raw_model = _parse_frontmatter_field(text, "model")
-    raw_effort = _parse_frontmatter_field(text, "effort")
+    raw_model = parse_frontmatter_field(text, "model")
+    raw_effort = parse_frontmatter_field(text, "effort")
     # Plan 032 Faz 032b — a kernel-owned profile is the authority when named.
     from .runtime_profiles import RUNTIME_PROFILE_FRONTMATTER_KEY, load_runtime_profiles
 
-    profile_id = _parse_frontmatter_field(text, RUNTIME_PROFILE_FRONTMATTER_KEY)
+    profile_id = parse_frontmatter_field(text, RUNTIME_PROFILE_FRONTMATTER_KEY)
     if profile_id:
         kernel = load_runtime_profiles().get(profile_id)
         if kernel is None:

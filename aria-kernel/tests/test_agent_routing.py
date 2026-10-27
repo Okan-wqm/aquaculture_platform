@@ -1,10 +1,10 @@
 """Per-service agent routing (ORPHAN-MEDIUM-260, slice 4).
 
-The per-service examination plan recommends WHICH domain agent(s) examine each
-impacted service, read from the Lane-A routing SSoT
-(.claude/shared/orchestrator-routing-table.md) — the same table the orchestrator
-dispatches from. A service with no primary owner is a coverage gap (an
-agent-genesis candidate).
+``recommended_agents_for_project`` says WHICH domain agent(s) own a project, read from
+the Lane-A routing SSoT (.claude/shared/orchestrator-routing-table.md) — the same table
+the orchestrator dispatches from. A project with no primary owner is a coverage gap (an
+agent-genesis candidate). The per-service examination does not repeat that answer
+(SE-5): it names the services and their order, and the routing owner is asked directly.
 """
 from __future__ import annotations
 
@@ -204,27 +204,45 @@ class OwningAgentsForPathsTests(unittest.TestCase):
 
 
 class ExaminationIntegrationTests(unittest.TestCase):
-    def test_examination_carries_recommended_agents_and_gaps(self) -> None:
+    """The per-service examination names the services and their order; WHICH agent owns a project is answered
+    once, by ``agent_routing.recommended_agents_for_project`` (SE-2's one path -> agent map). SE-5 removed the
+    per-entry ``recommended_agents`` and the ``agent_coverage_gaps`` list from the examination: nothing read
+    them, and they were a second place the answer was computed."""
+
+    @staticmethod
+    def _repo_with_two_projects(tdp: Path) -> Path:
+        # two real projects; farm-service is owned, ghost-lib is not
+        root = _repo_with_table(tdp)
+        (root / "apps" / "farm-service" / "src").mkdir(parents=True)
+        (root / "apps" / "farm-service" / "package.json").write_text("{}", encoding="utf-8")
+        (root / "apps" / "farm-service" / "src" / "m.ts").write_text("export const a=1;", encoding="utf-8")
+        (root / "libs" / "ghost-lib" / "src").mkdir(parents=True)
+        (root / "libs" / "ghost-lib" / "package.json").write_text("{}", encoding="utf-8")
+        (root / "libs" / "ghost-lib" / "src" / "g.ts").write_text("export const b=1;", encoding="utf-8")
+        return root
+
+    def test_the_examination_names_the_services_and_carries_no_routing_answer(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             tdp = Path(td)
-            root = _repo_with_table(tdp)
-            # two real projects; farm-service is owned, ghost-lib is not
-            (root / "apps" / "farm-service" / "src").mkdir(parents=True)
-            (root / "apps" / "farm-service" / "package.json").write_text("{}", encoding="utf-8")
-            (root / "apps" / "farm-service" / "src" / "m.ts").write_text("export const a=1;", encoding="utf-8")
-            (root / "libs" / "ghost-lib" / "src").mkdir(parents=True)
-            (root / "libs" / "ghost-lib" / "package.json").write_text("{}", encoding="utf-8")
-            (root / "libs" / "ghost-lib" / "src" / "g.ts").write_text("export const b=1;", encoding="utf-8")
+            root = self._repo_with_two_projects(tdp)
             ex = ig.cycle_service_examination(
                 workspace_root=root, base_dir=tdp / "tools",
                 changed_files=["apps/farm-service/src/m.ts", "libs/ghost-lib/src/g.ts"],
                 service_facts=NO_CONTRACT_FACTS,
             )
-            by = {e["project"]: e for e in ex["examination_order"]}
-            self.assertEqual(by["farm-service"]["recommended_agents"]["primary"], ["farm-expert"])
-            self.assertEqual(by["ghost-lib"]["recommended_agents"]["primary"], [])
-            self.assertIn("ghost-lib", ex["agent_coverage_gaps"])
-            self.assertNotIn("farm-service", ex["agent_coverage_gaps"])
+            self.assertEqual(sorted(entry["project"] for entry in ex["examination_order"]), ["farm-service", "ghost-lib"])
+            for entry in ex["examination_order"]:
+                with self.subTest(project=entry["project"]):
+                    self.assertNotIn("recommended_agents", entry, "the examination computes the routing answer beside its owner")
+            self.assertNotIn("agent_coverage_gaps", ex, "the examination computes the coverage gaps beside the routing owner")
+
+    def test_a_projects_routing_coverage_is_answered_by_the_routing_owner(self) -> None:
+        # Where the removed assertions now live: farm-service is owned, ghost-lib is a coverage gap.
+        with tempfile.TemporaryDirectory() as td:
+            root = self._repo_with_two_projects(Path(td))
+            routing = load_routing_table(root)
+            self.assertEqual(recommended_agents_for_project("apps/farm-service", routing)["primary"], ["farm-expert"])
+            self.assertEqual(recommended_agents_for_project("libs/ghost-lib", routing)["primary"], [])
 
 
 if __name__ == "__main__":

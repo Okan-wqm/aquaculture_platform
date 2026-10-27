@@ -21,8 +21,8 @@ import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 const h = vi.hoisted(() => ({
   isOnline: true,
   graphqlRequest: vi.fn<(...args: unknown[]) => Promise<unknown>>(),
-  cacheData: vi.fn<(...args: unknown[]) => Promise<void>>(),
-  getCachedData: vi.fn<(...args: unknown[]) => Promise<unknown>>(),
+  readThroughOfflineCache: vi.fn<(...args: unknown[]) => Promise<unknown>>(),
+  scope: { keyPrefix: 'tenant-1:user-1:0000:' },
   addToQueue: vi.fn<(...args: unknown[]) => Promise<unknown>>(),
   syncStatus: 'pending',
 }));
@@ -57,9 +57,14 @@ vi.mock('@/components/QueuedStatusBadge', () => ({
     createElement('div', { 'data-testid': 'queued-status-badge' }, operationId),
 }));
 
-vi.mock('@/pwa/offline-queue', () => ({
-  cacheData: (...args: unknown[]) => h.cacheData(...args),
-  getCachedData: (...args: unknown[]) => h.getCachedData(...args),
+// MOB-MEDIUM-031: the plans read through the caller's scoped offline cache; its
+// policy (outage-only fallback, purge on refusal) is offline-cache.spec.ts's.
+vi.mock('@/hooks/useOfflineCacheScope', () => ({
+  useOfflineCacheScope: () => h.scope,
+}));
+
+vi.mock('@/pwa/offline-cache', () => ({
+  readThroughOfflineCache: (...args: unknown[]) => h.readThroughOfflineCache(...args),
 }));
 
 import { RecordFeedingPage } from '../RecordFeedingPage';
@@ -134,7 +139,12 @@ describe('RecordFeedingPage — öğün cutover (Faz 6)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     h.isOnline = true;
-    h.getCachedData.mockResolvedValue(null);
+    h.readThroughOfflineCache.mockImplementation(async (...args: unknown[]) => {
+      const load = args[2];
+      if (typeof load !== 'function')
+        throw new Error('readThroughOfflineCache called without a load');
+      return { data: (await load()) as unknown, servedFromCache: false };
+    });
     // addToQueue returns the operation id the queued screen holds on to.
     h.addToQueue.mockResolvedValue({ id: 'op-1', status: 'queued' });
     h.syncStatus = 'pending';
@@ -148,22 +158,20 @@ describe('RecordFeedingPage — öğün cutover (Faz 6)', () => {
     client.clear();
   });
 
-  it('write-throughs the fetched day plans to the encrypted cache (FE-MEDIUM-054)', async () => {
+  it('reads the day plans through the caller’s scoped offline cache (FE-MEDIUM-054)', async () => {
     h.graphqlRequest.mockResolvedValue({ feedingDayPlans: [plan] });
 
     render(createElement(RecordFeedingPage), { wrapper: wrapper(client) });
 
-    await waitFor(() => expect(h.cacheData).toHaveBeenCalled());
-    const [tenantId, key, value] = h.cacheData.mock.calls[0] ?? [];
-    expect(tenantId).toBe('tenant-1');
-    expect(String(key)).toMatch(/^feedingDayPlans_/);
-    expect(value).toEqual([plan]);
+    await waitFor(() => expect(h.readThroughOfflineCache).toHaveBeenCalled());
+    const [scope, read] = h.readThroughOfflineCache.mock.calls[0] ?? [];
+    expect(scope).toBe(h.scope);
+    expect(read).toMatchObject({ key: expect.stringMatching(/^feedingDayPlans_/) });
   });
 
-  it('renders the last-synced plans + offline banner when offline with a cached seed', async () => {
+  it('renders the last-synced plans + offline banner when the cache served them', async () => {
     h.isOnline = false;
-    h.getCachedData.mockResolvedValue([plan]);
-    h.graphqlRequest.mockRejectedValue(new Error('offline'));
+    h.readThroughOfflineCache.mockResolvedValue({ data: [plan], servedFromCache: true });
 
     render(createElement(RecordFeedingPage), { wrapper: wrapper(client) });
 

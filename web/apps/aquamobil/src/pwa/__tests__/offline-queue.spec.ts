@@ -2,7 +2,7 @@
  * Offline Queue Tests
  *
  * SEC-03: Payload AES-GCM encryption/decryption
- * Queue operations: enqueue, dequeue, cache, sync
+ * Queue operations: enqueue, dequeue, sync (the offline read cache: offline-cache.spec.ts)
  * Retry policy: 3 attempts then permanent fail
  */
 
@@ -15,7 +15,6 @@ import { vi, describe, it, expect, beforeEach, afterEach, afterAll } from 'vites
 // --------------------------------------------------------------------------
 
 const idbStore = new Map<string, unknown>();
-const cacheIdbStore = new Map<string, unknown>();
 // Durable KEY store (AES session key + device-id) — a SEPARATE IndexedDB store
 // in production ('aquamobil-keys'). Kept distinct here so device-id/key writes
 // never pollute the queue store the enqueue tests assert against.
@@ -24,7 +23,6 @@ const keyIdbStore = new Map<string, unknown>();
 const blobIdbStore = new Map<string, unknown>();
 
 function storeFor(store?: unknown): Map<string, unknown> {
-  if (store === 'cache-store') return cacheIdbStore;
   if (store === 'key-store') return keyIdbStore;
   if (store === 'blob-store') return blobIdbStore;
   return idbStore;
@@ -54,7 +52,6 @@ vi.mock('idb-keyval', () => {
       // store (encryption key + device-id) is a separate store in production
       // ('aquamobil-keys'); the mock must mirror that, else device-id/key writes
       // land in the queue store and break the enqueue assertions.
-      if (dbName.includes('cache')) return 'cache-store';
       if (dbName.includes('keys')) return 'key-store';
       if (dbName.includes('blobs')) return 'blob-store';
       return 'queue-store';
@@ -174,7 +171,6 @@ afterAll(() => {
 // Import after mocks
 // --------------------------------------------------------------------------
 
-import { userScopedCacheKey } from '../../utils/user-scoped-cache-key';
 import { GraphQLReplayError } from '../graphql-replay-error';
 import {
   queueOperation,
@@ -184,17 +180,14 @@ import {
   getOperation,
   updateOperation,
   clearAllOperations,
-  cacheData,
-  getCachedData,
-  cacheUserData,
-  getCachedUserData,
-  clearCache,
   syncOperation,
   syncAllOperations,
   putPendingBlob,
   getPendingBlob,
   removePendingBlob,
   clearPendingBlobs,
+  encryptString,
+  decryptString,
   MAX_PENDING_BLOB_BYTES,
   isPermanentlyFailed,
   SERVICE_WORKER_READY_TIMEOUT_MS,
@@ -246,7 +239,6 @@ describe('Offline Queue', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     idbStore.clear();
-    cacheIdbStore.clear();
     // FE-HIGH-051: the monotonic queue-version token lives in the durable KEY
     // store. Clear it so per-test version assertions start from a clean slate.
     // The session key is module-cached (_sessionKey), so wiping the persisted
@@ -922,160 +914,6 @@ describe('Offline Queue', () => {
   });
 
   // ========================================================================
-  // cacheData: Cache encryption (Wave 4)
-  // ========================================================================
-
-  describe('cacheData', () => {
-    const TEST_TENANT = 'tenant-test-001';
-
-    it('should encrypt data before caching (SEC-03-A)', async () => {
-      await cacheData(TEST_TENANT, 'tanks', [{ id: 't1', name: 'Tank A' }]);
-
-      expect(mockEncrypt).toHaveBeenCalled();
-    });
-
-    it('should store with TTL metadata in plaintext', async () => {
-      await cacheData(TEST_TENANT, 'tanks', [{ id: 't1' }], 60000);
-
-      // The cache store should have an entry
-      const entries = Array.from(cacheIdbStore.values());
-      expect(entries.length).toBe(1);
-      const entry = entries[0] as Record<string, unknown>;
-      expect(entry).toHaveProperty('cachedAt');
-      expect(entry).toHaveProperty('expiresAt');
-      expect(entry).toHaveProperty('_enc');
-    });
-  });
-
-  // ========================================================================
-  // getCachedData: Decryption + backwards compatibility
-  // ========================================================================
-
-  describe('getCachedData', () => {
-    const TEST_TENANT = 'tenant-test-001';
-
-    it('should store encrypted data and verify via direct Map access', async () => {
-      const data = [{ id: 't1', name: 'Tank A' }];
-      await cacheData(TEST_TENANT, 'tanks', data, 3600000);
-
-      // Verify data is in cacheIdbStore directly
-      const key = `cache_${TEST_TENANT}:tanks`;
-      const stored = cacheIdbStore.get(key) as Record<string, unknown>;
-      expect(stored).toBeTruthy();
-      expect(stored._enc).toBeTruthy();
-      expect(stored.cachedAt).toBeTruthy();
-      expect(stored.expiresAt).toBeTruthy();
-    });
-
-    it('should return null for expired cache entries', async () => {
-      // Insert entry with expired TTL — key format is cache_${tenantId}:${key}
-      cacheIdbStore.set(`cache_${TEST_TENANT}:expired`, {
-        _enc: { iv: 'abc', ciphertext: 'def' },
-        cachedAt: new Date(Date.now() - 7200000).toISOString(),
-        expiresAt: new Date(Date.now() - 3600000).toISOString(), // expired 1 hour ago
-      });
-
-      const cached = await getCachedData(TEST_TENANT, 'expired');
-      expect(cached).toBeNull();
-    });
-
-    it('should purge legacy unencrypted entries (backwards compat)', async () => {
-      // Legacy entry without _enc — should be purged
-      cacheIdbStore.set(`cache_${TEST_TENANT}:legacy`, {
-        data: [{ id: 't1' }],
-        cachedAt: new Date().toISOString(),
-        expiresAt: new Date(Date.now() + 3600000).toISOString(),
-      });
-
-      const cached = await getCachedData(TEST_TENANT, 'legacy');
-      expect(cached).toBeNull();
-      // Entry should have been deleted
-      expect(cacheIdbStore.has(`cache_${TEST_TENANT}:legacy`)).toBe(false);
-    });
-
-    it('should return null for non-existent cache key', async () => {
-      const cached = await getCachedData(TEST_TENANT, 'nonexistent');
-      expect(cached).toBeNull();
-    });
-  });
-
-  // ========================================================================
-  // MT-CRITICAL-051: per-user cache isolation on a SHARED device.
-  // The user-scoped cache key embeds user.id, so two users of the SAME tenant
-  // never share a `my*` cache namespace. These tests prove a write by user A is
-  // NOT readable by user B (same tenant, same device) and IS readable by user A.
-  // ========================================================================
-
-  describe('cacheUserData / getCachedUserData (MT-CRITICAL-051)', () => {
-    const TENANT = 'tenant-shared-001';
-    const USER_A = 'user-aaaa';
-    const USER_B = 'user-bbbb';
-
-    // Re-assert the identity decrypt impl. A sibling test
-    // ('should skip operations that fail decryption') queues a
-    // mockRejectedValueOnce that, under full-suite run order, can leak forward
-    // and reject the FIRST decrypt in this block. mockReset() drains any pending
-    // once-implementation; we then restore the base identity impl so these
-    // isolation tests are deterministic without touching production code.
-    beforeEach(() => {
-      mockDecrypt.mockReset();
-      mockDecrypt.mockImplementation((_algo: unknown, _key: unknown, data: ArrayBuffer) =>
-        Promise.resolve(new Uint8Array(data).buffer),
-      );
-    });
-
-    it('serves user A their own cached schedule', async () => {
-      const keyA = userScopedCacheKey(USER_A, 'schedule', '2026-06-15');
-      await cacheUserData(TENANT, keyA, { plannedWorkDays: 5 }, 60_000);
-
-      const read = await getCachedUserData<{ plannedWorkDays: number }>(TENANT, keyA);
-      expect(read).toEqual({ plannedWorkDays: 5 });
-    });
-
-    it("does NOT serve user A's schedule to user B on the same tenant/device", async () => {
-      const keyA = userScopedCacheKey(USER_A, 'schedule', '2026-06-15');
-      const keyB = userScopedCacheKey(USER_B, 'schedule', '2026-06-15');
-      await cacheUserData(TENANT, keyA, { plannedWorkDays: 5 }, 60_000);
-
-      // User B reads with THEIR key for the same tenant/week — must get nothing,
-      // because the namespace embeds the user id (the MT-CRITICAL-051 leak fix).
-      const readAsB = await getCachedUserData<{ plannedWorkDays: number }>(TENANT, keyB);
-      expect(readAsB).toBeNull();
-    });
-
-    it('partitions the same domain key by user inside the IndexedDB store', async () => {
-      const keyA = userScopedCacheKey(USER_A, 'myTasks');
-      const keyB = userScopedCacheKey(USER_B, 'myTasks');
-      await cacheUserData(TENANT, keyA, [{ id: 'task-a' }], 60_000);
-      await cacheUserData(TENANT, keyB, [{ id: 'task-b' }], 60_000);
-
-      // Two distinct physical IndexedDB keys — no collision, no overwrite.
-      expect(cacheIdbStore.has(`cache_${TENANT}:u:${USER_A}:myTasks`)).toBe(true);
-      expect(cacheIdbStore.has(`cache_${TENANT}:u:${USER_B}:myTasks`)).toBe(true);
-
-      const readA = await getCachedUserData<Array<{ id: string }>>(TENANT, keyA);
-      const readB = await getCachedUserData<Array<{ id: string }>>(TENANT, keyB);
-      expect(readA).toEqual([{ id: 'task-a' }]);
-      expect(readB).toEqual([{ id: 'task-b' }]);
-    });
-
-    it('the logout full clearCache() wipes user-scoped entries too', async () => {
-      const keyA = userScopedCacheKey(USER_A, 'leaveBalances', 2026);
-      await cacheUserData(TENANT, keyA, [{ remaining: 10 }], 60_000);
-      expect(cacheIdbStore.size).toBe(1);
-
-      // No-tenant clearCache() is the logout wipe path (useAuth.clearAllUserData).
-      await clearCache();
-      expect(cacheIdbStore.size).toBe(0);
-      expect(await getCachedUserData(TENANT, keyA)).toBeNull();
-    });
-
-    it('userScopedCacheKey rejects an empty userId (no namespace collapse)', () => {
-      expect(() => userScopedCacheKey('', 'schedule')).toThrow(/userId is required/);
-    });
-  });
-
-  // ========================================================================
   // syncPendingOperations: Network online -> flush
   // ========================================================================
 
@@ -1484,23 +1322,23 @@ describe('Offline Queue', () => {
     });
   });
 
-  describe('clearCache', () => {
-    const TEST_TENANT = 'tenant-test-001';
-
-    it('should remove all cache entries', async () => {
-      await cacheData(TEST_TENANT, 'tanks', [{ id: 't1' }]);
-      await cacheData(TEST_TENANT, 'batches', [{ id: 'b1' }]);
-
-      await clearCache();
-
-      expect(await getCachedData(TEST_TENANT, 'tanks')).toBeNull();
-      expect(await getCachedData(TEST_TENANT, 'batches')).toBeNull();
-    });
-  });
-
   // ========================================================================
   // MSG-MEDIUM-055: binary blob lane (offline media)
   // ========================================================================
+  // ========================================================================
+  // The device cipher the offline read cache shares (offline-cache.ts,
+  // MOB-MEDIUM-031): one key, one lifecycle, wiped with the queue on logout.
+  // ========================================================================
+  describe('encryptString / decryptString', () => {
+    it('seals a string under the device key and opens it again', async () => {
+      const sealed = await encryptString('{"tanks":[1]}');
+
+      expect(mockEncrypt).toHaveBeenCalled();
+      expect(sealed).toEqual({ iv: expect.any(String), ciphertext: expect.any(String) });
+      await expect(decryptString(sealed.iv, sealed.ciphertext)).resolves.toBe('{"tanks":[1]}');
+    });
+  });
+
   describe('pending media blobs (MSG-MEDIUM-055)', () => {
     const TENANT_A = 'tenant-blob-A';
     const TENANT_B = 'tenant-blob-B';

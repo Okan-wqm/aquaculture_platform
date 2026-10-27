@@ -4,10 +4,11 @@
 // Desktop has the full alarm stack (sensor-module AlertsPage/useAlerts); the
 // field worker had NOTHING on the device that is actually with them at the
 // tank. This hook binds alertHistory + acknowledgeAlert to mobile with the
-// platform's offline discipline: reads fall back to the encrypted tenant cache
-// when the network is down, and acks ride the offline queue (queue-first, like
-// every mobile write) with an optimistic cache update so the banner/badge
-// clears immediately.
+// platform's offline discipline: reads go through the scoped offline cache
+// (tenant + user + grants; served only when the server cannot be reached —
+// MOB-MEDIUM-031), and acks ride the offline queue (queue-first, like every
+// mobile write) with an optimistic cache update so the banner/badge clears
+// immediately.
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { renderHook, waitFor, act } from '@testing-library/react';
@@ -33,11 +34,16 @@ vi.mock('../useOfflineQueue', () => ({
   }),
 }));
 
-const mockCacheData = vi.fn();
-const mockGetCachedData = vi.fn();
-vi.mock('@/pwa/offline-queue', () => ({
-  cacheData: (...args: unknown[]): unknown => mockCacheData(...args),
-  getCachedData: (...args: unknown[]): unknown => mockGetCachedData(...args),
+// The cache policy (key scope, outage-only fallback, purge on refusal) is
+// offline-cache.spec.ts's; this hook only names its read.
+const SCOPE = { keyPrefix: 'tenant-1:user-1:0000:' };
+vi.mock('../useOfflineCacheScope', () => ({
+  useOfflineCacheScope: (): typeof SCOPE => SCOPE,
+}));
+
+const mockReadThrough = vi.fn();
+vi.mock('@/pwa/offline-cache', () => ({
+  readThroughOfflineCache: (...args: unknown[]): unknown => mockReadThrough(...args),
 }));
 
 interface AlertRow {
@@ -90,8 +96,13 @@ function wrapper({ children }: { children: ReactNode }): ReactElement {
 describe('useAlerts (MOB-HIGH-006)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockGetCachedData.mockResolvedValue(null);
-    mockCacheData.mockResolvedValue(undefined);
+    // Pass-through: the network answer, as readThroughOfflineCache returns it online.
+    mockReadThrough.mockImplementation(
+      async (_scope: unknown, _read: unknown, load: () => Promise<unknown>) => ({
+        data: await load(),
+        servedFromCache: false,
+      }),
+    );
     queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   });
 
@@ -155,9 +166,11 @@ describe('useAlerts (MOB-HIGH-006)', () => {
     expect(result.current.criticalUnacknowledged).toHaveLength(0);
   });
 
-  it('serves the encrypted tenant cache when the fetch fails offline', async () => {
-    mockGraphqlRequest.mockRejectedValue(new Error('Failed to fetch'));
-    mockGetCachedData.mockResolvedValue([alertRow({ id: 'cached-1' })]);
+  it('shows the alarms the offline cache served while the server is unreachable', async () => {
+    mockReadThrough.mockResolvedValue({
+      data: [alertRow({ id: 'cached-1' })],
+      servedFromCache: true,
+    });
 
     const { result } = renderHook(() => useAlerts(), { wrapper });
 
@@ -165,18 +178,28 @@ describe('useAlerts (MOB-HIGH-006)', () => {
     expect(result.current.alerts[0]?.id).toBe('cached-1');
   });
 
-  it('caches fresh results into the encrypted tenant store for offline reads', async () => {
+  it('reads through the caller’s offline cache scope, per severity and limit, for a shift', async () => {
     mockGraphqlRequest.mockResolvedValue({ alertHistory: [alertRow({ id: 'a1' })] });
+
+    const { result } = renderHook(() => useAlerts({ severity: 'CRITICAL', limit: 10 }), {
+      wrapper,
+    });
+
+    await waitFor(() => expect(result.current.alerts).toHaveLength(1));
+    expect(mockReadThrough).toHaveBeenCalledWith(
+      SCOPE,
+      { key: 'alerts_CRITICAL_10', ttlMs: 12 * 60 * 60 * 1000 },
+      expect.any(Function),
+    );
+  });
+
+  it('surfaces a refusal as an error instead of alarms', async () => {
+    mockReadThrough.mockRejectedValue(new Error('Forbidden resource'));
 
     const { result } = renderHook(() => useAlerts(), { wrapper });
 
-    await waitFor(() => expect(result.current.alerts).toHaveLength(1));
-    expect(mockCacheData).toHaveBeenCalledWith(
-      'tenant-1',
-      expect.stringContaining('alerts'),
-      expect.any(Array),
-      expect.any(Number),
-    );
+    await waitFor(() => expect(result.current.error).toBe('Forbidden resource'));
+    expect(result.current.alerts).toEqual([]);
   });
 
   it('scopes the query cache key by tenant (FE-CRITICAL-014 discipline)', async () => {

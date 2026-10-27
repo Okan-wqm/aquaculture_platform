@@ -197,26 +197,15 @@ def _calibrations_routed_since(root: Path, since_iso: str) -> int:
     )
 
 
-def _item_cited_refs(item: dict[str, Any]) -> list[str]:
-    """The finding's own citations: its path plus its evidence refs."""
-    refs: list[str] = []
-    path = str(item.get("path") or "").strip()
-    if path:
-        refs.append(path)
-    for entry in item.get("evidence") or []:
-        if isinstance(entry, str) and entry.strip():
-            refs.append(entry.strip())
-    return refs
-
-
 def _cited_code_hash(
     item: dict[str, Any], repo_root: str | Path | None, target_sha: str | None,
 ) -> str | None:
     from .evidence_trust import cited_blobs_code_hash
+    from .item_citations import item_cited_refs
 
     if repo_root is None:
         return None
-    return cited_blobs_code_hash(Path(repo_root), _item_cited_refs(item), target_sha)
+    return cited_blobs_code_hash(Path(repo_root), [ref for _kind, ref in item_cited_refs(item)], target_sha)
 
 
 def _rule_contract_hash(root: Path, item: dict[str, Any]) -> str:
@@ -658,6 +647,7 @@ def _append_routing_rows(
     judges_hash: str | None,
     now: datetime,
 ) -> None:
+    from .item_citations import item_cited_refs
     from .judge_fanout import _group_id
     from .ledger import append_declared_jsonl
 
@@ -683,7 +673,7 @@ def _append_routing_rows(
             # that routes; the calibration design validates the cut points
             # against outcome-truth rows first (crit2-06 selection bias).
             "tier1": shadow,
-            "cited_refs": _item_cited_refs(item) if hold is None else None,
+            "cited_refs": [ref for _kind, ref in item_cited_refs(item)] if hold is None else None,
             # J2 — the rule contract the seats are asked under; the verdict
             # cache keys the settled verdict by it.
             "rule_contract_hash": _rule_contract_hash(root, item) if hold is None else None,

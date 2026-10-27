@@ -105,16 +105,23 @@ def _render_prompt(item: dict[str, Any], contract: RuleContract) -> str:
     verdicts are defined and the rule's product claim is stated (see
     rule_contract for why).
 
-    The finding's id, path and message are the words of whatever produced the
-    finding: an adapter's template over a changed path, or (change-review) a
-    model's claim about a repository an attacker may have written to. They reach
-    the judge as DATA inside one untrusted block (``text_safety.untrusted_block``,
-    the one door), so no text of theirs can close the block, forge a line of the
-    prompt, or carry an instruction. ``rule`` and ``severity`` are the kernel's
-    (the family's contract), so they stay lines of the prompt."""
+    The finding's id, path, line and message are the words of whatever
+    produced the finding: an adapter's template over a changed path, or
+    (change-review) a model's claim about a repository an attacker may have
+    written to. They reach the judge as DATA inside one untrusted block
+    (``text_safety.untrusted_block``, the one door), so no text of theirs can
+    close the block, forge a line of the prompt, or carry an instruction.
+    ``rule`` and ``severity`` are the kernel's (the family's contract), so they
+    stay lines of the prompt. The ``line:`` row (ARIA-HIGH-1083) exists only
+    when ``item_citations.cited_line`` names the line the finding's own path
+    is cited at; an item without one renders byte for byte as it always did."""
+    from .item_citations import cited_line
+
+    line = cited_line(item)
+    cited = "" if line is None else f"\nline: {line}"
     finding = untrusted_block(
         "untrusted_finding",
-        f"finding_id: {item.get('finding_id')}\npath: {item.get('path')}\nmessage: {item.get('message')}",
+        f"finding_id: {item.get('finding_id')}\npath: {item.get('path')}{cited}\nmessage: {item.get('message')}",
     )
     return (
         "Decide whether this adapter finding names a product defect.\n"
@@ -198,20 +205,17 @@ def judge_request_fields(
 def _evidence_refs(item: dict[str, Any]) -> list[str]:
     """The finding's path and evidence a judge envelope hands out.
 
-    ARIA-MEDIUM-385 — only refs the agent law admits by shape
-    (``pressure_evidence.split_citable_refs``): the mint refuses any other,
-    and the finding row the sampler read keeps every ref it reported.
+    ARIA-HIGH-1083 — what the finding cites is read once, by
+    ``item_citations.item_cited_refs`` (a dict ``{"path", "line"}`` is the ref
+    ``path:line``, so the judge is handed the cited line and the packer quotes
+    the window around it). ARIA-MEDIUM-385 — only refs the agent law admits by
+    shape (``pressure_evidence.split_citable_refs``): the mint refuses any
+    other, and the finding row the sampler read keeps every ref it reported.
     """
+    from .item_citations import item_cited_refs
     from .pressure_evidence import split_citable_refs
 
-    refs: list[str] = []
-    path = str(item.get("path") or "")
-    if path:
-        refs.append(path)
-    for ev in item.get("evidence") or []:
-        if isinstance(ev, str) and ev.strip():
-            refs.append(ev)
-    return split_citable_refs(refs)[0]
+    return split_citable_refs([ref for _kind, ref in item_cited_refs(item)])[0]
 
 
 def _existing_judge_dispatches(root: Path) -> set[tuple[str, str]]:

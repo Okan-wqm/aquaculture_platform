@@ -5,18 +5,17 @@
 // server's codes. Messages stay what they were, for display and for the queue's legacy
 // message heuristics.
 
-import { print, parse } from 'graphql';
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
+import { print, parse } from 'graphql';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
-  GraphQLError,
   authenticatedFetch,
   graphqlRequest,
   markAuthReady,
   resetAuthReady,
 } from '../authenticated-fetch';
-import { HttpStatusError, NetworkUnreachableError } from '../request-failure';
+import { GraphQLError, HttpStatusError, NetworkUnreachableError } from '../request-failure';
 
 const PING: TypedDocumentNode<{ ping: boolean }, Record<string, never>> = parse(
   'query Ping { ping }',

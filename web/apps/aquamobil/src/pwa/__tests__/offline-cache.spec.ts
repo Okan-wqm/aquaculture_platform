@@ -49,10 +49,13 @@ vi.mock('@/utils/logger', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
-import { GraphQLError } from '../../services/authenticated-fetch';
-import { HttpStatusError, NetworkUnreachableError } from '../../services/request-failure';
+import {
+  GraphQLError,
+  HttpStatusError,
+  NetworkUnreachableError,
+} from '../../services/request-failure';
 import { clearCache, readThroughOfflineCache, retainOnlyCacheScope } from '../offline-cache';
-import { offlineCacheScopeOf } from '../offline-cache-scope';
+import { offlineCacheScopeOf, type OfflineCacheScope } from '../offline-cache-scope';
 
 function tokenWith(claims: unknown): string {
   const payload = btoa(JSON.stringify(claims))
@@ -62,7 +65,11 @@ function tokenWith(claims: unknown): string {
   return `eyJhbGciOiJSUzI1NiJ9.${payload}.signature`;
 }
 
-function scopeFor(userId: string, moduleAccess: Record<string, string>, tenantId = 'tenant-1') {
+function scopeFor(
+  userId: string,
+  moduleAccess: Record<string, string>,
+  tenantId = 'tenant-1',
+): OfflineCacheScope {
   const scope = offlineCacheScopeOf(tokenWith({ sub: userId, tenantId, moduleAccess }), null);
   if (scope === null) throw new Error('fixture token yields no scope');
   return scope;
@@ -79,7 +86,11 @@ function forbidden(): GraphQLError {
 }
 
 /** Seed the cache for `scope` through the one write path: a successful read. */
-async function seed(scope: typeof FARM_USER, data: unknown, key: string = READ.key): Promise<void> {
+async function seed(
+  scope: OfflineCacheScope,
+  data: unknown,
+  key: string = READ.key,
+): Promise<void> {
   await readThroughOfflineCache(scope, { key, ttlMs: READ.ttlMs }, () => Promise.resolve(data));
 }
 
@@ -227,6 +238,7 @@ describe('readThroughOfflineCache', () => {
 describe('retainOnlyCacheScope', () => {
   beforeEach(() => {
     h.store.clear();
+    h.failWrites = false;
   });
 
   it('keeps the current scope and deletes every other entry on the device', async () => {
@@ -242,6 +254,11 @@ describe('retainOnlyCacheScope', () => {
 });
 
 describe('clearCache', () => {
+  beforeEach(() => {
+    h.store.clear();
+    h.failWrites = false;
+  });
+
   it('wipes every entry of every scope (the logout wipe)', async () => {
     await seed(FARM_USER, TANKS);
     await seed(OTHER_USER, TANKS);

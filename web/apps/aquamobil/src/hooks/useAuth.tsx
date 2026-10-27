@@ -4,7 +4,8 @@ import { del } from 'idb-keyval';
 import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef, type ReactElement, type ReactNode } from 'react';
 
 import { clearBiometricData } from '@/hooks/useWebAuthn';
-import { clearAllOperations, clearCache } from '@/pwa/offline-queue';
+import { clearCache } from '@/pwa/offline-cache';
+import { clearAllOperations } from '@/pwa/offline-queue';
 import { markAuthReady, resetAuthReady, syncAuthStore } from '@/services/authenticated-fetch';
 import { runPushTeardown } from '@/services/push-lifecycle';
 import type { AccessType, AuthState } from '@/types';
@@ -173,9 +174,9 @@ async function checkMobileEnabled(token: string): Promise<boolean> {
 // Clears offline queue (IndexedDB), data cache (IndexedDB), permissions cache (IndexedDB),
 // biometric localStorage PII, and service worker Cache Storage to prevent data leakage
 // on shared devices.
-// SECURITY (FE-CRITICAL-002): clearCache() without tenantId clears ALL tenant
-// namespaces on logout, preventing any residual cached data from leaking to
-// the next user on a shared device.
+// SECURITY (FE-CRITICAL-002): clearCache() clears every cache scope (all
+// tenants, users and grants) on logout, preventing any residual cached data
+// from leaking to the next user on a shared device.
 async function clearAllUserData(userId?: string, tenantId?: string | null): Promise<void> {
   // H-FE-01: Clear biometric PII (webauthn_email, webauthn_credential_ids) on logout
   // so the next user on a shared device cannot use or see prior user's biometric data.
@@ -194,7 +195,7 @@ async function clearAllUserData(userId?: string, tenantId?: string | null): Prom
 
   await Promise.all([
     clearAllOperations(),
-    clearCache(), // No tenantId = clear ALL tenants' cache entries
+    clearCache(), // Every scope: all tenants, users and grants (offline-cache.ts)
     // SECURITY: Clear tenant-scoped, per-user, and legacy permission cache keys.
     // The tenant-scoped key is the current format; the others are legacy fallbacks.
     ...(userId && tenantId

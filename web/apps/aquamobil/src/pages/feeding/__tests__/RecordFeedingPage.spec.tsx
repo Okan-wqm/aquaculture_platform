@@ -21,7 +21,8 @@ import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 const h = vi.hoisted(() => ({
   isOnline: true,
   graphqlRequest: vi.fn<(...args: unknown[]) => Promise<unknown>>(),
-  readThroughOfflineCache: vi.fn<(...args: unknown[]) => Promise<unknown>>(),
+  readThroughOfflineCache:
+    vi.fn<(scope: unknown, read: unknown, load: () => Promise<unknown>) => Promise<unknown>>(),
   scope: { keyPrefix: 'tenant-1:user-1:0000:' },
   addToQueue: vi.fn<(...args: unknown[]) => Promise<unknown>>(),
   syncStatus: 'pending',
@@ -64,7 +65,8 @@ vi.mock('@/hooks/useOfflineCacheScope', () => ({
 }));
 
 vi.mock('@/pwa/offline-cache', () => ({
-  readThroughOfflineCache: (...args: unknown[]) => h.readThroughOfflineCache(...args),
+  readThroughOfflineCache: (scope: unknown, read: unknown, load: () => Promise<unknown>) =>
+    h.readThroughOfflineCache(scope, read, load),
 }));
 
 import { RecordFeedingPage } from '../RecordFeedingPage';
@@ -139,12 +141,10 @@ describe('RecordFeedingPage — öğün cutover (Faz 6)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     h.isOnline = true;
-    h.readThroughOfflineCache.mockImplementation(async (...args: unknown[]) => {
-      const load = args[2];
-      if (typeof load !== 'function')
-        throw new Error('readThroughOfflineCache called without a load');
-      return { data: (await load()) as unknown, servedFromCache: false };
-    });
+    h.readThroughOfflineCache.mockImplementation(async (_scope, _read, load) => ({
+      data: await load(),
+      servedFromCache: false,
+    }));
     // addToQueue returns the operation id the queued screen holds on to.
     h.addToQueue.mockResolvedValue({ id: 'op-1', status: 'queued' });
     h.syncStatus = 'pending';
@@ -166,7 +166,8 @@ describe('RecordFeedingPage — öğün cutover (Faz 6)', () => {
     await waitFor(() => expect(h.readThroughOfflineCache).toHaveBeenCalled());
     const [scope, read] = h.readThroughOfflineCache.mock.calls[0] ?? [];
     expect(scope).toBe(h.scope);
-    expect(read).toMatchObject({ key: expect.stringMatching(/^feedingDayPlans_/) });
+    const key = typeof read === 'object' && read !== null && 'key' in read ? read.key : null;
+    expect(String(key)).toMatch(/^feedingDayPlans_/);
   });
 
   it('renders the last-synced plans + offline banner when the cache served them', async () => {

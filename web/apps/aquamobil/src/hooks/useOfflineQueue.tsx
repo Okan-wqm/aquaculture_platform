@@ -3,6 +3,7 @@ import { createContext, useContext, useState, useEffect, useCallback, useRef, ty
 
 import { useAuth } from './useAuth';
 import { useNetworkStatus } from './useNetworkStatus';
+import { useRetainOfflineCacheScope } from './useOfflineCacheScope';
 
 import { REQUEST_MEDIA_UPLOAD, SEND_MESSAGE } from '@/graphql/messaging-operations';
 import { GraphQLReplayError } from '@/pwa/graphql-replay-error';
@@ -153,6 +154,9 @@ export function OfflineProvider({ children }: { children: ReactNode }): ReactEle
   const { accessToken, tenantId, user } = useAuth();
   const queryClient = useQueryClient();
   const isOnline = useNetworkStatus();
+  // MOB-MEDIUM-031: the offline read cache keeps only the current token's scope (tenant, user,
+  // moduleAccess), so a changed grant purges what was cached under the old one.
+  useRetainOfflineCacheScope();
   const [pendingCount, setPendingCount] = useState(0);
   const [pendingOperations, setPendingOperations] = useState<QueuedOperation[]>([]);
   // FE-HIGH-051: monotonic per-tenant queue version surfaced into React state so

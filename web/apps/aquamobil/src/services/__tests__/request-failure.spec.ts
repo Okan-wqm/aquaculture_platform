@@ -11,8 +11,8 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { GraphQLError } from '../authenticated-fetch';
 import {
+  GraphQLError,
   HttpStatusError,
   NetworkUnreachableError,
   classifyRequestFailure,

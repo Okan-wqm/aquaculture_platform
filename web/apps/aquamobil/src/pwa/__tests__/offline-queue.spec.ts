@@ -1334,7 +1334,8 @@ describe('Offline Queue', () => {
       const sealed = await encryptString('{"tanks":[1]}');
 
       expect(mockEncrypt).toHaveBeenCalled();
-      expect(sealed).toEqual({ iv: expect.any(String), ciphertext: expect.any(String) });
+      expect(typeof sealed.iv).toBe('string');
+      expect(sealed.ciphertext).not.toBe('{"tanks":[1]}');
       await expect(decryptString(sealed.iv, sealed.ciphertext)).resolves.toBe('{"tanks":[1]}');
     });
   });

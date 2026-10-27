@@ -10,9 +10,8 @@
 import { QueryCache, QueryClient } from '@tanstack/react-query';
 import { describe, expect, it } from 'vitest';
 
-import { GraphQLError } from '../authenticated-fetch';
 import { dropRefusedQueryData } from '../drop-refused-query-data';
-import { HttpStatusError, NetworkUnreachableError } from '../request-failure';
+import { GraphQLError, HttpStatusError, NetworkUnreachableError } from '../request-failure';
 
 const KEY = ['tenant', 'tenant-1', 'tanks'];
 
@@ -23,7 +22,7 @@ function client(): QueryClient {
   });
 }
 
-async function loadThenFail(failure: unknown): Promise<unknown> {
+async function loadThenFail(failure: Error): Promise<unknown> {
   const queryClient = client();
   await queryClient.fetchQuery({
     queryKey: KEY,

@@ -7,8 +7,6 @@
  * values they entered, and is dismissed only once they have entered it again.
  */
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
-import type { ReactElement } from 'react';
-import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { SyncStatusPage } from '../SyncStatusPage';
@@ -30,6 +28,8 @@ vi.mock('@/hooks/useOfflineQueue', () => ({
     removeFromQueue: h.removeFromQueue,
   }),
 }));
+
+vi.mock('react-router-dom', () => ({ useNavigate: () => vi.fn() }));
 
 vi.mock('@/hooks/useAuth', () => ({
   useAuth: () => ({ user: { id: 'u1', name: 'Ada Lovelace', role: 'MODULE_USER' } }),
@@ -57,14 +57,8 @@ const PENDING: QueuedOperation = {
   status: 'pending',
 };
 
-function renderPage(): ReactElement {
-  const page = (
-    <MemoryRouter>
-      <SyncStatusPage />
-    </MemoryRouter>
-  );
-  render(page);
-  return page;
+function renderPage(): void {
+  render(<SyncStatusPage />);
 }
 
 describe('SyncStatusPage — rejected replays', () => {

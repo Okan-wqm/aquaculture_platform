@@ -2,13 +2,13 @@ import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import { useMemo } from 'react';
 
 import { useAuth } from './useAuth';
+import { useOfflineCacheScope } from './useOfflineCacheScope';
 
 import { GET_MY_TASKS } from '@/graphql/operations';
-import { cacheUserData, getCachedUserData } from '@/pwa/offline-queue';
+import { readThroughOfflineCache } from '@/pwa/offline-cache';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import type { Task } from '@/types';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
-import { userScopedCacheKey } from '@/utils/user-scoped-cache-key';
 
 
 type Segment = 'today' | 'upcoming' | 'overdue';
@@ -49,6 +49,7 @@ function filterBySegment(tasks: Task[], segment: Segment): Task[] {
 
 export function useMyTasks(segment: Segment = 'today'): UseMyTasksReturn {
   const { accessToken, tenantId, user, isAuthenticated } = useAuth();
+  const cacheScope = useOfflineCacheScope();
 
   const query = useQuery<Task[]>({
     // WHY 2026-04-29: task actions invalidate `myTasks`; this hook must be a
@@ -61,25 +62,19 @@ export function useMyTasks(segment: Segment = 'today'): UseMyTasksReturn {
     queryFn: async () => {
       if (!tenantId || !user?.id) return [];
 
-      // SECURITY (MT-CRITICAL-051): per-user offline cache namespace.
-      const cacheKey = userScopedCacheKey(user.id, 'myTasks');
-      try {
-        const result = await graphqlRequest(
-          GET_MY_TASKS,
-          { status: ['PENDING', 'IN_PROGRESS', 'OVERDUE'] },
-        );
-
-        const tasks = result.myTasks || [];
-        await cacheUserData(tenantId, cacheKey, tasks, 1000 * 60 * 30); // 30 min TTL
-        return tasks;
-      } catch (err) {
-        // Try loading from cache on error
-        const cached = await getCachedUserData<Task[]>(tenantId, cacheKey);
-        if (cached) {
-          return cached;
-        }
-        throw err;
-      }
+      // SECURITY (MT-CRITICAL-051): the offline cache scope is per user
+      // (MOB-MEDIUM-031), and its copy stands in only when the server is unreachable.
+      const read = await readThroughOfflineCache(
+        cacheScope,
+        { key: 'myTasks', ttlMs: 1000 * 60 * 30 }, // 30 min TTL
+        async (): Promise<Task[]> => {
+          const result = await graphqlRequest(GET_MY_TASKS, {
+            status: ['PENDING', 'IN_PROGRESS', 'OVERDUE'],
+          });
+          return result.myTasks || [];
+        },
+      );
+      return read.data;
     },
     enabled: isAuthenticated && !!accessToken && !!tenantId && !!user?.id,
     staleTime: 30_000,

@@ -19,7 +19,6 @@ import { UserModuleAssignment } from '../../authentication/entities/user-module-
 import { User } from '../../authentication/entities/user.entity';
 import { DurableUserTokenInvalidationService } from '../../authentication/services/durable-user-token-invalidation.service';
 import { MobileUserSettings } from '../entities/mobile-user-settings.entity';
-import { TenantModule } from '../entities/tenant-module.entity';
 import { Tenant, TenantStatus, TenantPlan } from '../entities/tenant.entity';
 
 import { CapabilityAuthorityService } from './capability-authority';
@@ -623,9 +622,10 @@ describe('UserLifecycleService', () => {
       expect(JSON.stringify(publishedEvent)).not.toContain('newuser@tenant.com');
     });
 
-    // RBAC-HIGH-027: every writer sets the role by the backfill's rule over the inputs as they
-    // stand (assignment-module-role.ts) — and hr is managed only by its primary manager.
-    it('writes each module grant with its role: the primary module and non-hr modules managed, hr used', async () => {
+    // RBAC-HIGH-027, RBAC-HIGH-034: an invited module manager is a member whose grants carry the
+    // manager role (the primary module and the non-hr modules; hr only as primary, D6). users.role
+    // is an account role and takes MODULE_USER, never the legacy global MODULE_MANAGER.
+    it('writes each module grant with its role and users.role as a member', async () => {
       const FARM = '30000000-0000-4000-8000-000000000001';
       const HR = '30000000-0000-4000-8000-000000000002';
       const SENSOR = '30000000-0000-4000-8000-000000000003';
@@ -688,6 +688,10 @@ describe('UserLifecycleService', () => {
           role: 'MODULE_MANAGER',
         }),
       ]);
+      expect(txManager.create).toHaveBeenCalledWith(
+        User,
+        expect.objectContaining({ role: Role.MODULE_USER, tenantId: TENANT_ID }),
+      );
     });
 
     it('refuses a module id the catalogue does not hold, before writing any grant', async () => {
@@ -855,32 +859,18 @@ describe('UserLifecycleService', () => {
       expect(mockDurableUserTokenInvalidation.applyImmediately).toHaveBeenCalledTimes(1);
     });
 
-    // RBAC-HIGH-027: users.role is an input of the module grant roles (a legacy global
-    // MODULE_MANAGER manages every module but hr), so the role edit re-derives them in the
-    // transaction that writes it — last, bound to the user's tenant: the command arrives over
-    // NATS with no tenant, where the forced RLS policy would hide every grant.
-    it('re-derives the module grant roles in the transaction that changes users.role', async () => {
-      const FARM = '30000000-0000-4000-8000-000000000001';
+    // PKG-06: a grant's role is explicit — written by setUserModuleAccess and Assign / Remove
+    // Manager — and users.role is an account role, so a role edit leaves the module grants alone
+    // (ADR-051 §1: the global role never grants module access; PKG-46's demotion "changes no
+    // access decision"). Re-deriving them from users.role would overwrite what an admin set.
+    it('leaves the module grants to their explicit writers when users.role changes', async () => {
       const user = createMockUser({ role: Role.MODULE_MANAGER });
       userRepository.findOne.mockResolvedValue(user);
       userRepository.save.mockResolvedValue(user);
-      const assignments = createMockRepository();
-      assignments.find.mockResolvedValue([
-        Object.assign(new UserModuleAssignment(), {
-          id: 'uma-farm',
-          userId: USER_ID,
-          moduleId: FARM,
-          tenantId: TENANT_ID,
-          isPrimaryManager: false,
-          isActive: true,
-          role: 'MODULE_MANAGER',
-          module: { id: FARM, code: 'farm' },
-        }),
-      ]);
-      assignments.update.mockResolvedValue({ affected: 1, raw: [], generatedMaps: [] });
-      const tenantModules = createMockRepository();
-      tenantModules.find.mockResolvedValue([]);
       const transactionQuery = jest.fn().mockResolvedValue([]);
+      const getRepository = jest.fn((entity: unknown) => {
+        throw new Error(`Unexpected repository ${String(entity)}`);
+      });
       mockDataSource.transaction.mockImplementationOnce(async (...args: unknown[]) => {
         const cb = args.find(
           (arg): arg is (manager: unknown) => Promise<unknown> => typeof arg === 'function',
@@ -889,32 +879,19 @@ describe('UserLifecycleService', () => {
         return cb({
           query: transactionQuery,
           withRepository: jest.fn((repository: unknown) => repository),
-          getRepository: jest.fn((entity: unknown) => {
-            if (entity === UserModuleAssignment) return assignments;
-            if (entity === TenantModule) return tenantModules;
-            throw new Error('Unexpected repository');
-          }),
+          getRepository,
         });
       });
 
-      await service.adminUpdateUser(USER_ID, { role: Role.MODULE_USER });
+      const updated = await service.adminUpdateUser(USER_ID, { role: Role.MODULE_USER });
 
-      expect(assignments.find).toHaveBeenCalledWith({
-        where: { userId: USER_ID, tenantId: TENANT_ID },
-        relations: { module: true },
-      });
-      expect(assignments.update).toHaveBeenCalledWith(
-        { id: 'uma-farm', tenantId: TENANT_ID },
-        { role: 'MODULE_USER' },
-      );
-      expect(transactionQuery).toHaveBeenCalledWith('SELECT set_config($1, $2, true)', [
+      expect(updated.role).toBe(Role.MODULE_USER);
+      expect(getRepository).not.toHaveBeenCalledWith(UserModuleAssignment);
+      expect(transactionQuery).not.toHaveBeenCalledWith('SELECT set_config($1, $2, true)', [
         'app.current_tenant',
         TENANT_ID,
       ]);
-      // The binding lasts until commit, so it comes after the credential writes it must not move.
-      expect(mockDurableUserTokenInvalidation.enqueue.mock.invocationCallOrder[0]).toBeLessThan(
-        transactionQuery.mock.invocationCallOrder[0]!,
-      );
+      expect(mockDurableUserTokenInvalidation.enqueue).toHaveBeenCalledTimes(1);
     });
 
     it('keeps profile-only admin updates out of the credential revocation transaction', async () => {
@@ -1050,6 +1027,52 @@ describe('UserLifecycleService', () => {
 
       expect(mockDurableUserTokenInvalidation.enqueue).toHaveBeenCalledTimes(1);
       expect(mockDurableUserTokenInvalidation.applyImmediately).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // ==========================================================================
+  // adminCreateUser
+  // ==========================================================================
+
+  // RBAC-HIGH-034: users.role is an account role (ADR-051 §1). The platform admin's create path
+  // writes an account role as it is handed; a module role names no module here, so the account is
+  // a member (MODULE_USER) whose module roles a tenant administrator sets per module.
+  describe('adminCreateUser', () => {
+    const adminCreate = (role: string): Promise<User> =>
+      service.adminCreateUser({
+        email: 'Platform.User@tenant.com',
+        firstName: 'Platform',
+        lastName: 'User',
+        password: 'S3cure-Passw0rd!',
+        role,
+        tenantId: TENANT_ID,
+      });
+
+    beforeEach(() => {
+      userRepository.findOne.mockResolvedValue(null);
+      tenantRepository.findOne.mockResolvedValue(createMockTenant());
+      userRepository.save.mockResolvedValue(createMockUser());
+    });
+
+    it.each([
+      [Role.SUPER_ADMIN, Role.SUPER_ADMIN],
+      [Role.TENANT_ADMIN, Role.TENANT_ADMIN],
+      [Role.MODULE_MANAGER, Role.MODULE_USER],
+      [Role.MODULE_USER, Role.MODULE_USER],
+    ])('writes the requested role %s into users.role as %s', async (requested, written) => {
+      await adminCreate(requested);
+
+      expect(userRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ role: written, tenantId: TENANT_ID }),
+      );
+      expect(userRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({ role: written, email: 'platform.user@tenant.com' }),
+      );
+    });
+
+    it('refuses a role that is no platform role, writing nothing', async () => {
+      await expect(adminCreate('PAYROLL_MANAGER')).rejects.toThrow(BadRequestException);
+      expect(userRepository.save).not.toHaveBeenCalled();
     });
   });
 

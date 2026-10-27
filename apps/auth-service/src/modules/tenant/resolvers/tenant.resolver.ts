@@ -33,6 +33,8 @@ import {
   readLocalization,
   TenantProvisioningCommandService,
 } from '../services/tenant-provisioning-command.service';
+import { ModuleAccessService } from '../services/module-access.service';
+import { moduleRefOf } from '../services/module-manager-designation';
 import { TenantService } from '../services/tenant.service';
 
 /**
@@ -65,6 +67,8 @@ export class TenantResolver {
     private readonly auditLogService: AuditLogService,
     // W5: `auth.tenants` üzerindeki tek meşru yazma yolu command-receipt'tir.
     private readonly tenantCommands: TenantProvisioningCommandService,
+    // PKG-06: Assign / Remove Manager write the module's primary manager grant.
+    private readonly moduleAccess: ModuleAccessService,
   ) {}
 
   @SuperAdminOnly()
@@ -277,7 +281,8 @@ export class TenantResolver {
   }
 
   /**
-   * Assign module manager to a module
+   * Assign a module's manager, named by module code (PKG-06): the designee gets the module's
+   * primary manager grant; users.role is never written (RBAC-HIGH-034).
    */
   @TenantAdminOrHigher()
   @Mutation(() => TenantModule)
@@ -286,27 +291,35 @@ export class TenantResolver {
     @CurrentUser('tenantId') tenantId: string,
     @CurrentUser('sub') actorId: string,
   ): Promise<TenantModule> {
-    return this.tenantService.assignModuleManager(tenantId, input.moduleId, input.userId, actorId);
+    const module = moduleRefOf(input);
+    return this.moduleAccess.assignModuleManager(
+      { tenantId, userId: actorId },
+      { module, userId: input.userId },
+    );
   }
 
   /**
-   * Remove module manager from a module
+   * Remove a module's manager, named by module code (the release-R2 web's module id is still
+   * taken): the manager grant goes back to a user grant.
    */
   @TenantAdminOrHigher()
   @Mutation(() => TenantModule)
   async removeModuleManager(
-    @Args('moduleId', { type: () => ID }) moduleId: string,
     @CurrentUser('tenantId') tenantId: string,
+    @CurrentUser('sub') actorId: string,
+    @Args('moduleId', { type: () => ID, nullable: true }) moduleId?: string,
+    @Args('moduleCode', { type: () => String, nullable: true }) moduleCode?: string,
   ): Promise<TenantModule> {
-    return this.tenantService.removeModuleManager(tenantId, moduleId);
+    const module = moduleRefOf({ moduleCode, moduleId });
+    return this.moduleAccess.removeModuleManager({ tenantId, userId: actorId }, { module });
   }
 
   // NOTE: both updateTenantSettings and the writable TenantService lifecycle
   // methods (create/update/activate/suspend/cancel/assignModules) were removed
   // (W3.3, MT-HIGH-001/002). Tenant writes are command-receipt/FSM owned via
   // TenantProvisioningCommandService; the resolver's updateTenant/lifecycle
-  // mutations reject outright. TenantService is now a read + module-manager
-  // service only.
+  // mutations reject outright. TenantService is a read service; module managers
+  // are written by ModuleAccessService (PKG-06).
 
   // ============================================================================
   // Audit Log & Activity Queries

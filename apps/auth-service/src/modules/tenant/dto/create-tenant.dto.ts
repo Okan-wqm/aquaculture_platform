@@ -1,5 +1,7 @@
 import { InputType, Field, Int } from '@nestjs/graphql';
+import { OWNER_MODULE_CODES } from '@aquaculture/shared-contracts';
 import {
+  IsIn,
   IsString,
   IsOptional,
   IsEmail,
@@ -140,13 +142,21 @@ export class AssignModulesToTenantInput {
 }
 
 /**
- * Input for assigning module manager
+ * Input for assigning module manager (PKG-06): the module is named by its code. `moduleId` is
+ * the field the release-R2 web sends; it stays accepted (one of the two, exactly), so no client
+ * of an earlier release breaks (C2). Removing it would be a BREAKING change of its own.
  */
 @InputType()
 export class AssignModuleManagerInput {
-  @Field()
+  @Field(() => String, { nullable: true })
+  @IsOptional()
+  @IsIn(OWNER_MODULE_CODES)
+  moduleCode?: string | null;
+
+  @Field(() => String, { nullable: true })
+  @IsOptional()
   @IsString()
-  moduleId!: string;
+  moduleId?: string | null;
 
   @Field()
   @IsString()

@@ -14,13 +14,6 @@ import { TenantStats, TenantDatabaseInfo, TableInfo, TableSchemaInfo, ColumnInfo
 import { TenantModule } from '../entities/tenant-module.entity';
 import { Tenant, TenantStatus } from '../entities/tenant.entity';
 
-import {
-  clearModuleManager,
-  designateModuleManager,
-  type ModuleManagerChange,
-  type ModuleManagerStores,
-} from './module-manager-designation';
-
 /**
  * Raw database row for column information query
  */
@@ -552,63 +545,6 @@ export class TenantService {
       this.logger.error(`Failed to get table schema for ${schemaName}.${tableName}`, error);
       throw error;
     }
-  }
-
-  /**
-   * Assign module manager to a module. The designation, the legacy users.role promotion and the
-   * grants they imply commit together (RBAC-HIGH-027, module-manager-designation.ts).
-   */
-  async assignModuleManager(
-    tenantId: string,
-    moduleId: string,
-    userId: string,
-    assignedBy: string,
-  ): Promise<TenantModule> {
-    const change = await designateModuleManager(this.dataSource, this.managerStores, {
-      tenantId,
-      moduleId,
-      userId,
-      assignedBy,
-    });
-    this.logManagerChange('module_manager_assigned', tenantId, change);
-    if (change.hrManagerGrantWithheld) {
-      // D6: an hr manager grant comes only from the primary-manager choice, never from Assign Manager.
-      this.logger.warn(
-        JSON.stringify({ event: 'module_manager_hr_grant_withheld', tenantId, moduleId, userId }),
-      );
-    }
-    return change.tenantModule;
-  }
-
-  /**
-   * Remove module manager from a module; the former manager's grants are re-derived with it.
-   */
-  async removeModuleManager(tenantId: string, moduleId: string): Promise<TenantModule> {
-    const change = await clearModuleManager(this.dataSource, this.managerStores, {
-      tenantId,
-      moduleId,
-    });
-    this.logManagerChange('module_manager_removed', tenantId, change);
-    return change.tenantModule;
-  }
-
-  private get managerStores(): ModuleManagerStores {
-    return { tenantModules: this.tenantModuleRepository, users: this.userRepository };
-  }
-
-  private logManagerChange(event: string, tenantId: string, change: ModuleManagerChange): void {
-    const grantRolesChanged = [...change.rederived.values()].reduce(
-      (count, changes) => count + changes.length,
-      0,
-    );
-    this.logger.log(
-      JSON.stringify({
-        event,
-        tenantId,
-        moduleCode: change.tenantModule.module.code,
-        grantRolesChanged,
-      }),
-    );
   }
 
   // NOTE: there is no service-level tenant-update method here. The W1 slice

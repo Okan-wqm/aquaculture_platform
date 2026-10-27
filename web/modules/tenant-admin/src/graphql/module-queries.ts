@@ -31,6 +31,9 @@ export const MY_MODULES_QUERY = `
  * @Field, and no module field-resolver exists). Module catalog details
  * (code/name/icon/etc.) are fetched separately via MY_MODULES_QUERY (`myModules`
  * → UserModuleInfo). Note `category` exists on neither type.
+ *
+ * No document selects `managerId` (PKG-06; ADR-051 §5): it is the designation copy no token
+ * reads, which PKG-06 PR2 removes in R4, and the console never showed it.
  */
 export const MY_TENANT_MODULES_QUERY = `
   query MyTenantModules {
@@ -41,7 +44,6 @@ export const MY_TENANT_MODULES_QUERY = `
       configuration
       activatedAt
       expiresAt
-      managerId
     }
   }
 `;
@@ -79,7 +81,6 @@ export const ASSIGN_MODULE_MANAGER_MUTATION = `
     assignModuleManager(input: $input) {
       id
       moduleId
-      managerId
     }
   }
 `;
@@ -89,7 +90,6 @@ export const REMOVE_MODULE_MANAGER_MUTATION = `
     removeModuleManager(moduleId: $moduleId) {
       id
       moduleId
-      managerId
     }
   }
 `;

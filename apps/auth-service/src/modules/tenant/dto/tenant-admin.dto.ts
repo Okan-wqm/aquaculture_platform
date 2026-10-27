@@ -1,33 +1,5 @@
 import { InputType, Field, ObjectType, ID } from '@nestjs/graphql';
-import { IsEmail, IsNotEmpty, IsString, IsUUID, IsInt, Min, Max, Matches, MaxLength, IsIn } from 'class-validator';
-
-/**
- * Input for assigning a user to a module
- */
-@InputType()
-export class AssignUserToModuleInput {
-  @Field()
-  @IsNotEmpty()
-  @IsString()
-  firstName!: string;
-
-  @Field()
-  @IsNotEmpty()
-  @IsString()
-  lastName!: string;
-
-  @Field()
-  @IsEmail()
-  email!: string;
-
-  @Field()
-  @IsUUID()
-  moduleId!: string;
-
-  @Field({ defaultValue: 'manager' })
-  @IsIn(['manager', 'viewer', 'operator'], { message: 'Role must be one of: manager, viewer, operator' })
-  role!: string;
-}
+import { IsString, IsUUID, IsInt, Min, Max, Matches, MaxLength } from 'class-validator';
 
 /**
  * Input for assigning a user to a farm-service Site (SEC-HIGH-051).
@@ -35,7 +7,7 @@ export class AssignUserToModuleInput {
  * WHY: auth.user_site_assignments is the SSoT for object-level site membership
  * but had NO write-path — every MODULE_USER was minted with assignedSiteIds:[]
  * forever and denied on every site-scoped op. This is the TENANT_ADMIN-gated
- * management surface, mirroring AssignUserToModuleInput.
+ * management surface.
  *
  * `userId` is an existing tenant user (unlike module-assign which can also
  * create a user). `siteId` is a farm-service Site id (cross-service id, no FK).
@@ -52,7 +24,7 @@ export class AssignUserToSiteInput {
 }
 
 /**
- * Result of a site assignment / unassignment (mirrors AssignmentResult).
+ * Result of a site assignment / unassignment.
  */
 @ObjectType()
 export class SiteAssignmentResult {
@@ -133,24 +105,6 @@ export class MyTenantInfo {
 
   @Field()
   currentUserCount!: number;
-}
-
-/**
- * Assignment result
- */
-@ObjectType()
-export class AssignmentResult {
-  @Field()
-  success!: boolean;
-
-  @Field()
-  message!: string;
-
-  @Field(() => String, { nullable: true })
-  userId!: string | null;
-
-  @Field()
-  isNewUser!: boolean;
 }
 
 /**

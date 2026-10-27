@@ -1974,6 +1974,44 @@ libs/backend-common/src/decorators/roles.decorator.ts:82-86 (the role hierarchy 
 apps/hr-service/src/hr/hr.resolver.ts:314-316 (for example, any global MODULE_MANAGER may update HR organisation units)
 ```
 
+## RBAC-HIGH-043
+
+Defect. adminUpdateUser, the platform administrator's user edit, still writes any canonical role
+into users.role, MODULE_MANAGER included, so a platform edit makes a member a manager of every
+module after Assign Manager, invites and new members stopped writing module roles there.
+
+Package PKG-46, release R6, severity HIGH. Raised in the review of PKG-06 PR1.
+
+Where. auth-service `UserLifecycleService.adminUpdateUser`, reached from admin-api's update
+command (`auth-admin-nats.handler.ts`), checks only that the role is one of the four canonical
+roles and assigns it to `users.role`. The admin-panel's create and edit modal offers
+MODULE_MANAGER. PKG-06 PR1 types the other writers of a new account (createUser, the invite and
+adminCreateUser) through `usersRoleColumn(AccountRole | null)`.
+
+Root cause. The platform edit predates per-module grants and treats users.role as the only role.
+PKG-06 leaves it: writing a member there in R3, before the services decide by grants (R4, R5),
+would demote a legacy global manager everywhere at once, which is PKG-46's counted demotion.
+
+Fix tier 1 (impossible). The platform-admin path writes users.role through
+`usersRoleColumn(AccountRole | null)`, so a module role cannot reach the column, in the release of
+PKG-46's demotion, and the admin-panel stops offering MODULE_MANAGER as an account role.
+
+Pinned by a user-lifecycle spec asserting that a requested MODULE_MANAGER is stored as
+MODULE_USER, and by the `no-global-role-authz` invariant PKG-46 extends to every service.
+
+Rule broken. In the section 2 target model and the PKG-02 decision table, users.role is an account
+role only and the global role never grants module access; plan PKG-06 types new users.role writes
+as AccountRole.
+
+Evidence:
+
+```text
+apps/auth-service/src/modules/tenant/services/user-lifecycle.service.ts:684-699 (adminUpdateUser checks only isCanonicalRole, then writes user.role = requestedRole)
+apps/auth-service/src/modules/tenant/handlers/auth-admin-nats.handler.ts:233-241 (the admin update command's role reaches adminUpdateUser unchanged)
+web/modules/admin-panel/src/pages/UserManagementPage.tsx:709 (the create and edit modal offers MODULE_MANAGER)
+apps/hr-service/src/hr/hr.resolver.ts:210-212 (payrolls admits any users.role MODULE_MANAGER until hr decides by grants)
+```
+
 ## FARM-MEDIUM-470
 
 Defect. The farm-service common registry (sites, departments, suppliers, supplier sites,

@@ -1,6 +1,6 @@
 import * as crypto from 'crypto';
 
-import { bindTenantRlsContext } from '@aquaculture/backend-common/database';
+import { bindTenantRlsContext, queryRowsNormalized } from '@aquaculture/backend-common/database';
 import { Role } from '@aquaculture/backend-common/decorators';
 import { USER_TOKEN_REVOCATION, IUserTokenRevocation } from '@aquaculture/backend-common/security';
 import { isValidBcp47Locale, isValidIanaTimeZone } from '@aquaculture/backend-common/utils';
@@ -49,8 +49,15 @@ import {
 } from '../../authentication/entities/action-token.entity';
 import { Invitation, InvitationStatus } from '../../authentication/entities/invitation.entity';
 import { User } from '../../authentication/entities/user.entity';
+import {
+  DurableUserTokenInvalidationService,
+  type UserTokenInvalidationIntent,
+} from '../../authentication/services/durable-user-token-invalidation.service';
 import { AuditLogService } from '../../../audit/audit-log.service';
 import { Tenant, TenantStatus } from '../entities/tenant.entity';
+
+import { applyModuleAccessInvalidations } from './module-access-invalidation';
+import { revokeModuleHolders } from './module-removal-revocation';
 
 interface DefaultTenantRole {
   code: string;
@@ -211,6 +218,8 @@ export class TenantProvisioningCommandService {
     // W5: lokalizasyon değişimi denetim izi, receipt transaction'ında
     // fail-CLOSED yazılır (yazım geri alınırsa denetim satırı da geri alınır).
     private readonly auditLogService: AuditLogService,
+    // RBAC-HIGH-035: RemoveModule invalidates the module's holders durably, in the receipt tx.
+    private readonly durableUserTokenInvalidation: DurableUserTokenInvalidationService,
   ) {}
 
   /**
@@ -515,6 +524,8 @@ export class TenantProvisioningCommandService {
   async removeTenantModule(
     command: RemoveTenantModuleCommand,
   ): Promise<{ modulesRemoved: number }> {
+    // RBAC-HIGH-035: the holders this live execution cut (a replay revokes nothing again).
+    const revoked: UserTokenInvalidationIntent[] = [];
     const execution = await this.runWithReceipt(
       'RemoveModule',
       command,
@@ -522,8 +533,10 @@ export class TenantProvisioningCommandService {
       async (manager) => {
         await this.assertTenantExists(command.tenantId, manager);
 
-        const rows: unknown = await manager.query(
-          `
+        // An UPDATE answers TypeORM's [rows, rowCount]; the normalizer reads the rows.
+        const disabled = queryRowsNormalized<IdRow>(
+          await manager.query(
+            `
           UPDATE auth.tenant_modules
           SET "isEnabled" = false,
               "updatedAt" = NOW()
@@ -532,12 +545,29 @@ export class TenantProvisioningCommandService {
             AND "isEnabled" = true
           RETURNING id
           `,
-          [command.tenantId, command.moduleId],
+            [command.tenantId, command.moduleId],
+          ),
         );
+        for (const row of disabled) {
+          revoked.push(
+            ...(await revokeModuleHolders(
+              manager,
+              { durable: this.durableUserTokenInvalidation, audit: this.auditLogService },
+              {
+                tenantId: command.tenantId,
+                moduleId: command.moduleId,
+                tenantModuleId: row.id,
+                actor: command.actor,
+                removedAt: new Date(),
+              },
+            )),
+          );
+        }
 
-        return { modulesRemoved: this.rowCount(rows) };
+        return { modulesRemoved: disabled.length };
       },
     );
+    await applyModuleAccessInvalidations(this.durableUserTokenInvalidation, revoked, this.logger);
     return execution.result;
   }
 

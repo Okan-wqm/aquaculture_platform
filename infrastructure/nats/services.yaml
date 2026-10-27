@@ -20,6 +20,9 @@ services:
   - events.platform.schema-migration.>
   - events.security.events.>
   - request.farm.validateSiteAssignment
+  - request.farm.recentWriterIds
+  - request.hr.recentWriterIds
+  - request.sensor.recentWriterIds
   - $JS.API.INFO
   - $JS.API.STREAM.INFO.>
   - $JS.API.STREAM.CREATE.>
@@ -154,6 +157,7 @@ services:
   - request.farm.getFeedingOverview
   - request.farm.validateSiteAssignment
   - request.farm.resolveTimeZones
+  - request.farm.recentWriterIds
   - _INBOXFARMMARINECFG.>
   - $JS.API.STREAM.INFO.>
   - $JS.API.STREAM.CREATE.>
@@ -636,6 +640,7 @@ services:
   - events.*.ServiceErrorCaptured
   - $JS.ACK.>
   subscribe:
+  - request.hr.recentWriterIds
   - $JS.API.STREAM.INFO.>
   - $JS.API.STREAM.CREATE.>
   - $JS.API.STREAM.UPDATE.>

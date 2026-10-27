@@ -6,6 +6,7 @@ import { getMetadataStorage } from 'class-validator';
 import { AuditLogService } from '../../../audit/audit-log.service';
 import { UpdateTenantInput } from '../dto/create-tenant.dto';
 import { TenantResolver } from '../resolvers/tenant.resolver';
+import { ModuleAccessService } from '../services/module-access.service';
 import { TenantProvisioningCommandService } from '../services/tenant-provisioning-command.service';
 import { TenantService } from '../services/tenant.service';
 
@@ -27,6 +28,12 @@ function tenantCommandsStub(): TenantProvisioningCommandService {
     updateTenantLocalization: jest.fn(),
   };
   return impl as TenantProvisioningCommandService;
+}
+
+/** PKG-06: Assign / Remove Manager's writer; the update mutations never reach it. */
+function moduleAccessStub(): ModuleAccessService {
+  const impl: Partial<ModuleAccessService> = {};
+  return impl as ModuleAccessService;
 }
 
 describe('Tenant Update Consolidation', () => {
@@ -56,6 +63,7 @@ describe('Tenant Update Consolidation', () => {
         // updateTenant yine reddeder — bu bağımlılık lokalizasyon
         // mutation'ı içindir.
         tenantCommandsStub(),
+        moduleAccessStub(),
       );
 
       expect(() =>
@@ -78,6 +86,7 @@ describe('Tenant Update Consolidation', () => {
         // updateTenant yine reddeder — bu bağımlılık lokalizasyon
         // mutation'ı içindir.
         tenantCommandsStub(),
+        moduleAccessStub(),
       );
 
       expect(() =>
@@ -102,6 +111,7 @@ describe('Tenant Update Consolidation', () => {
         // updateTenant yine reddeder — bu bağımlılık lokalizasyon
         // mutation'ı içindir.
         tenantCommandsStub(),
+        moduleAccessStub(),
       );
 
       expect(() =>

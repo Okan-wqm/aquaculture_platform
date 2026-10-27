@@ -67,6 +67,7 @@ import { ScheduleEntry } from './attendance/entities/schedule-entry.entity';
 import { Schedule } from './attendance/entities/schedule.entity';
 import { Shift } from './attendance/entities/shift.entity';
 import { DailyAttendanceOverview } from './attendance/query-handlers/get-daily-attendance-overview.handler';
+import { HrRecentWritersModule } from './common/recent-writers/recent-writers.module';
 import { HealthModule } from './health/health.module';
 import { DepartmentHR } from './hr/entities/department.entity';
 import { Address, ContactInfo, Employee, NextOfKin } from './hr/entities/employee.entity';
@@ -318,6 +319,8 @@ interface ApolloGraphQLContext {
     AquacultureModule,
     SchedulingModule,
     PerformanceModule,
+    // PKG-06 readiness: request.hr.recentWriterIds (count-only, auth_service only).
+    HrRecentWritersModule,
     HealthModule,
     // OBS-HIGH-001: Prometheus GET /metrics scrape endpoint + HTTP metrics
     // middleware (self-contained platform module — controller is @Public()).

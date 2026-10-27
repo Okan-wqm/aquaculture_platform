@@ -672,7 +672,8 @@ export type AssignFeedsToBatchInput = {
 };
 
 export type AssignModuleManagerInput = {
-  moduleId: Scalars['String']['input'];
+  moduleCode?: InputMaybe<Scalars['String']['input']>;
+  moduleId?: InputMaybe<Scalars['String']['input']>;
   userId: Scalars['String']['input'];
 };
 
@@ -696,14 +697,6 @@ export type AssignUserRoleInput = {
   roleId: Scalars['ID']['input'];
 };
 
-export type AssignUserToModuleInput = {
-  email: Scalars['String']['input'];
-  firstName: Scalars['String']['input'];
-  lastName: Scalars['String']['input'];
-  moduleId: Scalars['String']['input'];
-  role?: Scalars['String']['input'];
-};
-
 export type AssignUserToSiteInput = {
   siteId: Scalars['ID']['input'];
   userId: Scalars['ID']['input'];
@@ -714,13 +707,6 @@ export type AssignmentOverridesInput = {
   mealTimeOffsetMinutes?: InputMaybe<Scalars['Int']['input']>;
   mealsPerDayOverride?: InputMaybe<Scalars['Int']['input']>;
   rateAdjustmentPercent?: InputMaybe<Scalars['Float']['input']>;
-};
-
-export type AssignmentResult = {
-  isNewUser: Scalars['Boolean']['output'];
-  message: Scalars['String']['output'];
-  success: Scalars['Boolean']['output'];
-  userId?: Maybe<Scalars['String']['output']>;
 };
 
 export type AssignmentSuspensionInput = {
@@ -9545,6 +9531,34 @@ export type ModuleAccess = {
   sensor?: Maybe<ModuleRole>;
 };
 
+export type ModuleAccessInput = {
+  farm?: InputMaybe<ModuleRole>;
+  hr?: InputMaybe<ModuleRole>;
+  hydroponics?: InputMaybe<ModuleRole>;
+  sensor?: InputMaybe<ModuleRole>;
+};
+
+export type ModuleAccessReadiness = {
+  /** Members holding no grant in any enabled owner module, by users.role. */
+  membersWithoutGrants: Array<ReadinessRoleCount>;
+  modules: Array<ModuleReadiness>;
+  payrollViewers: PayrollViewerReadiness;
+  windowDays: Scalars['Int']['output'];
+};
+
+export type ModulePrimaryManager = {
+  moduleCode: Scalars['String']['output'];
+  userId: Scalars['ID']['output'];
+};
+
+export type ModuleReadiness = {
+  /** The members' live grants, by module role. */
+  grantsByRole: Array<ReadinessRoleCount>;
+  moduleCode: Scalars['String']['output'];
+  /** Members without the grant who wrote to the module within the window. */
+  recentWritersWithoutGrant: RecentWriterReadiness;
+};
+
 export type ModuleRole =
   | 'MODULE_MANAGER'
   | 'MODULE_USER';
@@ -9664,7 +9678,6 @@ export type Mutation = {
   assignTemperatureSensor: FeedingProgramTank;
   assignTicket: SupportTicket;
   assignUserRole: UserRoleAssignment;
-  assignUserToModule: AssignmentResult;
   assignUserToSite: SiteAssignmentResult;
   autoBindTags: TagDiscoveryResultType;
   backfillScadaPackageDocs: ScadaBackfillResultType;
@@ -10044,7 +10057,6 @@ export type Mutation = {
   removeSuppressionWindow: EscalationPolicy;
   /** Programdan tank cikar */
   removeTankFromProgram: FeedingProgramTank;
-  removeUserFromModule: Scalars['Boolean']['output'];
   removeVfdChangeSetItem: VfdChangeSet;
   /** Remove a biometric credential */
   removeWebAuthnCredential: WebAuthnRemoveResponse;
@@ -10117,6 +10129,7 @@ export type Mutation = {
   /** Set or update a retention policy. */
   setRetentionPolicy: RetentionPolicy;
   setSupplierApprovedSites: Array<SupplierSiteResponse>;
+  setUserModuleAccess: UserModuleAccess;
   setVfdFrequency: VfdCommandResult;
   setVfdSpeed: VfdCommandResult;
   /** Initiate MFA setup for the current user */
@@ -10709,11 +10722,6 @@ export type MutationAssignTicketArgs = {
 export type MutationAssignUserRoleArgs = {
   input: AssignUserRoleInput;
   userId: Scalars['ID']['input'];
-};
-
-
-export type MutationAssignUserToModuleArgs = {
-  input: AssignUserToModuleInput;
 };
 
 
@@ -12339,7 +12347,8 @@ export type MutationRemoveLoRaDeviceArgs = {
 
 
 export type MutationRemoveModuleManagerArgs = {
-  moduleId: Scalars['ID']['input'];
+  moduleCode?: InputMaybe<Scalars['String']['input']>;
+  moduleId?: InputMaybe<Scalars['ID']['input']>;
 };
 
 
@@ -12379,12 +12388,6 @@ export type MutationRemoveTankFromProgramArgs = {
   feedingProgramTankId?: InputMaybe<Scalars['ID']['input']>;
   input?: InputMaybe<RemoveTankFromProgramInput>;
   reason?: InputMaybe<Scalars['String']['input']>;
-};
-
-
-export type MutationRemoveUserFromModuleArgs = {
-  moduleId: Scalars['ID']['input'];
-  userId: Scalars['ID']['input'];
 };
 
 
@@ -12700,6 +12703,11 @@ export type MutationSetSupplierApprovedSitesArgs = {
   preferredSiteId?: InputMaybe<Scalars['ID']['input']>;
   siteIds: Array<Scalars['ID']['input']>;
   supplierId: Scalars['ID']['input'];
+};
+
+
+export type MutationSetUserModuleAccessArgs = {
+  input: SetUserModuleAccessInput;
 };
 
 
@@ -14562,6 +14570,13 @@ export type PayrollStatus =
   | 'PENDING_APPROVAL'
   | 'PROCESSING';
 
+export type PayrollViewerReadiness = {
+  /** Who reaches payroll today, by users.role. */
+  byGlobalRole: Array<ReadinessRoleCount>;
+  /** Who reaches payroll once hr decides by grants (D6). */
+  byGrant: Array<ReadinessRoleCount>;
+};
+
 export type PendingAttendanceApprovalsConnection = {
   /** Whether there is a next page */
   hasNextPage: Scalars['Boolean']['output'];
@@ -15987,6 +16002,8 @@ export type Query = {
   me: MePayload;
   messages: MessagePageType;
   messagesSince: Array<Message>;
+  moduleAccessReadiness: ModuleAccessReadiness;
+  modulePrimaryManagers: Array<ModulePrimaryManager>;
   moduleUsageStats: Array<ModuleUsageStatResponse>;
   moduleUsers: Array<User>;
   mortalityDailyHistory: Array<DailyMortalityPointResponse>;
@@ -16256,6 +16273,7 @@ export type Query = {
   userConsentHistory: ConsentHistoryResponse;
   /** Get consent status for any user (SuperAdmin only) */
   userConsentStatus: UserConsentStatus;
+  userModuleAccess: UserModuleAccess;
   userPresence: Array<PublicUserProfile>;
   validateInvitation: InvitationValidationResponse;
   validateToken: TokenValidationResponse;
@@ -18474,6 +18492,11 @@ export type QueryUserConsentStatusArgs = {
 };
 
 
+export type QueryUserModuleAccessArgs = {
+  userId: Scalars['ID']['input'];
+};
+
+
 export type QueryUserPresenceArgs = {
   userIds: Array<Scalars['ID']['input']>;
 };
@@ -18765,6 +18788,11 @@ export type ReadHistoricalDataInput = {
   startTime: Scalars['DateTime']['input'];
 };
 
+export type ReadinessRoleCount = {
+  count: Scalars['Int']['output'];
+  role: Role;
+};
+
 /** Why a source the bind would accept was passed over for its value */
 export type ReadingProblem =
   | 'NO_SAMPLE'
@@ -18820,6 +18848,18 @@ export type RecentLoginResponse = {
   userAgent?: Maybe<Scalars['String']['output']>;
   userId: Scalars['String']['output'];
 };
+
+export type RecentWriterReadiness = {
+  /** By users.role; empty unless ANSWERED. */
+  byUserRole: Array<ReadinessRoleCount>;
+  status: RecentWriterReadinessStatus;
+};
+
+/** ANSWERED: the owner module counted. NOT_TRACKED: the module has no writer query. UNAVAILABLE: the owner did not answer; the count is unknown, not zero. */
+export type RecentWriterReadinessStatus =
+  | 'ANSWERED'
+  | 'NOT_TRACKED'
+  | 'UNAVAILABLE';
 
 export type RecordBulkConsentInput = {
   consents: Array<ConsentItemInput>;
@@ -20588,6 +20628,11 @@ export type SetRetentionPolicyInput = {
   channelId?: InputMaybe<Scalars['String']['input']>;
   /** Retention period in days: 90, 365, 1095, or -1 (indefinite). */
   retentionDays: Scalars['Int']['input'];
+};
+
+export type SetUserModuleAccessInput = {
+  moduleAccess: ModuleAccessInput;
+  userId: Scalars['ID']['input'];
 };
 
 export type SetupMfaResponse = {
@@ -25107,6 +25152,11 @@ export type UserModule = {
   code: Scalars['String']['output'];
   defaultRoute: Scalars['String']['output'];
   name: Scalars['String']['output'];
+};
+
+export type UserModuleAccess = {
+  moduleAccess: ModuleAccess;
+  userId: Scalars['ID']['output'];
 };
 
 export type UserModuleInfo = {

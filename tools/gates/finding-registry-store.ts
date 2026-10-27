@@ -13,7 +13,17 @@ import {
 import { hostname } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 
-export type FindingSeverity = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
+import {
+  FINDING_DOMAIN_REGEX,
+  FINDING_SEQUENCE_MAX,
+  FINDING_SEQUENCE_SOURCE,
+  FINDING_SEVERITIES,
+  FindingIdSpaceExhaustedError,
+  formatFindingId,
+  parseFindingIdShape,
+} from './finding-id-grammar';
+
+export type FindingSeverity = (typeof FINDING_SEVERITIES)[number];
 
 export interface RegistryLockOptions {
   readonly timeoutMs: number;
@@ -387,10 +397,14 @@ export function atomicWriteRegistryFile(
  * form, because the file really contains `## ORPHAN-001` (pre-severity
  * era), `## ORPHAN-INFO-363` (a severity the registry does not use) and
  * `## ORPHAN-LOW-337b` (a suffixed re-open). The narrower
- * `ORPHAN-(CRITICAL|HIGH|MEDIUM|LOW)-\d{3}` form skipped 16 real
- * headings — every one of them a sequence the allocator believed free.
+ * severity-qualified form skipped 16 real headings — every one of them a
+ * sequence the allocator believed free. The sequence is the grammar's
+ * (finding-id-grammar.ts): a fifth digit or a leading zero past three digits
+ * is not a heading's sequence.
  */
-export const ORPHAN_MD_HEADING_REGEX = /^##\s+(ORPHAN-(?:[A-Z]+-)?(\d{3})[a-z]?)\b/;
+export const ORPHAN_MD_HEADING_REGEX = new RegExp(
+  `^##\\s+(ORPHAN-(?:[A-Z]+-)?(${FINDING_SEQUENCE_SOURCE})[a-z]?)\\b`,
+);
 
 export interface OrphanMarkdownStore {
   /** Full IDs exactly as written in the headings. */
@@ -415,16 +429,21 @@ export function readOrphanMarkdownStore(path: string): OrphanMarkdownStore {
 
 /** Markdown-held sequences, rendered in a form `nextFindingId` can see.
  *
- * `nextFindingId` extracts a sequence with `^<DOMAIN>-[A-Z0-9]+-(\d{3})$`,
- * so a bare `ORPHAN-001` or a suffixed `ORPHAN-LOW-337b` is invisible to
- * it even when handed over. Re-using the `-RESERVED-` synthetic form that
- * the reservation ledger already feeds it keeps one convention rather
- * than teaching the allocator a second ID grammar.
+ * `nextFindingId` extracts a sequence from an id of the grammar, so a bare
+ * `ORPHAN-001` or a suffixed `ORPHAN-LOW-337b` is invisible to it even
+ * when handed over. Re-using the `-RESERVED-` synthetic form that the
+ * reservation ledger already feeds it keeps one convention rather than
+ * teaching the allocator a second ID grammar.
  */
 export function orphanMarkdownReservedIds(path: string): string[] {
-  return [...readOrphanMarkdownStore(path).sequences].map(
-    (sequence) => `ORPHAN-RESERVED-${String(sequence).padStart(3, '0')}`,
+  return [...readOrphanMarkdownStore(path).sequences].map((sequence) =>
+    reservedFindingId('ORPHAN', sequence),
   );
+}
+
+/** The synthetic id a held sequence takes when it is handed to `nextFindingId`. */
+export function reservedFindingId(domain: string, sequence: number): string {
+  return formatFindingId(domain, 'RESERVED', sequence);
 }
 
 /**
@@ -443,12 +462,10 @@ export function orphanMarkdownReservedIds(path: string): string[] {
  * same way rather than each writing their own comparison.
  */
 export function claimedSequences(domain: string, existingIds: readonly string[]): Set<number> {
-  const domainPattern = new RegExp(`^${domain}-[A-Z0-9]+-([0-9]{3})$`);
   const sequences = new Set<number>();
   for (const id of existingIds) {
-    const match = domainPattern.exec(id);
-    if (!match?.[1]) continue;
-    sequences.add(Number.parseInt(match[1], 10));
+    const claimed = parseFindingIdShape(id);
+    if (claimed?.domain === domain) sequences.add(claimed.sequence);
   }
   return sequences;
 }
@@ -458,10 +475,10 @@ export function nextFindingId(
   severity: FindingSeverity,
   existingIds: readonly string[],
 ): string {
-  if (!/^[A-Z][A-Z0-9]*$/.test(domain)) {
+  if (!FINDING_DOMAIN_REGEX.test(domain)) {
     throw new TypeError(`Finding domain must be uppercase alphanumeric: ${domain}`);
   }
-  if (!['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'].includes(severity)) {
+  if (!FINDING_SEVERITIES.includes(severity)) {
     throw new TypeError(`Unsupported finding severity: ${severity}`);
   }
 
@@ -469,8 +486,8 @@ export function nextFindingId(
   const maximum = sequences.size > 0 ? Math.max(...sequences) : 0;
 
   const next = maximum + 1;
-  if (next > 999) {
-    throw new RangeError(`Finding ID space exhausted for domain ${domain} (maximum 999).`);
+  if (next > FINDING_SEQUENCE_MAX) {
+    throw new FindingIdSpaceExhaustedError(domain);
   }
-  return `${domain}-${severity}-${String(next).padStart(3, '0')}`;
+  return formatFindingId(domain, severity, next);
 }

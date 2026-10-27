@@ -5,13 +5,11 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   Index,
-  ManyToOne,
-  JoinColumn,
 } from 'typeorm';
 import * as crypto from 'crypto';
 import { ObjectType, Field, ID, Int, registerEnumType } from '@nestjs/graphql';
 import GraphQLJSON from 'graphql-type-json';
-import { AlertRule, AlertSeverity } from './alert-rule.entity';
+import { AlertSeverity } from './alert-rule.entity';
 
 /**
  * Incident status lifecycle
@@ -96,8 +94,14 @@ export class AlertIncident {
   @Index()
   tenantId!: string;
 
+  /**
+   * What fired: a rule's uuid rendered as text, or the synthetic key a farm
+   * signal raises under (`system:meal-underfed:<unitId>`). There is no
+   * `alert_rules` row behind a synthetic key, so this is an identity, not a
+   * foreign key (migration 1824200000000).
+   */
   @Field()
-  @Column({ name: 'rule_id' })
+  @Column({ name: 'rule_id', type: 'varchar' })
   @Index()
   ruleId!: string;
 
@@ -201,14 +205,6 @@ export class AlertIncident {
   @Field()
   @UpdateDateColumn({ name: 'updated_at' })
   updatedAt!: Date;
-
-  // ============================================
-  // Relations
-  // ============================================
-
-  @ManyToOne(() => AlertRule, { onDelete: 'SET NULL' })
-  @JoinColumn({ name: 'rule_id' })
-  rule?: AlertRule;
 
   // ============================================
   // Helper Methods

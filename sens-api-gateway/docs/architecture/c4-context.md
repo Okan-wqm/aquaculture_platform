@@ -87,7 +87,7 @@ The gateway deliberately straddles Levels 1 and 2: it controls field I/O (Level 
 | Edge ↔ Cloud MQTT | bidirectional | TLS 1.2+ server cert, user/pass in CONNECT | mTLS with device cert CN as identity | ORPHAN-EDGE-003 (ROADMAP-Q3) |
 | Edge → Cloud API | outbound | TLS 1.2+, Bearer provisioning/tenant token | TLS 1.2+, Bearer (unchanged — activation is one-shot) | — |
 | Edge ↔ Local HMI | bidirectional | HTTPS server cert on LAN, JWT session (scada-display) | HTTPS + mTLS client cert for engineer role | ROADMAP-Q4 HMI-mTLS |
-| Edge ↔ Field I/O | bidirectional | None (Modbus plaintext) or Modbus+TLS (rodbus 1.4, ADR-024) | Modbus+TLS mandatory for AO/DO writes | Tracked in ADR-024 §11 HARDWARE-VENDOR RESPONSIBILITY |
+| Edge ↔ Field I/O | bidirectional | None (Modbus plaintext) or Modbus+TLS (tokio-modbus over tokio-rustls, ADR-024) | Modbus+TLS mandatory for AO/DO writes | Tracked in ADR-024 §11 HARDWARE-VENDOR RESPONSIBILITY |
 | Edge → Audit Relay | outbound | MQTT over TLS, HMAC-chained payload | mTLS + HMAC-chained payload (ADR-020) | ADR-020 Proposed → target Accepted 2026-05-03 |
 
 ## Evidence

@@ -64,6 +64,7 @@ from aria_kernel.tool_registry import (
     GovernanceError,
     ensure_tools_dir,
     get_tool,
+    is_agent_backed,
     list_tools,
     missing_repo_local_dependencies,
 )
@@ -77,6 +78,15 @@ def _shipped_manifests() -> list[tuple[Path, dict]]:
         (path, json.loads(path.read_text(encoding="utf-8")))
         for path in sorted(MANIFEST_DIR.glob("*.tool.json"))
     ]
+
+
+def _suite_owning_manifests() -> list[tuple[Path, dict]]:
+    """The shipped manifests whose tool owns a fixture suite: all but an agent-backed tool.
+
+    An agent-backed tool has no program whose output a case could pin (its evidence is
+    checked per answer, at the answer's commit), so it declares no ``fixture_set`` at all.
+    """
+    return [(path, manifest) for path, manifest in _shipped_manifests() if not is_agent_backed(manifest)]
 
 
 def _runner_unavailable(registered: dict) -> str | None:
@@ -100,8 +110,18 @@ class ShippedManifestContractTests(unittest.TestCase):
         self.assertIn("agent-harness-security-adapter", ids)
         self.assertGreaterEqual(len(ids), 10)
 
+    def test_an_agent_backed_manifest_declares_no_fixture_suite(self) -> None:
+        agent_backed = [manifest for _, manifest in _shipped_manifests() if is_agent_backed(manifest)]
+        # Direct, not incidental (removed-tests audit): reclassifying an existing adapter as agent-backed, or adding a
+        # second agent-backed tool, must be a decision this assertion records.
+        self.assertEqual(sorted(manifest["tool_id"] for manifest in agent_backed), ["change-review"])
+        for manifest in agent_backed:
+            with self.subTest(tool=manifest["tool_id"]):
+                self.assertNotIn("fixture_set", manifest)
+                self.assertEqual(assert_fixture_backed(manifest, REPO_ROOT), [])
+
     def test_every_shipped_manifest_is_fixture_backed(self) -> None:
-        for path, manifest in _shipped_manifests():
+        for path, manifest in _suite_owning_manifests():
             with self.subTest(manifest=path.name):
                 cases = assert_fixture_backed(manifest, REPO_ROOT)
                 self.assertTrue(cases, f"{path.name} has no fixture case")
@@ -121,7 +141,7 @@ class ShippedManifestContractTests(unittest.TestCase):
             lambda: os.environ.__setitem__("ARIA_REPO_ROOT", saved) if saved is not None
             else os.environ.pop("ARIA_REPO_ROOT", None),
         )
-        for path, manifest in _shipped_manifests():
+        for path, manifest in _suite_owning_manifests():
             with self.subTest(manifest=path.name):
                 tools = ensure_tools_dir(tmp / manifest["tool_id"] / "aria-tools")
                 register_tool(manifest, base_dir=tools)

@@ -35,7 +35,7 @@ import os
 import re
 import subprocess
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from .git_object_id import ANY_OBJECT_FORMAT, is_object_id, is_object_id_prefix
 from .genesis_policy import source_qualification_policy
@@ -683,6 +683,22 @@ def twin_context_for_files(twin: dict[str, Any], files: list[str]) -> dict[str, 
     }
 
 
+def twin_slice_files(context: Mapping[str, Any]) -> list[str]:
+    """The files a slice from :func:`twin_context_for_files` names, sorted and unique.
+
+    Each entry's file, the tests that cover it and its strongest co-change
+    partners: what the slice puts in front of its reader about the files it
+    was asked for. A slice with no ``files`` (a qualification view of a map
+    that was unavailable) names none.
+    """
+    named: set[str] = set()
+    for entry in context.get("files", []):
+        named.add(entry["file"])
+        named.update(entry["tests"])
+        named.update(partner["file"] for partner in entry["co_changes_with"])
+    return sorted(named)
+
+
 def _impacted_project_view(meta: dict[str, Any]) -> dict[str, Any]:
     """One project of the blast radius; a v2 map adds what tests it (ARIA-MEDIUM-382)."""
     view = {
@@ -1063,5 +1079,6 @@ __all__ = [
     "read_twin_map",
     "refresh_twin_map",
     "twin_context_for_files",
+    "twin_slice_files",
     "twin_status",
 ]

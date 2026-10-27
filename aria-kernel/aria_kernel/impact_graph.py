@@ -42,68 +42,223 @@ NOT_THE_REPOSITORY = frozenset(
 _MARKER_SCAN_MAX_DEPTH = 6
 
 
+# SE-4 (service-expertise PLAN §1.1 step 3, §2 'Service impact closure') — the typed edges the one
+# closure walks besides ``import``. ``subgraphs.json`` is generated from the service catalog and
+# names each subgraph's nx project; the project that composes them is the catalog's gateway entry
+# (``platform/libs/service-catalog/src/index.ts``, ``nxProject: 'gateway-api'``), which the
+# generated file does not repeat.
+SUBGRAPHS_RELPATH = "infrastructure/apollo-router/subgraphs.json"
+GATEWAY_PROJECT = "gateway-api"
+CONTRACT_EDGES_UNAVAILABLE = "contract_edges_unavailable"
+_NX_PROJECT_LINE = re.compile(r'"nxProject"\s*:\s*"([^"]+)"')
+# The edge kinds, strongest first. When several edges reach a project at one depth, the entry's
+# ``reason`` is the strongest kind's (PLAN §1.1 step 3: auth-service -> gateway-api is the subgraph
+# relation even when an auth event is also consumed there); the reason string is never the rank —
+# 'contract:event:...' sorts before 'contract:gateway_subgraph'.
+EDGE_KIND_PRECEDENCE = ("gateway_subgraph", "event", "import")
+# (impacted project, edge kind, reason, evidence ``path:line`` or None for an import edge)
+_Edge = tuple[str, str, str, "str | None"]
+
+
+def impact_closure(
+    *,
+    changed_files: list[str],
+    workspace_root: str | Path,
+    base_dir: str | Path | None,
+    service_facts: Mapping[str, Any],
+    depth: int | None = None,
+    changed_hunks: Mapping[str, Iterable[tuple[int, int]]] | None = None,
+    nx_graph_file: str | Path | None = None,
+) -> dict[str, Any]:
+    """THE service impact closure: which projects a change reaches, and over which edge.
+
+    One function over three typed edges, walked breadth-first from the touched projects
+    (``project_for_path`` over the cached map):
+
+    * ``import`` — the cached project graph's reverse dependents (no site: the graph records
+      project edges, not import lines);
+    * ``contract:gateway_subgraph`` — a touched or reached subgraph project reaches
+      ``GATEWAY_PROJECT``; evidence is its ``nxProject`` line in ``subgraphs.json`` of
+      ``workspace_root``, the tree ``service_facts`` were computed on (``compute_service_facts``
+      verified it is ``facts_sha``);
+    * ``contract:event:<T>`` — SE-3's code producer x code subscription edges; and when a
+      changed file holds an event definition (``changed_hunks`` intersecting its site, or the
+      whole file when no hunk is given) the producers and consumers of that type, each with its
+      own site.
+
+    ``depth`` bounds the walk (None = the whole closure). A project keeps every edge that reaches
+    it at its first depth (``edges``, strongest first by ``EDGE_KIND_PRECEDENCE``); its ``kind``,
+    ``reason``, ``evidence`` and ``reached_from`` are the strongest edge's. ``impacted`` is the
+    closure minus touched, contract edges ranked first, then by depth and name. Facts that were not computed give ``{"hold":
+    "contract_edges_unavailable:<reason>"}`` and no impacted set: a change is never routed on an
+    import-only closure (PLAN §3.3).
+    """
+    if service_facts.get("verdict") != "computed":
+        return {"hold": f"{CONTRACT_EDGES_UNAVAILABLE}:{(service_facts.get('witness') or {}).get('error')}"}
+    root = Path(workspace_root).resolve()
+    subgraph_lines = _subgraph_lines(root)
+    if isinstance(subgraph_lines, str):
+        return {"hold": f"{CONTRACT_EDGES_UNAVAILABLE}:{subgraph_lines}"}
+    cache = cached_service_analysis_order(workspace_root=root, base_dir=base_dir, nx_graph_file=nx_graph_file)
+    # FILTER BEFORE SORTING (ORPHAN-HIGH-575): a change touching a placed and an unplaced path
+    # must not hand `sorted` a mixture of names and None.
+    resolved = [(path, project_for_path(path, cache["project_roots"])) for path in normalize_paths(changed_files)]
+    touched = sorted({project for _, project in resolved if project})
+    event_facts = service_facts["event_facts"]
+    edges: dict[str, list[_Edge]] = {}
+    for source, deps in cache["dependencies"].items():
+        for dep in deps:
+            edges.setdefault(dep, []).append((source, "import", "import", None))
+    for project, line in subgraph_lines.items():
+        if project != GATEWAY_PROJECT:
+            edges.setdefault(project, []).append(
+                (GATEWAY_PROJECT, "gateway_subgraph", "contract:gateway_subgraph", f"{SUBGRAPHS_RELPATH}:{line}")
+            )
+    for service in event_facts["services"]:
+        for edge in service["edges"]:
+            edges.setdefault(service["service"], []).append(
+                (edge["to"], "event", f"contract:event:{edge['subject']}", edge["to_ref"])
+            )
+    reached: dict[str, dict[str, Any]] = {}
+    frontier = [(project, project) for project in touched]
+    seeds = _changed_type_edges(resolved, changed_hunks, event_facts)
+    level = 0
+    # Seeds exist only for a touched contract file, so the frontier is never empty when they are not.
+    while frontier and (depth is None or level < depth):
+        level += 1
+        candidates = [(origin, edge) for current, origin in frontier for edge in edges.get(current, [])]
+        if level == 1:
+            candidates += seeds
+        arrivals: dict[str, set[tuple[int, str, str, str, str]]] = {}
+        for origin, (project, kind, reason, evidence) in candidates:
+            if project not in touched and project not in reached:
+                rank = EDGE_KIND_PRECEDENCE.index(kind)
+                arrivals.setdefault(project, set()).add((rank, kind, reason, evidence or "", origin))
+        for project, found in sorted(arrivals.items()):
+            ordered = [
+                {"kind": kind, "reason": reason, "evidence": evidence or None, "reached_from": origin}
+                for _, kind, reason, evidence, origin in sorted(found)
+            ]
+            reached[project] = {"project": project, **ordered[0], "depth": level, "edges": ordered}
+        frontier = [(project, reached[project]["reached_from"]) for project in sorted(arrivals)]
+    impacted = sorted(
+        reached.values(),
+        key=lambda entry: (entry["kind"] == "import", entry["depth"], entry["project"]),
+    )
+    return {
+        "touched": touched,
+        "impacted": impacted,
+        "unknown_files": [path for path, project in resolved if project is None],
+        "graph_source": cache["graph_source"],
+    }
+
+
+def _subgraph_lines(root: Path) -> dict[str, int] | str:
+    """Each subgraph's nx project -> the line naming it in ``subgraphs.json``; a named error
+    string when the file exists and cannot be read. No file means no subgraph relation."""
+    path = root / SUBGRAPHS_RELPATH
+    if not path.is_file():
+        return {}
+    try:
+        text = path.read_text(encoding="utf-8")
+        projects = {entry["nxProject"] for entry in json.loads(text)["subgraphs"]}
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        return f"subgraphs_unreadable:{SUBGRAPHS_RELPATH}: {type(exc).__name__}"
+    lines: dict[str, int] = {}
+    for number, line in enumerate(text.splitlines(), start=1):
+        match = _NX_PROJECT_LINE.search(line)
+        if match and match.group(1) in projects:
+            lines.setdefault(match.group(1), number)
+    return lines
+
+
+def _changed_type_edges(
+    resolved: list[tuple[str, str | None]],
+    changed_hunks: Mapping[str, Iterable[tuple[int, int]]] | None,
+    event_facts: Mapping[str, Any],
+) -> list[tuple[str, _Edge]]:
+    """The producers and consumers of every event type whose definition a change touches, as
+    edges from the project owning the definition file."""
+    owners = {path: project for path, project in resolved if project}
+    changed_types: dict[str, str] = {}
+    for definition in event_facts["event_definitions"]:
+        path, _, line = definition["site"].rpartition(":")
+        if path not in owners:
+            continue
+        hunks = None if changed_hunks is None else changed_hunks.get(path)
+        if hunks is None or any(start <= int(line) <= end for start, end in hunks):
+            changed_types.setdefault(definition["event_type"], owners[path])
+    seeds: list[tuple[str, _Edge]] = []
+    for service in event_facts["services"]:
+        for fact in (*service["events_produced"], *service["events_consumed"]):
+            if fact["event_type"] in changed_types:
+                origin = changed_types[fact["event_type"]]
+                seeds.append(
+                    (origin, (service["service"], "event", f"contract:event:{fact['event_type']}", fact["site"]))
+                )
+    return seeds
+
+
 def plan_downstream_impact(
     *,
     changed_files: list[str],
     workspace_root: str | Path,
+    service_facts: Mapping[str, Any],
     base_dir: str | Path | None = None,
     cycle_id: str | None = None,
     nx_graph_file: str | Path | None = None,
 ) -> dict[str, Any]:
+    """The `impact_closure` of a change, recorded in the impact-graphs ledger.
+
+    A held closure is recorded as held (``hold``, no project lists), never as a change that
+    reaches nothing."""
     if not changed_files or not all(isinstance(path, str) and path.strip() for path in changed_files):
         raise GovernanceError("changed_files must contain at least one path")
     root = Path(workspace_root).resolve()
     if not root.exists():
         raise GovernanceError(f"workspace root does not exist: {workspace_root}")
-    graph = _project_graph(root=root, nx_graph_file=Path(nx_graph_file) if nx_graph_file else None)
-    # FILTER BEFORE SORTING, and the order is the whole bug (ORPHAN-HIGH-575).
-    #
-    # This read `sorted({...})` and filtered the Nones afterwards. But
-    # `_project_for_path` returns `str | None`, so a change touching one path
-    # the graph can place and one it cannot handed `sorted` a set of mixed
-    # types and it raised `TypeError: '<' not supported between instances of
-    # 'str' and 'NoneType'`.
-    #
-    # The trigger is the MIXTURE, which is why both halves of the obvious test
-    # matrix passed: all-code produces no None, and all-docs produces a
-    # one-element set that never needs a comparison. Code plus its own review
-    # document — this repository's most common commit — is what crashed.
-    normalized = normalize_paths(changed_files)
-    resolved = [(path, _project_for_path(path, graph["projects"])) for path in normalized]
-    changed_projects = sorted({project for _, project in resolved if project})
-    unknown_files = [path for path, project in resolved if project is None]
-    downstream = _reverse_closure(changed_projects, graph["dependencies"])
-    # ARIA-HIGH-357 — the projects the changed ones import directly: the
-    # contracts a change consumes (the generated GraphQL types a web module
-    # renders, the shared library a service calls). One hop, because that is
-    # where a consumed contract is declared; the closure above is unchanged.
-    closure = {*changed_projects, *downstream}
-    upstream = sorted({
-        dep for project in changed_projects for dep in graph["dependencies"].get(project, [])
-    } - closure)
-    row = {
+    row: dict[str, Any] = {
         "schema_version": 1,
         "recorded_at": utc_now(),
         "cycle_id": cycle_id,
         "changed_files": normalize_paths(changed_files),
+    }
+    closure = impact_closure(
+        changed_files=changed_files, workspace_root=root, base_dir=base_dir,
+        service_facts=service_facts, nx_graph_file=nx_graph_file,
+    )
+    if "hold" in closure:
+        row["hold"] = closure["hold"]
+        return append_declared_jsonl(
+            ensure_tools_dir(base_dir) / "impact" / "impact-graphs.jsonl", row, expected_surface="impact_graphs",
+        )
+    cache = cached_service_analysis_order(workspace_root=root, base_dir=base_dir, nx_graph_file=nx_graph_file)
+    roots = cache["project_roots"]
+    changed_projects = closure["touched"]
+    downstream = [entry["project"] for entry in closure["impacted"]]
+    unknown_files = closure["unknown_files"]
+    # ARIA-HIGH-357 — the projects the changed ones import directly: the
+    # contracts a change consumes (the generated GraphQL types a web module
+    # renders, the shared library a service calls). One hop, because that is
+    # where a consumed contract is declared; the closure above is unchanged.
+    upstream = sorted({
+        dep for project in changed_projects for dep in cache["dependencies"].get(project, [])
+    } - {*changed_projects, *downstream})
+    row.update({
         "changed_projects": changed_projects,
         "direct_projects": changed_projects,
         "downstream_projects": downstream,
+        "impacted": closure["impacted"],
         # ADR-0021 — where each closure project lives, so a reader can bound
         # paths by the closure without building the graph a second time.
-        "project_roots": {
-            name: graph["projects"][name]["root"]
-            for name in [*changed_projects, *downstream] if name in graph["projects"]
-        },
+        "project_roots": {name: roots[name] for name in [*changed_projects, *downstream] if name in roots},
         "upstream_projects": upstream,
-        "upstream_project_roots": {
-            name: graph["projects"][name]["root"] for name in upstream if name in graph["projects"]
-        },
+        "upstream_project_roots": {name: roots[name] for name in upstream if name in roots},
         "unknown_files": unknown_files,
-        "graph_source": graph["graph_source"],
-        "confidence": 0.9 if graph["graph_source"] == "nx_graph_json" and not unknown_files else 0.65,
+        "graph_source": closure["graph_source"],
+        "confidence": 0.9 if closure["graph_source"] == "nx_graph_json" and not unknown_files else 0.65,
         "validation_scope": _validation_scope(changed_projects, downstream, unknown_files),
-    }
+    })
     return append_declared_jsonl(
         ensure_tools_dir(base_dir) / "impact" / "impact-graphs.jsonl",
         row,
@@ -181,6 +336,8 @@ def build_service_analysis_order(graph: dict[str, Any]) -> dict[str, Any]:
 def plan_service_analysis_order(
     *,
     workspace_root: str | Path,
+    service_facts: Mapping[str, Any],
+    base_dir: str | Path | None = None,
     cycle_id: str | None = None,
     nx_graph_file: str | Path | None = None,
     changed_files: list[str] | None = None,
@@ -189,8 +346,9 @@ def plan_service_analysis_order(
     plan: projects in topological dependency order, each annotated with its
     upstream ``depends_on`` (already-understood context) and ``dependents``
     (ripple targets). When ``changed_files`` is given, annotate how many of this
-    cycle's changes landed in each project (the examination focus). Pure
-    computation — no ledger write."""
+    cycle's changes landed in each project (the examination focus) and the
+    `impact_closure` they reach (``impacted_projects``, or the closure's
+    ``hold``). Pure computation — no ledger write."""
     root = Path(workspace_root).resolve()
     if not root.exists():
         raise GovernanceError(f"workspace root does not exist: {workspace_root}")
@@ -207,12 +365,17 @@ def plan_service_analysis_order(
         for entry in plan["order"]:
             entry["changed_files"] = counts.get(entry["project"], 0)
         plan["changed_project_count"] = sum(1 for e in plan["order"] if e.get("changed_files"))
-        # The examination subset: changed services + every downstream dependent
-        # (the ripple). Empty when nothing changed.
-        changed_projects = [p for p, c in counts.items() if c]
-        plan["impacted_projects"] = sorted(
-            set(changed_projects) | set(_reverse_closure(changed_projects, graph["dependencies"]))
+        # The examination subset: changed services + the closure they reach.
+        closure = impact_closure(
+            changed_files=changed_files, workspace_root=root, base_dir=base_dir,
+            service_facts=service_facts, nx_graph_file=nx_graph_file,
         )
+        if "hold" in closure:
+            plan["hold"] = closure["hold"]
+        else:
+            plan["impacted_projects"] = sorted(
+                {*closure["touched"], *(entry["project"] for entry in closure["impacted"])}
+            )
     return plan
 
 
@@ -370,13 +533,16 @@ def cycle_service_examination(
     *,
     workspace_root: str | Path,
     changed_files: list[str],
+    service_facts: Mapping[str, Any],
     pressures: list[dict[str, Any]] | None = None,
     base_dir: str | Path | None = None,
     nx_graph_file: str | Path | None = None,
 ) -> dict[str, Any]:
-    """This cycle's per-service examination plan: the changed services + their
-    downstream ripple, presented in DEPENDENCY (topological) order so the
-    examination stage walks upstream-before-downstream. When ``pressures`` is
+    """This cycle's per-service examination plan: the changed services + the
+    `impact_closure` they reach, presented in DEPENDENCY (topological) order so the
+    examination stage walks upstream-before-downstream; each reached entry names
+    its edge (``reason``) and the edge's ``evidence``. A held closure gives
+    ``hold`` and no examination order. When ``pressures`` is
     given, each pressure is scoped to the service(s) its evidence touches and
     grouped per-service in the same dependency order (``per_service_pressures``);
     pressures whose evidence maps to no project fall under ``global_pressures``.
@@ -385,14 +551,18 @@ def cycle_service_examination(
         workspace_root=workspace_root, base_dir=base_dir, nx_graph_file=nx_graph_file
     )
     projects = {name: {"root": r} for name, r in cache["project_roots"].items()}
+    changed = [p for p in (changed_files or []) if isinstance(p, str) and p.strip()]
+    closure = impact_closure(
+        changed_files=changed, workspace_root=workspace_root, base_dir=base_dir,
+        service_facts=service_facts, nx_graph_file=nx_graph_file,
+    )
     counts: dict[str, int] = {}
-    for path in normalize_paths([p for p in (changed_files or []) if isinstance(p, str) and p.strip()]):
+    for path in normalize_paths(changed):
         project = _project_for_path(path, projects)
         if project:
             counts[project] = counts.get(project, 0) + 1
-    changed_projects = sorted(p for p, c in counts.items() if c)
-    impacted = sorted(set(changed_projects) | set(_reverse_closure(changed_projects, cache["dependencies"])))
-    impacted_set = set(impacted)
+    reached = {entry["project"]: entry for entry in closure.get("impacted", [])}
+    impacted = sorted({*counts, *reached})
     examination_order = [
         {
             "project": e["project"],
@@ -400,10 +570,11 @@ def cycle_service_examination(
             "depends_on": e["depends_on"],
             "dependents": e["dependents"],
             "changed_files": counts.get(e["project"], 0),
-            "reason": "changed" if counts.get(e["project"]) else "downstream_impact",
+            "reason": "changed" if counts.get(e["project"]) else reached[e["project"]]["reason"],
+            "evidence": None if counts.get(e["project"]) else reached[e["project"]]["evidence"],
         }
         for e in cache["order"]  # already topological → examine upstream first
-        if e["project"] in impacted_set
+        if e["project"] in impacted
     ]
     # Recommend WHICH domain agent(s) examine each impacted service, from the
     # Lane-A routing SSoT. A service with no primary owner is a coverage gap —
@@ -450,17 +621,23 @@ def cycle_service_examination(
         {"service": service, "layer": layer_of.get(service), "pressures": by_service[service]}
         for service in sorted(by_service, key=lambda s: order_pos.get(s, len(order_pos)))
     ]
-    return {
+    examination: dict[str, Any] = {
         "schema_version": 1,
         "graph_source": cache["graph_source"],
-        "changed_projects": changed_projects,
-        "impacted_projects": impacted,
-        "examination_order": examination_order,
-        "agent_coverage_gaps": agent_coverage_gaps,
+        "changed_projects": sorted(counts),
         "per_service_pressures": per_service_pressures,
         "global_pressures": global_pressures,
         "project_count": cache["project_count"],
         "layer_count": cache["layer_count"],
+    }
+    if "hold" in closure:
+        # The pressures are scoped by their own evidence paths, not by the closure, so they stand.
+        return {**examination, "hold": closure["hold"]}
+    return {
+        **examination,
+        "impacted_projects": impacted,
+        "examination_order": examination_order,
+        "agent_coverage_gaps": agent_coverage_gaps,
     }
 
 
@@ -832,24 +1009,6 @@ def _project_for_path(path: str, projects: dict[str, dict[str, str]]) -> str | N
     those shapes had to be the one the rule is written against.
     """
     return project_for_path(path, {name: meta["root"] for name, meta in projects.items()})
-
-
-def _reverse_closure(projects: list[str], dependencies: dict[str, list[str]]) -> list[str]:
-    reverse: dict[str, set[str]] = {}
-    for source, deps in dependencies.items():
-        for dep in deps:
-            reverse.setdefault(dep, set()).add(source)
-    seen: set[str] = set(projects)
-    queue = list(projects)
-    downstream: set[str] = set()
-    while queue:
-        current = queue.pop(0)
-        for consumer in sorted(reverse.get(current, set())):
-            if consumer not in seen:
-                seen.add(consumer)
-                downstream.add(consumer)
-                queue.append(consumer)
-    return sorted(downstream)
 
 
 def _validation_scope(changed: list[str], downstream: list[str], unknown: list[str]) -> str:

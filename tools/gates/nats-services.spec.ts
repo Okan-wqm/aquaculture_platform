@@ -271,6 +271,57 @@ void test('eventSubjectsFor takes declared grants, else the default events root'
   });
 });
 
+void test('eventSubjectsFor: a type declared on a non-events root takes that root, and only subscribers of that root receive it', () => {
+  // The live SSoT declares SensorReading on both roots, so a rule that counted only `events.`
+  // grants still found a producer there and no live assertion could tell. A type published only
+  // on `telemetry.` has no `events.*.<T>` subject: its default-root subscriber is not a receiver.
+  const services = [
+    service({
+      name: 'farm_service',
+      publish: ['telemetry.*.BatchHarvested', '$JS.API.INFO', '_INBOX.>'],
+    }),
+    service({
+      name: 'events_root_service',
+      subscribe: ['events.*.BatchHarvested', '_INBOXEVENTS.>'],
+    }),
+    service({
+      name: 'telemetry_root_service',
+      subscribe: ['telemetry.*.BatchHarvested', '_INBOXTELEMETRY.>'],
+    }),
+  ];
+  assert.deepEqual(eventSubjectsFor('BatchHarvested', services), {
+    subjects: ['telemetry.*.BatchHarvested'],
+    source: 'declared',
+  });
+  const ripple = aclEventRipple('BatchHarvested', services);
+  assert.deepEqual(ripple.subjects, ['telemetry.*.BatchHarvested']);
+  assert.deepEqual(
+    ripple.producers.map(({ service: s, grant }) => [s.name, grant]),
+    [['farm_service', 'telemetry.*.BatchHarvested']],
+  );
+  assert.deepEqual(
+    ripple.aclSubscribers.map(({ service: s, grant }) => [s.name, grant]),
+    [['telemetry_root_service', 'telemetry.*.BatchHarvested']],
+  );
+
+  // Declared on two roots: both are its subjects, sorted, and a subscriber on either receives it.
+  const both = [
+    ...services,
+    service({
+      name: 'ingest_service',
+      publish: ['events.*.BatchHarvested', '$JS.API.INFO', '_INBOX.>'],
+    }),
+  ];
+  assert.deepEqual(eventSubjectsFor('BatchHarvested', both), {
+    subjects: ['events.*.BatchHarvested', 'telemetry.*.BatchHarvested'],
+    source: 'declared',
+  });
+  assert.deepEqual(
+    aclEventRipple('BatchHarvested', both).aclSubscribers.map(({ service: s }) => s.name),
+    ['events_root_service', 'telemetry_root_service'],
+  );
+});
+
 void test('every event type a live publish grant names has a producer, from an independent token read', () => {
   const raw = rawServices();
   const tokens = new Set<string>();

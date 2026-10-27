@@ -12,9 +12,16 @@
       "platform",
       "libs",
       "sens-api-gateway",
-      "apps/sensor-ingestion",
+      "apps",
       "crates",
-      "sensorprotocols"
+      "sensorprotocols",
+      "web",
+      "e2e",
+      "mcp",
+      "database",
+      "tests",
+      "aria-kernel",
+      "agents"
     ]
   },
   "expected": {

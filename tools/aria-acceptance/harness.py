@@ -425,8 +425,9 @@ def assert_reacts_to_scenarios() -> dict[str, Any]:
         latest_beliefs,
         load_jsonl,
     )
-    from aria_kernel.feedback_store import _consensus_uncertainty
+    from aria_kernel.feedback_store import generate_ai_consensus, record_operator_feedback
     from aria_kernel.human_required import sweep_consensus_uncertainties_for_human_required
+    from aria_kernel.judge_fanout import dispatch_arbiter_for_split_verdicts
     from aria_kernel.runtime_signal_bridge import ingest_runtime_signal
     from aria_kernel.pressure import run_pressure
 
@@ -450,14 +451,17 @@ def assert_reacts_to_scenarios() -> dict[str, Any]:
         checks.append({"scenario": "stale_belief_decays",
                        "passed": decayed.get("status") == "needs_revalidation"})
 
-        # Scenario 2 — a consensus disagreement must escalate to HUMAN_REQUIRED.
-        unc = _consensus_uncertainty("tool-x", "r1", "F1", "g1", "judge_disagreement")
-        with (tools / "feedback-consensus-uncertainties.jsonl").open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps({"schema_version": 1, "recorded_at": old, "tool_id": "tool-x",
-                                 "cycle_id": "c1", "uncertainties": [unc]}, sort_keys=True) + "\n")
+        # Scenario 2 (F0.7) — a consensus disagreement must reach the arbiter,
+        # never HUMAN_REQUIRED.
+        for judge, verdict in (("aria-evidence-judge", "true_positive"), ("aria-adversarial-judge", "false_positive")):
+            record_operator_feedback(tool_id="tool-x", run_id="r1", finding_id="F1", verdict=verdict,
+                                     severity="high", note=judge, source_type="ai_judge", judge_id=judge,
+                                     confidence=0.9, judgment_group_id="g1", base_dir=tools)
+        generate_ai_consensus(tool_id="tool-x", base_dir=tools)
         esc = sweep_consensus_uncertainties_for_human_required(base_dir=tools)
-        checks.append({"scenario": "consensus_disagreement_escalates",
-                       "passed": len(esc.get("created", [])) == 1})
+        arbiter = dispatch_arbiter_for_split_verdicts(tool_id="tool-x", base_dir=tools)
+        checks.append({"scenario": "consensus_disagreement_reaches_the_arbiter",
+                       "passed": esc["created"] == [] and arbiter["minted_count"] == 1})
 
         # Scenario 3 — a runtime signal must surface as UNVERIFIED pressure.
         ingest_runtime_signal(source="sentry", service="farm-service", summary="prod NPE",
@@ -553,6 +557,12 @@ def review_change(
         change = state.get("change_intelligence") or {}
         open_requests = list(change.get("subject_open_requests") or [])
         report["subject_ref"] = change.get("subject_ref")
+        # WP-D4 — the kernel's own cost attribution (cost_budget), copied: the
+        # LAST block a round reported, since it is cumulative over this room's
+        # store. A round that failed reports none, and must not erase the
+        # spend the rounds before it did.
+        if change.get("cost_budget") is not None:
+            report["cost_budget"] = change["cost_budget"]
         report["rounds"].append({
             "cycle_id": cycle_id, "exit_code": 0, "status": state.get("status"),
             "minted": change.get("change_intelligence_requests_minted"), "open_requests": open_requests,
@@ -566,6 +576,12 @@ def review_change(
         (store / "logs" / f"{cycle_id}.drain.log").write_text(drain.stdout + drain.stderr, encoding="utf-8")
         report["rounds"][-1]["drain_exit_code"] = drain.returncode
     last = report["rounds"][-1]
+    if "cost_budget" not in report:
+        # No round reported a block: the report names why instead of staying
+        # silent, and carries no spend, because an attribution that could not
+        # be read must not look like a spend of zero.
+        outcome = f"exited {last['exit_code']}" if last["exit_code"] else f"reported status {last.get('status')!r}"
+        report["cost_budget"] = {"unavailable": f"no round reported a cost_budget block; the last cycle {outcome}"}
     report["settled"] = last.get("status") == "completed" and not last.get("open_requests")
     report["passed"] = report["settled"]
     report["wall_seconds"] = round(time.monotonic() - started, 3)

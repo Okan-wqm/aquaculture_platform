@@ -1470,10 +1470,9 @@ function extendsBaseEvent(
  * event types. The code-fact entry's `event_definitions`, the event-contracts adapter's
  * `event_interface` observations and the emit-has-interface invariant read this function. Readers
  * that still keep their own rule are each tracked by an open finding and listed by it in the
- * single-owner pin (event-consumer-index.spec.ts): the plan-coverage witness
- * (ARIA-MEDIUM-793), the PII crypto-shred and feeding invariants (CONTRACT-MEDIUM-016),
- * recursive_impact (ARIA-MEDIUM-794, its F0.9b tombstone) and the e2e NATS invariant
- * (CONTRACT-MEDIUM-015).
+ * single-owner pin (event-consumer-index.spec.ts): the PII crypto-shred and feeding invariants
+ * (CONTRACT-MEDIUM-016), recursive_impact (ARIA-MEDIUM-794, its F0.9b tombstone) and the e2e
+ * NATS invariant (CONTRACT-MEDIUM-015).
  */
 export function eventDefinitionsIn(
   sourceFile: ts.SourceFile,

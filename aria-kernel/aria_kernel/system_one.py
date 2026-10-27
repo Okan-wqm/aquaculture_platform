@@ -17,7 +17,9 @@ itself from the bound repository — a commit's diff, message, file excerpt or
 symbol outline read with ``git`` at a 40-hex commit a PUBLIC branch already
 holds (fetched per ask from the pinned public URL into ``refs/aria-public/``,
 never via the checkout's own remote configuration), and a finding's title
-and rule read by id from the registry as the public ``main`` holds it. A commit only in
+and rule read by id from the registry as the public ``main`` holds it, through the
+registry's own projection (the frozen genesis segment and the event logs of every
+finding registered since, folded by ``finding-registry.ts project``). A commit only in
 this checkout — unpushed work, a stash commit carrying ignored files — is
 refused: a question about an implementation branch is admissible once that
 branch is pushed, never before. A path is
@@ -52,13 +54,13 @@ from .git_object_id import ANY_OBJECT_FORMAT, is_object_id, object_id_pattern
 from .jev_runtime import JevReply, JevUnavailable
 from .jev_runtime import post_systemone as _transport
 from .ledger import append_declared_jsonl
+from .report_ingestion import RegistryCliRefused, run_registry_cli
 from .secret_scrub import pii_shape_names, scrub_text_with_count, view_alternation
 from .tool_registry import bound_workspace_root, ensure_tools_dir, utc_now
 from .digest import sha256_digest_text
 
 REGISTRY_RELPATH = ("aria-config", "system-one-questions.json")
 REGISTRY_SCHEMA = "aria/system-one-questions/v1"
-FINDING_REGISTRY_RELPATH = ("docs", "reviews", "_registry", "findings.jsonl")
 #: What "public" means here: the branches the PUBLIC repository publishes,
 #: fetched from this pinned URL — never from `remote.origin.url` or its
 #: refspec, which the checkout's own config controls — into a namespace only
@@ -363,11 +365,18 @@ def _finding(workspace: Path, ref: StateRef) -> dict[str, str]:
     """``{finding: title, rule: rule_violated}`` of the registry row ``ref.finding_id`` names."""
     if not isinstance(ref.finding_id, str) or not _FINDING_ID_RE.match(ref.finding_id):
         raise _Refusal("finding_id_malformed")
-    # The registry as the public remote holds it — never the working-tree file.
-    ledger = _git(workspace, "show", f"{PUBLIC_REGISTRY_REF}:{'/'.join(FINDING_REGISTRY_RELPATH)}",
-                  max_chars=FINDING_REGISTRY_MAX_CHARS)
+    # The registry as the public remote holds it — never the working-tree store — read
+    # through its one owner. A finding born after the freeze exists only as an event log,
+    # and an amended one reads differently once its log is folded in: the frozen
+    # findings.jsonl is not the registry, so it is not read here.
+    try:
+        projected = run_registry_cli(workspace, ("project", f"--ref={PUBLIC_REGISTRY_REF}", "--format=jsonl"))
+    except RegistryCliRefused as exc:
+        raise _Refusal("finding_registry_unreadable") from exc
+    if len(projected) > FINDING_REGISTRY_MAX_CHARS:
+        raise _Refusal("reference_too_large")
     row: dict[str, Any] | None = None
-    for line in ledger.splitlines():
+    for line in projected.splitlines():
         if ref.finding_id in line:
             try:
                 candidate = json.loads(line)

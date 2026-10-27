@@ -36,6 +36,7 @@ from aria_kernel.plan_origin import paths_outside_admission_scope
 from aria_kernel.plan_round_scope import plan_round_contract
 from aria_kernel.tool_registry import GovernanceError
 from tests.test_finding_plan_path import _ENTITY, _PAGE, _ProviderFixture
+from tests._helpers.service_facts import facts_without_contract_edges
 
 _SEEDER_DIR = Path(__file__).resolve().parents[2] / "tools" / "aria-poc"
 _MOVED = {"verdict": "reproduces", "reason": "subject_in_scan", "wire": "ok",
@@ -46,6 +47,8 @@ class _F015(_ProviderFixture):
     """F-015 as minted: the copy (the hr-module filter) first, the contract (the hr-service enum) second."""
 
     def setUp(self) -> None:
+        # SE-4 — a fixture workspace has no TypeScript toolchain; its subject is not contract edges.
+        self.enterContext(facts_without_contract_edges())
         super().setUp()
         self.seed_drift("F-015", 389)
         self.verdict = dict(_MOVED)

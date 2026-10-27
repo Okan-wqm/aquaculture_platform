@@ -9,10 +9,13 @@ from aria_kernel.ledger import load_jsonl
 from aria_kernel.tool_registry import ensure_tools_dir
 from aria_kernel.workspace import ensure_workspace, workspace_paths
 from tests._helpers.declared_fixtures import append_declared_fixture
+from tests._helpers.service_facts import facts_without_contract_edges
 
 
 class ImpactGraphHookTests(unittest.TestCase):
     def setUp(self):
+        # SE-4 — a fixture workspace has no TypeScript toolchain; its subject is not contract edges.
+        self.enterContext(facts_without_contract_edges())
         self.tmp = tempfile.TemporaryDirectory()
         self.repo = Path(self.tmp.name) / "repo"
         self.repo.mkdir()

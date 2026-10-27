@@ -119,6 +119,30 @@ def encode_untrusted_delimited_payload(
     return base64.b64encode(text.encode("utf-8")).decode("ascii")
 
 
+# WP-D2 / PLAN-v2 F4.0 — the bound on one untrusted block's escaped body. A
+# change of 400 files or a long missed-signal history must not become the whole
+# prompt; the cut is marked (`...[truncated]`) and the agent reads the rest from
+# the commits themselves.
+UNTRUSTED_BLOCK_MAX_CHARS = 24_000
+_UNTRUSTED_TAG_RE = re.compile(r"untrusted_[a-z]+(?:_[a-z]+)*")
+
+
+def untrusted_block(tag: str, body: str) -> str:
+    """WP-D2 / PLAN-v2 F4.0 — ``body`` as DATA inside ``<tag>``, the one way
+    change content and the area's memory enter a prompt.
+
+    The body is escaped by :func:`sanitize_untrusted_text` (Mode A: control
+    and bidi characters stripped, ``<`` ``>`` ``&`` HTML-encoded, capped at
+    ``UNTRUSTED_BLOCK_MAX_CHARS``), so a changed path holding a newline and a
+    closing tag, a hunk quoting a tag, or a belief whose claim closes its
+    block stays inside it. ``tag`` is the kernel's own name and must be an
+    ``untrusted_*`` name; any other spelling is refused.
+    """
+    if not _UNTRUSTED_TAG_RE.fullmatch(tag):
+        raise ValueError(f"untrusted_block_tag_not_untrusted:{tag!r}")
+    return f"<{tag}>\n{sanitize_untrusted_text(body, max_len=UNTRUSTED_BLOCK_MAX_CHARS)}\n</{tag}>\n"
+
+
 def contains_bidi_or_control(text: str) -> bool:
     """True when ``text`` carries a bidi override or a control char.
 
@@ -138,7 +162,9 @@ def contains_bidi_or_control(text: str) -> bool:
 
 
 __all__ = [
+    "UNTRUSTED_BLOCK_MAX_CHARS",
     "contains_bidi_or_control",
     "encode_untrusted_delimited_payload",
     "sanitize_untrusted_text",
+    "untrusted_block",
 ]

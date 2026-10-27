@@ -16,8 +16,8 @@
     "curator": "claude/E13-C3 (judge-diagnosed FP classes, session 2026-08-12)",
     "gold_set": {
       "true_positive_count": 1,
-      "known_false_positive_count": 1,
-      "false_positive_classes": ["adjacent_spec_present"]
+      "known_false_positive_count": 2,
+      "false_positive_classes": ["adjacent_spec_present", "query_handler_read"]
     }
   }
 }

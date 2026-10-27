@@ -82,7 +82,7 @@ class MissingConfidenceTest(unittest.TestCase):
 
     def test_no_numeric_confidence_escalates_under_its_own_name(self) -> None:
         from aria_kernel.feedback_store import generate_ai_consensus, record_operator_feedback
-        from aria_kernel.human_required import CONSENSUS_UNCERTAINTY_SEVERITY
+        from aria_kernel.feedback_store import ARBITRATED_UNCERTAINTY_REASONS
 
         with TemporaryDirectory() as tmp:
             root = Path(tmp) / "aria-tools"
@@ -99,8 +99,8 @@ class MissingConfidenceTest(unittest.TestCase):
 
         reasons = [u["reason"] for u in result["uncertainties"]]
         self.assertEqual(reasons, ["missing_confidence"])
-        # The map entry is load-bearing: an unmapped reason silently drops.
-        self.assertIn("missing_confidence", CONSENSUS_UNCERTAINTY_SEVERITY)
+        # F0.7 — the reason is the arbiter's, never silently dropped.
+        self.assertIn("missing_confidence", ARBITRATED_UNCERTAINTY_REASONS)
 
 
 if __name__ == "__main__":

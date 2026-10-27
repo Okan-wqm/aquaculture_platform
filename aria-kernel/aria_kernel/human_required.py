@@ -30,8 +30,14 @@ from .agent_invocations import _claims_path, _request_event_count, derive_reques
 from .artifact_safety import published_text
 from .ledger import STATE_LOCK_LIVENESS_SECONDS, load_declared_jsonl, load_segments, state_transaction
 from .notify import NOTIFY_WORST_CASE_SECONDS, notify_best_effort
-from .strict_jsonl_reader import read_strict_jsonl
-from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, tools_dir, utc_now
+from .tool_registry import (
+    GovernanceError,
+    append_tools_governance,
+    append_tools_governance_once,
+    ensure_tools_dir,
+    tools_dir,
+    utc_now,
+)
 
 # The longest `record_human_required` can legitimately wait: its record write
 # and governance append (ONE state transaction behind a live holder —
@@ -522,7 +528,7 @@ def resolve_human_required(
         if verdict not in FEEDBACK_VERDICTS:
             raise GovernanceError(f"verdict must be one of {FEEDBACK_VERDICTS}")
         ctx = record.get("context") or {}
-        if ctx.get("kind") == "consensus_escalation" and all(
+        if ctx.get("kind") == CONSENSUS_ESCALATION_KIND and all(
             ctx.get(k) for k in ("tool_id", "run_id", "finding_id")
         ):
             record_operator_feedback(
@@ -640,7 +646,11 @@ def write_kernel_disposition(
     base_dir: str | Path | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any] | None:
-    """Write what the kernel decided, by rule, about one expired request; None when already resolved.
+    """Write what the kernel decided, by rule, about one record; None when already resolved.
+
+    Callers: the anchor-stale disposition of an expired request (below) and
+    F0.7's routing of a pre-F0.7 ``consensus_escalation`` record to the
+    arbiter (``sweep_consensus_uncertainties_for_human_required``).
 
     ARIA-HIGH-360. A request that expired unclaimed is a fact about the
     queue, and the kernel decides what happens to it
@@ -786,152 +796,90 @@ def sweep_lease_lifecycle_for_human_required(
     return {"created": created, "skipped": skipped, "anchor_stale": anchor_stale}
 
 
-# Plan 023 §B — consensus-failure escalation mapping.
-# ``judge_disagreement`` is a genuine split verdict between independent judges
-# (HIGH). ``low_confidence`` is an aligned-but-weak verdict (MEDIUM).
-# ``single_judge`` is the benign "only one judge sampled this finding" case —
-# it is re-sampled next cycle and is intentionally NOT escalated, to avoid
-# flooding operator triage with sampling-order noise.
-CONSENSUS_UNCERTAINTY_SEVERITY = {
-    "judge_disagreement": "HIGH",
-    # WP-J fix round — an anchor-grade group that agreed on argument alone
-    # (empty evidence union): the truth candidate is unfalsifiable, so it
-    # escalates like a disagreement — a human must look at the finding.
-    "anchor_evidence_empty": "HIGH",
-    # WP-J fix round — a panel whose seats echoed each other: the agreement
-    # is one reading wearing N receipts; a human must see the echo.
-    "panel_echo": "HIGH",
-    # J5 — the agreeing seats judged different trees: the verdict agreed but
-    # is about no single tree, so the anchor is withheld (aligned-but-not-
-    # truth, like low_confidence). A human or a re-judge at one tree decides.
-    "target_sha_mixed": "MEDIUM",
-    # WP-J B-2 — the evidence-weighing arbiter could not weigh the
-    # load-bearing assertions: an open question nobody may close by
-    # fatigue. Escalates like a disagreement.
-    "unverifiable": "HIGH",
-    "low_confidence": "MEDIUM",
-    # Plan 024 §C — a judge citing evidence that does not resolve in the repo is
-    # a fabrication signal; the cheap tier must not be rubber-stamped on it.
-    "evidence_not_repo_verified": "HIGH",
-    # ARIA-HIGH-325 — the agreeing judges cited evidence the producing tool's
-    # scope does not admit (ARIA's own detector source, typically): they
-    # argued the rule fired, not that the product is wrong.
-    "evidence_inadmissible": "HIGH",
-    # Kalibre Zekâ Z2b — a judge group with no numeric confidence at all is
-    # a bridge/schema fault, not a quality verdict; it escalates under its
-    # own name (a reason absent from this map is silently dropped as
-    # benign_not_escalated — that is why this entry MUST exist).
-    "missing_confidence": "MEDIUM",
-    # Z2c — a passing consensus below the calibrated conformal floor is a
-    # statistically-guaranteed "too uncertain to auto-accept" signal.
-    "conformal_abstain": "HIGH",
-    # ARIA-MEDIUM-164 — an anchor-grade group whose observer has no model
-    # identity: the anchor's distinct-model guarantee cannot be checked.
-    # Emitted since Plan 024 and dropped as benign until it was named here.
-    "observer_identity_missing": "HIGH",
-    # Typed-judgment plan Phase 6 — the agreeing judges did not include two
-    # distinct calibrated judge seats (PLAN-v2 F0.8: the ONE seat law,
-    # feedback_store.distinct_judge_seats). Labelling work, not adjudication:
-    # the label queue reads it first; the sweep records at most
-    # `max_uncalibrated_escalations_per_cycle` of them per sweep so the day
-    # `enforce` switches on cannot flood the escalation ledger.
-    "confidence_uncalibrated": "LOW",
-}
-CAPPED_UNCERTAINTY_REASONS: tuple[str, ...] = ("confidence_uncalibrated",)
-DEFAULT_MAX_UNCALIBRATED_ESCALATIONS_PER_SWEEP: int = 5
-
-
-def _consensus_uncertainties_path(tools_root: Path) -> Path:
-    return tools_root / "feedback-consensus-uncertainties.jsonl"
+# The context kind Plan 023's consensus sweep minted until F0.7. No producer
+# writes it any more; the sweep below routes every open record of it to the
+# arbiter lane by kernel disposition, so the group has one owner.
+CONSENSUS_ESCALATION_KIND: str = "consensus_escalation"
+CONSENSUS_ROUTED_TO_ARBITER: str = "routed_to_arbiter"
 
 
 def sweep_consensus_uncertainties_for_human_required(
     *,
     base_dir: str | Path | None = None,
-    now: datetime | None = None,
-    max_uncalibrated_escalations: int = DEFAULT_MAX_UNCALIBRATED_ESCALATIONS_PER_SWEEP,
-) -> dict[str, list[dict[str, Any]]]:
-    """Drain ``feedback-consensus-uncertainties.jsonl`` into HUMAN_REQUIRED.
+) -> dict[str, Any]:
+    """F0.7 (ARIA-MEDIUM-730) — a consensus uncertainty never becomes
+    HUMAN_REQUIRED.
 
-    Before Plan 023 the consensus gate wrote every judge disagreement /
-    low-confidence outcome to that file and NOTHING ever read it — a split
-    verdict was silently held forever and never reached a human. This consumer
-    closes that hole: each genuine consensus failure becomes one idempotent
-    HUMAN_REQUIRED operator-triage record keyed by the uncertainty's stable
-    ``escalation_id``. Idempotent across cycles (re-running the drain on the
-    same file creates nothing new).
+    Plan 023 drained ``feedback-consensus-uncertainties.jsonl`` into operator
+    triage; the operator ruled human labels out (2026-10-18). Judgment
+    uncertainty now goes to the bounded rebuttal and the arbiter
+    (``judge_fanout.dispatch_arbiter_for_split_verdicts`` reads
+    ``feedback_store.ARBITRATED_UNCERTAINTY_REASONS`` off the same ledger),
+    and ``unverifiable`` is terminal. This sweep is the registry's side of
+    that law, kept as the cycle's ``consensus_escalation`` record of it: it
+    creates nothing, and reports how many judgment groups each lane holds
+    and each tool's unverifiable rate against its pre-registered
+    ceiling — the two numbers F0.7's exit criterion reads. A tool over the
+    ceiling is listed under ``UNVERIFIABLE_RATE_CEILING_BREACH`` and disclosed
+    by that name on the governance ledger (once per distinct count).
+
+    A ``consensus_escalation`` record minted before F0.7 and still open asks
+    a question the arbiter lane now owns for the same group; left open, a
+    panel (whose seats include the arbiter) and the arbiter would both
+    answer it. Each one is resolved by kernel disposition
+    (``CONSENSUS_ROUTED_TO_ARBITER``, no verdict) and listed under ``routed_records``.
     """
-    root = ensure_tools_dir(base_dir)
-    path = _consensus_uncertainties_path(root)
-    created: list[dict[str, Any]] = []
-    skipped: list[dict[str, Any]] = []
-    seen_escalations: set[str] = set()
-    capped_created: dict[str, int] = {}
-    # E14 — arbitration first, the operator as the fallback. A split verdict
-    # now mints a `consensus_arbitration` envelope (judge_fanout), and that
-    # arbiter is one of the three agents this escalation's adjudication panel
-    # would dispatch anyway: escalating while arbitration is still in flight
-    # asks the same agent the same question twice. Once arbitration reaches a
-    # terminal state and the group is still unsettled, the escalation is raised
-    # on the next sweep — nothing is dropped, only ordered.
-    from .judge_fanout import pending_arbitration_group_ids
+    from .feedback_store import (
+        ARBITRATED_UNCERTAINTY_REASONS,
+        TERMINAL_UNCERTAINTY_REASON,
+        UNVERIFIABLE_RATE_CEILING_BREACH,
+        consensus_uncertainty_rows,
+        unverifiable_rate,
+    )
 
-    arbitration_pending = pending_arbitration_group_ids(base_dir=root)
-    # Plan 026R §A.3 — route the JSONL read through the strict reader instead
-    # of a bare silent-skip; a corrupt row emits a ledger-corruption diagnostic
-    # rather than vanishing. Tolerant mode so one bad row cannot block
-    # escalation of the valid ones. Non-existent path → empty iterator.
-    for entry in read_strict_jsonl(path, on_corruption="tolerant", base_dir=root):
-        for unc in entry.get("uncertainties", []) or []:
-            if not isinstance(unc, dict):
-                continue
-            reason = str(unc.get("reason") or "")
-            severity = CONSENSUS_UNCERTAINTY_SEVERITY.get(reason)
-            escalation_id = str(unc.get("escalation_id") or "")
-            if severity is None:
-                skipped.append({"reason": reason or "unknown", "kind": "benign_not_escalated"})
-                continue
-            if not escalation_id:
-                skipped.append({"reason": reason, "kind": "missing_escalation_id"})
-                continue
-            if escalation_id in seen_escalations:
-                continue
-            seen_escalations.add(escalation_id)
-            group_id = str(unc.get("judgment_group_id") or "")
-            if group_id and group_id in arbitration_pending:
-                skipped.append({
-                    "request_id": escalation_id,
-                    "judgment_group_id": group_id,
-                    "reason": "arbitration_in_flight",
-                })
-                continue
-            if _human_required_path(root, escalation_id).exists():
-                skipped.append({"request_id": escalation_id, "reason": "already_recorded"})
-                continue
-            if reason in CAPPED_UNCERTAINTY_REASONS and capped_created.get(reason, 0) >= max_uncalibrated_escalations:
-                skipped.append({"request_id": escalation_id, "reason": reason, "kind": "sweep_cap_reached"})
-                continue
-            if reason in CAPPED_UNCERTAINTY_REASONS:
-                capped_created[reason] = capped_created.get(reason, 0) + 1
-            record = record_human_required(
-                request_id=escalation_id,
-                severity=severity,
-                reason=(
-                    f"AI consensus could not be reached ({reason}) for finding "
-                    f"{unc.get('finding_id')!r} (tool {unc.get('tool_id')!r}, run "
-                    f"{unc.get('run_id')!r}); independent judges disagreed or were "
-                    f"low-confidence. Operator adjudication required."
-                ),
-                context={
-                    "kind": "consensus_escalation",
-                    "uncertainty_reason": reason,
-                    "tool_id": unc.get("tool_id"),
-                    "run_id": unc.get("run_id"),
-                    "finding_id": unc.get("finding_id"),
-                    "judgment_group_id": unc.get("judgment_group_id"),
-                },
-                base_dir=root,
-                now=now,
-            )
-            created.append(record)
-    return {"created": created, "skipped": skipped}
+    root = ensure_tools_dir(base_dir)
+    # One lane per judgment group, the furthest it reached: a group the
+    # arbiter called terminal is no longer owed to it, whatever the engine
+    # recorded before.
+    lanes = ("not_arbitrated", "arbiter", "terminal")
+    group_lane: dict[tuple[str, ...], int] = {}
+    for item in consensus_uncertainty_rows(base_dir=root):
+        reason = item.get("reason")
+        lane = (2 if reason == TERMINAL_UNCERTAINTY_REASON
+                else 1 if reason in ARBITRATED_UNCERTAINTY_REASONS else 0)
+        key = tuple(str(item.get(field) or "") for field in ("tool_id", "run_id", "finding_id", "judgment_group_id"))
+        group_lane[key] = max(group_lane.get(key, 0), lane)
+    routed = {name: sum(1 for lane in group_lane.values() if lanes[lane] == name) for name in lanes}
+    tools = {key[0] for key in group_lane}
+    routed_records: list[str] = []
+    for record in list_human_required(base_dir=root).rows:
+        context = record.get("context") or {}
+        if context.get("kind") != CONSENSUS_ESCALATION_KIND:
+            continue
+        written = write_kernel_disposition(item={
+            "request_id": record["request_id"], "severity": record.get("severity"),
+            "reason": record.get("reason"), "context": context, "status": "resolved",
+            "disposition": {
+                "disposition": CONSENSUS_ROUTED_TO_ARBITER,
+                "reason": "F0.7: consensus uncertainty is the arbiter's "
+                          "(judge_fanout.dispatch_arbiter_for_split_verdicts), never a panel's or a human's",
+                "judgment_group_id": context.get("judgment_group_id"),
+            },
+        }, base_dir=root)
+        if written is not None:
+            routed_records.append(str(record["request_id"]))
+    if routed_records:
+        append_tools_governance(root, "consensus_escalation_routed_to_arbiter",
+                                {"count": len(routed_records), "request_ids": routed_records})
+    rates = [unverifiable_rate(tool_id=tool, base_dir=root) for tool in sorted(tools) if tool]
+    breaches = [rate for rate in rates if rate["over_ceiling"]]
+    for breach in breaches:
+        append_tools_governance_once(root, UNVERIFIABLE_RATE_CEILING_BREACH, breach,
+                                     claim_keys=("tool_id", "unverifiable", "settled"))
+    return {
+        "created": [],
+        "routed": routed,
+        "routed_records": routed_records,
+        "unverifiable_rate": rates,
+        UNVERIFIABLE_RATE_CEILING_BREACH: breaches,
+    }

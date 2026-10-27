@@ -11,6 +11,7 @@ from .evidence_trust import (
     EVIDENCE_REF_RE,
     PATH_KIND_FILE,
     PATH_KIND_UNRESOLVABLE,
+    REF_TOKEN_RE,
     EvidencePolicy,
     classify_evidence_ref,
     evidence_file_line_count,
@@ -381,10 +382,16 @@ def _is_ledger_pointer_ref(ref: str) -> bool:
     repo-verified and allowed-scope each rejected the same ref. Every
     layer now asks this one question; the load-bearing verification of
     what the pointer NAMES stays at fold time (a human-required record) or
-    at the envelope that minted it (a coverage manifest, ARIA-HIGH-354)."""
+    at the envelope that minted it (a coverage manifest, ARIA-HIGH-354).
+
+    ARIA-MEDIUM-826 — a pointer is one token in the ref grammar's own class
+    (``evidence_trust.REF_TOKEN_RE``). The prefix alone used to be enough, so
+    a changed path spelled ``human-required:`` and a line break or a closing
+    tag passed every shape check and was quoted into the prompt."""
     if _is_coverage_manifest_pointer(ref):
         return True
-    return ref.startswith("human-required:") and len(ref) > len("human-required:")
+    prefix = "human-required:"
+    return ref.startswith(prefix) and REF_TOKEN_RE.fullmatch(ref, len(prefix)) is not None
 
 
 # ORPHAN-CRITICAL-734 — the arbitration classes read agent output BY
@@ -619,7 +626,9 @@ def agent_ref_shape_refusal(ref: Any) -> str | None:
 
     ARIA-HIGH-384 — the half of :func:`_check_agent_ref` that needs no
     repository: a ledger pointer passes; a ref outside the ``path[:line]``
-    grammar is ``agent_evidence_ref_malformed``; a path that is absolute or
+    grammar is ``agent_evidence_ref_malformed`` (a path holding whitespace, a
+    tag delimiter or a backtick is outside it, because a ref is quoted into a
+    prompt: ``evidence_trust.EVIDENCE_REF_RE``, ARIA-MEDIUM-826); a path that is absolute or
     leaves the root is ``agent_evidence_path_escapes_workspace``; a path with a
     control character, a lone surrogate, or a component longer than
     ``MAX_PATH_COMPONENT_BYTES`` is ``agent_evidence_path_unresolvable``; ARIA's own output is

@@ -27,6 +27,7 @@ from tests._helpers.declared_fixtures import (
     seed_validation_provenance,
 )
 from tests._helpers.git_fixtures import make_local_git_repo
+from tests._helpers.service_facts import NO_CONTRACT_FACTS
 
 
 class EnterpriseRoadmapFoundationTests(unittest.TestCase):
@@ -87,6 +88,7 @@ class EnterpriseRoadmapFoundationTests(unittest.TestCase):
             workspace_root=self.root,
             base_dir=self.tools_dir,
             cycle_id="cycle-impact",
+            service_facts=NO_CONTRACT_FACTS,
         )
         self.assertEqual(graph["changed_projects"], ["domain"])
         self.assertEqual(graph["downstream_projects"], ["api"])
@@ -97,6 +99,7 @@ class EnterpriseRoadmapFoundationTests(unittest.TestCase):
             action_class="code_behavior_change",
             workspace_root=self.root,
             base_dir=self.tools_dir,
+            service_facts=NO_CONTRACT_FACTS,
         )
         self.assertEqual(impact["risk_class"], "runtime")
         self.assertIn("npx nx run-many --target=test --projects=api,domain", impact["validation_commands"])

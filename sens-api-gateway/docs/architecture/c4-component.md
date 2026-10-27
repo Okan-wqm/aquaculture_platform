@@ -53,7 +53,7 @@ C4Component
 
     Container_Ext(fieldIO, "Field devices")
 
-    Component(modbusMod, "modbus", "src/modbus.rs", "ModbusHandle (Send+Sync) + ModbusActor (LocalSet-bound). rodbus 1.4 client. CircuitBreaker wrapped.")
+    Component(modbusMod, "modbus", "src/modbus.rs", "ModbusHandle (Send+Sync) + ModbusActor (LocalSet-bound). tokio-modbus client (TCP, TLS via tokio-rustls, RTU). CircuitBreaker wrapped.")
     Component(gpioMod, "gpio (feature gpio)", "src/gpio.rs", "GpioHandle + GpioActor. rppal backend on Linux; simulation fallback off-target.")
     Component(i2cMod, "i2c", "src/i2c.rs", "I2cHandle + I2cActor. Atlas EZO driver delegation.")
     Component(spiMod, "spi", "src/spi.rs", "SpiHandle (ADR-024 slot for MCP3008 / ADS1256 adapters).")

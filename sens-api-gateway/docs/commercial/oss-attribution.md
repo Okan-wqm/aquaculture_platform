@@ -44,7 +44,8 @@ The table below is derived from `Cargo.toml` and reflects the release-profile de
 | `chrono` | 0.4 | MIT OR Apache-2.0 | Date / time |
 | `async-trait` | 0.1 | MIT OR Apache-2.0 | Async trait sugar |
 | `regex` | 1.10 | MIT OR Apache-2.0 | Regex engine |
-| `rodbus` | =1.4.0 | BSD-3-Clause (clarified in `deny.toml:72-78`) | Modbus-TCP / RTU |
+| `tokio-modbus` | 0.17 | MIT OR Apache-2.0 | Modbus-TCP / RTU framing |
+| `tokio-rustls` | 0.26 | MIT OR Apache-2.0 | Modbus/TCP Security (TLS) stream |
 | `tokio-serial` | 5.4 | MIT | Serial transport |
 | `ctrlc` | 3.4 | MIT OR Apache-2.0 | Signal handling |
 | `machine-uid` | 0.5 | MIT | Machine fingerprint |
@@ -118,7 +119,7 @@ Dev-only (never shipped): `tempfile` 3.10, `criterion` 0.5, `proptest` 1.5 — e
 
 ### 2.4 BSD-3-Clause (attribution + no-endorsement)
 
-**Applicable crates:** `rodbus` (clarified in `deny.toml:72-78`), `ed25519-dalek`, `subtle`, `bindgen` (build-only).
+**Applicable crates:** `ed25519-dalek`, `subtle`, `bindgen` (build-only).
 **Obligation:** Preserve copyright notice, list of conditions, and the "neither the name … nor the names of its contributors may be used to endorse or promote" clause.
 **Compliance:** Satisfied by the generated NOTICES file.
 
@@ -169,6 +170,12 @@ The permitted SPDX expressions are enumerated in `deny.toml:37-53`. Any new crat
 Banned upstream toolchains:
 
 - `openssl` and `openssl-sys` (see `deny.toml:87-90`) — denied for cross-platform reasons; not a licence issue.
+
+Banned for licence reasons:
+
+- `rodbus`, `dnp3` — non-commercial / non-production licences, listed in `deny.toml` `[bans] deny`.
+
+`[[licenses.clarify]]` is reserved for first-party crates: a clarify entry replaces the licence `cargo-deny` detects, so a third-party entry could re-label a non-permissive dependency into the allowlist. Enforced by `tests/invariants/deny_license_policy.rs`.
 
 ---
 

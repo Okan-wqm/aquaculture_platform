@@ -59,7 +59,7 @@ flowchart LR
     end
 
     field -->|"C1: Modbus-RTU / I2C / GPIO / PWM / SPI (plaintext)"| agent
-    field -->|"C2: Modbus-TCP TLS-capable (rodbus 1.4)"| agent
+    field -->|"C2: Modbus-TCP TLS-capable (tokio-modbus + tokio-rustls)"| agent
     field -->|"C3: LoRaWAN OTAA AES-128"| lora
     lora -->|"C4: Semtech UDP packet forwarder (127.0.0.1:1700)"| agent
     plc -->|"C5: Codesys 1217 / S7 102 / OPC UA 4840 / EIP 44818 / ADS 48898"| agent
@@ -137,7 +137,7 @@ Every conduit in the diagram is tabulated here with its transport, port, directi
 | ID | Source → Destination | Transport / Protocol | Port | Direction | Auth today | Auth roadmap | Encryption (in-flight) | Encryption (at rest on agent) | Owning ADR / finding |
 |---|---|---|---|---|---|---|---|---|---|
 | C1 | Field sensors → `suderra-agent` | Modbus-RTU / I2C / GPIO / SPI / PWM | RS-485 / `/dev/i2c-*` / sysfs GPIO / `/dev/spidev*` / PWM | field → agent | Physical access control only (no protocol auth) | Unchanged at protocol layer; HARDWARE-VENDOR RESPONSIBILITY (field-device vendor) for higher-layer hardening | Plaintext | — | ADR-024 §11 HARDWARE-VENDOR RESPONSIBILITY |
-| C2 | Field devices → `suderra-agent` | Modbus-TCP (rodbus 1.4 TLS-capable) | 502 / 802 | field → agent | Server cert if TLS on; no client cert in default profile | Mutual TLS with device-side client cert (ADR-024 §4) | TLS 1.2+ when enabled; plaintext otherwise | — | ADR-024 §4 |
+| C2 | Field devices → `suderra-agent` | Modbus-TCP (tokio-modbus; TLS-capable via tokio-rustls) | 502 / 802 | field → agent | Server cert if TLS on; no client cert in default profile | Mutual TLS with device-side client cert (ADR-024 §4) | TLS 1.2+ when enabled; plaintext otherwise | — | ADR-024 §4 |
 | C3 | Field devices → LoRaWAN concentrator | LoRaWAN 1.0.x / 1.1 OTAA | ISM band | field → agent | AES-128 (AppSKey / NwkSKey from OTAA) | Unchanged (LoRaWAN is the spec boundary) | AES-128 application layer | Session keys zeroize-on-drop via `secrecy` + `zeroize` crates (`Cargo.toml:47`, `:296`) | — |
 | C4 | LoRaWAN concentrator → `suderra-agent` | Semtech UDP packet forwarder | UDP 1700 | concentrator → agent | Loopback-only (127.0.0.1:1700) | Unchanged — localhost is the trust boundary | None (loopback) | — | feature `lorawan` (`Cargo.toml:341`) |
 | C5 | 3rd-party PLCs → `suderra-agent` (programming) | Codesys V3 / S7comm / OPC UA / EtherNet/IP / ADS | 1217 / 102 / 4840 / 44818 / 48898 | PLC ↔ agent | Protocol-native (user/pass for Codesys + OPC UA; none for S7/EIP/ADS) | OPC UA UserTokenPolicy mTLS mandatory (`src/plc_programming/opcua.rs`); S7/EIP/ADS improvements HARDWARE-VENDOR RESPONSIBILITY | Protocol-native (OPC UA can encrypt; Codesys/S7/EIP/ADS plaintext) | — | ADR-024; `docs/ARCHITECTURE.md:447-478` |
@@ -203,7 +203,7 @@ Exact unit file contents are not covered by this chapter — see `deployment/` (
 
 ## Evidence
 
-- `sens-api-gateway/Cargo.toml:30` (reqwest rustls), `:33` (rumqttc), `:70` (rodbus 1.4 TLS), `:94` (SQLCipher), `:110` (flate2 gzip), `:201-284` (tss-esapi / libc / nix / tracing-journald), `:325-397` (feature matrix), `:447-449` (binary)
+- `sens-api-gateway/Cargo.toml:30` (reqwest rustls), `:33` (rumqttc), `:88-89` (tokio-modbus + tokio-rustls TLS), `:94` (SQLCipher), `:110` (flate2 gzip), `:201-284` (tss-esapi / libc / nix / tracing-journald), `:325-397` (feature matrix), `:447-449` (binary)
 - `sens-api-gateway/src/main.rs:102-116` (feature-gated module compilation), `:595-641` (OTLP init), `:656-714` (systemd ready + watchdog), `:731-887` (signal handlers + SIGHUP reload), `:961-965`/`:1031-1033` (MQTT creds in CONNECT — today's auth posture)
 - `sens-api-gateway/src/offline_queue.rs` (SQLite WAL durability)
 - `sens-api-gateway/src/scada_db.rs` + `src/scada_server.rs` (LAN HMI conduit)

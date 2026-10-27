@@ -130,19 +130,16 @@ exceptions = [
 private = { ignore = true }
 
 # Skip checking our own crate's license (it's proprietary)
+#
+# `[[licenses.clarify]]` is reserved for FIRST-PARTY crates. A clarify entry
+# overrides the license cargo-deny detects, so a third-party entry can make a
+# non-permissive dependency pass the `allow` list above. Third-party crates
+# must pass license detection on their own published license text.
+# Enforced by tests/invariants/deny_license_policy.rs.
 [[licenses.clarify]]
 crate = "suderra-agent"
 expression = "LicenseRef-Proprietary"
 license-files = []
-
-# rodbus is licensed under BSD-3-Clause but manifest doesn't specify
-# See: https://github.com/stepfunc/rodbus/blob/main/LICENSE.txt
-[[licenses.clarify]]
-crate = "rodbus"
-expression = "BSD-3-Clause"
-license-files = [
-    { path = "LICENSE.txt", hash = 0x3754c5f8 }
-]
 
 [bans]
 # Warn about multiple versions of the same crate (bloat)
@@ -169,6 +166,10 @@ deny = [
     # dropped it (defmt-macros 1.1.1), so the ignore was retired on 2026-10-02 and
     # the crate is banned; a dependency bump that pulls it back fails here first.
     { name = "proc-macro-error2", reason = "RUSTSEC-2026-0173 unmaintained — defmt >= 1.1 does not need it" },
+    # Non-commercial / non-production license: not usable in a shipped agent.
+    # The Modbus client is tokio-modbus (MIT OR Apache-2.0).
+    { name = "rodbus", reason = "Non-commercial, non-production license — use tokio-modbus" },
+    { name = "dnp3", reason = "Non-commercial, non-production license" },
 ]
 
 # Skip checking tree for these crates

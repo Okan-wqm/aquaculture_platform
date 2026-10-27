@@ -5,6 +5,7 @@ import { resolve } from 'path';
 import { getSharedConfigWithReactFlow } from '../shared-ui/src/federation/federationSharedConfig';
 import { sharedUiAlias } from '../shared-ui/src/federation/sharedUiAlias';
 import { unresolvedAssetUrlGate } from '../shared-ui/src/federation/unresolvedAssetUrlGate';
+import { buildManifestPlugin } from './src/shell/buildManifestPlugin';
 
 /**
  * Vite Konfigürasyonu - Shell (Host) Uygulaması
@@ -25,6 +26,9 @@ export default defineConfig(({ command, mode }) => {
     plugins: [
       react(),
       unresolvedAssetUrlGate(),
+      // FE-MEDIUM-380: names this build in index.html and in a served build-manifest.json,
+      // so an open tab reloads onto a new deploy (src/shell/useBuildSkewReload.ts).
+      buildManifestPlugin(),
       federation({
         dts: false,
         name: 'shell',

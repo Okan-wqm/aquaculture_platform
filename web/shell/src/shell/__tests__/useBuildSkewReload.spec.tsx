@@ -4,8 +4,6 @@
  * shared-ui's client. The decision itself is buildSkew.spec.ts's; this spec proves the wiring.
  */
 import { act, renderHook } from '@testing-library/react';
-import type { ReactElement, ReactNode } from 'react';
-import { MemoryRouter, useNavigate } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { BuildSkewDeps } from '../buildSkew';
@@ -19,11 +17,18 @@ const h = vi.hoisted(() => ({
   reload: vi.fn<() => void>(),
   validationListeners: new Set<() => void>(),
   unsubscribe: vi.fn<() => void>(),
+  pathname: '/sites',
+  // The tab's sessionStorage: one per test, as one per tab.
+  session: new Map<string, string>(),
+}));
+
+// The router's location is the collaborator: a navigation is a new pathname.
+vi.mock('react-router-dom', () => ({
+  useLocation: (): { pathname: string } => ({ pathname: h.pathname }),
 }));
 
 vi.mock('../buildSkew', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../buildSkew')>();
-  const store = new Map<string, string>();
   return {
     ...actual,
     browserBuildSkewDeps: (): BuildSkewDeps => ({
@@ -32,12 +37,12 @@ vi.mock('../buildSkew', async (importOriginal) => {
       reload: h.reload,
       now: () => Date.now(),
       storage: {
-        getItem: (key) => store.get(key) ?? null,
+        getItem: (key) => h.session.get(key) ?? null,
         setItem: (key, value) => {
-          store.set(key, value);
+          h.session.set(key, value);
         },
         removeItem: (key) => {
-          store.delete(key);
+          h.session.delete(key);
         },
       },
     }),
@@ -54,15 +59,6 @@ vi.mock('@aquaculture/shared-ui', () => ({
   },
 }));
 
-function wrapper({ children }: { children: ReactNode }): ReactElement {
-  return <MemoryRouter initialEntries={['/sites']}>{children}</MemoryRouter>;
-}
-
-function useSkewWithNavigate(): ReturnType<typeof useNavigate> {
-  useBuildSkewReload();
-  return useNavigate();
-}
-
 async function settle(): Promise<void> {
   await act(async () => {
     await Promise.resolve();
@@ -76,26 +72,27 @@ describe('useBuildSkewReload', () => {
     h.reload.mockReset();
     h.unsubscribe.mockReset();
     h.validationListeners.clear();
+    h.pathname = '/sites';
+    h.session.clear();
   });
 
   it('does not ask the server when the tab first renders', async () => {
-    renderHook(() => useSkewWithNavigate(), { wrapper });
+    renderHook(() => useBuildSkewReload());
     await settle();
     expect(h.fetchServedBuildId).not.toHaveBeenCalled();
   });
 
   it('reloads on a navigation when the server serves another build', async () => {
-    const { result } = renderHook(() => useSkewWithNavigate(), { wrapper });
-    act(() => {
-      void result.current('/hr');
-    });
+    const { rerender } = renderHook(() => useBuildSkewReload());
+    h.pathname = '/hr';
+    rerender();
     await settle();
     expect(h.fetchServedBuildId).toHaveBeenCalledTimes(1);
     expect(h.reload).toHaveBeenCalledTimes(1);
   });
 
   it('checks when the window regains focus, without reloading', async () => {
-    renderHook(() => useSkewWithNavigate(), { wrapper });
+    renderHook(() => useBuildSkewReload());
     act(() => {
       window.dispatchEvent(new Event('focus'));
     });
@@ -110,7 +107,7 @@ describe('useBuildSkewReload', () => {
       configurable: true,
       get: () => visibility,
     });
-    renderHook(() => useSkewWithNavigate(), { wrapper });
+    renderHook(() => useBuildSkewReload());
     act(() => {
       document.dispatchEvent(new Event('visibilitychange'));
     });
@@ -126,7 +123,7 @@ describe('useBuildSkewReload', () => {
   });
 
   it('reloads when shared-ui reports a GraphQL validation failure and the build changed', async () => {
-    renderHook(() => useSkewWithNavigate(), { wrapper });
+    renderHook(() => useBuildSkewReload());
     expect(h.validationListeners.size).toBe(1);
     act(() => {
       for (const listener of h.validationListeners) listener();
@@ -136,7 +133,7 @@ describe('useBuildSkewReload', () => {
   });
 
   it('stops listening when the shell unmounts', async () => {
-    const { unmount } = renderHook(() => useSkewWithNavigate(), { wrapper });
+    const { unmount } = renderHook(() => useBuildSkewReload());
     unmount();
     expect(h.unsubscribe).toHaveBeenCalledTimes(1);
     act(() => {

@@ -46,6 +46,7 @@ from aria_kernel.control_reachability import (
     unreachable_controls,
     unrostered_production_dirs,
 )
+from aria_kernel.finding_id_grammar import parse_finding_id
 from aria_kernel.surface_waivers import (
     DORMANT_CONTROL_MANIFEST,
     REQUIRED_WAIVER_FIELDS,
@@ -111,7 +112,7 @@ class ControlReachabilityTests(unittest.TestCase):
                     )
                 # Without an ID nothing gets worked — which is how twenty-five
                 # TypeScript waivers reached one shared expiry together.
-                self.assertRegex(entry["finding_id"], r"^[A-Z]+-(CRITICAL|HIGH|MEDIUM|LOW)-\d{3}$")
+                self.assertIsNotNone(parse_finding_id(entry["finding_id"]), f"waiver for {name}: not a finding id")
 
     def test_a_waiver_expires_against_the_clock_not_against_a_regex(self) -> None:
         # THE LESSON. `invariant-reachability.spec.ts` checked this field's

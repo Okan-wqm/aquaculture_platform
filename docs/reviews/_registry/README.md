@@ -246,7 +246,11 @@ the base holds extended only by appends. A break fails the build.
 
 Per `_shared/output-format.md`: `{PREFIX}-{SEVERITY}-{NNN}`. The schema is the
 authoritative prefix list; the allocator validates its complete output against
-that schema before writing.
+that schema before writing. `{NNN}` is three digits (001..999), then four with
+no leading zero (1000..9999); an existing three-digit id is never rewritten. The
+grammar has one owner per language (`tools/gates/finding-id-grammar.ts`,
+`aria-kernel/aria_kernel/finding_id_grammar.py`), both held to one table
+(`tools/gates/fixtures/finding-id-grammar-table.json`).
 
 ```text
 DATA SEC PLAT FE EDGE MT FARM SENSOR HR MSG ADMIN ANTI ADR AUDIT CTX INFRA PROC

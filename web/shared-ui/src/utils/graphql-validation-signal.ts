@@ -15,8 +15,12 @@
 /** The code the router answers a document that does not validate against the schema with. */
 export const GRAPHQL_VALIDATION_FAILED = 'GRAPHQL_VALIDATION_FAILED';
 
-/** One element of a GraphQL `errors` array, as far as this signal reads it. */
+/**
+ * One element of a GraphQL `errors` array: every one carries a `message` (GraphQL spec,
+ * "Response Format" → "Errors"); the signal reads only `extensions.code`.
+ */
 export interface ReportedGraphqlError {
+  readonly message: string;
   readonly extensions?: { readonly code?: unknown };
 }
 

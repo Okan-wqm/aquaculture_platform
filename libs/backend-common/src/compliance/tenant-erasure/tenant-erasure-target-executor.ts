@@ -3,6 +3,7 @@ import { createHash } from 'crypto';
 import { Logger } from '@nestjs/common';
 import {
   createBaseEvent,
+  restoreEventId,
   TenantDataErasedEvent,
   TenantDataErasureFailedEvent,
   TenantErasureBlockedEvent,
@@ -754,7 +755,7 @@ export class TenantErasureTargetExecutor {
   ): TenantDataErasedEvent {
     const erasedAt = this.isoFromRow(storedProof.erasedAt);
     return {
-      eventId: storedProof.eventId as TenantDataErasedEvent['eventId'],
+      eventId: restoreEventId(storedProof.eventId),
       eventType: tenantErasureOutcomeEventType(this.options.targetService, 'erased'),
       timestamp: erasedAt,
       tenantId: event.tenantId,

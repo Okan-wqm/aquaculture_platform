@@ -7,7 +7,8 @@ name: Closes Footer Check
 #   Every fix(), security(), or refactor(agentic,phase-*) commit MUST carry
 #   a `Closes: docs/reviews/<agent>/<date>-<topic>.md#<FINDING-ID>` trailer,
 #   AND the referenced review file must exist, AND the FINDING-ID must be
-#   present in docs/reviews/_registry/findings.jsonl.
+#   present in the registry (the frozen genesis segment findings.jsonl, or the
+#   event log of a finding registered after the freeze).
 #
 # Missing / unresolvable trailers fail the PR, preventing agent review
 # findings from silently rotting without resolution.
@@ -77,8 +78,11 @@ jobs:
       - name: "Validate Closes trailers"
         run: npx ts-node --project tools/gates/tsconfig.json tools/gates/commit-msg-validator.ts --mode=range "${{ steps.range.outputs.base }}" "${{ steps.range.outputs.head }}"
 
-      - name: Validate registry integrity (hash chain)
+      - name: Validate registry integrity (genesis pin, event chains, append-only)
         # The registry's own verifier: finding-registry-chain.ts is the one
         # implementation of the hash algebra. This step used to carry an
-        # inline third copy of it (MF-1, PROC-HIGH-039).
-        run: npx ts-node --project tools/gates/tsconfig.json tools/gates/finding-registry.ts verify
+        # inline third copy of it (MF-1, PROC-HIGH-039). --base holds every
+        # per-finding event log the base branch carries to append-only and
+        # its genesis pin to unchanged (MF-2): the PR's merge ref must extend
+        # the base's history of each finding, never rewrite it.
+        run: npx ts-node --project tools/gates/tsconfig.json tools/gates/finding-registry.ts verify --base="${{ steps.range.outputs.base }}"

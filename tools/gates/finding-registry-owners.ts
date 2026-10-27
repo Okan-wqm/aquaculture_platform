@@ -17,11 +17,11 @@
  * `finding-registry canonicalize-owner <spelling> --to=<handle> --reason=<why>`.
  *
  * WHERE IT APPLIES. `add` and `assign` store the canonical handle;
- * `ownerViolations` is part of the write sink (`refuseInvalidChangedRows`), so
- * any write that sets an owner (a new row, or a row whose owner this write
- * changes) must set a canonical one. A row whose legacy owner a write merely
- * carries (a sweep, a close) is left to the integrity invariant, which allows
- * only LEGACY_OWNER_SPELLINGS beside the handles.
+ * `ownerViolations` is part of the event sink (finding-registry-events.ts
+ * `appendFindingEvents`), so any event that sets an owner (a new finding, or an
+ * assignment or amendment of its owner) must set a canonical one. A row whose
+ * legacy owner an event merely carries (a sweep) is left to the integrity
+ * invariant, which allows only LEGACY_OWNER_SPELLINGS beside the handles.
  */
 
 import { readFileSync } from 'node:fs';
@@ -133,7 +133,7 @@ export type OwnerCanonicalizationOutcome =
  * Rewrites every row whose `owner_user` is exactly `spelling` to the canonical
  * handle, recording the change and its reason in `notes`; refuses without
  * touching anything when the target is not a handle or no reason is given. The
- * caller rechains from the first changed index, verifies and writes.
+ * caller records each changed row as an AMENDED event.
  */
 export function applyOwnerCanonicalization(
   entries: Finding[],

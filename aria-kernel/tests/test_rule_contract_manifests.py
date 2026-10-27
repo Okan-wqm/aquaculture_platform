@@ -78,7 +78,14 @@ class ShippedManifestsDeclareEveryRule(unittest.TestCase):
                 self.assertTrue(literal or derived, "no rule emission found in the adapter source")
                 declared = set(manifest["rules"]) - {DYNAMIC_RULE_KEY}
                 self.assertEqual(sorted(literal - declared), [], "emitted rules without a contract")
-                self.assertEqual(sorted(declared - literal), [], "contracts for rules the adapter never emits")
+                if not derived:
+                    self.assertEqual(sorted(declared - literal), [], "contracts for rules the adapter never emits")
+                # An adapter that derives its rule ids at run time (the lint-rules
+                # adapter: the ESLint rule id) has no literal to read them from, so
+                # the contracts it declares beside ``*`` cannot be checked against
+                # its source text. They are proven live where the rules really run:
+                # lint-rules-adapter.test.ts runs the engine over its policy fixture
+                # and asserts the declared set equals the set of rules that fired.
                 self.assertEqual(DYNAMIC_RULE_KEY in manifest["rules"], derived,
                                  "'*' is declared exactly when the adapter derives rule ids at run time")
 
@@ -88,6 +95,61 @@ class ShippedManifestsDeclareEveryRule(unittest.TestCase):
         self.assertIsNotNone(contract)
         assert contract is not None
         self.assertEqual((contract.claim_type, contract.severity_cap), ("absence_in_scope", "LOW"))
+
+
+class LintRulesPolicyPackStatesItsOwnPremise(unittest.TestCase):
+    """ARIA-DET Z-B1 step 1 — a repository-policy rule is judged on the policy, not on the generic claim.
+
+    The ``*`` contract of lint-rules-adapter says a true positive is "not a
+    style preference the codebase allows". For a console call in a project
+    whose developer lint allows it, a judge would rightly refute that, yet
+    CLAUDE.md forbids the construct everywhere: ``console.*``, ``as any`` and
+    ``as unknown as X``. The rules that carry that policy therefore declare
+    their own entry (an exact key is preferred over ``*``), whose premises
+    name the policy, and keep the mechanical observable ``*`` has, because an
+    entry that replaced ``*`` without one would be refused at tier-0 as
+    ``claim_not_falsifiable``. That the entries and the rules that really
+    fire are the same set is pinned where the engine runs
+    (lint-rules-adapter.test.ts).
+    """
+
+    POLICY_RULES = (
+        "no-console",
+        "@typescript-eslint/no-explicit-any",
+        "aria-policy/no-double-type-assertion",
+    )
+    GENERIC_PREMISE = "style preference the codebase allows"
+
+    def setUp(self) -> None:
+        self.manifest = json.loads((ADAPTERS / "lint-rules-adapter.tool.json").read_text(encoding="utf-8"))
+
+    def test_each_policy_rule_declares_an_entry_of_its_own(self) -> None:
+        for rule in self.POLICY_RULES:
+            with self.subTest(rule=rule):
+                self.assertIn(rule, self.manifest["rules"], "the rule falls back to the generic ``*`` contract")
+                self.assertNotEqual(self.manifest["rules"][rule], self.manifest["rules"][DYNAMIC_RULE_KEY])
+
+    def test_a_policy_premise_names_the_repository_policy_and_not_the_generic_claim(self) -> None:
+        for rule in self.POLICY_RULES:
+            with self.subTest(rule=rule):
+                contract = contract_for_tool(self.manifest, rule)
+                assert contract is not None
+                self.assertTrue(
+                    any("CLAUDE.md" in premise for premise in contract.premises),
+                    f"no premise of {rule} says that CLAUDE.md forbids the construct: {contract.premises}",
+                )
+                self.assertFalse(
+                    any(self.GENERIC_PREMISE in premise for premise in contract.premises),
+                    f"{rule} repeats the generic premise a judge would refute for a policy rule",
+                )
+
+    def test_a_policy_rule_keeps_the_mechanical_observable_of_the_lint_family(self) -> None:
+        for rule in self.POLICY_RULES:
+            with self.subTest(rule=rule):
+                self.assertIn(rule, self.manifest["rules"], "the rule has no entry of its own to carry one")
+                self.assertEqual(
+                    self.manifest["rules"][rule].get("observable"), {"kind": "cited_line_bytes_at_sha"},
+                )
 
 
 def _contract(**overrides: object) -> dict:

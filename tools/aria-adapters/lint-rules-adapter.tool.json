@@ -57,6 +57,42 @@
       "observable": {
         "kind": "cited_line_bytes_at_sha"
       }
+    },
+    "no-console": {
+      "claim_type": "wrong_code",
+      "severity_cap": "MEDIUM",
+      "defect_claim": "The cited line calls a console method in backend code, which CLAUDE.md forbids; the message belongs on the NestJS Logger.",
+      "premises": [
+        "CLAUDE.md forbids console.* in backend code (apps, libs, platform/libs) and requires the NestJS Logger, whatever the project's own lint allows.",
+        "The cited line calls a method of the global console object, in code that runs (not a test fixture, a generated file, a string or a comment)."
+      ],
+      "observable": {
+        "kind": "cited_line_bytes_at_sha"
+      }
+    },
+    "@typescript-eslint/no-explicit-any": {
+      "claim_type": "wrong_code",
+      "severity_cap": "MEDIUM",
+      "defect_claim": "The cited line types a value as any in backend code, which switches the type checker off for that value; CLAUDE.md forbids it.",
+      "premises": [
+        "CLAUDE.md forbids escaping the type system with any (`as any` is named FORBIDDEN: fix the type or write a generic), whatever the project's own lint allows.",
+        "The cited line is a TypeScript type position that names any (an annotation, an assertion or a type argument), in code that runs (not a test fixture, a generated file, a string or a comment)."
+      ],
+      "observable": {
+        "kind": "cited_line_bytes_at_sha"
+      }
+    },
+    "aria-policy/no-double-type-assertion": {
+      "claim_type": "wrong_code",
+      "severity_cap": "MEDIUM",
+      "defect_claim": "The cited line asserts a value through unknown to another type in backend code, which switches the type checker off for that value; CLAUDE.md forbids it.",
+      "premises": [
+        "CLAUDE.md forbids `as unknown as X` (fix the type or write a generic), whatever the project's own lint allows.",
+        "The cited line asserts an expression to unknown and then to another type, in code that runs (not a test fixture, a generated file, a string or a comment)."
+      ],
+      "observable": {
+        "kind": "cited_line_bytes_at_sha"
+      }
     }
   },
   "owner": "platform",
@@ -72,6 +108,7 @@
     "cwd": ".",
     "repo_local_dependencies": [
       "node_modules/eslint/package.json",
+      "node_modules/@typescript-eslint/eslint-plugin/package.json",
       "node_modules/@typescript-eslint/parser/package.json",
       "node_modules/eslint-plugin-security/package.json",
       "node_modules/eslint-plugin-sonarjs/package.json"

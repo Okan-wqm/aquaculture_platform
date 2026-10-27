@@ -256,7 +256,7 @@ export const TagWatchPanel: React.FC<TagWatchPanelProps> = ({ tagBus, defaultExp
       key: 'value',
       header: 'Value',
       render: (_value, entry) => (
-        <span className="font-mono text-gray-700 dark:text-gray-300">
+        <span className="tabular-nums text-gray-700 dark:text-gray-300">
           {formatValue(entry.value)}
         </span>
       ),
@@ -281,7 +281,7 @@ export const TagWatchPanel: React.FC<TagWatchPanelProps> = ({ tagBus, defaultExp
       header: 'Last Update',
       align: 'right',
       render: (_value, entry) => (
-        <span className="font-mono text-gray-500 dark:text-gray-400">
+        <span className="tabular-nums text-gray-500 dark:text-gray-400">
           {formatTimestamp(entry.lastUpdate)}
         </span>
       ),

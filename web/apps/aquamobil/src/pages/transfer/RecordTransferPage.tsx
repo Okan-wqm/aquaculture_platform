@@ -217,18 +217,18 @@ export function RecordTransferPage(): JSX.Element {
               </div>
               <CardDivider />
               <div className="flex justify-between items-center">
-                {/* The headline figure is a machine value, so it is set in mono
-                    and carries the transfer hue — the same hue the summary
-                    heading and the direction glyph wear. */}
+                {/* The headline figure is set with tabular digits and carries
+                    the transfer hue — the same hue the summary heading and the
+                    direction glyph wear. */}
                 <span className="text-body text-ink-2">Quantity</span>
-                <span className="text-head font-mono font-bold tabular-nums text-type-transfer">
+                <span className="text-head font-bold tabular-nums text-type-transfer">
                   {qty.toLocaleString()} pcs
                 </span>
               </div>
               {avgWeightG && (
                 <div className="flex justify-between items-center">
                   <span className="text-body text-ink-2">Avg weight</span>
-                  <span className="font-semibold font-mono tabular-nums text-ink-1">
+                  <span className="font-semibold tabular-nums text-ink-1">
                     {parseFloat(avgWeightG).toFixed(1)} g/fish
                   </span>
                 </div>

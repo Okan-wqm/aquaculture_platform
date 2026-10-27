@@ -140,13 +140,13 @@ export function RecordMortalityPage(): JSX.Element {
           <SummaryRow label="Tank" value={selectedTank?.name} />
           <SummaryRow label="Batch" value={metrics?.batchNumber ?? '--'} />
           <SummaryDivider />
-          {/* The count is the record's headline figure and a machine value, so
-              it is set in mono and carries the mortality hue — the same hue the
+          {/* The count is the record's headline figure, so it is set in
+              tabular figures and carries the mortality hue — the same hue the
               icon bubble and the summary heading wear. */}
           <SummaryRow
             label="Dead Fish"
             value={quantity}
-            valueClass="text-head font-mono font-bold tabular-nums text-type-mortality"
+            valueClass="text-head font-bold tabular-nums text-type-mortality"
           />
           <SummaryRow
             label="Reason"

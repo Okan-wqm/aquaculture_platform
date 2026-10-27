@@ -96,7 +96,7 @@ function RiskGauge({ score }: { score: number }): ReactElement {
       </svg>
       {/* WHY: Centered score number inside the ring — the most prominent element on the card */}
       <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className={clsx('text-display font-mono font-bold tabular-nums', tone.text)}>
+        <span className={clsx('text-display font-bold tabular-nums', tone.text)}>
           <Approx />
           {score}
         </span>

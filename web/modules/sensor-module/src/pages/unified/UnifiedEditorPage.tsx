@@ -1102,7 +1102,7 @@ const UnifiedEditorPage: React.FC = () => {
                     </Button>
                   </div>
                   <div className="flex-1 p-3 overflow-auto">
-                    <p className="text-xs text-gray-500 dark:text-gray-400 font-mono">
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
                       Output will appear here...
                     </p>
                   </div>

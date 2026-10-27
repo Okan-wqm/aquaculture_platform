@@ -11,9 +11,19 @@
  *   - readThroughOfflineCache(scope, { key, ttlMs }, load) runs `load` and keeps an encrypted
  *     copy under the caller's scope (offline-cache-scope.ts: tenant + user + moduleAccess
  *     fingerprint). On failure it asks request-failure.ts why:
- *       unreachable → serve the scope's copy, flagged `servedFromCache`, or rethrow when none;
- *       refused     → purge every entry of this tenant and user, then rethrow;
- *       failed      → rethrow, cache untouched.
+ *       unreachable     → serve the scope's copy, flagged `servedFromCache`, or rethrow when
+ *                         none;
+ *       session-refused → purge every entry of this tenant and user, then rethrow: the server
+ *                         refused the session (UNAUTHENTICATED, HTTP 401);
+ *       read-refused    → purge this read's own entry, then rethrow: the server refused this
+ *                         read (FORBIDDEN, HTTP 403) and nothing else. A FORBIDDEN is answered
+ *                         per resolver — a farm-only worker is refused every sensor read
+ *                         (ADR-051 §4) while the tank screen polls live readings — so purging
+ *                         the caller on it emptied the farm copies the worker needs when the
+ *                         signal drops. A revoked grant still leaves nothing readable: the next
+ *                         token carries another moduleAccess, so another scope, and
+ *                         retainOnlyCacheScope deletes the old one;
+ *       failed          → rethrow, cache untouched.
  *     Without a scope it only runs `load`. A copy the device cannot store does not fail the
  *     read: the network answer is authoritative, the copy a convenience.
  *   - retainOnlyCacheScope(scope) deletes every entry outside the current scope; the app runs
@@ -125,8 +135,10 @@ export async function readThroughOfflineCache<T>(
     data = await load();
   } catch (error) {
     const failure = classifyRequestFailure(error);
-    if (failure === 'refused') {
+    if (failure === 'session-refused') {
       await purgeCallerEntries(scope);
+    } else if (failure === 'read-refused') {
+      await del(storeKey, cacheStore);
     } else if (failure === 'unreachable') {
       const cached = await readEntry<T>(storeKey);
       if (cached !== null) return { data: cached, servedFromCache: true };

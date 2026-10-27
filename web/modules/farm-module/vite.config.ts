@@ -3,6 +3,7 @@ import { resolve } from 'path';
 import { getSharedConfigWithRecharts } from '@aquaculture/shared-ui/federation/federationSharedConfig';
 import { sharedUiAlias } from '../../shared-ui/src/federation/sharedUiAlias';
 import { unresolvedAssetUrlGate } from '../../shared-ui/src/federation/unresolvedAssetUrlGate';
+import { buildManifestPlugin } from '../../shared-ui/src/federation/buildManifestPlugin';
 import { federation } from '@module-federation/vite';
 import react from '@vitejs/plugin-react';
 import { type PluginOption } from 'vite';
@@ -25,6 +26,9 @@ export default defineConfig(({ mode }) => {
     plugins: [
       createReactPlugin(),
       unresolvedAssetUrlGate(),
+      // FE-MEDIUM-380: exports this build's id from remoteEntry.js and serves it in
+      // build-manifest.json, so an open console tab reloads onto a new deploy of this remote.
+      buildManifestPlugin({ kind: 'remote', entry: 'remoteEntry.js' }),
       federation({
         dts: false,
         name: 'farmModule',

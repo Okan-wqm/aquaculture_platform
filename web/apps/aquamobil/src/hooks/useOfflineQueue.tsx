@@ -6,7 +6,6 @@ import { useNetworkStatus } from './useNetworkStatus';
 import { useRetainOfflineCacheScope } from './useOfflineCacheScope';
 
 import { REQUEST_MEDIA_UPLOAD, SEND_MESSAGE } from '@/graphql/messaging-operations';
-import { GraphQLReplayError } from '@/pwa/graphql-replay-error';
 import {
   queueOperation,
   getPendingOperations,
@@ -24,7 +23,7 @@ import {
   getLeaveSubmitFollowUp,
 } from '@/pwa/operation-registry';
 import { QUEUE_DRAIN_LOCK } from '@/pwa/sw-replay';
-import { authenticatedFetch, graphqlRequest } from '@/services/authenticated-fetch';
+import { replayDocument, replayOperation } from '@/services/replay-request';
 import type {
   QueuedOperation,
   OperationType,
@@ -33,7 +32,6 @@ import type {
   QueuedPayload,
   UploadAndSendMessageOfflinePayload,
 } from '@/types';
-import { readGraphQLResponse } from '@/utils/graphql-response';
 import { recordLastSyncAt } from '@/utils/last-sync';
 import { logger } from '@/utils/logger';
 import { applyOptimisticKpiBump } from '@/utils/offline-optimistic';
@@ -88,8 +86,9 @@ const OfflineContext = createContext<OfflineContextValue | null>(null);
  * idempotencyKey makes that retry at-most-once on the server. Throws on any
  * failure so syncOperation marks the op failed (and retries with backoff).
  *
- * Auth + tenant headers are injected by graphqlRequest/authenticatedFetch, so
- * this replay is tenant-scoped exactly like every other synced op.
+ * Auth + tenant headers are injected by authenticatedFetch (replay-request.ts),
+ * so this replay is tenant-scoped exactly like every other synced op, and a
+ * rejection keeps the server's code like every other replay (PKG-42).
  */
 async function replayUploadAndSendMessage(
   payload: UploadAndSendMessageOfflinePayload,
@@ -104,7 +103,7 @@ async function replayUploadAndSendMessage(
   }
 
   // Step 1: presigned PUT URL.
-  const presign = await graphqlRequest(
+  const presign = await replayDocument(
     REQUEST_MEDIA_UPLOAD,
     {
       input: {
@@ -129,7 +128,7 @@ async function replayUploadAndSendMessage(
 
   // Step 3: send the message referencing the uploaded object. The stable
   // idempotencyKey makes this safe to retry after a lost response.
-  const sent = await graphqlRequest(SEND_MESSAGE, {
+  const sent = await replayDocument(SEND_MESSAGE, {
     input: {
       channelId: payload.channelId,
       content: null,
@@ -296,55 +295,31 @@ export function OfflineProvider({ children }: { children: ReactNode }): ReactEle
       const mutationType = type;
       const variables = buildOperationVariables(mutationType, payload);
 
-      // MSG-CRITICAL-057 / MSG-HIGH-060: route replay through authenticatedFetch —
-      // the ONE auth lane (auth-ready barrier + single-flight 401 refresh, reading
-      // the current token from the auth store, not a stale React closure). The
-      // previous raw fetch used the closure's accessToken and had no 401 refresh,
-      // while syncNow separately called refreshAuth() before the batch — two
-      // uncoalesced refresh-token rotations that tripped reuse-detection and
-      // force-logged-out mid-sync, wiping the whole offline queue. Headers
-      // (Content-Type, Authorization, X-Tenant-Id, X-Requested-With) are injected
-      // by authenticatedFetch, so a mid-batch token rotation is transparent.
-      const response = await authenticatedFetch('/graphql', {
-        method: 'POST',
-        body: JSON.stringify({
-          query: OPERATION_MUTATIONS[mutationType],
-          variables,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error: ${response.status}`);
-      }
-
-      // MOB-CRITICAL-021 class: keep the server's `extensions.code` so the
-      // queue classifies the failure by contract, not by message text.
-      const result = await readGraphQLResponse<unknown>(response);
-
-      if (result.errors && result.errors.length > 0) {
-        throw GraphQLReplayError.fromEnvelope(result.errors);
-      }
+      // MSG-CRITICAL-057 / MSG-HIGH-060: replay goes through authenticatedFetch
+      // (replay-request.ts) — the ONE auth lane (auth-ready barrier + single-flight
+      // 401 refresh, reading the current token from the auth store, not a stale
+      // React closure). The previous raw fetch used the closure's accessToken and
+      // had no 401 refresh, while syncNow separately called refreshAuth() before
+      // the batch — two uncoalesced refresh-token rotations that tripped
+      // reuse-detection and force-logged-out mid-sync, wiping the whole offline
+      // queue. Headers (Content-Type, Authorization, X-Tenant-Id,
+      // X-Requested-With) are injected by authenticatedFetch, so a mid-batch token
+      // rotation is transparent.
+      //
+      // MOB-CRITICAL-021 class / PKG-42: the answer is read by replay-response.ts,
+      // which keeps the server's `extensions.code` on every rejection — a 400
+      // GRAPHQL_VALIDATION_FAILED or BAD_USER_INPUT included — so the queue
+      // classifies it by contract and the Sync Status page lists it for re-entry.
+      const data = await replayOperation(OPERATION_MUTATIONS[mutationType], variables);
 
       // createLeaveRequest chains an immediate submit (shared registry helper —
       // throws when the created id is missing, so the op surfaces as failed).
-      const followUp = getLeaveSubmitFollowUp(type, result.data);
+      const followUp = getLeaveSubmitFollowUp(type, data);
       if (followUp) {
-        const submitResponse = await authenticatedFetch('/graphql', {
-          method: 'POST',
-          body: JSON.stringify(followUp),
-        });
-
-        if (!submitResponse.ok) {
-          throw new Error(`HTTP error: ${submitResponse.status}`);
-        }
-
-        const submitResult = await readGraphQLResponse<unknown>(submitResponse);
-        if (submitResult.errors && submitResult.errors.length > 0) {
-          throw GraphQLReplayError.fromEnvelope(submitResult.errors);
-        }
+        await replayOperation(followUp.query, followUp.variables);
       }
 
-      return result.data;
+      return data;
     },
     [accessToken, tenantId, user]
   );

@@ -14,12 +14,12 @@
  */
 import type { Query } from '@tanstack/react-query';
 
-import { classifyRequestFailure } from './request-failure';
+import { classifyRequestFailure, isRefusal } from './request-failure';
 
 export function dropRefusedQueryData(
   error: unknown,
   query: Query<unknown, unknown, unknown>,
 ): void {
-  if (classifyRequestFailure(error) !== 'refused') return;
+  if (!isRefusal(classifyRequestFailure(error))) return;
   query.setState({ data: undefined, dataUpdatedAt: 0 });
 }

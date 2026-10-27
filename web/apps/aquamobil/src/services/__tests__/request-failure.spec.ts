@@ -3,10 +3,13 @@
  *
  * The cache was a fallback for outages, but every hook served it from one catch-all, so the
  * server's own refusal — FORBIDDEN, UNAUTHENTICATED — put the cached copy on screen exactly as
- * an outage did. The classifier separates three verdicts:
+ * an outage did. The classifier separates four verdicts:
  *   - unreachable: no answer reached the device (the network, or an edge reporting the gateway
  *     down with a 5xx): the cached copy may stand in;
- *   - refused: the server answered and refused the caller: the cache must go;
+ *   - session-refused: the server refused the session (UNAUTHENTICATED, HTTP 401): nothing
+ *     cached for the caller may stay;
+ *   - read-refused: the server refused this read to a live session (FORBIDDEN, HTTP 403): what
+ *     the read cached must go, and only that — a FORBIDDEN is answered per resolver (ADR-051 §4);
  *   - failed: anything else (bad input, a bug, a 4xx): the error surfaces, the cache stays put.
  */
 import { describe, expect, it } from 'vitest';
@@ -16,6 +19,7 @@ import {
   HttpStatusError,
   NetworkUnreachableError,
   classifyRequestFailure,
+  isRefusal,
 } from '../request-failure';
 
 function graphqlError(...codes: (string | undefined)[]): GraphQLError {
@@ -38,8 +42,12 @@ describe('classifyRequestFailure', () => {
     expect(classifyRequestFailure(new HttpStatusError(status))).toBe('unreachable');
   });
 
-  it.each([401, 403])('reads an HTTP %i as the server refusing the caller', (status) => {
-    expect(classifyRequestFailure(new HttpStatusError(status))).toBe('refused');
+  it('reads an HTTP 401 as the server refusing the session', () => {
+    expect(classifyRequestFailure(new HttpStatusError(401))).toBe('session-refused');
+  });
+
+  it('reads an HTTP 403 as the server refusing this read', () => {
+    expect(classifyRequestFailure(new HttpStatusError(403))).toBe('read-refused');
   });
 
   it.each([400, 404, 409, 429])(
@@ -49,12 +57,34 @@ describe('classifyRequestFailure', () => {
     },
   );
 
-  it.each(['FORBIDDEN', 'UNAUTHENTICATED'])('reads a GraphQL %s as a refusal', (code) => {
-    expect(classifyRequestFailure(graphqlError(code))).toBe('refused');
+  it('reads a GraphQL UNAUTHENTICATED as the server refusing the session', () => {
+    expect(classifyRequestFailure(graphqlError('UNAUTHENTICATED'))).toBe('session-refused');
+  });
+
+  it('reads a GraphQL FORBIDDEN as the server refusing this read', () => {
+    expect(classifyRequestFailure(graphqlError('FORBIDDEN'))).toBe('read-refused');
   });
 
   it('reads a refusal anywhere in the errors array as a refusal', () => {
-    expect(classifyRequestFailure(graphqlError('BAD_USER_INPUT', 'FORBIDDEN'))).toBe('refused');
+    expect(classifyRequestFailure(graphqlError('BAD_USER_INPUT', 'FORBIDDEN'))).toBe(
+      'read-refused',
+    );
+    expect(classifyRequestFailure(graphqlError('BAD_USER_INPUT', 'UNAUTHENTICATED'))).toBe(
+      'session-refused',
+    );
+  });
+
+  it('reads a refused session over a refused read when the errors array carries both', () => {
+    expect(classifyRequestFailure(graphqlError('FORBIDDEN', 'UNAUTHENTICATED'))).toBe(
+      'session-refused',
+    );
+  });
+
+  it('counts both refusals, and nothing else, as the server refusing the caller', () => {
+    expect(isRefusal('session-refused')).toBe(true);
+    expect(isRefusal('read-refused')).toBe(true);
+    expect(isRefusal('unreachable')).toBe(false);
+    expect(isRefusal('failed')).toBe(false);
   });
 
   it.each([

@@ -6,9 +6,14 @@
  * screen exactly as an outage did. The one read path now:
  *   - keys every entry by tenant + user + the moduleAccess fingerprint (offline-cache-scope.ts);
  *   - serves the cached copy only when the server could not be reached;
- *   - purges the caller's entries when the server refuses the caller;
+ *   - purges the caller's entries when the server refuses the session (UNAUTHENTICATED, 401);
+ *   - purges only the refused read's entry when the server refuses one read (FORBIDDEN, 403):
+ *     a FORBIDDEN is answered per resolver — a farm-only worker is refused every sensor read
+ *     (ADR-051 §4) while the tank screen polls live readings — and must not empty the farm
+ *     copies that worker needs when the signal drops;
  *   - lets the error surface, cache untouched, for every other failure;
- * and the app keeps only the current scope on the device (retainOnlyCacheScope).
+ * and the app keeps only the current scope on the device (retainOnlyCacheScope), so a token
+ * whose grants changed leaves nothing cached under the old grants readable.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -136,10 +141,8 @@ describe('readThroughOfflineCache', () => {
     );
   });
 
-  it('never serves the cache when the server answers FORBIDDEN, and purges the caller’s entries', async () => {
+  it('never serves the cache when the server answers FORBIDDEN, and purges that read’s entry', async () => {
     await seed(FARM_USER, TANKS);
-    await seed(FARM_USER, [{ id: 'alarm-1' }], 'alerts');
-    await seed(OTHER_USER, TANKS);
 
     await expect(
       readThroughOfflineCache(FARM_USER, READ, () => Promise.reject(forbidden())),
@@ -149,24 +152,47 @@ describe('readThroughOfflineCache', () => {
     await expect(readThroughOfflineCache(FARM_USER, READ, offline)).rejects.toBeInstanceOf(
       NetworkUnreachableError,
     );
-    await expect(
-      readThroughOfflineCache(FARM_USER, { key: 'alerts', ttlMs: READ.ttlMs }, offline),
-    ).rejects.toBeInstanceOf(NetworkUnreachableError);
-    // Another user of the device keeps theirs.
-    expect(h.store.has(`cache_${OTHER_USER.keyPrefix}tanks`)).toBe(true);
   });
 
-  it('purges on UNAUTHENTICATED and on an HTTP 401 or 403 too', async () => {
+  it('keeps the caller’s other entries servable when one read is refused (a farm-only worker’s sensor poll)', async () => {
+    await seed(FARM_USER, TANKS);
+    await seed(FARM_USER, [{ id: 'reading-1' }], 'readings_t1');
+
+    for (const refusal of [forbidden(), new HttpStatusError(403)]) {
+      await expect(
+        readThroughOfflineCache(FARM_USER, { key: 'readings_t1', ttlMs: READ.ttlMs }, () =>
+          Promise.reject(refusal),
+        ),
+      ).rejects.toBe(refusal);
+    }
+
+    // The signal drops: the tanks the worker read are still on the device.
+    await expect(readThroughOfflineCache(FARM_USER, READ, offline)).resolves.toEqual({
+      data: TANKS,
+      servedFromCache: true,
+    });
+    await expect(
+      readThroughOfflineCache(FARM_USER, { key: 'readings_t1', ttlMs: READ.ttlMs }, offline),
+    ).rejects.toBeInstanceOf(NetworkUnreachableError);
+  });
+
+  it('purges every entry of the caller when the session is refused (UNAUTHENTICATED, HTTP 401)', async () => {
     for (const refusal of [
       new GraphQLError([{ message: 'Unauthorized', extensions: { code: 'UNAUTHENTICATED' } }]),
       new HttpStatusError(401),
-      new HttpStatusError(403),
     ]) {
       await seed(FARM_USER, TANKS);
+      await seed(FARM_USER, [{ id: 'alarm-1' }], 'alerts');
+      await seed(OTHER_USER, TANKS);
+
       await expect(
         readThroughOfflineCache(FARM_USER, READ, () => Promise.reject(refusal)),
       ).rejects.toBe(refusal);
+
       expect(h.store.has(`cache_${FARM_USER.keyPrefix}tanks`)).toBe(false);
+      expect(h.store.has(`cache_${FARM_USER.keyPrefix}alerts`)).toBe(false);
+      // Another user of the device keeps theirs.
+      expect(h.store.has(`cache_${OTHER_USER.keyPrefix}tanks`)).toBe(true);
     }
   });
 
@@ -189,6 +215,21 @@ describe('readThroughOfflineCache', () => {
     await expect(readThroughOfflineCache(FARM_USER_REVOKED, READ, offline)).rejects.toBeInstanceOf(
       NetworkUnreachableError,
     );
+  });
+
+  it('leaves no farm entry servable once the token’s moduleAccess drops farm', async () => {
+    await seed(FARM_USER, TANKS);
+    await seed(FARM_USER, [{ id: 'plan-1' }], 'day_plans');
+
+    // The next token's scope is the only one the app keeps (useRetainOfflineCacheScope).
+    await retainOnlyCacheScope(FARM_USER_REVOKED);
+
+    for (const key of ['tanks', 'day_plans']) {
+      await expect(
+        readThroughOfflineCache(FARM_USER_REVOKED, { key, ttlMs: READ.ttlMs }, offline),
+      ).rejects.toBeInstanceOf(NetworkUnreachableError);
+    }
+    expect(h.store.size).toBe(0);
   });
 
   it("never serves one user's entry to another user of the same tenant", async () => {

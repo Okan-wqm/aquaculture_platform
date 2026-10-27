@@ -13,31 +13,17 @@
  *
  * The import path `import { graphqlFetch } from '../config/api'` is preserved
  * so existing hooks don't need to change their imports.
+ *
+ * FE-MEDIUM-380: it is the module's ONLY GraphQL transport. Five hooks and the
+ * SCADA batch read kept their own raw fetch copies against the endpoint; besides the
+ * barrier and refresh above, those never reported a GRAPHQL_VALIDATION_FAILED
+ * to the shell's build-skew check (shared-ui graphql-validation-signal.ts), so
+ * a tab running a stale sensor-module build did not reload on it. The endpoint
+ * constant and the header builder they used are gone with them;
+ * tests/invariants/web-no-raw-graphql-rest-fetch.spec.ts catches a new copy.
  */
 
-import { graphqlClient, getAccessToken, getTenantId } from '@aquaculture/shared-ui';
-
-// GraphQL API endpoint — used by the shared client under the hood.
-// Safety guard: if a localhost URL was embedded at build-time but we're running
-// on a remote host, fall back to relative '/graphql' to avoid CSP violations.
-const envUrl = import.meta.env.VITE_GRAPHQL_URL || import.meta.env.VITE_API_URL;
-const isRemoteWithLocalUrl = envUrl?.includes('localhost') &&
-  typeof window !== 'undefined' && window.location.hostname !== 'localhost';
-export const API_URL = (!envUrl || isRemoteWithLocalUrl) ? '/graphql' : envUrl;
-
-/**
- * Auth headers — kept for non-GraphQL REST calls (e.g., file uploads).
- */
-export function getAuthHeaders(): Record<string, string> {
-  const token = getAccessToken();
-  const tenantId = getTenantId();
-
-  return {
-    'Content-Type': 'application/json',
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    ...(tenantId ? { 'X-Tenant-Id': tenantId } : {}),
-  };
-}
+import { graphqlClient } from '@aquaculture/shared-ui';
 
 /**
  * GraphQL fetch — delegates to the shared graphqlClient.

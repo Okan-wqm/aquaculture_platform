@@ -61,7 +61,8 @@ vi.mock('@/utils/logger', () => ({
 // AES-GCM needs real WebCrypto in the node test env.
 vi.stubGlobal('crypto', webcrypto);
 
-import { getPendingOperations, queueOperation } from '../offline-queue';
+import { getPendingOperations, isPermanentlyFailed, queueOperation } from '../offline-queue';
+import { isRejectedReplay } from '../rejected-replays';
 import { handleBackgroundSyncEvent, type BackgroundSyncScope } from '../sw-replay';
 
 import type { QueuedPayload } from '@/types';
@@ -410,5 +411,50 @@ describe('handleBackgroundSyncEvent (MOB-MEDIUM-002)', () => {
       .filter((call) => JSON.stringify(call).includes('RecordMortality'));
     expect(replayPostsAfter).toHaveLength(0);
     expect((await getPendingOperations(TENANT_A))[0]?.retryCount).toBe(1);
+  });
+
+  // PKG-42 (ADR-051 C6): the gateway answers a stale document with HTTP 400 and
+  // GRAPHQL_VALIDATION_FAILED, and an uncoercible variable with HTTP 400 and BAD_USER_INPUT. The
+  // lane read the status before the body and recorded no code, so the op burned five retries and
+  // was never listed for re-entry.
+  it.each(['GRAPHQL_VALIDATION_FAILED', 'BAD_USER_INPUT'])(
+    'an HTTP 400 rejection coded %s keeps its code, is not retried and is listed for re-entry',
+    async (code) => {
+      await queueOperation(TENANT_A, 'recordMortality', mortalityPayload());
+      fetchMock.mockResolvedValueOnce(refreshResponse(TENANT_A)).mockResolvedValue(
+        new Response(JSON.stringify({ errors: [{ message: 'rejected', extensions: { code } }] }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      );
+
+      await handleBackgroundSyncEvent(fakeSw().sw);
+
+      const [rejected, ...others] = await getPendingOperations(TENANT_A);
+      expect(others).toHaveLength(0);
+      if (rejected === undefined) throw new Error('the rejected replay left the queue');
+      expect(rejected.status).toBe('failed');
+      expect(rejected.retryCount).toBe(1);
+      expect(rejected.lastErrorCode).toBe(code);
+      expect(isPermanentlyFailed(rejected)).toBe(true);
+      expect(isRejectedReplay(rejected)).toBe(true);
+    },
+  );
+
+  it('an edge error page (HTTP 502) stays a code-less failure the queue retries', async () => {
+    await queueOperation(TENANT_A, 'recordMortality', mortalityPayload());
+    fetchMock
+      .mockResolvedValueOnce(refreshResponse(TENANT_A))
+      .mockResolvedValue(new Response('<html>502 Bad Gateway</html>', { status: 502 }));
+
+    await handleBackgroundSyncEvent(fakeSw().sw);
+
+    const [failed] = await getPendingOperations(TENANT_A);
+    if (failed === undefined) throw new Error('the failed replay left the queue');
+    expect(failed.status).toBe('failed');
+    expect(failed.lastError).toBe('HTTP error: 502');
+    expect(failed.lastErrorCode).toBeUndefined();
+    expect(isPermanentlyFailed(failed)).toBe(false);
+    expect(isRejectedReplay(failed)).toBe(false);
   });
 });

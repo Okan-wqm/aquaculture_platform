@@ -13,7 +13,7 @@ const RUNNING = '1'.repeat(64);
 const SERVED = '2'.repeat(64);
 
 const h = vi.hoisted(() => ({
-  fetchServedBuildId: vi.fn<() => Promise<string | null>>(),
+  fetchServedBuildId: vi.fn<(manifestUrl: string) => Promise<string | null>>(),
   reload: vi.fn<() => void>(),
   validationListeners: new Set<() => void>(),
   unsubscribe: vi.fn<() => void>(),
@@ -32,7 +32,7 @@ vi.mock('../buildSkew', async (importOriginal) => {
   return {
     ...actual,
     browserBuildSkewDeps: (): BuildSkewDeps => ({
-      runningBuildId: RUNNING,
+      runningParts: () => [{ manifestUrl: '/build-manifest.json', buildId: RUNNING }],
       fetchServedBuildId: h.fetchServedBuildId,
       reload: h.reload,
       now: () => Date.now(),

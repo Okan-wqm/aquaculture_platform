@@ -14,16 +14,26 @@
  *     it); the message stays `HTTP error: <status>`.
  *   - GraphQLError: a GraphQL `errors` array, with the server's codes.
  *   - classifyRequestFailure:
- *       unreachable — the network, or a 5xx from the edge (the gateway down or failing before
- *                     it judged the caller): the cached copy may stand in;
- *       refused     — HTTP 401/403, or a GraphQL FORBIDDEN / UNAUTHENTICATED anywhere in the
- *                     errors array: the server judged the caller, the cache must go;
- *       failed      — everything else (bad input, another 4xx, a programming error): surfaces
- *                     as an error; the cache neither stands in nor goes.
+ *       unreachable     — the network, or a 5xx from the edge (the gateway down or failing
+ *                         before it judged the caller): the cached copy may stand in;
+ *       session-refused — HTTP 401, or a GraphQL UNAUTHENTICATED anywhere in the errors array:
+ *                         the server refused the session itself, so nothing cached for the
+ *                         caller may stay;
+ *       read-refused    — HTTP 403, or a GraphQL FORBIDDEN anywhere in the errors array: the
+ *                         server refused this read to a live session. Only what the read itself
+ *                         cached must go — a FORBIDDEN is answered per resolver (ADR-051 §4: a
+ *                         farm-only worker is refused every sensor read), so it says nothing
+ *                         about the caller's other reads; a grant change mints a token in
+ *                         another cache scope (offline-cache-scope.ts) and a dead session is
+ *                         refused as a session;
+ *       failed          — everything else (bad input, another 4xx, a programming error):
+ *                         surfaces as an error; the cache neither stands in nor goes.
+ *   - isRefusal: either refusal — the server judged the caller and the screen must not keep
+ *     what it refused.
  */
 import type { GraphQLErrorPayload } from '@/utils/graphql-response';
 
-export type RequestFailure = 'unreachable' | 'refused' | 'failed';
+export type RequestFailure = 'unreachable' | 'session-refused' | 'read-refused' | 'failed';
 
 /** `fetch` rejected: offline, DNS, a dropped connection. */
 export class NetworkUnreachableError extends Error {
@@ -58,21 +68,27 @@ export class GraphQLError extends Error {
   }
 }
 
-/** The GraphQL codes with which the server refuses the caller rather than the request. */
-const REFUSAL_CODES: readonly string[] = ['FORBIDDEN', 'UNAUTHENTICATED'];
+/** The codes of every error in a GraphQL errors array. */
+function codesOf(error: GraphQLError): readonly unknown[] {
+  return error.graphqlErrors.map((graphqlError) => graphqlError.extensions?.code);
+}
 
 export function classifyRequestFailure(error: unknown): RequestFailure {
   if (error instanceof NetworkUnreachableError) return 'unreachable';
   if (error instanceof HttpStatusError) {
-    if (error.status === 401 || error.status === 403) return 'refused';
+    if (error.status === 401) return 'session-refused';
+    if (error.status === 403) return 'read-refused';
     return error.status >= 500 ? 'unreachable' : 'failed';
   }
   if (error instanceof GraphQLError) {
-    const refused = error.graphqlErrors.some((graphqlError) => {
-      const code = graphqlError.extensions?.code;
-      return typeof code === 'string' && REFUSAL_CODES.includes(code);
-    });
-    return refused ? 'refused' : 'failed';
+    const codes = codesOf(error);
+    if (codes.includes('UNAUTHENTICATED')) return 'session-refused';
+    return codes.includes('FORBIDDEN') ? 'read-refused' : 'failed';
   }
   return 'failed';
+}
+
+/** Whether the server refused the caller — its session or this read. */
+export function isRefusal(failure: RequestFailure): boolean {
+  return failure === 'session-refused' || failure === 'read-refused';
 }

@@ -43,8 +43,6 @@ if (typeof Element !== 'undefined' && typeof Element.prototype.scrollIntoView !=
   Element.prototype.scrollIntoView = (): void => {};
 }
 
-// A spec that runs Vite itself declares `@vitest-environment node`
-// (shell/__tests__/buildManifestPlugin.spec.ts): there is no window, so no storage to clear.
 beforeEach(() => {
-  if (typeof window !== 'undefined') localStorage.clear();
+  localStorage.clear();
 });

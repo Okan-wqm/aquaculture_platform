@@ -176,7 +176,7 @@ export function StaffHubPage(): JSX.Element {
               <Card className="p-4">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-body font-semibold text-ink-1">Remaining Days</span>
-                  <span className="text-display font-mono font-bold text-acc tabular-nums">
+                  <span className="text-display font-bold text-acc tabular-nums">
                     {totalLeaveRemaining}
                   </span>
                 </div>

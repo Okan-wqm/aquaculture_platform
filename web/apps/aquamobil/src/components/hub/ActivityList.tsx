@@ -131,7 +131,7 @@ export function ActivityList({
                   title={item.title}
                   subtitle={item.subtitle}
                   trailing={
-                    <time dateTime={item.timestamp} className="font-mono tabular-nums">
+                    <time dateTime={item.timestamp} className="tabular-nums">
                       {formatRelativeTime(item.timestamp)}
                     </time>
                   }

@@ -1325,7 +1325,7 @@ const IoConfigSection: React.FC<IoConfigSectionProps> = ({ device, refetch }) =>
                     {live.value === true || live.value === 1 ? 'ON' : 'OFF'}
                   </span>
                 ) : (
-                  <span className="font-mono text-gray-900 dark:text-gray-100">
+                  <span className="tabular-nums text-gray-900 dark:text-gray-100">
                     {typeof live.value === 'number' ? live.value.toFixed(2) : String(live.value)}
                     {io.engUnit ? ` ${io.engUnit}` : ''}
                   </span>

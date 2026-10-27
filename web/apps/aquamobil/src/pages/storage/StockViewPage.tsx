@@ -322,7 +322,7 @@ export function StockViewPage(): JSX.Element {
                         <p className="text-meta text-ink-3 mt-0.5">{item.itemType}</p>
                       </div>
                       <div className="text-right ml-3">
-                        <span className="text-head font-mono font-bold text-ink-1 tabular-nums">
+                        <span className="text-head font-bold text-ink-1 tabular-nums">
                           {item.quantity}
                         </span>
                         <span className="text-meta text-ink-3 ml-1">{item.unit}</span>

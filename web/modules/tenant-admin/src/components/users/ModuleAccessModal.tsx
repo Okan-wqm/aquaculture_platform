@@ -1,5 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Button, Modal, Select, useAuth, useAuthContext } from '@aquaculture/shared-ui';
+import {
+  Button,
+  Modal,
+  Select,
+  useAuth,
+  useAuthContext,
+  useI18n,
+  type MessageKey,
+} from '@aquaculture/shared-ui';
 import {
   OWNER_MODULE_CODES,
   isModuleRole,
@@ -28,11 +36,11 @@ import type { DisplayUser } from './UserListSection';
  * dialog is offered for members only, and only to a tenant administrator — the same gate as the
  * server's (TenantAdminOrHigher) and as site access.
  */
-const ROLE_OPTIONS: ReadonlyArray<{ value: '' | ModuleRole; label: string }> = [
-  { value: '', label: 'No access' },
-  { value: 'MODULE_USER', label: 'User' },
-  { value: 'MODULE_MANAGER', label: 'Manager' },
-];
+const ROLE_OPTIONS = [
+  { value: '', labelKey: 'tenant.moduleAccess.role.none' },
+  { value: 'MODULE_USER', labelKey: 'tenant.moduleAccess.role.user' },
+  { value: 'MODULE_MANAGER', labelKey: 'tenant.moduleAccess.role.manager' },
+] as const satisfies ReadonlyArray<{ value: '' | ModuleRole; labelKey: MessageKey }>;
 
 const NO_GRANTS: ModuleAccessGrants = { farm: null, hr: null, sensor: null, hydroponics: null };
 
@@ -49,6 +57,7 @@ interface ModuleAccessModalProps {
 export const ModuleAccessModal: React.FC<ModuleAccessModalProps> = ({ isOpen, onClose, user }) => {
   const { user: viewer } = useAuth();
   const { modules } = useAuthContext();
+  const { t } = useI18n();
   const isMember = user !== null && !isAdministrator(user.role);
   const dialogIsOpen = isOpen && isMember && canManageUserSiteAccess(viewer?.role);
   const userId = user === null ? '' : user.id;
@@ -99,15 +108,15 @@ export const ModuleAccessModal: React.FC<ModuleAccessModalProps> = ({ isOpen, on
       isOpen
       onClose={onClose}
       size="sm"
-      title="Module access"
-      description={<>The role {user.name} holds in each module</>}
+      title={t('tenant.moduleAccess.title')}
+      description={t('tenant.moduleAccess.description', { name: user.name })}
       showCloseButton={!busy}
       closeOnEscape={!busy}
       closeOnOverlayClick={!busy}
       footer={
         <>
           <Button variant="ghost" onClick={onClose} disabled={busy}>
-            Cancel
+            {t('common.cancel')}
           </Button>
           <Button
             variant="primary"
@@ -115,7 +124,7 @@ export const ModuleAccessModal: React.FC<ModuleAccessModalProps> = ({ isOpen, on
             disabled={busy || accessQuery.data === undefined}
           >
             {busy && <RefreshCw className="w-4 h-4 animate-spin" />}
-            Save module access
+            {t('tenant.moduleAccess.save')}
           </Button>
         </>
       }
@@ -123,19 +132,22 @@ export const ModuleAccessModal: React.FC<ModuleAccessModalProps> = ({ isOpen, on
       <div className="space-y-4">
         {accessQuery.isError && (
           <p className="text-sm text-error-600 dark:text-error-400">
-            The member&apos;s module access could not be loaded.
+            {t('tenant.moduleAccess.loadFailed')}
           </p>
         )}
         {enabledModules.length === 0 && (
           <p className="text-sm text-gray-500 dark:text-gray-400">
-            The tenant has no module that grants access.
+            {t('tenant.moduleAccess.noModules')}
           </p>
         )}
         {enabledModules.map(({ code, name }) => (
           <Select
             key={code}
             label={name}
-            options={ROLE_OPTIONS.map((option) => ({ ...option }))}
+            options={ROLE_OPTIONS.map((option) => ({
+              value: option.value,
+              label: t(option.labelKey),
+            }))}
             value={choice[code] ?? ''}
             disabled={busy || accessQuery.data === undefined}
             onChange={(event) => setRole(code, event.target.value)}

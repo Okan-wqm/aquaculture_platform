@@ -2147,4 +2147,15 @@ export const tr: Record<MessageKey, string> = {
   'tenant.memberHome.announcements.title': 'Duyurular',
   'tenant.memberHome.announcements.previewReason':
     'Duyuruları bugün yalnızca kiracı yöneticileri okuyabiliyor; üyeler için ayrı bir okuma gerekiyor.',
+  // PKG-06: bir üyenin her modüldeki rolü (tenant-admin ModuleAccessModal).
+  'tenant.moduleAccess.title': 'Modül erişimi',
+  'tenant.moduleAccess.description': '{name} kullanıcısının her modüldeki rolü',
+  'tenant.moduleAccess.role.none': 'Erişim yok',
+  'tenant.moduleAccess.role.user': 'Kullanıcı',
+  'tenant.moduleAccess.role.manager': 'Yönetici',
+  'tenant.moduleAccess.save': 'Modül erişimini kaydet',
+  'tenant.moduleAccess.loadFailed': 'Üyenin modül erişimi yüklenemedi.',
+  'tenant.moduleAccess.noModules': 'Kiracının erişim veren bir modülü yok.',
+  'tenant.moduleAccess.manage': 'Modül erişimini yönet',
+  'tenant.moduleAccess.manageFor': '{name} için modül erişimini yönet',
 };

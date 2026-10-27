@@ -2156,6 +2156,17 @@ export const en = {
   'tenant.memberHome.announcements.title': 'Announcements',
   'tenant.memberHome.announcements.previewReason':
     'Announcements are readable by tenant admins only today; members need a read of their own.',
+  // PKG-06: a member's role in each module (tenant-admin ModuleAccessModal).
+  'tenant.moduleAccess.title': 'Module access',
+  'tenant.moduleAccess.description': 'The role {name} holds in each module',
+  'tenant.moduleAccess.role.none': 'No access',
+  'tenant.moduleAccess.role.user': 'User',
+  'tenant.moduleAccess.role.manager': 'Manager',
+  'tenant.moduleAccess.save': 'Save module access',
+  'tenant.moduleAccess.loadFailed': "The member's module access could not be loaded.",
+  'tenant.moduleAccess.noModules': 'The tenant has no module that grants access.',
+  'tenant.moduleAccess.manage': 'Manage module access',
+  'tenant.moduleAccess.manageFor': 'Manage module access for {name}',
 } as const;
 
 export type MessageKey = keyof typeof en;

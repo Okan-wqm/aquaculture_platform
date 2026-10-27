@@ -28,6 +28,8 @@ vi.mock('@aquaculture/shared-ui', async (importOriginal) => {
     Modal: actual.Modal,
     Button: actual.Button,
     Select: actual.Select,
+    // The dialog's text renders through the real i18n (English without a provider).
+    useI18n: actual.useI18n,
     useAuth: () => ({ user: { role: state.viewerRole } }),
     useAuthContext: () => ({
       modules: [

@@ -12,7 +12,7 @@ import {
 import { UserAvatar } from '../ui/UserAvatar';
 import { RoleBadge } from '../ui/RoleBadge';
 import { StatusBadge } from '../ui/StatusBadge';
-import { DataTable, type DataTableColumn, Button } from '@aquaculture/shared-ui';
+import { DataTable, type DataTableColumn, Button, useI18n } from '@aquaculture/shared-ui';
 import { SD_CARD } from '../ui/suderra';
 
 export interface DisplayUser {
@@ -88,6 +88,7 @@ export const UserListSection: React.FC<UserListSectionProps> = ({
   canManageSiteAccess,
   totalUsersInPage,
 }) => {
+  const { t } = useI18n();
   const displayUserColumns: DataTableColumn<DisplayUser>[] = [
     {
       key: 'user',
@@ -160,8 +161,8 @@ export const UserListSection: React.FC<UserListSectionProps> = ({
               iconOnly
               type="button"
               onClick={() => onManageModuleAccess(user)}
-              aria-label={`Manage module access for ${user.name}`}
-              title="Manage module access"
+              aria-label={t('tenant.moduleAccess.manageFor', { name: user.name })}
+              title={t('tenant.moduleAccess.manage')}
             >
               <LayoutGrid className="w-4 h-4" aria-hidden="true" />
             </Button>

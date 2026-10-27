@@ -4,12 +4,12 @@ import { createMockDataSource } from '@aquaculture/testing';
 import { Logger } from '@nestjs/common';
 import type { QueryRunner } from 'typeorm';
 
+import { RemoveInertTenantCapabilities1810500000000 } from '../1810500000000-RemoveInertTenantCapabilities';
 import {
   INERT_TENANT_CAPABILITIES,
-  RemoveInertTenantCapabilities1810500000000,
   overridesWithoutInert,
   panelWithoutInert,
-} from '../1810500000000-RemoveInertTenantCapabilities';
+} from '../support/inert-tenant-capabilities';
 
 /**
  * RBAC-HIGH-025 cleanup. PKG-03 removed from the catalogue the 81 keys no backend check read; the

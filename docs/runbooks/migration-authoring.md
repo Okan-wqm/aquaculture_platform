@@ -147,6 +147,7 @@ nx affected --target=lint
 ```
 
 CI gates (db-migration-check.yml workflow):
+
 - migration-sql-lint (R1-R14; R13/R14 are the ADR-053 ADD COLUMN rules)
 - migration-deletion-witness
 - entity-diff-witness
@@ -212,5 +213,9 @@ If a migration ships a bug:
 - RLS helper: `libs/backend-common/src/database/rls/apply-tenant-rls.helper.ts`
 - Protected tables: `libs/backend-common/src/constants/protected-tables.ts`
 - Drift classes: `libs/backend-common/src/database/schema-drift/drift-classes.ts`
-- Invariants: `tests/invariants/{entity-schema-declaration,entity-diff-implies-migration,no-savepoint-in-migrations,protected-tables-guard,rls-predicate-canonical,tenant-fanout-entity-parity,shared-schema-canonical}.spec.ts`
-- ADRs: 011 Schema Ownership · 012 Drift Prevention · 025 Edge Per-Tenant · 030 Day-One Reset · 053 Constant-default ADD COLUMN
+- Invariants (`tests/invariants/<name>.spec.ts`): `entity-schema-declaration`,
+  `entity-diff-implies-migration`, `no-savepoint-in-migrations`, `protected-tables-guard`,
+  `rls-predicate-canonical`, `tenant-fanout-entity-parity`, `shared-schema-canonical`,
+  `migration-files-export-only-migrations`
+- ADRs: 011 Schema Ownership · 012 Drift Prevention · 025 Edge Per-Tenant · 030 Day-One Reset ·
+  053 Constant-default ADD COLUMN

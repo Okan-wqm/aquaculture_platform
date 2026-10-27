@@ -22,8 +22,7 @@
   },
   "default_input": {
     "roots": ["apps", "libs", "platform/libs", "web"],
-    "coverageRoots": ["e2e", "tests"],
-    "includeWriteBoundaryFindings": false
+    "coverageRoots": ["e2e", "tests"]
   },
   "allowed_read_globs": [
     "apps/**/*.ts",

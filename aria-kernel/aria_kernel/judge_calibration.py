@@ -337,15 +337,25 @@ def bootstrap_ece_upper(
     return round(values[min(len(values) - 1, max(0, int(math.ceil(quantile * len(values))) - 1))], 4)
 
 
-def wilson_lower(successes: int, trials: int, *, z: float = 1.96) -> float | None:
-    """Wilson score interval's lower bound for a proportion; None with no trials."""
+def wilson_interval(successes: int, trials: int, *, z: float = 1.96) -> tuple[float, float] | None:
+    """The two-sided Wilson score interval (95% at the default ``z``) of a proportion; None with no trials.
+
+    The one owner of the interval: ``wilson_lower`` is its lower end, and every
+    report that states a proportion with its n and an interval reads this.
+    """
     if trials <= 0:
         return None
     phat = successes / trials
     denominator = 1.0 + z * z / trials
     centre = phat + z * z / (2.0 * trials)
     margin = z * math.sqrt(phat * (1.0 - phat) / trials + z * z / (4.0 * trials * trials))
-    return round((centre - margin) / denominator, 4)
+    return round((centre - margin) / denominator, 4), round(min(1.0, (centre + margin) / denominator), 4)
+
+
+def wilson_lower(successes: int, trials: int, *, z: float = 1.96) -> float | None:
+    """Wilson score interval's lower bound for a proportion; None with no trials."""
+    interval = wilson_interval(successes, trials, z=z)
+    return None if interval is None else interval[0]
 
 
 def calibration_status(

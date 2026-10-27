@@ -2,6 +2,7 @@ import {
   AQUA_EVENT_ID_NAMESPACE,
   createBaseEvent,
   deriveEventId,
+  restoreEventId,
   toEventIso,
   type BaseEvent,
   type EventId,
@@ -216,5 +217,50 @@ describe('deriveEventId — deterministic (UUIDv5) event identity (Task 1.4)', (
     const a = createBaseEvent<TestEvent>('TestEvent', 'tenant-1');
     const b = createBaseEvent<TestEvent>('TestEvent', 'tenant-1');
     expect(a.eventId).not.toBe(b.eventId);
+  });
+});
+
+describe('restoreEventId — the one sanctioned re-brand of a STORED event id (DET-contractsc)', () => {
+  // `EventId` is minted only by createBaseEvent / deriveEventId. An id read back
+  // from a row (a stored proof, an outbox row) is a plain string again, and
+  // before restoreEventId the only way to put it back on an event was an inline
+  // `as EventId` cast at each call site: unvalidated and invisible to the type
+  // system. This block pins the single validating owner of that conversion.
+  interface TestEvent extends BaseEvent {
+    eventType: 'TestEvent';
+  }
+
+  const STORED = '44444444-4444-4444-8444-444444444444';
+
+  it('returns the stored id unchanged: identity is what keeps redelivery idempotent', () => {
+    expect(restoreEventId(STORED)).toBe(STORED);
+  });
+
+  it('round-trips ids minted by createBaseEvent and deriveEventId', () => {
+    const random = createBaseEvent<TestEvent>('TestEvent', 'tenant-1').eventId;
+    const derived = deriveEventId('tenant-1\u0000sensor-9\u0000payload-sha');
+    expect(restoreEventId(random)).toBe(random);
+    expect(restoreEventId(derived)).toBe(derived);
+  });
+
+  it('yields the branded EventId, assignable to BaseEvent.eventId without a cast', () => {
+    const event: TestEvent = {
+      ...createBaseEvent<TestEvent>('TestEvent', 'tenant-1'),
+      eventId: restoreEventId(STORED),
+    };
+    expect(event.eventId).toBe(STORED);
+  });
+
+  it.each([
+    ['empty', ''],
+    ['not a uuid', 'not-a-uuid'],
+    ['leading whitespace', ` ${STORED}`],
+    ['trailing newline', `${STORED}\n`],
+    ['one hex digit short', STORED.slice(0, -1)],
+    ['one hex digit long', `${STORED}4`],
+    ['non-hex digit', 'gggggggg-4444-4444-8444-444444444444'],
+    ['hyphens missing', STORED.replace(/-/g, '')],
+  ])('fails closed on a malformed stored id (%s)', (_label, malformed) => {
+    expect(() => restoreEventId(malformed)).toThrow(/restoreEventId/);
   });
 });

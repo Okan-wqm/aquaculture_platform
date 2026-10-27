@@ -13,13 +13,13 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { forEachVerifiedRetainedTenantSchema } from '@aquaculture/backend-common/database';
 import { stub } from '@aquaculture/testing';
-import type { EntityManager, QueryRunner } from 'typeorm';
+import type { DataSource, EntityManager, QueryRunner } from 'typeorm';
 
 import { SensorProtocol } from '../../../database/entities/sensor-protocol.entity';
 import { ProtocolRegistryService } from '../protocol-registry.service';
 
 interface FakeManager {
-  connection: unknown;
+  connection: DataSource;
   findOne: jest.Mock;
   update: jest.Mock;
   save: jest.Mock;
@@ -27,7 +27,7 @@ interface FakeManager {
 }
 
 const makeManager = (): FakeManager => ({
-  connection: {},
+  connection: stub<DataSource>({}),
   findOne: jest.fn().mockResolvedValue(null),
   update: jest.fn(),
   save: jest.fn(),

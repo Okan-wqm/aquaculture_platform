@@ -45,6 +45,8 @@ SINGLE_OWNER = {
     "python_source_facts": f"{_KERNEL}source_facts.py",
     # F1.1 — the learning journal: memory.record_learning_event, no other writer (goldset and pr_tracking routed).
     "learning_log": f"{_KERNEL}memory.py",
+    # F0.9p — the provenance census: no second computer of "which learned rows have no source".
+    "row_provenance": f"{_KERNEL}row_provenance.py",
 }
 
 # One planted second owner per family: a second writer of the family's ledger
@@ -76,6 +78,7 @@ _PLANTED = {
         "append_jsonl(root / 'memory' / 'learning-events.jsonl', row)\n",
         "append_declared_jsonl(path, row, expected_surface='memory_learning_events')\n",
     ),
+    "row_provenance": ("def provenance_census(root):\n    return {}\n",),
 }
 
 

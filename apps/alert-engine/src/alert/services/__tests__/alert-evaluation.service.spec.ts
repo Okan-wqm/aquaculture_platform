@@ -10,7 +10,7 @@ import {
   AlertSeverity,
 } from '../../../database/entities/alert-rule.entity';
 import { AlertHistory } from '../../entities/alert-history.entity';
-import { AlertModule } from '../../entities/alert-module.enum';
+import { OWNER_MODULE } from '@aquaculture/shared-contracts';
 import { AlertIncident, IncidentStatus } from '../../../database/entities/alert-incident.entity';
 import { EscalationManagerService } from '../../../escalation/escalation-manager.service';
 import { RedisService } from '@aquaculture/backend-common/redis';
@@ -242,7 +242,7 @@ describe('AlertEvaluationService — transactional outbox (ALERT-CRITICAL-001)',
 
       expect(manager.save).toHaveBeenCalledWith(
         AlertHistory,
-        expect.objectContaining({ module: AlertModule.SENSOR, siteId }),
+        expect.objectContaining({ module: OWNER_MODULE.SENSOR, siteId }),
       );
     });
 
@@ -253,7 +253,7 @@ describe('AlertEvaluationService — transactional outbox (ALERT-CRITICAL-001)',
 
       expect(manager.save).toHaveBeenCalledWith(
         AlertHistory,
-        expect.objectContaining({ module: AlertModule.SENSOR, siteId: null }),
+        expect.objectContaining({ module: OWNER_MODULE.SENSOR, siteId: null }),
       );
     });
 
@@ -283,7 +283,7 @@ describe('AlertEvaluationService — transactional outbox (ALERT-CRITICAL-001)',
 
       const historySaves = manager.save.mock.calls.filter(([entity]) => entity === AlertHistory);
       expect(historySaves).toEqual([
-        [AlertHistory, expect.objectContaining({ module: AlertModule.SENSOR, siteId: null })],
+        [AlertHistory, expect.objectContaining({ module: OWNER_MODULE.SENSOR, siteId: null })],
       ]);
       expect(outbox.enqueue).toHaveBeenCalledTimes(1);
     });

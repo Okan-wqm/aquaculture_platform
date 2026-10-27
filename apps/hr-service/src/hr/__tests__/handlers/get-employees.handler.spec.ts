@@ -12,7 +12,7 @@ import { Repository } from 'typeorm';
 import { GetEmployeesHandler } from '../../query-handlers/get-employees.handler';
 import { GetEmployeesQuery } from '../../queries/get-employees.query';
 import { Employee } from '../../entities/employee.entity';
-import { HrModuleCode } from '../../../common/enums';
+import { OWNER_MODULE } from '@aquaculture/shared-contracts';
 
 const tenantId = 'tenant-uuid-001';
 
@@ -57,7 +57,7 @@ describe('GetEmployeesHandler', () => {
 
   it('lists only employees whose live department belongs to the requested module', async () => {
     await handler.execute(
-      new GetEmployeesQuery(tenantId, { moduleCode: HrModuleCode.HYDROPONICS }),
+      new GetEmployeesQuery(tenantId, { moduleCode: OWNER_MODULE.HYDROPONICS }),
     );
 
     expect(employeeRepository.findAndCount).toHaveBeenCalledWith(
@@ -65,7 +65,7 @@ describe('GetEmployeesHandler', () => {
         where: {
           tenantId,
           isDeleted: false,
-          departmentHr: { moduleCode: HrModuleCode.HYDROPONICS, isDeleted: false },
+          departmentHr: { moduleCode: OWNER_MODULE.HYDROPONICS, isDeleted: false },
         },
       }),
     );
@@ -81,7 +81,7 @@ describe('GetEmployeesHandler', () => {
 
   it('keeps the module filter alongside the other filters', async () => {
     await handler.execute(
-      new GetEmployeesQuery(tenantId, { moduleCode: HrModuleCode.SENSOR, seaWorthy: false }),
+      new GetEmployeesQuery(tenantId, { moduleCode: OWNER_MODULE.SENSOR, seaWorthy: false }),
     );
 
     expect(employeeRepository.findAndCount).toHaveBeenCalledWith(
@@ -90,7 +90,7 @@ describe('GetEmployeesHandler', () => {
           tenantId,
           isDeleted: false,
           seaWorthy: false,
-          departmentHr: { moduleCode: HrModuleCode.SENSOR, isDeleted: false },
+          departmentHr: { moduleCode: OWNER_MODULE.SENSOR, isDeleted: false },
         },
       }),
     );

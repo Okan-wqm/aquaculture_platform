@@ -113,8 +113,9 @@ const UNBOUND_WRITE_ALLOWLIST = new Set<string>([
   // `user_module_assignments` / `user_site_assignments` writes via TypeORM
   // repositories on the tenant-admin path.
   'services/tenant-admin.service.ts',
-  // `tenant_modules` writes via the TypeORM repository.
-  'services/tenant.service.ts',
+  // `tenant.service.ts` left this list when its one write (`tenant_modules`, Assign and Remove
+  // Manager) moved to `module-manager-designation.ts`, which binds its transaction to the tenant
+  // (RBAC-HIGH-027).
   // `mobile_user_settings` upsert via the TypeORM repository.
   'services/mobile-settings.service.ts',
   // Shared credential fence: set-based `refresh_tokens` revocation UPDATE. It

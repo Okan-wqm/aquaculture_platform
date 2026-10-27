@@ -24,6 +24,7 @@ import {
   hasResourcePermission,
   type ResourcePermissionUser,
 } from '@aquaculture/backend-common/decorators';
+import type { TenantCapability } from '@aquaculture/shared-contracts';
 import { AgentConfigService } from './agent-config.service';
 import { LlmProviderId } from './agent-config.entity';
 import { LlmProviderFactory } from '../agent/providers/llm-provider.factory';
@@ -251,7 +252,7 @@ export class AgentConfigResolver {
     return `••••${trimmed.slice(-4)}`;
   }
 
-  private assertCapability(user: ResourcePermissionUser, capability: string): void {
+  private assertCapability(user: ResourcePermissionUser, capability: TenantCapability): void {
     if (!hasResourcePermission(user, capability)) {
       throw new ForbiddenException(`Missing required permission: ${capability}`);
     }

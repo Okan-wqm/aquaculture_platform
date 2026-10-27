@@ -1,3 +1,4 @@
+import { accountRoleOf, holdsTenantCapabilities } from '@aquaculture/shared-contracts';
 import { useQueryClient } from '@tanstack/react-query';
 import { del } from 'idb-keyval';
 import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef, type ReactElement, type ReactNode } from 'react';
@@ -648,11 +649,15 @@ export function AuthProvider({ children }: { children: ReactNode }): ReactElemen
     (permission: string): boolean => {
       const role = state.user?.role;
       if (!role) return false;
-      // SUPER_ADMIN / TENANT_ADMIN bypass — mirrors the backend
-      // TenantPermissionGuard (their tokens carry no resourcePermissions).
-      if (role === 'SUPER_ADMIN' || role === 'TENANT_ADMIN') return true;
-      // Fail-closed: no grant → hidden. Backend re-checks on the action.
-      return resourcePermissions.includes(permission);
+      // The one capability check the backend TenantPermissionGuard also reads
+      // (shared-contracts, RBAC-MEDIUM-024): an account role holds every
+      // capability (its token carries no resourcePermissions); a member holds
+      // exactly its claim. Fail-closed: no grant → hidden. Backend re-checks on
+      // the action.
+      return holdsTenantCapabilities(
+        { accountRole: accountRoleOf([role]), capabilities: resourcePermissions },
+        [permission],
+      );
     },
     [state.user?.role, resourcePermissions],
   );

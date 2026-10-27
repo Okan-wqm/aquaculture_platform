@@ -1,16 +1,24 @@
 import { Role } from '@aquaculture/backend-common/decorators';
+import {
+  TENANT_CAPABILITY_CATALOGUE,
+  colors,
+  isTenantCapability,
+  type TenantCapability,
+} from '@aquaculture/shared-contracts';
 import { Injectable } from '@nestjs/common';
-import { colors } from '@aquaculture/shared-contracts';
 
 /**
  * Permission definition
  */
 export interface Permission {
-  code: string;
+  code: TenantCapability;
   name: string;
   description: string;
   category: string;
 }
+
+/** A template's "every tenant capability" — the account roles' holding (ADR-051 §1). */
+export const ALL_TENANT_CAPABILITIES = '*';
 
 /**
  * Role template definition
@@ -29,10 +37,41 @@ export interface RoleTemplate {
   name: string;
   description: string;
   level: number; // Higher = more permissions
-  permissions: string[];
+  /**
+   * The tenant capabilities the role holds by itself: a catalogue capability or
+   * `ALL_TENANT_CAPABILITIES`. Typed so a template cannot name a key the catalogue does not
+   * offer (RBAC-HIGH-025: this list once held `farms:view`, `users:create`, `billing:manage`,
+   * … that no catalogue, guard or role editor knew).
+   */
+  permissions: ReadonlyArray<TenantCapability | typeof ALL_TENANT_CAPABILITIES>;
   isSystem: boolean; // System roles cannot be modified
   color: string;
   icon: string;
+}
+
+/**
+ * Every tenant capability as the one catalogue declares it (`TENANT_CAPABILITY_CATALOGUE`,
+ * @aquaculture/shared-contracts). This service publishes no capability list of its own: the
+ * second list it kept drifted into keys nothing enforced (RBAC-HIGH-025).
+ */
+function cataloguePermissions(): Permission[] {
+  return Object.values(TENANT_CAPABILITY_CATALOGUE).flatMap((category) =>
+    Object.entries(category.resources).flatMap(([resource, definition]) =>
+      definition.actions.flatMap((action) => {
+        const code = `${resource}:${action}`;
+        return isTenantCapability(code)
+          ? [
+              {
+                code,
+                name: `${definition.name}: ${action.replace(/_/g, ' ')}`,
+                description: `${category.name} — ${definition.name}`,
+                category: category.name,
+              },
+            ]
+          : [];
+      }),
+    ),
+  );
 }
 
 /**
@@ -41,73 +80,8 @@ export interface RoleTemplate {
  */
 @Injectable()
 export class RoleTemplateService {
-
-  // System-wide permissions
-  private readonly permissions: Permission[] = [
-    // Dashboard
-    { code: 'dashboard:view', name: 'View Dashboard', description: 'Access to main dashboard', category: 'Dashboard' },
-    { code: 'dashboard:analytics', name: 'View Analytics', description: 'Access to analytics and reports', category: 'Dashboard' },
-
-    // User Management
-    { code: 'users:view', name: 'View Users', description: 'View user list', category: 'Users' },
-    { code: 'users:create', name: 'Create Users', description: 'Create new users', category: 'Users' },
-    { code: 'users:edit', name: 'Edit Users', description: 'Edit user details', category: 'Users' },
-    { code: 'users:delete', name: 'Delete Users', description: 'Delete users', category: 'Users' },
-    { code: 'users:invite', name: 'Invite Users', description: 'Send user invitations', category: 'Users' },
-    { code: 'users:roles', name: 'Manage Roles', description: 'Assign roles to users', category: 'Users' },
-
-    // Farm Management
-    { code: 'farms:view', name: 'View Farms', description: 'View farm list and details', category: 'Farms' },
-    { code: 'farms:create', name: 'Create Farms', description: 'Create new farms', category: 'Farms' },
-    { code: 'farms:edit', name: 'Edit Farms', description: 'Edit farm details', category: 'Farms' },
-    { code: 'farms:delete', name: 'Delete Farms', description: 'Delete farms', category: 'Farms' },
-    { code: 'farms:manage', name: 'Manage Farms', description: 'Full farm management', category: 'Farms' },
-
-    // Pond Management
-    { code: 'ponds:view', name: 'View Ponds', description: 'View pond list and details', category: 'Ponds' },
-    { code: 'ponds:create', name: 'Create Ponds', description: 'Create new ponds', category: 'Ponds' },
-    { code: 'ponds:edit', name: 'Edit Ponds', description: 'Edit pond details', category: 'Ponds' },
-    { code: 'ponds:delete', name: 'Delete Ponds', description: 'Delete ponds', category: 'Ponds' },
-
-    // Sensor Management
-    { code: 'sensors:view', name: 'View Sensors', description: 'View sensor list and data', category: 'Sensors' },
-    { code: 'sensors:create', name: 'Create Sensors', description: 'Add new sensors', category: 'Sensors' },
-    { code: 'sensors:edit', name: 'Edit Sensors', description: 'Edit sensor configuration', category: 'Sensors' },
-    { code: 'sensors:delete', name: 'Delete Sensors', description: 'Remove sensors', category: 'Sensors' },
-    { code: 'sensors:calibrate', name: 'Calibrate Sensors', description: 'Calibrate sensor readings', category: 'Sensors' },
-
-    // Alert Management
-    { code: 'alerts:view', name: 'View Alerts', description: 'View alerts and notifications', category: 'Alerts' },
-    { code: 'alerts:create', name: 'Create Alert Rules', description: 'Create alert rules', category: 'Alerts' },
-    { code: 'alerts:edit', name: 'Edit Alert Rules', description: 'Edit alert rules', category: 'Alerts' },
-    { code: 'alerts:delete', name: 'Delete Alert Rules', description: 'Delete alert rules', category: 'Alerts' },
-    { code: 'alerts:acknowledge', name: 'Acknowledge Alerts', description: 'Mark alerts as acknowledged', category: 'Alerts' },
-
-    // Feed Management
-    { code: 'feed:view', name: 'View Feed', description: 'View feed inventory and schedules', category: 'Feed' },
-    { code: 'feed:create', name: 'Create Feed Records', description: 'Add feed records', category: 'Feed' },
-    { code: 'feed:edit', name: 'Edit Feed Records', description: 'Edit feed records', category: 'Feed' },
-    { code: 'feed:schedule', name: 'Manage Feed Schedules', description: 'Create and manage feeding schedules', category: 'Feed' },
-
-    // Reports
-    { code: 'reports:view', name: 'View Reports', description: 'Access to reports', category: 'Reports' },
-    { code: 'reports:create', name: 'Create Reports', description: 'Generate custom reports', category: 'Reports' },
-    { code: 'reports:export', name: 'Export Reports', description: 'Export reports to files', category: 'Reports' },
-
-    // Settings
-    { code: 'settings:view', name: 'View Settings', description: 'View system settings', category: 'Settings' },
-    { code: 'settings:edit', name: 'Edit Settings', description: 'Modify system settings', category: 'Settings' },
-
-    // Billing (Tenant Admin only)
-    { code: 'billing:view', name: 'View Billing', description: 'View billing information', category: 'Billing' },
-    { code: 'billing:manage', name: 'Manage Billing', description: 'Manage billing and subscriptions', category: 'Billing' },
-
-    // Audit
-    { code: 'audit:view', name: 'View Audit Logs', description: 'Access audit log history', category: 'Audit' },
-
-    // API
-    { code: 'api:manage', name: 'Manage API Keys', description: 'Create and manage API keys', category: 'API' },
-  ];
+  // Tenant capabilities, read from the one catalogue.
+  private readonly permissions: Permission[] = cataloguePermissions();
 
   /**
    * The role templates the platform publishes — one per `Role`, no more.
@@ -119,6 +93,11 @@ export class RoleTemplateService {
    * whatever this catalogue returns. Picking either produced a 400 the operator
    * had no way to predict (ADMIN-CRITICAL-133). `code: Role` now makes a
    * template for a role the platform does not define a compile error.
+   *
+   * What each holds follows ADR-051 §1: an account role (SUPER_ADMIN,
+   * TENANT_ADMIN) holds every tenant capability; a module role holds none by
+   * itself — a member holds exactly the capabilities of the tenant role an
+   * administrator assigns them.
    */
   private readonly roleTemplates: RoleTemplate[] = [
     {
@@ -126,7 +105,7 @@ export class RoleTemplateService {
       name: 'Super Admin',
       description: 'Platform-wide administrator with full system access',
       level: 100,
-      permissions: ['*'], // All permissions
+      permissions: [ALL_TENANT_CAPABILITIES],
       isSystem: true,
       color: colors.error[500],
       icon: 'shield-check',
@@ -136,48 +115,7 @@ export class RoleTemplateService {
       name: 'Tenant Admin',
       description: 'Tenant administrator with full tenant access',
       level: 90,
-      permissions: [
-        'dashboard:view',
-        'dashboard:analytics',
-        'users:view',
-        'users:create',
-        'users:edit',
-        'users:delete',
-        'users:invite',
-        'users:roles',
-        'farms:view',
-        'farms:create',
-        'farms:edit',
-        'farms:delete',
-        'farms:manage',
-        'ponds:view',
-        'ponds:create',
-        'ponds:edit',
-        'ponds:delete',
-        'sensors:view',
-        'sensors:create',
-        'sensors:edit',
-        'sensors:delete',
-        'sensors:calibrate',
-        'alerts:view',
-        'alerts:create',
-        'alerts:edit',
-        'alerts:delete',
-        'alerts:acknowledge',
-        'feed:view',
-        'feed:create',
-        'feed:edit',
-        'feed:schedule',
-        'reports:view',
-        'reports:create',
-        'reports:export',
-        'settings:view',
-        'settings:edit',
-        'billing:view',
-        'billing:manage',
-        'audit:view',
-        'api:manage',
-      ],
+      permissions: [ALL_TENANT_CAPABILITIES],
       isSystem: true,
       color: colors.primary[500],
       icon: 'user-cog',
@@ -185,36 +123,10 @@ export class RoleTemplateService {
     {
       code: Role.MODULE_MANAGER,
       name: 'Module Manager',
-      description: 'Manager with access to assigned modules',
+      description:
+        'Manager with access to assigned modules; holds the capabilities of their tenant role',
       level: 70,
-      permissions: [
-        'dashboard:view',
-        'dashboard:analytics',
-        'users:view',
-        'users:invite',
-        'farms:view',
-        'farms:create',
-        'farms:edit',
-        'ponds:view',
-        'ponds:create',
-        'ponds:edit',
-        'sensors:view',
-        'sensors:create',
-        'sensors:edit',
-        'sensors:calibrate',
-        'alerts:view',
-        'alerts:create',
-        'alerts:edit',
-        'alerts:acknowledge',
-        'feed:view',
-        'feed:create',
-        'feed:edit',
-        'feed:schedule',
-        'reports:view',
-        'reports:create',
-        'reports:export',
-        'settings:view',
-      ],
+      permissions: [],
       isSystem: true,
       color: colors.success[400],
       icon: 'briefcase',
@@ -222,17 +134,10 @@ export class RoleTemplateService {
     {
       code: Role.MODULE_USER,
       name: 'Viewer',
-      description: 'Read-only access to assigned modules',
+      description:
+        'Read-only access to assigned modules; holds the capabilities of their tenant role',
       level: 10,
-      permissions: [
-        'dashboard:view',
-        'farms:view',
-        'ponds:view',
-        'sensors:view',
-        'alerts:view',
-        'feed:view',
-        'reports:view',
-      ],
+      permissions: [],
       isSystem: true,
       color: colors.gray[400],
       icon: 'eye',
@@ -311,12 +216,9 @@ export class RoleTemplateService {
       return false;
     }
 
-    // Wildcard means all permissions
-    if (role.permissions.includes('*')) {
-      return true;
-    }
-
-    return role.permissions.includes(permissionCode);
+    return role.permissions.some(
+      (held) => held === ALL_TENANT_CAPABILITIES || held === permissionCode,
+    );
   }
 
   /**
@@ -328,12 +230,11 @@ export class RoleTemplateService {
       return [];
     }
 
-    // Wildcard means all permissions
-    if (role.permissions.includes('*')) {
+    if (role.permissions.includes(ALL_TENANT_CAPABILITIES)) {
       return this.permissions.map((p) => p.code);
     }
 
-    return role.permissions;
+    return [...role.permissions];
   }
 
   /**
@@ -358,10 +259,9 @@ export class RoleTemplateService {
         color: r.color,
         icon: r.icon,
         isSystem: r.isSystem,
-        permissionCount:
-          r.permissions.includes('*')
-            ? this.permissions.length
-            : r.permissions.length,
+        permissionCount: r.permissions.includes(ALL_TENANT_CAPABILITIES)
+          ? this.permissions.length
+          : r.permissions.length,
       }))
       .sort((a, b) => b.level - a.level);
   }
@@ -369,10 +269,7 @@ export class RoleTemplateService {
   /**
    * Validate role assignment
    */
-  canAssignRole(
-    assignerRole: string,
-    targetRole: string,
-  ): { allowed: boolean; reason?: string } {
+  canAssignRole(assignerRole: string, targetRole: string): { allowed: boolean; reason?: string } {
     const assignerTemplate = this.getRoleTemplate(assignerRole);
     const targetTemplate = this.getRoleTemplate(targetRole);
 

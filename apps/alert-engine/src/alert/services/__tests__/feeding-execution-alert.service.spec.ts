@@ -13,7 +13,7 @@ import type {
 } from '@platform/event-contracts';
 
 import { AlertSeverity } from '../../../database/entities/alert-rule.entity';
-import { AlertModule } from '../../entities/alert-module.enum';
+import { OWNER_MODULE } from '@aquaculture/shared-contracts';
 import { FeedingExecutionAlertService } from '../feeding-execution-alert.service';
 import { stub } from '@aquaculture/testing';
 
@@ -213,12 +213,12 @@ describe('FeedingExecutionAlertService', () => {
       row.siteId,
     ]);
     expect(origins).toEqual([
-      [AlertModule.FARM, siteId],
-      [AlertModule.FARM, siteId],
-      [AlertModule.FARM, siteId],
-      [AlertModule.FARM, siteId],
-      [AlertModule.SENSOR, siteId],
-      [AlertModule.FARM, null],
+      [OWNER_MODULE.FARM, siteId],
+      [OWNER_MODULE.FARM, siteId],
+      [OWNER_MODULE.FARM, siteId],
+      [OWNER_MODULE.FARM, siteId],
+      [OWNER_MODULE.SENSOR, siteId],
+      [OWNER_MODULE.FARM, null],
     ]);
   });
 });

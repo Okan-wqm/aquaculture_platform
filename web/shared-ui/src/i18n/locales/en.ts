@@ -1223,6 +1223,7 @@ export const en = {
   'hr.orgChart.expand': 'Expand {name}',
   'hr.module.companyWide': 'Company-wide',
   'hr.module.allModules': 'All modules',
+  'hr.module.hr': 'Human resources',
   'hr.module.showing': 'Showing {label}',
   'hr.departments.moduleLabel': 'Module',
   'hr.departments.moduleMoveHint':

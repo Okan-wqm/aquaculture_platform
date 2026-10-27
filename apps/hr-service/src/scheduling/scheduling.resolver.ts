@@ -3,7 +3,8 @@ import { UnauthorizedException, NotFoundException, UseGuards } from '@nestjs/com
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { HrModuleCode } from '../common/enums';
+import type { OwnerModuleCode } from '@aquaculture/shared-contracts';
+import { HR_MODULE_CODE_ENUM } from '../common/enums';
 import { GqlAuthGuard } from '../common/guards/gql-auth.guard';
 import { Roles, Role } from '@aquaculture/backend-common/decorators';
 import { StandardPaginatedResponse, IStandardPaginatedResult, fromCqrsPaginated } from '@aquaculture/backend-common/pagination';
@@ -116,7 +117,7 @@ export class SchedulingResolver {
     @Args('status', { type: () => WeeklyPlanStatus, nullable: true }) status?: WeeklyPlanStatus,
     @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit?: number,
     @Args('page', { type: () => Int, nullable: true, defaultValue: 1 }) page?: number,
-    @Args('moduleCode', { type: () => HrModuleCode, nullable: true }) moduleCode?: HrModuleCode,
+    @Args('moduleCode', { type: () => HR_MODULE_CODE_ENUM, nullable: true }) moduleCode?: OwnerModuleCode,
   ): Promise<IStandardPaginatedResult<WeeklyPlan>> {
     const tenantId = this.getTenantId(context);
     const effectiveLimit = Math.min(Math.max(1, limit ?? 20), 100);
@@ -152,7 +153,7 @@ export class SchedulingResolver {
     @Context() context: GraphQLContext,
     @Args('departmentId', { type: () => ID, nullable: true }) departmentId?: string,
     @Args('siteId', { type: () => ID, nullable: true }) siteId?: string,
-    @Args('moduleCode', { type: () => HrModuleCode, nullable: true }) moduleCode?: HrModuleCode,
+    @Args('moduleCode', { type: () => HR_MODULE_CODE_ENUM, nullable: true }) moduleCode?: OwnerModuleCode,
   ): Promise<TeamWeeklyOverview> {
     const tenantId = this.getTenantId(context);
     return this.queryBus.execute(
@@ -210,7 +211,7 @@ export class SchedulingResolver {
     @Context() context: GraphQLContext,
     @Args('employeeId', { type: () => ID, nullable: true }) employeeId?: string,
     @Args('departmentId', { type: () => ID, nullable: true }) departmentId?: string,
-    @Args('moduleCode', { type: () => HrModuleCode, nullable: true }) moduleCode?: HrModuleCode,
+    @Args('moduleCode', { type: () => HR_MODULE_CODE_ENUM, nullable: true }) moduleCode?: OwnerModuleCode,
   ): Promise<OvertimeSummary> {
     const tenantId = this.getTenantId(context);
     return this.queryBus.execute(

@@ -1,3 +1,4 @@
+import { MODULE_ROLES, OWNER_MODULE_CODES } from '@aquaculture/shared-contracts';
 import Ajv, { type ValidateFunction } from 'ajv';
 
 import { VALIDATE_TENANT_MEMBERSHIP_MAX_USER_IDS } from '../auth-user-queries';
@@ -65,10 +66,30 @@ const RESOLVE_CALLER_CAPABILITIES_QUERY_SCHEMA = {
   },
 } as const;
 
+/**
+ * RBAC-HIGH-028: the `moduleAccess` claim's shape — owner modules of the dictionary mapped to
+ * module roles, nothing else — and farm-service Site ids.
+ */
+const MODULE_ACCESS_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: Object.fromEntries(
+    OWNER_MODULE_CODES.map((code) => [code, { type: 'string', enum: [...MODULE_ROLES] }]),
+  ),
+} as const;
+
 const RESOLVE_CALLER_CAPABILITIES_RESULT_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['success', 'found', 'active', 'roles', 'resourcePermissions'],
+  required: [
+    'success',
+    'found',
+    'active',
+    'roles',
+    'resourcePermissions',
+    'moduleAccess',
+    'assignedSiteIds',
+  ],
   properties: {
     success: { type: 'boolean' },
     found: { type: 'boolean' },
@@ -81,6 +102,8 @@ const RESOLVE_CALLER_CAPABILITIES_RESULT_SCHEMA = {
       type: 'array',
       items: { type: 'string', maxLength: 128 },
     },
+    moduleAccess: MODULE_ACCESS_SCHEMA,
+    assignedSiteIds: { type: 'array', items: UUID_SCHEMA },
     errorCode: { type: 'string', enum: ['VALIDATION_ERROR', 'INTERNAL_ERROR'] },
     error: { type: 'string', maxLength: 500 },
   },

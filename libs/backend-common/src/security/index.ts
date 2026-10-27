@@ -65,3 +65,9 @@ export * from './assert-self-scope';
 
 // SEC-HIGH-051: canonical object-level site authorization SSoT
 export * from './site-authorization.service';
+
+// ADR-051: which services enforce module access, their parent-scoped fields, and the brand check
+// of a decided caller (the AccessCaller type and decorator are exported from the decorators)
+export * from './access-enrolment';
+export * from './parent-scoped-fields';
+export { isAccessCaller } from './access-caller';

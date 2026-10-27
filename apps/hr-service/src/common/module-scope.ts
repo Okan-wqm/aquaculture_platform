@@ -24,7 +24,7 @@
 import type { FindOptionsWhere, ObjectLiteral, SelectQueryBuilder } from 'typeorm';
 
 import type { DepartmentHR } from '../hr/entities/department.entity';
-import type { HrModuleCode } from './enums';
+import type { OwnerModuleCode } from '@aquaculture/shared-contracts';
 
 /**
  * Whether a module scope is in force. `null` and `undefined` both mean "no scope": GraphQL hands a
@@ -32,13 +32,13 @@ import type { HrModuleCode } from './enums';
  * module. Every scoped read asks this, so no handler decides "absent" its own way.
  */
 export function isModuleScoped(
-  moduleCode: HrModuleCode | null | undefined,
-): moduleCode is HrModuleCode {
+  moduleCode: OwnerModuleCode | null | undefined,
+): moduleCode is OwnerModuleCode {
   return moduleCode !== undefined && moduleCode !== null;
 }
 
 /** `where.departmentHr` for `Employee` find options: the department is live and in the module. */
-export function employeeModuleWhere(moduleCode: HrModuleCode): FindOptionsWhere<DepartmentHR> {
+export function employeeModuleWhere(moduleCode: OwnerModuleCode): FindOptionsWhere<DepartmentHR> {
   return { moduleCode, isDeleted: false };
 }
 
@@ -50,7 +50,7 @@ export function employeeModuleWhere(moduleCode: HrModuleCode): FindOptionsWhere<
 export function applyEmployeeModuleScope<Entity extends ObjectLiteral>(
   queryBuilder: SelectQueryBuilder<Entity>,
   employeeAlias: string,
-  moduleCode: HrModuleCode | null | undefined,
+  moduleCode: OwnerModuleCode | null | undefined,
 ): SelectQueryBuilder<Entity> {
   if (!isModuleScoped(moduleCode)) return queryBuilder;
   const department = `${employeeAlias}_scope_department`;

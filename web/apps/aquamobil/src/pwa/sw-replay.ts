@@ -32,7 +32,6 @@
  * queued with retryCount untouched and drain on the next app open.
  */
 
-import { GraphQLReplayError, type GraphQLEnvelopeError } from './graphql-replay-error';
 import { syncAllOperations } from './offline-queue';
 import {
   OPERATION_MUTATIONS,
@@ -40,6 +39,7 @@ import {
   buildOperationVariables,
   getLeaveSubmitFollowUp,
 } from './operation-registry';
+import { readReplayResponse } from './replay-response';
 
 import type { OperationPayload, OperationType } from '@/types';
 import { resolveRequestTenantId } from '@/utils/jwt-claims';
@@ -77,11 +77,6 @@ const SW_REFRESH_MUTATION = `
 interface SwAuthIdentity {
   accessToken: string;
   tenantId: string;
-}
-
-interface GraphQLEnvelope {
-  data?: unknown;
-  errors?: GraphQLEnvelopeError[];
 }
 
 /**
@@ -139,16 +134,10 @@ async function postGraphQL(
     },
     body: JSON.stringify({ query, variables }),
   });
-  if (!response.ok) {
-    throw new Error(`HTTP error: ${response.status}`);
-  }
-  const result = (await response.json()) as GraphQLEnvelope;
-  if (result.errors && result.errors.length > 0) {
-    // Same classification as the foreground lane: the server's code decides
-    // whether the queue retries (MOB-CRITICAL-021 class).
-    throw GraphQLReplayError.fromEnvelope(result.errors);
-  }
-  return result.data;
+  // Same reader as the foreground lane (replay-response.ts): the server's code decides whether
+  // the queue retries, and a coded rejection — a 400 GRAPHQL_VALIDATION_FAILED included — is
+  // listed for re-entry (MOB-CRITICAL-021 class; ADR-051 C6).
+  return readReplayResponse<unknown>(response);
 }
 
 /**

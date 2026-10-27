@@ -16,7 +16,9 @@
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import { print } from 'graphql';
 
-import { type GraphQLErrorPayload, readGraphQLResponse } from '@/utils/graphql-response';
+import { GraphQLError, HttpStatusError, NetworkUnreachableError } from './request-failure';
+
+import { readGraphQLResponse } from '@/utils/graphql-response';
 import { resolveRequestTenantId } from '@/utils/jwt-claims';
 
 // ---------------------------------------------------------------------------
@@ -195,6 +197,19 @@ function runSingleFlightRefresh(): Promise<boolean> {
 // ---------------------------------------------------------------------------
 
 /**
+ * `fetch`, except that a rejection — no answer reached the device — is a
+ * NetworkUnreachableError carrying the browser's message (MOB-MEDIUM-031): the one
+ * failure the offline cache may stand in for, told apart by type, not by text.
+ */
+async function fetchOrUnreachable(url: string, init: RequestInit): Promise<Response> {
+  try {
+    return await fetch(url, init);
+  } catch (error) {
+    throw new NetworkUnreachableError(error instanceof Error ? error.message : String(error));
+  }
+}
+
+/**
  * Wraps the native `fetch` with:
  *   1. Automatic Authorization / X-Tenant-Id / X-Requested-With headers
  *   2. On 401: one silent token refresh attempt + retry
@@ -229,7 +244,7 @@ export async function authenticatedFetch(
     ...(options?.headers as Record<string, string> | undefined),
   };
 
-  let response = await fetch(url, {
+  let response = await fetchOrUnreachable(url, {
     ...options,
     headers,
     credentials: options?.credentials ?? 'include',
@@ -255,7 +270,7 @@ export async function authenticatedFetch(
       if (refreshedTenantId) {
         headers['X-Tenant-Id'] = refreshedTenantId;
       }
-      response = await fetch(url, {
+      response = await fetchOrUnreachable(url, {
         ...options,
         headers,
         credentials: options?.credentials ?? 'include',
@@ -272,19 +287,6 @@ export async function authenticatedFetch(
 // ---------------------------------------------------------------------------
 // graphqlRequest — typed convenience wrapper for GraphQL operations
 // ---------------------------------------------------------------------------
-
-export class GraphQLError extends Error {
-  // SSoT: the error element shape is the canonical GraphQLErrorPayload from
-  // @/utils/graphql-response, so the parser and this class share ONE error type
-  // instead of two near-duplicate inline shapes that could drift apart.
-  public readonly graphqlErrors: readonly GraphQLErrorPayload[];
-
-  constructor(errors: readonly GraphQLErrorPayload[]) {
-    super(errors[0]?.message ?? 'GraphQL error');
-    this.name = 'GraphQLError';
-    this.graphqlErrors = errors;
-  }
-}
 
 /**
  * Variable-presence helper: an operation with NO required variables may be
@@ -310,8 +312,10 @@ type VariablesArg<TVars> = [TVars] extends [Record<string, never>]
  * variables object. It is how a deleted input field shipped for weeks.
  *
  * @returns The `data` field from the GraphQL response, typed as the result type.
- * @throws {GraphQLError} when the response contains `errors`.
- * @throws {Error}        when the HTTP response is not ok.
+ * @throws {GraphQLError}            when the response contains `errors`.
+ * @throws {HttpStatusError}         when the HTTP response is not ok.
+ * @throws {NetworkUnreachableError} when no response reached the device.
+ * (request-failure.ts classifies the three for the offline cache.)
  */
 export async function graphqlRequest<TResult, TVars>(
   document: TypedDocumentNode<TResult, TVars>,
@@ -324,7 +328,9 @@ export async function graphqlRequest<TResult, TVars>(
   });
 
   if (!response.ok) {
-    throw new Error(`HTTP error: ${response.status}`);
+    // MOB-MEDIUM-031: the status travels as a type, so the offline cache tells a refusal
+    // (401/403) from an edge outage (5xx) without reading the message.
+    throw new HttpStatusError(response.status);
   }
 
   // SSoT: route through readGraphQLResponse so the payload is parsed from

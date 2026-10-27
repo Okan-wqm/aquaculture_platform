@@ -36,7 +36,11 @@ import {
   TenantSchemaCacheModule,
 } from '@aquaculture/backend-common/database';
 import { TenantExecutionContextModule } from '@aquaculture/backend-common/context';
-import { RolesGuard, ServiceIdentityGuard, TenantGuard } from '@aquaculture/backend-common/guards';
+import {
+  accessGuardProviders,
+  ServiceIdentityGuard,
+  TenantGuard,
+} from '@aquaculture/backend-common/guards';
 import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
 import {
   CorrelationIdMiddleware,
@@ -394,11 +398,9 @@ type QueryComplexityOperationContext = {
       useFactory: (r: Reflector, c: ConfigService): TenantGuard => new TenantGuard(r, undefined, c),
       inject: [Reflector, ConfigService],
     },
-    {
-      provide: APP_GUARD,
-      useFactory: (r: Reflector): RolesGuard => new RolesGuard(r),
-      inject: [Reflector],
-    },
+    // SECURITY: RolesGuard enforces @Roles(); once this service is enrolled in ADR-051 its
+    // MODULE_ACCESS_ENROLMENT entry adds the access-classification guard (RBAC-HIGH-030).
+    ...accessGuardProviders('messaging-service'),
     {
       provide: APP_GUARD,
       useFactory: (r: Reflector, c: ConfigService, s: SlidingWindowStrategy): ThrottlerGuard =>

@@ -121,7 +121,7 @@ Each bounded context lives in `apps/{service}/src/{domain}/` with: `commands/`, 
 ## Migration Runners (ADR-011, ADR-012)
 
 - Each service owns `apps/<svc>/src/database/migrations/` + `data-source.ts` (TypeORM CLI entry) and registers `createMigrationRunnerService('<schema>')`. `TypeOrmModule`: `migrationsRun: false` (the runner owns execution).
-- Production REQUIRES `DATABASE_MIGRATIONS_RUN=false`. Never hand-edit migration files — generate a new one. Blue-green safe: nullable column → backfill → NOT NULL.
+- Production REQUIRES `DATABASE_MIGRATIONS_RUN=false`. Never hand-edit migration files — generate a new one. A NOT NULL column add follows the Blue-green safety item of `docs/runbooks/migration-authoring.md` (ADR-053).
 
 ## NATS Authentication (ADR-014 / ADR-015 — cert-is-identity SSoT)
 

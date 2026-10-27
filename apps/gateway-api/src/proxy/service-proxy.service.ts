@@ -10,6 +10,7 @@ import { createHash } from 'crypto';
 
 import { buildGatewayVerifiedUserAssertion, buildSignedInternalHeaders, resolveTenantIdFromRequest } from '@aquaculture/backend-common/http';
 import type { ActAsAssertionClaims } from '@aquaculture/backend-common/types';
+import type { ModuleAccess } from '@aquaculture/shared-contracts';
 import { Injectable, Logger, BadGatewayException, GatewayTimeoutException, BadRequestException, NotImplementedException, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Request, Response } from 'express';
@@ -81,6 +82,8 @@ export interface VerifiedProxyUser {
     roles?: string[];
     email?: string;
     mfaVerified?: boolean;
+    /** RBAC-HIGH-028: the verified token's per-module grants. */
+    moduleAccess?: ModuleAccess;
     assignedSiteIds?: string[];
     mobileFeatures?: string[];
     resourcePermissions?: string[];
@@ -816,6 +819,8 @@ export class ServiceProxyService {
         roles: user.roles ?? [],
         email: user.email,
         mfaVerified: user.mfaVerified,
+        // RBAC-HIGH-028: the module grants, as on the federation path.
+        moduleAccess: user.moduleAccess,
         // SEC-HIGH-051 / SEC-HIGH-052: thread the site + mobile-feature claims
         // into the HMAC-bound assertion on the REST-proxy path too, identical to
         // the federation/authenticated-data-source build site. Without this the

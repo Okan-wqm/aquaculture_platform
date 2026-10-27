@@ -5,19 +5,42 @@
  * responder both read it.
  */
 import { stub } from '@aquaculture/testing';
-import { EntityManager, Repository } from 'typeorm';
+import { DataSource, EntityManager } from 'typeorm';
 
-import { TenantLocalization } from '../entities/tenant-localization.entity';
+const runInTenant = jest.fn();
+jest.mock('@aquaculture/backend-common/database', () => ({
+  ...jest.requireActual('@aquaculture/backend-common/database'),
+  runInTenantTransaction: (...args: unknown[]) => runInTenant(...args),
+}));
+
 import { SiteTimeZoneService } from '../services/site-time-zone.service';
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
+const OTHER_TENANT = '22222222-2222-4222-8222-222222222222';
+const dataSource = stub<DataSource>({});
 
-function makeService(tenantZone: string | null): SiteTimeZoneService {
-  const find = jest
-    .fn()
-    .mockResolvedValue(tenantZone ? [{ tenantId: TENANT, timezone: tenantZone }] : []);
-  // The cross-tenant projection repository is injected (schema-qualified).
-  return new SiteTimeZoneService(stub<Repository<TenantLocalization>>({ find }));
+/**
+ * `farm.tenant_localization` is FORCE-RLS, so the service reads it through the
+ * tenant's own transaction: the fake answers per tenant, exactly as the policy
+ * would (a tenant sees its own row only).
+ */
+function makeService(zones: string | null | Record<string, string | null>): SiteTimeZoneService {
+  const byTenant: Record<string, string | null> =
+    typeof zones === 'object' && zones !== null ? zones : { [TENANT]: zones };
+  runInTenant.mockImplementation(
+    async (
+      _ds: DataSource,
+      _schema: string,
+      tenantId: string,
+      fn: (qr: { query: jest.Mock }) => Promise<unknown>,
+    ) =>
+      fn({
+        query: jest
+          .fn()
+          .mockResolvedValue(byTenant[tenantId] ? [{ timezone: byTenant[tenantId] }] : []),
+      }),
+  );
+  return new SiteTimeZoneService(dataSource);
 }
 
 /** A tenant manager answering the localization read, then the sites read. */
@@ -34,6 +57,8 @@ function managerReturning(
 }
 
 describe('SiteTimeZoneService — zone order (D-B4)', () => {
+  beforeEach(() => runInTenant.mockReset());
+
   it('a site that wrote its own zone wins', async () => {
     const { manager } = managerReturning('Europe/Oslo', [
       { id: 'site-1', timezone: 'America/Santiago' },
@@ -73,21 +98,37 @@ describe('SiteTimeZoneService — zone order (D-B4)', () => {
   });
 
   it("reads the tenant's zone through the caller's manager, not a second connection", async () => {
-    const find = jest.fn();
-    const service = new SiteTimeZoneService(stub<Repository<TenantLocalization>>({ find }));
+    const service = makeService(null);
     const { manager } = managerReturning('Europe/Oslo', []);
     expect((await service.siteZones(manager, TENANT)).tenantZone).toBe('Europe/Oslo');
-    expect(find).not.toHaveBeenCalled();
+    expect(runInTenant).not.toHaveBeenCalled();
   });
 
-  it('answers many tenants in one read, each defaulting to UTC', async () => {
-    const zones = await makeService('Europe/Oslo').tenantZones([
+  it('answers many tenants, each defaulting to UTC', async () => {
+    const zones = await makeService({ [TENANT]: 'Europe/Oslo', [OTHER_TENANT]: null }).tenantZones([
       TENANT,
-      '22222222-2222-4222-8222-222222222222',
+      OTHER_TENANT,
     ]);
     expect([...zones]).toEqual([
       [TENANT, 'Europe/Oslo'],
-      ['22222222-2222-4222-8222-222222222222', 'UTC'],
+      [OTHER_TENANT, 'UTC'],
     ]);
+  });
+
+  it("reads each tenant's zone under THAT tenant's RLS context (the table is FORCE-RLS)", async () => {
+    await makeService({ [TENANT]: 'Europe/Oslo', [OTHER_TENANT]: 'Europe/Istanbul' }).tenantZones([
+      TENANT,
+      OTHER_TENANT,
+    ]);
+
+    expect(runInTenant.mock.calls.map((call: unknown[]) => [call[0], call[1], call[2]])).toEqual([
+      [dataSource, 'farm', TENANT],
+      [dataSource, 'farm', OTHER_TENANT],
+    ]);
+  });
+
+  it('answers nothing for no tenants and opens no transaction', async () => {
+    expect([...(await makeService(null).tenantZones([]))]).toEqual([]);
+    expect(runInTenant).not.toHaveBeenCalled();
   });
 });

@@ -7,7 +7,7 @@ import { useEffect, useCallback, useRef, useState } from 'react';
 import { useScadaViewerStore, SensorReading, SensorType, SensorStatus, ScadaProcess } from '../store/scadaViewerStore';
 import { EquipmentNodeData, ScadaNode, ScadaEdge } from '../types/scada-types';
 import { useSensorList, RegisteredSensor } from './useSensorList';
-import { API_URL, getAuthHeaders } from '../config/api';
+import { graphqlFetch } from '../config/api';
 
 interface SensorReadings {
   temperature?: number;
@@ -28,48 +28,40 @@ interface LatestReadingItem {
   readings: SensorReadings;
 }
 
+const LATEST_READINGS_BATCH_QUERY = `
+  query GetLatestReadingsBatch($sensorIds: [ID!]!) {
+    latestReadingsBatch(sensorIds: $sensorIds) {
+      id
+      sensorId
+      timestamp
+      readings {
+        temperature
+        ph
+        dissolvedOxygen
+        salinity
+        ammonia
+        nitrite
+        nitrate
+        turbidity
+        waterLevel
+      }
+    }
+  }
+`;
+
 // PERF-003: batch query for all sensor IDs in a single request instead of N individual fetches
 async function fetchLatestReadingsBatch(sensorIds: string[]): Promise<Map<string, LatestReadingItem>> {
   const result = new Map<string, LatestReadingItem>();
   if (sensorIds.length === 0) return result;
 
   try {
-    const response = await fetch(API_URL, {
-      method: 'POST',
-      credentials: 'include',
-      headers: getAuthHeaders(),
-      body: JSON.stringify({
-        query: `
-          query GetLatestReadingsBatch($sensorIds: [ID!]!) {
-            latestReadingsBatch(sensorIds: $sensorIds) {
-              id
-              sensorId
-              timestamp
-              readings {
-                temperature
-                ph
-                dissolvedOxygen
-                salinity
-                ammonia
-                nitrite
-                nitrate
-                turbidity
-                waterLevel
-              }
-            }
-          }
-        `,
-        variables: { sensorIds },
-      }),
-    });
-
-    const data = await response.json();
-    if (data.errors) {
-      console.warn('Error fetching batch readings:', data.errors[0]?.message);
-      return result;
-    }
-    const items: LatestReadingItem[] = data.data?.latestReadingsBatch || [];
-    items.forEach((item) => result.set(item.sensorId, item));
+    // FE-MEDIUM-380: through the shared client, which also reports a GRAPHQL_VALIDATION_FAILED
+    // to the shell's build-skew check (config/api.ts).
+    const data = await graphqlFetch<{ latestReadingsBatch: LatestReadingItem[] }>(
+      LATEST_READINGS_BATCH_QUERY,
+      { sensorIds },
+    );
+    data.latestReadingsBatch.forEach((item) => result.set(item.sensorId, item));
   } catch (error) {
     console.warn('Failed to fetch batch readings:', error);
   }

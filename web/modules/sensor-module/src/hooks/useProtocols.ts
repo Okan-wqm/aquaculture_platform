@@ -7,35 +7,13 @@ import {
   CategoryStats,
   ValidationResult,
 } from '../types/registration.types';
-import { getAccessToken, getTenantId } from '@aquaculture/shared-ui';
+// FE-MEDIUM-380: the module's one GraphQL transport — the shared client, which also reports a
+// GRAPHQL_VALIDATION_FAILED to the shell's build-skew check (config/api.ts).
+import { graphqlFetch } from '../config/api';
 
 // =============================================================================
 // GraphQL API
 // =============================================================================
-
-const API_URL = '/graphql';
-
-async function fetchGraphQL<T>(query: string, variables: Record<string, unknown>): Promise<T> {
-  const token = getAccessToken();
-  const tenantId = getTenantId();
-
-  const response = await fetch(API_URL, {
-    method: 'POST',
-    credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token && { Authorization: `Bearer ${token}` }),
-      ...(tenantId && { 'X-Tenant-Id': tenantId }),
-    },
-    body: JSON.stringify({ query, variables }),
-  });
-
-  const result = await response.json();
-  if (result.errors) {
-    throw new Error(result.errors[0]?.message || 'GraphQL error');
-  }
-  return result.data;
-}
 
 // GraphQL Queries
 const GET_PROTOCOLS_QUERY = `
@@ -133,7 +111,7 @@ export function useProtocols(category?: ProtocolCategory) {
     setError(null);
 
     try {
-      const data = await fetchGraphQL<{ protocols: ProtocolInfo[] }>(
+      const data = await graphqlFetch<{ protocols: ProtocolInfo[] }>(
         GET_PROTOCOLS_QUERY,
         { category: category || null }
       );
@@ -212,7 +190,7 @@ export function useProtocolDetails(code: string | undefined) {
     setError(null);
 
     try {
-      const data = await fetchGraphQL<{ protocolDetails: ProtocolDetails }>(
+      const data = await graphqlFetch<{ protocolDetails: ProtocolDetails }>(
         GET_PROTOCOL_DETAILS_QUERY,
         { code }
       );
@@ -256,7 +234,7 @@ export function useProtocolSchema(code: string | undefined) {
 
     const fetchSchema = async () => {
       try {
-        const data = await fetchGraphQL<{ protocolSchema: JSONSchema }>(
+        const data = await graphqlFetch<{ protocolSchema: JSONSchema }>(
           GET_PROTOCOL_SCHEMA_QUERY,
           { code }
         );
@@ -293,7 +271,7 @@ export function useProtocolDefaults(code: string | undefined) {
 
     const fetchDefaults = async () => {
       try {
-        const data = await fetchGraphQL<{ protocolDefaults: Record<string, unknown> }>(
+        const data = await graphqlFetch<{ protocolDefaults: Record<string, unknown> }>(
           GET_PROTOCOL_DEFAULTS_QUERY,
           { code }
         );
@@ -328,7 +306,7 @@ export function useCategoryStats() {
     setError(null);
 
     try {
-      const data = await fetchGraphQL<{ protocolCategoryStats: CategoryStats }>(
+      const data = await graphqlFetch<{ protocolCategoryStats: CategoryStats }>(
         GET_CATEGORY_STATS_QUERY,
         {}
       );
@@ -366,7 +344,7 @@ export function useProtocolValidation() {
     setError(null);
 
     try {
-      const data = await fetchGraphQL<{ validateProtocolConfig: ValidationResult }>(
+      const data = await graphqlFetch<{ validateProtocolConfig: ValidationResult }>(
         VALIDATE_PROTOCOL_CONFIG_MUTATION,
         { input: { protocolCode, config } }
       );
@@ -400,7 +378,7 @@ export function useApplyDefaults() {
     setLoading(true);
 
     try {
-      const data = await fetchGraphQL<{ applyProtocolDefaults: Record<string, unknown> }>(
+      const data = await graphqlFetch<{ applyProtocolDefaults: Record<string, unknown> }>(
         APPLY_PROTOCOL_DEFAULTS_MUTATION,
         { protocolCode, config }
       );

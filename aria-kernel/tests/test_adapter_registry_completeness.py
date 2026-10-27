@@ -39,7 +39,7 @@ from aria_kernel.adapter_quarantine import (
     validate_manifest_quarantine,
 )
 from aria_kernel.registry_compiler import STUB_RUNNER_TOKENS, compile_registry
-from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir, list_tools
+from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir, is_agent_backed, list_tools
 from tests._helpers.registry_projection import project_registry_as_stored
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -90,6 +90,10 @@ class CommittedAdaptersCompileAndRunTheirOwnCode(unittest.TestCase):
     def test_every_adapter_resolves_to_a_real_entrypoint_never_the_shim(self) -> None:
         for manifest in self.manifests:
             with self.subTest(tool=manifest["tool_id"]):
+                if is_agent_backed(manifest):
+                    # An agent's accepted answer is its run: no program to resolve, and none to stub.
+                    self.assertNotIn("argv", manifest["runner"])
+                    continue
                 argv = [str(arg) for arg in (manifest.get("runner") or {}).get("argv") or []]
                 stubbed = any(Path(arg).name in STUB_RUNNER_TOKENS for arg in argv)
                 if stubbed:

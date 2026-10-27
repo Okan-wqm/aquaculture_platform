@@ -6,8 +6,9 @@
 // with them at the tank (the full alarm stack lived only in the desktop
 // sensor-module). This hook binds `alertHistory` + `acknowledgeAlert` to
 // mobile with the platform's offline discipline:
-//   - reads poll while the app is open and fall back to the encrypted
-//     tenant-scoped IndexedDB cache when the network is down;
+//   - reads poll while the app is open and read through the encrypted offline
+//     cache, which stands in only when the server cannot be reached and is
+//     purged when the server refuses the caller (MOB-MEDIUM-031);
 //   - acknowledgements ride the offline queue (queue-first like every mobile
 //     write; AcknowledgeAlertInput extends MobileCommandEnvelopeInput so the
 //     replay envelope is accepted, and the ack converges idempotently), with
@@ -17,11 +18,12 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useMemo } from 'react';
 
 import { useAuth } from './useAuth';
+import { useOfflineCacheScope } from './useOfflineCacheScope';
 import { useOfflineQueue } from './useOfflineQueue';
 
 import type { AlertSeverity, MobileAlertFieldsFragment } from '@/generated/graphql';
 import { MOBILE_ALERT_HISTORY } from '@/graphql/alert-operations';
-import { cacheData, getCachedData } from '@/pwa/offline-queue';
+import { readThroughOfflineCache } from '@/pwa/offline-cache';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
@@ -60,6 +62,7 @@ function sortAlerts(rows: readonly MobileAlert[]): MobileAlert[] {
 
 export function useAlerts(options?: UseAlertsOptions): UseAlertsResult {
   const { tenantId } = useAuth();
+  const cacheScope = useOfflineCacheScope();
   const { addToQueue } = useOfflineQueue();
   const queryClient = useQueryClient();
 
@@ -73,25 +76,24 @@ export function useAlerts(options?: UseAlertsOptions): UseAlertsResult {
     refetchInterval: ALERTS_REFETCH_INTERVAL_MS,
     queryFn: async (): Promise<MobileAlert[]> => {
       if (!tenantId) return [];
-      try {
-        const data = await graphqlRequest(MOBILE_ALERT_HISTORY, {
-          page: 1,
-          limit,
-          severity: severity ?? null,
-          acknowledged: null,
-        });
-        const rows = sortAlerts(data.alertHistory);
-        // Encrypted tenant-scoped offline copy — the alarm list must survive a
-        // cold offline open (React Query's cache is memory-only).
-        await cacheData(tenantId, offlineCacheKey, rows, ALERTS_CACHE_TTL_MS);
-        return rows;
-      } catch (error) {
-        // Offline / network failure: serve the last known alarm state rather
-        // than an empty list that reads as "all clear".
-        const cached = await getCachedData<MobileAlert[]>(tenantId, offlineCacheKey);
-        if (cached) return cached;
-        throw error;
-      }
+      // The alarm list must survive a cold offline open (React Query's cache is
+      // memory-only): with the server unreachable the last known alarm state
+      // stands in rather than an empty list that reads as "all clear"; a refusal
+      // surfaces as an error and purges the copy (MOB-MEDIUM-031).
+      const read = await readThroughOfflineCache(
+        cacheScope,
+        { key: offlineCacheKey, ttlMs: ALERTS_CACHE_TTL_MS },
+        async () => {
+          const data = await graphqlRequest(MOBILE_ALERT_HISTORY, {
+            page: 1,
+            limit,
+            severity: severity ?? null,
+            acknowledged: null,
+          });
+          return sortAlerts(data.alertHistory);
+        },
+      );
+      return read.data;
     },
   });
 

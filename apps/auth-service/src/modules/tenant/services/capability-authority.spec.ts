@@ -170,11 +170,21 @@ describe('CapabilityAuthorityService', () => {
 
     it('deduplicates and accepts a valid admin override set', () => {
       const result = service.assertGrantableOverrides(
-        { grants: ['roles:view', 'roles:view'], revokes: ['sites:view'] },
+        { grants: ['roles:view', 'roles:view'], revokes: ['users:invite'] },
         { isTenantAdmin: true, effective: new Set<string>(), entitled: FULLY_ENTITLED },
       );
       expect(result.grants).toEqual(['roles:view']);
-      expect(result.revokes).toEqual(['sites:view']);
+      expect(result.revokes).toEqual(['users:invite']);
+    });
+
+    it('rejects a key PKG-03 removed from the catalogue, as grant or revoke (RBAC-HIGH-025)', () => {
+      const admin = { isTenantAdmin: true, effective: new Set<string>(), entitled: FULLY_ENTITLED };
+      expect(() =>
+        service.assertGrantableOverrides({ grants: ['batches:create'], revokes: [] }, admin),
+      ).toThrow(BadRequestException);
+      expect(() => service.assertGrantableResourcePermissions(['employees:view'], admin)).toThrow(
+        BadRequestException,
+      );
     });
   });
 

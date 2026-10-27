@@ -15,13 +15,11 @@
  * falls back to the tenant zone, as for an unknown site.
  */
 import { Injectable } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { EntityManager, In, Repository } from 'typeorm';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { runInTenantTransaction } from '@aquaculture/backend-common/database';
+import { DataSource, EntityManager } from 'typeorm';
 
-import {
-  DEFAULT_TENANT_TIMEZONE,
-  TenantLocalization,
-} from '../entities/tenant-localization.entity';
+import { DEFAULT_TENANT_TIMEZONE } from '../entities/tenant-localization.entity';
 
 /** A tenant's site → zone map plus its tenant zone (one batched read). */
 export interface TenantZoneMap {
@@ -35,29 +33,29 @@ export interface TenantZoneMap {
 export class SiteTimeZoneService {
   constructor(
     /**
-     * CROSS-TENANT ledger: `tenant_localization` lives in the `farm` source
-     * schema keyed by tenantId (never cloned into tenant schemas). The entity
-     * declares `schema: 'farm'`, so the injected repository qualifies its SQL;
-     * `getScopedRepository` would be wrong — cron ticks read it before any
-     * tenant transaction exists.
+     * `farm.tenant_localization` lives in the `farm` source schema keyed by
+     * tenantId (never cloned into tenant schemas) but carries FORCED row-level
+     * security: a read outside a tenant context sees no row at all, so every
+     * tenant would silently get UTC. Reads therefore go through the tenant's
+     * own transaction (`runInTenantTransaction`), never a bare repository.
      */
-    @InjectRepository(TenantLocalization)
-    private readonly localizationRepository: Repository<TenantLocalization>,
+    @InjectDataSource() private readonly dataSource: DataSource,
   ) {}
 
   /** Each tenant's zone; a tenant that never set one gets UTC. */
   async tenantZones(tenantIds: string[]): Promise<Map<string, string>> {
     const zones = new Map<string, string>();
-    if (tenantIds.length === 0) return zones;
-    const rows = await this.localizationRepository.find({
-      where: { tenantId: In(tenantIds) },
-      select: ['tenantId', 'timezone'],
-    });
-    for (const row of rows) {
-      zones.set(row.tenantId, row.timezone || DEFAULT_TENANT_TIMEZONE);
-    }
     for (const tenantId of tenantIds) {
-      if (!zones.has(tenantId)) zones.set(tenantId, DEFAULT_TENANT_TIMEZONE);
+      const rows: Array<{ timezone: string | null }> = await runInTenantTransaction(
+        this.dataSource,
+        'farm',
+        tenantId,
+        (queryRunner) =>
+          queryRunner.query(`SELECT timezone FROM farm.tenant_localization WHERE "tenantId" = $1`, [
+            tenantId,
+          ]),
+      );
+      zones.set(tenantId, rows[0]?.timezone || DEFAULT_TENANT_TIMEZONE);
     }
     return zones;
   }

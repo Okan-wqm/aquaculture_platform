@@ -1,4 +1,9 @@
-import { SetMetadata } from '@nestjs/common';
+import {
+  accountRoleOf,
+  holdsTenantCapabilities,
+  type TenantCapability,
+} from '@aquaculture/shared-contracts';
+import { SetMetadata, type CustomDecorator } from '@nestjs/common';
 
 import { Role } from './roles.decorator';
 
@@ -13,7 +18,10 @@ export const REQUIRED_TENANT_PERMISSIONS_KEY = 'requiredTenantPermissions';
  * Marks a route handler as requiring specific tenant-level resource permissions.
  * Used together with TenantPermissionGuard to enforce fine-grained RBAC.
  *
- * Permission format: "resource:action" (e.g., "tanks:create", "sensors:configure")
+ * Permission format: "resource:action", a key of the one catalogue
+ * (`TENANT_CAPABILITY_CATALOGUE`, @aquaculture/shared-contracts). The argument type is
+ * `TenantCapability`, so a check cannot require a key the role editor cannot grant
+ * (RBAC-MEDIUM-026: sensor-service required `edge:manage-io-config`, which no role could hold).
  *
  * Behaviour:
  * - Opt-in: If the decorator is not present, the guard passes through.
@@ -23,17 +31,18 @@ export const REQUIRED_TENANT_PERMISSIONS_KEY = 'requiredTenantPermissions';
  *
  * @example
  * ```ts
- * @RequireTenantPermission('tanks:create')
- * @Post()
- * createTank() { ... }
+ * @RequireTenantPermission('roles:create')
+ * @Mutation(() => TenantRole)
+ * createTenantRole() { ... }
  *
- * @RequireTenantPermission('sensors:configure', 'sensors:calibrate')
- * @Patch(':id/calibrate')
- * calibrateSensor() { ... }
+ * @RequireTenantPermission(EDGE_DEVICE_IO_CONFIG_CAPABILITY)
+ * @Mutation(() => DeviceIoConfig)
+ * addDeviceIoConfig() { ... }
  * ```
  */
-export const RequireTenantPermission = (...permissions: string[]) =>
-  SetMetadata(REQUIRED_TENANT_PERMISSIONS_KEY, permissions);
+export const RequireTenantPermission = (
+  ...permissions: TenantCapability[]
+): CustomDecorator<string> => SetMetadata(REQUIRED_TENANT_PERMISSIONS_KEY, permissions);
 
 /**
  * Minimal user shape a capability check needs — a subset of CurrentUserPayload
@@ -66,35 +75,39 @@ function normalizeRoles(user: ResourcePermissionUser): Role[] {
 }
 
 /**
- * SSoT for the tenant-RBAC capability check. Shared by `TenantPermissionGuard`
- * (route-level, via `@RequireTenantPermission`) AND any programmatic /
- * conditional check — e.g. a multi-branch mutation that must gate only ONE
- * branch (creating a GROUP channel) without blanket-guarding the whole handler.
+ * The tenant-RBAC capability check for a verified user. Shared by
+ * `TenantPermissionGuard` (route-level, via `@RequireTenantPermission`) AND any
+ * programmatic / conditional check — e.g. a multi-branch mutation that must gate
+ * only ONE branch (creating a GROUP channel) without blanket-guarding the whole
+ * handler.
  *
- * SUPER_ADMIN and TENANT_ADMIN bypass (full access); otherwise EVERY required
- * capability must be present in the user's `resourcePermissions`. Fail-closed on
- * a missing user. Mirrors the frontend `useAuth().hasPermission` exactly so the
- * UI-visibility and the server-enforcement verdicts agree.
+ * The rule itself — an account role holds every capability, a member exactly its
+ * `resourcePermissions` — is `holdsTenantCapabilities` in shared-contracts, which
+ * the frontend `useAuth().hasPermission` reads too, so the UI-visibility and the
+ * server-enforcement verdicts cannot disagree (RBAC-MEDIUM-024). This function
+ * only reads the claims the way the backend receives them (roles case-normalised)
+ * and fails closed on a missing user.
  */
 export function hasAllResourcePermissions(
   user: ResourcePermissionUser | null | undefined,
-  requiredPermissions: readonly string[],
+  requiredPermissions: readonly TenantCapability[],
 ): boolean {
   if (!user) {
     return false;
   }
-  const roles = normalizeRoles(user);
-  if (roles.includes(Role.SUPER_ADMIN) || roles.includes(Role.TENANT_ADMIN)) {
-    return true;
-  }
-  const granted = user.resourcePermissions ?? [];
-  return requiredPermissions.every((permission) => granted.includes(permission));
+  return holdsTenantCapabilities(
+    {
+      accountRole: accountRoleOf(normalizeRoles(user)),
+      capabilities: user.resourcePermissions ?? [],
+    },
+    requiredPermissions,
+  );
 }
 
 /** Single-capability convenience over {@link hasAllResourcePermissions}. */
 export function hasResourcePermission(
   user: ResourcePermissionUser | null | undefined,
-  requiredPermission: string,
+  requiredPermission: TenantCapability,
 ): boolean {
   return hasAllResourcePermissions(user, [requiredPermission]);
 }

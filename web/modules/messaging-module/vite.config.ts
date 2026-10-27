@@ -11,6 +11,7 @@ import { defineConfig } from 'vitest/config';
 // so the SSoT must be imported by relative source path — every module's
 // vite.config does the same (the nx-boundary is relaxed for vite configs in
 // eslint.config.mjs, since a build config cannot go through the npm scope).
+import { buildManifestPlugin } from '../../shared-ui/src/federation/buildManifestPlugin';
 import { getSharedConfigWithLucide } from '../../shared-ui/src/federation/federationSharedConfig';
 import { sharedUiAlias } from '../../shared-ui/src/federation/sharedUiAlias';
 import { unresolvedAssetUrlGate } from '../../shared-ui/src/federation/unresolvedAssetUrlGate';
@@ -27,6 +28,9 @@ export default defineConfig(({ mode }) => ({
   plugins: [
     react(),
     unresolvedAssetUrlGate(),
+    // FE-MEDIUM-380: exports this build's id from remoteEntry.js and serves it in
+    // build-manifest.json, so an open console tab reloads onto a new deploy of this remote.
+    buildManifestPlugin({ kind: 'remote', entry: 'remoteEntry.js' }),
     federation({
       dts: false,
       name: 'messagingModule',

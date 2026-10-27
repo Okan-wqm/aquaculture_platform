@@ -77,7 +77,7 @@ const PLATFORM_MODULES_SQL = `
    ORDER BY "sortOrder" ASC, name ASC`;
 
 /** TENANT_ADMIN: every module the tenant has enabled. */
-const TENANT_MODULES_SQL = `
+export const TENANT_MODULES_SQL = `
   SELECT m.code, m.name, m."defaultRoute"
     FROM auth.tenant_modules tm
     JOIN auth.modules m ON tm."moduleId" = m.id
@@ -85,18 +85,30 @@ const TENANT_MODULES_SQL = `
    ORDER BY m.name`;
 
 /**
- * A member: their live assignments in the token's tenant whose module the tenant still has
- * enabled. The primary module comes first, so the login redirect lands on it.
+ * The live grants among the assignment rows `scope` selects: active, not expired, in a module
+ * the tenant still has enabled — the one definition of a grant the claim carries. The member
+ * read below and the PKG-06 readiness census (module-grant-census.ts) both select through it.
  */
-const MEMBER_MODULES_SQL = `
-  SELECT m.code, m.name, m."defaultRoute", uma."role"
+export function liveGrantRowsSql(select: string, scope: string): string {
+  return `
+  SELECT ${select}
     FROM auth.user_module_assignments uma
     JOIN auth.modules m ON m.id = uma."moduleId"
     JOIN auth.tenant_modules tm ON tm."tenantId" = uma."tenantId" AND tm."moduleId" = uma."moduleId"
-   WHERE uma."userId" = $1 AND uma."tenantId" = $2
+   WHERE ${scope}
      AND uma."isActive" = true
      AND (uma."expiresAt" IS NULL OR uma."expiresAt" >= now())
-     AND tm."isEnabled" = true
+     AND tm."isEnabled" = true`;
+}
+
+/**
+ * A member: their live assignments in the token's tenant whose module the tenant still has
+ * enabled. The primary module comes first, so the login redirect lands on it.
+ */
+const MEMBER_MODULES_SQL = `${liveGrantRowsSql(
+  'm.code, m.name, m."defaultRoute", uma."role"',
+  'uma."userId" = $1 AND uma."tenantId" = $2',
+)}
    ORDER BY uma."isPrimaryManager" DESC, uma."createdAt" ASC, m.name ASC`;
 
 interface ModuleRow {

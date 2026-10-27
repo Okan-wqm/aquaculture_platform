@@ -21,6 +21,7 @@ import { TenantSubscriptionProjectionHandler } from './event-handlers/tenant-sub
 import { AuthAdminNatsHandler } from './handlers/auth-admin-nats.handler';
 import { AuthUserQueryNatsHandler } from './handlers/auth-user-query-nats.handler';
 import { MobileSettingsResolver } from './resolvers/mobile-settings.resolver';
+import { ModuleAccessReadinessResolver } from './resolvers/module-access-readiness.resolver';
 import { ModuleAccessResolver } from './resolvers/module-access.resolver';
 import { TenantAdminResolver } from './resolvers/tenant-admin.resolver';
 import { TenantRoleResolver } from './resolvers/tenant-role.resolver';
@@ -28,6 +29,7 @@ import { TenantResolver } from './resolvers/tenant.resolver';
 import { CapabilityAuthorityService } from './services/capability-authority';
 import { FarmSiteAssignmentValidator } from './services/farm-site-assignment-validator.service';
 import { MobileSettingsService } from './services/mobile-settings.service';
+import { ModuleAccessReadinessService } from './services/module-access-readiness.service';
 import { ModuleAccessService } from './services/module-access.service';
 import { PlatformCapabilityService } from './services/platform-capability.service';
 import { TenantAdminService } from './services/tenant-admin.service';
@@ -82,11 +84,14 @@ import { EventDedupService } from '@aquaculture/backend-common/event-dedup';
     PlatformCapabilityService,
     // PKG-06: the admin path of module access (grants, Assign / Remove Manager).
     ModuleAccessService,
+    // PKG-06: module-access readiness counts (the R4 entry gate).
+    ModuleAccessReadinessService,
     TenantResolver,
     TenantAdminResolver,
     TenantRoleResolver,
     MobileSettingsResolver,
     ModuleAccessResolver,
+    ModuleAccessReadinessResolver,
     SchemaManagerService,
     // DBR-LOW-001 cure: daily 04:00 UTC reconcile of
     // auth.tenants.userCount vs auth.users count. Catches drift from

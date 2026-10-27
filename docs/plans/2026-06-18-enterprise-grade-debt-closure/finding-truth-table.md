@@ -313,6 +313,7 @@ deadline 2026-11-17.
 | `ALERT-CRITICAL-009` | OPEN | 2026-09-29 | alert-engine-expert | real-open |
 | `SENSOR-CRITICAL-173` | OPEN | 2026-10-08 | claude | real-open |
 | `PLAT-CRITICAL-925` | OPEN | 2026-10-18 | claude | real-open |
+| `FARM-CRITICAL-479` | OPEN | 2026-10-27 | farm-expert | real-open |
 
 Updated 2026-10-17 (lost-work re-land, PR #2007): one active CRITICAL added.
 `INFRA-CRITICAL-233` — an ordinary leaf renewal (`droplet-up.sh` passing `--force` once the redis

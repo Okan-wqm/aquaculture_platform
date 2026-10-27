@@ -166,10 +166,16 @@ class TheAtlasFindsTheKnownFacts(AtlasCase):
         self.assertEqual({path_of(site) for site in plan_events["writers"]}, {f"{KERNEL}plan_convergence.py"})
         self.assertIn("plans/events.jsonl", " ".join(plan_events["ledgers_written"]))
 
-    def test_the_red_first_prover_has_no_owner(self) -> None:
+    def test_the_red_first_prover_is_owned_by_validation_and_called_by_the_apply_gate(self) -> None:
+        # F3.5a replaces `test_the_red_first_prover_has_no_owner`: D5 gave the
+        # family its owner (validation.prove_red_first) and the apply gate is
+        # its first caller, so the family is no longer ownerless or dead.
         prover = self.family("red_first_prover")
-        self.assertIsNone(prover["owner"])
-        self.assertEqual(prover["liveness"], "dead")
+        self.assertEqual(prover["owner"], f"{KERNEL}validation.py:prove_red_first")
+        self.assertNotEqual(prover["liveness"], "dead")
+        self.assertTrue(any(caller.startswith(f"{KERNEL}apply_engine.py:") for caller in prover["callers"]),
+                        f"no apply_engine symbol calls the prover: {prover['callers']}")
+        self.assertEqual(prover["finding"], "ARIA-MEDIUM-744", "the finding stays open until the closure slice")
 
     def test_the_judgment_funnel_is_dormant(self) -> None:
         funnel = self.family("judgment_funnel")

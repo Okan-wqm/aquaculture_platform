@@ -777,15 +777,18 @@ class ResultAdmissibilityTests(_DeliveredBranch):
         self.ids = {**self.ids, "change_id": planned["change_id"]}
         self.output = Path(self.request["expected_output_path"])
 
-    def _envelope(self, *, evidence_ref: str) -> dict:
+    def _envelope(self, *, evidence_ref: str, red_first: dict | None = None) -> dict:
         matrix = [{"id": item["id"], "verdict": "satisfied", "evidence_refs": [evidence_ref]}
                   for item in self.request["must_satisfy"]]
-        return {
+        envelope = {
             "$schema": "aria/agent-response/v1", "request_id": self.request["request_id"],
             "claim_id": self.claim["claim_id"], "agent_id": self.claim["agent_id"], "role": "implementation",
             "status": "submitted", "satisfaction_matrix": matrix, "evidence_refs": [evidence_ref],
             "details": {"implementation": {}},
         }
+        if red_first is not None:
+            envelope["details"]["implementation"]["red_first"] = red_first
+        return envelope
 
     def _deliver_envelope(self, envelope: dict, **overrides: object) -> ImplementationDeliveryRefusal:
         self.output.parent.mkdir(parents=True, exist_ok=True)
@@ -843,6 +846,59 @@ class ResultAdmissibilityTests(_DeliveredBranch):
         refused = self._deliver_envelope(envelope)
         self.assertEqual(refused.stage, "apply_gate", refused.reason)
         self.assertTrue(refused.reason.startswith("gate_refused:"), refused.reason)
+
+    def test_an_envelope_with_a_red_first_declaration_is_still_admitted_and_the_gate_gets_only_its_two_fields(self) -> None:
+        # F3.5a — the agent declares how to run the test it wrote and what
+        # failure it expects (`details.implementation.red_first`); the delivery
+        # reads it off the SAME envelope the decision judges and hands the gate
+        # exactly `{command, failure_signature}`. Any other key the agent put
+        # there (the files to prove, the expectation source) never leaves the
+        # envelope: the kernel lifts the files from the tip and derives the
+        # expectation from the change's finding.
+        from aria_kernel import apply_engine
+        from aria_kernel.agent_invocations import find_request, judge_claim_submission
+        from aria_kernel.tool_registry import GovernanceError
+
+        declared = {"command": "python3 -m unittest tests.test_fix", "failure_signature": "-1 != 5"}
+        envelope = self._envelope(
+            evidence_ref="src/app.ts:1",
+            red_first={**declared, "files": {"tests/test_fix.py": "x = 1\n"}, "expectation_ref": "F-999"},
+        )
+        judgment = judge_claim_submission(
+            root=self.tools, claim_id=self.claim["claim_id"], agent_id=self.claim["agent_id"],
+            request=find_request(self.tools, self.request["request_id"]), envelope=envelope, output=self.output,
+            workspace_root=self.repo, evidence_target_sha="auto",
+        )
+        self.assertTrue(judgment.admitted, judgment)
+        captured: list[dict] = []
+
+        def gate(**kwargs: object) -> dict:
+            captured.append(kwargs)
+            raise GovernanceError("the gate is stood in for: only its arguments are read")
+
+        with mock.patch.object(apply_engine, "run_apply_gate", side_effect=gate):
+            refused = self._deliver_envelope(envelope)
+        self.assertEqual(refused.stage, "apply_gate", refused.reason)
+        self.assertEqual(len(captured), 1)
+        self.assertEqual(captured[0].get("red_first_declared"), declared,
+                         "the delivery must hand the gate the agent's declaration, and only its two fields")
+
+    def test_an_envelope_without_a_declaration_hands_the_gate_none(self) -> None:
+        from aria_kernel import apply_engine
+        from aria_kernel.tool_registry import GovernanceError
+
+        captured: list[dict] = []
+
+        def gate(**kwargs: object) -> dict:
+            captured.append(kwargs)
+            raise GovernanceError("the gate is stood in for: only its arguments are read")
+
+        with mock.patch.object(apply_engine, "run_apply_gate", side_effect=gate):
+            refused = self._deliver_envelope(self._envelope(evidence_ref="src/app.ts:1"))
+        self.assertEqual(refused.stage, "apply_gate", refused.reason)
+        self.assertEqual(len(captured), 1)
+        self.assertIn("red_first_declared", captured[0], "the delivery did not pass the declaration to the gate at all")
+        self.assertIsNone(captured[0]["red_first_declared"])
 
     def test_a_decision_the_kernel_could_not_reach_is_the_hosts(self) -> None:
         # Every code a verification-unavailable one: the submit would journal
@@ -980,6 +1036,45 @@ class ARefusedChangeValidatedStopsThePrTests(_DeliveredBranch):
             if row.get("kind") == "change_validated_refused"
         ]
         self.assertEqual([row["details"]["change_id"] for row in refusals], [self.ids["change_id"]])
+
+    def test_the_gate_is_handed_the_agents_red_first_declaration_with_every_host_collaborator_stood_in(self) -> None:
+        # F3.5a, on every host: the declaration the agent wrote on its outcome
+        # record (`details.implementation.red_first`) reaches `run_apply_gate`
+        # as `red_first_declared`, reduced to the two fields the agent may
+        # choose; an envelope without one hands the gate an explicit None.
+        from types import SimpleNamespace
+
+        from aria_kernel import agent_invocations, apply_engine
+        from aria_kernel.tool_registry import GovernanceError
+
+        declared = {"command": "python3 -m unittest tests.test_fix", "failure_signature": "-1 != 5"}
+        admitted = SimpleNamespace(undecided=False, admitted=True, rejection_codes=(), reasons=())
+        cases = {
+            "nested record": ({"details": {"implementation": {
+                "red_first": {**declared, "files": {"tests/test_fix.py": "x = 1\n"}, "expectation_ref": "F-999"}}}}, declared),
+            "flat legacy record": ({"details": {"red_first": declared}}, declared),
+            "no declaration": ({"details": {"implementation": {}}}, None),
+        }
+        for label, (envelope, expected) in cases.items():
+            with self.subTest(label):
+                captured: list[dict] = []
+
+                def gate(**kwargs: object) -> dict:
+                    captured.append(kwargs)
+                    raise GovernanceError("the gate is stood in for: only its arguments are read")
+
+                with mock.patch.object(delivery, "delivery_admission_refusal", return_value=None), \
+                        mock.patch.object(delivery, "validation_sandbox_for", return_value=object()), \
+                        mock.patch.object(agent_invocations, "judge_claim_submission", return_value=admitted), \
+                        mock.patch.object(apply_engine, "run_apply_gate", side_effect=gate):
+                    refused = self._deliver(
+                        request_id=self.request["request_id"], claim_id=self.claim["claim_id"],
+                        agent_id=self.claim["agent_id"], envelope=envelope, output_path=self.output,
+                    )
+                self.assertEqual(refused.stage, "apply_gate", refused.reason)
+                self.assertEqual(len(captured), 1)
+                self.assertIn("red_first_declared", captured[0], "the delivery did not pass the declaration to the gate")
+                self.assertEqual(captured[0]["red_first_declared"], expected)
 
     def test_the_stage_runs_after_the_gate_and_before_anything_external(self) -> None:
         stages = DELIVERY_STAGES

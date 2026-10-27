@@ -1,0 +1,110 @@
+name: Edge Release Unpublish (rodbus)
+
+# One-shot, manually dispatched. Withdraws from public download every
+# edge-agent release whose binaries link rodbus, a crate whose license
+# permits non-commercial, non-production use only
+# (docs/reviews/claude/2026-10-27-edge-modbus-license.md#SUPPLY-HIGH-037).
+#
+# Each listed release is turned into a DRAFT: it disappears from the public
+# releases page and its asset URLs return 404, while the assets and their
+# download counts stay on GitHub with repository-collaborator access only.
+# Nothing is deleted and no tag or commit is touched.
+#
+# The release list is fixed here and the workflow takes no input, so a
+# dispatch cannot reach any other release. Binaries are never uploaded as
+# workflow artifacts — that would publish them again.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: edge-release-unpublish
+  cancel-in-progress: false
+
+jobs:
+  unpublish:
+    name: Unpublish rodbus-linked edge releases
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      # Every public release published 2026-02-26 .. 2026-05-24 that carries
+      # suderra-agent binaries built with rodbus 1.4.0 / 1.5.0-RC1.
+      RODBUS_RELEASE_TAGS: >-
+        agent-v1.0.0 agent-v1.0.2 agent-v1.1.0
+        agent-v1.3.1 agent-v1.3.2 agent-v1.3.3 agent-v1.3.4 agent-v1.3.6
+        agent-v1.4.0 agent-v1.5.0 agent-v1.5.1 agent-v1.5.2 agent-v1.5.3
+        agent-v1.6.0 agent-v1.7.0 agent-v1.8.0 agent-v1.8.2
+        agent-v2.0.0-rc1-agentic-test7 agent-v2.0.0-rc1-agentic-test8 agent-v2.0.0-rc1-agentic-test11
+        v2.0.0-batch18 v2.0.0-batch30 v2.0.0-batch35 v2.0.0-batch39 v2.0.0-batch41
+        v2.0.0-batch42 v2.0.0-batch45 v2.0.0-batch47 v2.0.0-batch50 v2.0.0-batch54
+        v2.0.0-batch56 v2.0.0-batch57 v2.0.0-batch59 v2.0.0-batch61 v2.0.0-batch63
+        v2.0.0-batch65 v2.0.0-batch67
+        agent-v2.0.0-rc4
+    steps:
+      - name: Snapshot release metadata and download counts before any change
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/${GH_REPO}/releases?per_page=100" | jq -s 'add' > releases-before.json
+          echo "tag | draft | assets | downloads"
+          jq -r '.[] | "\(.tag_name) | \(.draft) | \(.assets | length) | \(.assets | map(.download_count) | add // 0)"' releases-before.json
+
+      - name: Turn every listed release into a draft
+        run: |
+          set -euo pipefail
+          for tag in ${RODBUS_RELEASE_TAGS}; do
+            id="$(jq -r --arg t "$tag" '.[] | select(.tag_name == $t) | .id' releases-before.json)"
+            if [ -z "$id" ]; then
+              echo "::error::release ${tag} not found"
+              exit 1
+            fi
+            if [ "$(jq -r --arg t "$tag" '.[] | select(.tag_name == $t) | .draft' releases-before.json)" = "true" ]; then
+              echo "${tag}: already a draft"
+              continue
+            fi
+            gh api -X PATCH "repos/${GH_REPO}/releases/${id}" -F draft=true \
+              --jq '"\(.tag_name): draft=\(.draft)"'
+          done
+
+      - name: Verify no listed asset is publicly downloadable
+        run: |
+          set -euo pipefail
+          failed=0
+          checked=0
+          for tag in ${RODBUS_RELEASE_TAGS}; do
+            while IFS= read -r url; do
+              [ -n "$url" ] || continue
+              # Unauthenticated, as the public sees it.
+              code="$(curl -s -o /dev/null -w '%{http_code}' -L "$url")"
+              checked=$((checked + 1))
+              if [ "$code" != "404" ]; then
+                echo "::error::${url} is still publicly downloadable (HTTP ${code})"
+                failed=1
+              fi
+            done < <(jq -r --arg t "$tag" '.[] | select(.tag_name == $t) | .assets[].browser_download_url' releases-before.json)
+          done
+          echo "checked ${checked} asset URLs"
+          exit "${failed}"
+
+      - name: Snapshot release metadata after the change
+        if: always()
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/${GH_REPO}/releases?per_page=100" | jq -s 'add' > releases-after.json
+          jq -r '.[] | "\(.tag_name) | draft=\(.draft) | \(.assets | map(.download_count) | add // 0) downloads"' releases-after.json
+
+      - name: Keep the metadata snapshots (no binaries)
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: edge-release-unpublish-metadata-${{ github.run_id }}
+          path: |
+            releases-before.json
+            releases-after.json
+          retention-days: 90

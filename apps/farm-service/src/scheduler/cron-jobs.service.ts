@@ -29,7 +29,10 @@ import {
 } from '@aquaculture/backend-common/scheduling';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, DataSource, QueryRunner } from 'typeorm';
-import { forEachTenantSchema, listTenantSchemas } from '@aquaculture/backend-common/database';
+import {
+  forEachVerifiedTenantSchema,
+  listTenantSchemas,
+} from '@aquaculture/backend-common/database';
 import { withTenantContext } from '@aquaculture/backend-common/context';
 import {
   clearManagedTimer,
@@ -263,41 +266,36 @@ export class CronJobsService implements OnModuleInit, OnModuleDestroy {
     // timeout + error isolation + rotation. Replaces the strictly-serial
     // `for (const schema) { createQueryRunner … }` loop where one slow/hanging
     // tenant stalled every later tenant (and could overrun the schedule). The
-    // helper owns the QueryRunner lifecycle + `SET search_path` per tenant.
-    await forEachTenantSchema(
+    // helper owns the QueryRunner lifecycle, `SET search_path` AND the tenant
+    // binding per tenant (FARM-HIGH-481): it hands over the canonical tenant, so
+    // the job no longer reads `tenantId` out of rows that row-level security
+    // hides from an unbound session.
+    await forEachVerifiedTenantSchema(
       this.dataSource,
-      async ({ schema, queryRunner }) => {
-        // Discover tenantIds within this schema
-        const tenantRows: { tenantId: string }[] = await queryRunner.query(
-          `SELECT DISTINCT "tenantId" AS "tenantId" FROM maintenance_schedules
-           WHERE "deletedAt" IS NULL LIMIT 100`,
-        );
+      async ({ schemaName: schema, tenantId }) => {
+        const config = this.getTenantConfig(tenantId);
+        if (config && !config.maintenanceEnabled) return;
 
-        for (const { tenantId } of tenantRows) {
-          const config = this.getTenantConfig(tenantId);
-          if (config && !config.maintenanceEnabled) continue;
+        try {
+          const workOrders = await this.maintenanceScheduleService.processAutoGenerateWorkOrders(
+            tenantId,
+            config?.systemUserId || 'system',
+          );
 
-          try {
-            const workOrders = await this.maintenanceScheduleService.processAutoGenerateWorkOrders(
+          if (workOrders.length > 0) {
+            this.logger.log(
+              `Generated ${workOrders.length} work orders for tenant ${tenantId} (schema: ${schema})`,
+            );
+
+            this.eventEmitter.emit('maintenance.workOrders.generated', {
               tenantId,
-              config?.systemUserId || 'system',
-            );
-
-            if (workOrders.length > 0) {
-              this.logger.log(
-                `Generated ${workOrders.length} work orders for tenant ${tenantId} (schema: ${schema})`,
-              );
-
-              this.eventEmitter.emit('maintenance.workOrders.generated', {
-                tenantId,
-                workOrders,
-              });
-            }
-          } catch (error) {
-            this.logger.error(
-              `Failed to generate work orders for tenant ${tenantId} in schema ${schema}: ${error}`,
-            );
+              workOrders,
+            });
           }
+        } catch (error) {
+          this.logger.error(
+            `Failed to generate work orders for tenant ${tenantId} in schema ${schema}: ${error}`,
+          );
         }
       },
       {

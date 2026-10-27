@@ -5,13 +5,15 @@
  * and registerSensor cannot resolve it ("No protocol configured").
  */
 jest.mock('@aquaculture/backend-common/database', () => ({
-  forEachTenantSchema: jest.fn(),
+  forEachVerifiedRetainedTenantSchema: jest.fn(),
 }));
 
 import { ModuleRef } from '@nestjs/core';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { forEachTenantSchema } from '@aquaculture/backend-common/database';
+import { forEachVerifiedRetainedTenantSchema } from '@aquaculture/backend-common/database';
+import { stub } from '@aquaculture/testing';
+import type { EntityManager, QueryRunner } from 'typeorm';
 
 import { SensorProtocol } from '../../../database/entities/sensor-protocol.entity';
 import { ProtocolRegistryService } from '../protocol-registry.service';
@@ -68,20 +70,30 @@ describe('ProtocolRegistryService protocol sync (SENSOR-MEDIUM-069)', () => {
 
   it('syncs the source schema AND fans the catalog out to every tenant schema', async () => {
     const tenantManager = makeManager();
-    jest.mocked(forEachTenantSchema).mockImplementation(async (_dataSource, handler) => {
-      await handler({
-        schema: 'tenant_abcdef0123456789',
-        queryRunner: { manager: tenantManager },
-      } as never);
-      return [{ schema: 'tenant_abcdef0123456789', outcome: 'ok' }];
-    });
+    jest
+      .mocked(forEachVerifiedRetainedTenantSchema)
+      .mockImplementation(async (_dataSource, handler) => {
+        await handler({
+          schemaName: 'tenant_abcdef0123456789',
+          tenantId: 'abcdef01-2345-4789-8abc-def012345678',
+          queryRunner: stub<QueryRunner>({ manager: stub<EntityManager>(tenantManager) }),
+          signal: new AbortController().signal,
+        });
+        return [
+          {
+            schemaName: 'tenant_abcdef0123456789',
+            tenantId: 'abcdef01-2345-4789-8abc-def012345678',
+            outcome: 'ok',
+          },
+        ];
+      });
 
     await service.onModuleInit();
 
     // Source copy written (existing behaviour, preserved).
     expect(sourceManager.save).toHaveBeenCalled();
     // SENSOR-MEDIUM-069: the code-defined catalog reached the tenant schema too.
-    expect(forEachTenantSchema).toHaveBeenCalledTimes(1);
+    expect(forEachVerifiedRetainedTenantSchema).toHaveBeenCalledTimes(1);
     expect(tenantManager.save).toHaveBeenCalled();
     // Same set of protocols in both — no tenant left frozen at provision time.
     expect(tenantManager.save.mock.calls.length).toBeGreaterThan(0);
@@ -90,7 +102,7 @@ describe('ProtocolRegistryService protocol sync (SENSOR-MEDIUM-069)', () => {
 
   it('updates an existing protocol row instead of inserting a duplicate', async () => {
     sourceManager.findOne.mockResolvedValue({ id: 'proto-1', code: 'existing' });
-    jest.mocked(forEachTenantSchema).mockResolvedValue([]);
+    jest.mocked(forEachVerifiedRetainedTenantSchema).mockResolvedValue([]);
 
     await service.onModuleInit();
 

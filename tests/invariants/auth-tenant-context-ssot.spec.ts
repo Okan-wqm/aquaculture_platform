@@ -130,7 +130,10 @@ const UNBOUND_WRITE_ALLOWLIST = new Set<string>([
  * `withTenantContext` is the canonical AsyncLocalStorage frame;
  * `runInTenantTransaction` / `runInTenantRead` wrap it plus the fail-closed
  * assertion; `bindTenantRlsContext` / `assertTenantTransactionContext` are the
- * transaction-local binder + read-back asserter. Any ONE is sufficient.
+ * transaction-local binder + read-back asserter. `assertTenantRlsBound` is the
+ * read-back alone, for a writer handed a transaction its caller bound (the
+ * PKG-06 module grant writers): it refuses to write unless the transaction is
+ * bound to the tenant, and never re-binds it. Any ONE is sufficient.
  */
 const CONTEXT_ESTABLISHING: readonly RegExp[] = [
   /\bwithTenantContext\b/,
@@ -138,6 +141,7 @@ const CONTEXT_ESTABLISHING: readonly RegExp[] = [
   /\brunInTenantRead\b/,
   /\bbindTenantRlsContext\b/,
   /\bassertTenantTransactionContext\b/,
+  /\bassertTenantRlsBound\b/,
 ];
 
 /** TypeORM repository/manager mutation calls. */

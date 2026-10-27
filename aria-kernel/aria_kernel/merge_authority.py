@@ -1262,7 +1262,11 @@ def _capture_pre_merge_coverage(
         if files[input_path] is None:
             raise GovernanceError(reason)
         reason = "coverage_input_plan_mismatch"
-        if _json.loads(files[input_path]) != _coverage._coverage_witness_input(body["plan_content"]):
+        # The input is the plan's (affected paths, waivers) plus the kernel's closure node set
+        # (SE-4), which the witness echoes into the hash-bound manifest and is checked there.
+        witness_input = _json.loads(files[input_path])
+        closure_nodes = witness_input.pop("closure_nodes", None)
+        if witness_input != _coverage._coverage_witness_input(body["plan_content"]):
             raise GovernanceError(reason)
         reason = "coverage_manifest_invalid"
         report = _json.loads(manifest_bytes)
@@ -1271,8 +1275,9 @@ def _capture_pre_merge_coverage(
         closure = report.get("closure")
         if (
             not isinstance(closure, dict)
+            or closure.get("closure_nodes") != closure_nodes
             or any(not isinstance(closure.get(name), list)
-                   for name in ("projects", "event_consumers", "migration_couplings"))
+                   for name in ("projects", "closure_nodes", "migration_couplings"))
             or any(not isinstance(report.get(name), list)
                    for name in ("uncovered", "waived", "unmapped_paths"))
             or _re.fullmatch(r"[0-9a-f]{64}", str(report.get("inputs_hash") or "")) is None

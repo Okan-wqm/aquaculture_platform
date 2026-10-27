@@ -4,18 +4,18 @@
  * WHAT A ROW MUST BE. `docs/reviews/_registry/findings.jsonl.schema.json` is the
  * row contract; `finding-evidence-shape.ts` adds the evidence-shape rule for
  * rows created after its cutover. `rowContractViolations` is the one reader of
- * both, so the append path, the rechain path and the write sink cannot
+ * both, so the event sink, the store verifier and the projection cannot
  * disagree about what a valid row is.
  *
  * WHY A WRITE SINK (ARIA-HIGH-044). The append path validated the row it
- * added, and nothing else validated anything: `close`, `reopen`, `sweep`,
- * `reconcile` and `dedupe` rewrite rows in place and wrote whatever they
- * produced. A rule placed in the schema therefore bound `add` and no other
- * mutator — a `reopen` of an ownerless RESOLVED CRITICAL, or a sweep of an
- * ownerless one to BLOCKED, wrote exactly the row the schema forbids.
- * `refuseInvalidChangedRows` runs inside the registry's only write function
- * (`writeRegistry` in finding-registry.ts), so every mutator, including one
- * written later, inherits the contract without remembering to ask for it.
+ * added, and nothing else validated anything: the mutators rewrote rows in
+ * place and wrote whatever they produced. A rule placed in the schema
+ * therefore bound `add` and no other mutator — a `reopen` of an ownerless
+ * RESOLVED CRITICAL, or a sweep of an ownerless one to BLOCKED, wrote exactly
+ * the row the schema forbids. Since MF-2 every writer appends events through
+ * one sink (finding-registry-events.ts `appendFindingEvents`), which holds
+ * every row its events change to this contract, so a mutator written later
+ * inherits it without remembering to ask for it.
  *
  * WHY ONLY CHANGED ROWS. The integrity invariant
  * (tests/invariants/finding-registry-integrity.spec.ts) already judges the
@@ -39,8 +39,6 @@ import {
   type NonCanonicalFindingEvidence,
   requiresCanonicalFindingEvidence,
 } from './finding-evidence-shape';
-import { canonicalJson, type Finding } from './finding-registry-chain';
-import { ownerViolations } from './finding-registry-owners';
 
 /**
  * Ajv-compiled validator for the finding schema, compiled once per schema
@@ -114,21 +112,6 @@ export function rowContractViolations(
   return { schema, evidence: findNonCanonicalFindingEvidence(finding.evidence) };
 }
 
-function rowBody(entry: Finding): string {
-  const { prev_hash: _prev, content_hash: _content, ...body } = entry;
-  return canonicalJson(body);
-}
-
-/**
- * The rows of `next` that are new or differ from the row with the same id in
- * `previous`. Chain hashes are excluded: a rechain moves every later hash and
- * changes no row.
- */
-export function changedRows(previous: readonly Finding[], next: readonly Finding[]): Finding[] {
-  const before = new Map(previous.map((entry) => [entry.id, rowBody(entry)]));
-  return next.filter((entry) => before.get(entry.id) !== rowBody(entry));
-}
-
 const ACCOUNTABILITY_HINT =
   'An unresolved CRITICAL needs a non-blank owner_user and a deadline ($defs/accountable); ' +
   'give a row registered before that rule its fields with: finding-registry assign <id> ' +
@@ -144,26 +127,4 @@ export class RegistryWriteRefused extends Error {
     );
     this.name = 'RegistryWriteRefused';
   }
-}
-
-/**
- * Throws `RegistryWriteRefused` when a row this write changes breaks the row
- * contract, or when the write sets an owner_user that is not a CODEOWNERS
- * handle (ARIA-MEDIUM-535, finding-registry-owners.ts).
- */
-export function refuseInvalidChangedRows(
-  previous: readonly Finding[],
-  next: readonly Finding[],
-  schemaPath: string,
-): void {
-  const changed = changedRows(previous, next);
-  const violations: string[] = [...ownerViolations(previous, changed)];
-  for (const row of changed) {
-    const found = rowContractViolations(row, schemaPath, 'post-cutover');
-    for (const message of found.schema) violations.push(`${row.id} ${message}`);
-    for (const item of found.evidence) {
-      violations.push(`${row.id} evidence[${item.index}]: ${JSON.stringify(item.evidence)}`);
-    }
-  }
-  if (violations.length > 0) throw new RegistryWriteRefused(violations);
 }

@@ -163,7 +163,11 @@ IRREDUCIBLE_CONTEXT_KINDS: frozenset[str] = frozenset({
 
 # Context kinds whose scope is established and low-risk enough for a panel.
 ADJUDICABLE_CONTEXT_KINDS: frozenset[str] = frozenset({
-    "consensus_escalation",
+    # `consensus_escalation` is NOT here since F0.7: judgment uncertainty is
+    # the arbiter's (judge_fanout.dispatch_arbiter_for_split_verdicts), and
+    # the consensus sweep routes every open record of the kind there by
+    # kernel disposition. A panel on it would be the arbiter's own question
+    # asked a second time, by a panel the arbiter sits on.
     "lease_lifecycle",
     "maintenance_utility",
     # `anchor_stale` (Y7, ORPHAN-708) is NOT here since ARIA-HIGH-360. Its

@@ -57,6 +57,7 @@ from tests.test_implementation_lifecycle_continuity import (
 )
 from tests.test_pr_manager_e2e import _fake_child_process
 from tests._helpers.operator_acts import operator_set_profile
+from tests._helpers.service_facts import facts_without_contract_edges
 
 # A file whose name carries a banned word, a key change worded with another.
 _PATH_WORD, _WORDING_WORD = BANNED_PHRASES_DEFAULT[2], BANNED_PHRASES_DEFAULT[8]
@@ -70,6 +71,8 @@ _SIGNING_CONFIG_KEYS = ("commit.gpgsign", "gpg.format", "user.signingkey", "gpg.
 
 class ImplementerMergeSeamTests(unittest.TestCase):
     def setUp(self) -> None:
+        # SE-4 — a fixture workspace has no TypeScript toolchain; its subject is not contract edges.
+        self.enterContext(facts_without_contract_edges())
         self.tmp = tempfile.TemporaryDirectory(prefix="aria-104-seam-")
         fixture = Path(self.tmp.name).resolve()
         self.repo = make_repo_with_initial_commit(fixture, {

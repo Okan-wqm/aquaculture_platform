@@ -9,8 +9,7 @@ from aria_kernel.calibrated_intelligence import (
     conformal_threshold,
     judge_weights_from_calibration,
 )
-from aria_kernel.feedback_store import generate_ai_consensus, record_operator_feedback
-from aria_kernel.human_required import CONSENSUS_UNCERTAINTY_SEVERITY
+from aria_kernel.feedback_store import ARBITRATED_UNCERTAINTY_REASONS, generate_ai_consensus, record_operator_feedback
 from aria_kernel.tool_registry import ensure_tools_dir
 
 
@@ -70,7 +69,7 @@ class ConformalTest(unittest.TestCase):
                 tool_id="t", base_dir=root, conformal_floor=0.9,
             )
         self.assertEqual([u["reason"] for u in result["uncertainties"]], ["conformal_abstain"])
-        self.assertIn("conformal_abstain", CONSENSUS_UNCERTAINTY_SEVERITY)
+        self.assertIn("conformal_abstain", ARBITRATED_UNCERTAINTY_REASONS)
 
     def test_short_window_yields_no_floor(self) -> None:
         self.assertIsNone(conformal_threshold([0.9] * 7))

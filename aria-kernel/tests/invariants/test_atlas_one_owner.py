@@ -51,6 +51,8 @@ SINGLE_OWNER = {
     # SE-5 — which agents may serve a role: allowed_targets_for_role (the static pairing plus the per-service seat
     # agents the ledger and the workspace grant) and resolve_seat_agent, in one module.
     "role_agent_targets": f"{_KERNEL}agent_surface.py",
+    # F0.9p — the provenance census: no second computer of "which learned rows have no source".
+    "row_provenance": f"{_KERNEL}row_provenance.py",
 }
 
 # One planted second owner per family: a second writer of the family's ledger
@@ -90,6 +92,7 @@ _PLANTED = {
     ),
     # SE-5 — a second answer to 'which agents may serve this role', under the owner's name.
     "role_agent_targets": ("def allowed_targets_for_role(role):\n    return ()\n",),
+    "row_provenance": ("def provenance_census(root):\n    return {}\n",),
 }
 
 

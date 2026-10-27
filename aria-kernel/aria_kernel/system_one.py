@@ -47,6 +47,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
+from .finding_id_grammar import FINDING_ID_SOURCE, parse_finding_id
 # Bound under a private name: system_one is the only egress path, so the
 # transport is never re-exported from it (tests/test_jev_runtime.py pins that
 # nothing else names it).
@@ -77,10 +78,10 @@ VALUE_MAX_CHARS = 60_000
 EXCERPT_RADIUS = 6
 OUTLINE_MAX_LINES = 200
 _MODEL_RE = re.compile(r"^[A-Za-z0-9._:-]{1,64}$")
-_FINDING_ID_RE = re.compile(r"^[A-Z][A-Z0-9]*(?:-[A-Z][A-Z0-9]*)*-[0-9]{1,6}$")
-# The ledger's subject names WHAT was asked about, never what was said about it.
+# The ledger's subject names WHAT was asked about, never what was said about it:
+# a registry finding id (the grammar's, finding_id_grammar), a pull request or a commit.
 _SUBJECT_RE = re.compile(
-    rf"(?:[A-Z][A-Z0-9]*(?:-[A-Z][A-Z0-9]*)*-[0-9]{{1,6}}|PR#[0-9]{{1,7}}|{object_id_pattern(ANY_OBJECT_FORMAT)})"
+    rf"(?:{FINDING_ID_SOURCE}|PR#[0-9]{{1,7}}|{object_id_pattern(ANY_OBJECT_FORMAT)})"
 )
 _SENSITIVE_PATH = re.compile(
     r"(?:^|/)(?:\.env(?:\..*)?|\.npmrc|\.pypirc|\.netrc|_netrc|kubeconfig(?:\..*)?|id_[a-z0-9]+"
@@ -363,7 +364,7 @@ def _path(ref: StateRef) -> str:
 
 def _finding(workspace: Path, ref: StateRef) -> dict[str, str]:
     """``{finding: title, rule: rule_violated}`` of the registry row ``ref.finding_id`` names."""
-    if not isinstance(ref.finding_id, str) or not _FINDING_ID_RE.match(ref.finding_id):
+    if not isinstance(ref.finding_id, str) or parse_finding_id(ref.finding_id) is None:
         raise _Refusal("finding_id_malformed")
     # The registry as the public remote holds it — never the working-tree store — read
     # through its one owner. A finding born after the freeze exists only as an event log,

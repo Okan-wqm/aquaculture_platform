@@ -79,8 +79,9 @@ SEAT_CAP_REASON = "service_seats_per_change_cap"
 DOOR_SEAT_REASON = "change_review_seat_cap"
 SERVICE_CAP, LENS_CAP = 3, 1
 HELD_CLOSURE_FACTS = {"verdict": "unavailable", "witness": {"error": "toolchain_missing"}}
-# The prompt of an unrouted dispatch as the base mints it (captured by the writer at the branch base, from the
-# subject below and no workspace). The whole-change seat keeps it byte for byte.
+# The prompt of an unrouted dispatch as main mints it (captured from main's own code, from the subject below and no
+# workspace; first at the branch base, refreshed when origin/main brought in WP-D3's closing defect_claims paragraph,
+# the only difference). The whole-change seat keeps it byte for byte.
 GOLDEN_SUBJECT = ChangeSubject(
     base="a" * 40, head="b" * 40, changed_files=("apps/orders/src/order.ts", "libs/shared/src/util.ts"),
 )
@@ -104,7 +105,11 @@ GOLDEN_UNROUTED_PROMPT = (
     "</untrusted_change_impact>\n"
     "\n"
     "Return details.impact_map with beliefs_needs_revalidation, findings_needs_revalidation, fixtures_requires_rerun "
-    "and confirmed_unchanged. Ground every entry in the change's commits, not in its description."
+    "and confirmed_unchanged. Ground every entry in the change's commits, not in its description.\n"
+    "Also return details.defect_claims: every defect this change introduces that the repository at the change's "
+    "head shows, each with its evidence_refs, an expectation_ref outside the changed lines, a verbatim quote and a "
+    "confidence; an empty list says you found none. The claim shape and the claim families are in your delivered "
+    "contract. A claim is a hypothesis the kernel measures, not a finding."
 )
 
 

@@ -14,6 +14,8 @@ import { readHandlerAccess } from '../security/handler-access';
  * operation answered every member of the tenant; only farm-service failed closed, through a
  * private matrix. In a `module-access` service this guard denies every root Query/Mutation field
  * and REST handler that has neither `@Access(...)` nor `@Public()`, on the handler or its class.
+ * A classified handler under a class-level `@Public()` passes here as classified, and RolesGuard
+ * decides it: its own `@Access` is the more specific declaration (handler-access.ts).
  *
  * It is registered only by `accessGuardProviders` for a `module-access` service, before
  * RolesGuard, so an `account-role` service is unchanged. Nest runs no guard on a reference or

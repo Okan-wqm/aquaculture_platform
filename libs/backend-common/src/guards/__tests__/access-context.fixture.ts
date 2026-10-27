@@ -134,9 +134,17 @@ export class FixtureResolver {
   managerOrHigher(): string {
     return 'manager';
   }
+
+  /** One target declaring both: the classification invariant forbids it; the guard fails closed. */
+  @Public()
+  @Access.module('hr')
+  @Query(() => String)
+  publicAndClassified(): string {
+    return 'both';
+  }
 }
 
-/** A class-level spec, overridden by one handler. */
+/** A class-level spec, overridden by one handler, and a public handler under it. */
 @Access.module('sensor')
 @Resolver()
 export class SensorClassResolver {
@@ -149,6 +157,40 @@ export class SensorClassResolver {
   @Query(() => String)
   farmOverride(): string {
     return 'farm';
+  }
+
+  @Public()
+  @Query(() => String)
+  ping(): string {
+    return 'pong';
+  }
+}
+
+/** A class-level @Public() and a handler under it that declares its own @Access. */
+@Public()
+@Resolver()
+export class PublicClassResolver {
+  @Query(() => String)
+  status(): string {
+    return 'status';
+  }
+
+  @Access.module('hr')
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @Query(() => String)
+  payrolls(): string {
+    return 'payrolls';
+  }
+}
+
+/** One class declaring both @Public() and @Access: the guard fails closed. */
+@Public()
+@Access.module('sensor')
+@Resolver()
+export class PublicAndClassifiedClassResolver {
+  @Query(() => String)
+  readings(): string {
+    return 'readings';
   }
 }
 

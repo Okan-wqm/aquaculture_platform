@@ -3,8 +3,8 @@
  * and the e2e access matrix. It reads each handler the way Nest registers it — root fields
  * (`@Query`, `@Mutation`, `@Subscription`), REST handlers (`@Get` … in a `@Controller`),
  * reference resolvers (`@ResolveReference`) and field resolvers (`@ResolveField`) — with the
- * `@Access`, `@Public`, `@Roles` and parameter decorators on the handler and its class, from the
- * syntax tree (comments and strings never count).
+ * `@Access`, `@Public`, `@Roles` (and its aliases, ./roles-aliases.ts) and parameter decorators on
+ * the handler and its class, from the syntax tree (comments and strings never count).
  */
 import {
   isOwnerModuleCode,
@@ -16,6 +16,12 @@ import {
 import ts from 'typescript';
 
 import { readRepoFile, trackedFiles } from './module-dictionary-sources';
+import {
+  localRolesAliasesOf,
+  roleArgumentNames,
+  rolesAliases,
+  type RolesAliases,
+} from './roles-aliases';
 
 export type HandlerRole = 'query' | 'mutation' | 'subscription' | 'rest' | 'reference' | 'field';
 
@@ -40,7 +46,7 @@ export interface ScannedHandler {
   readonly classAccess: AccessUse | null;
   readonly handlerPublic: boolean;
   readonly classPublic: boolean;
-  /** `@Roles` of the handler, else of the class: role names, `[]` when none. */
+  /** `@Roles` or an alias of it, on the handler, else on the class: role names, `[]` when none. */
   readonly roles: readonly string[];
   /** Names of the parameter decorators, e.g. `Parent`, `AccessCaller`. */
   readonly params: readonly string[];
@@ -89,12 +95,17 @@ function accessOf(calls: readonly DecoratorCall[]): AccessUse | null {
   return { kind: access.name.slice('Access.'.length), args: access.args.map(literalOrNull) };
 }
 
-function rolesOf(calls: readonly DecoratorCall[]): readonly string[] | null {
-  const roles = calls.find((call) => call.name === 'Roles');
-  if (roles === undefined) return null;
-  return roles.args.map((arg) =>
-    ts.isPropertyAccessExpression(arg) ? arg.name.text : (literalOrNull(arg) ?? arg.getText()),
-  );
+/**
+ * The roles the first `@Roles(...)` or alias of one target sets. The first in source order is the
+ * one applied last, whose ROLES_KEY metadata the guards read.
+ */
+function rolesOf(calls: readonly DecoratorCall[], aliases: RolesAliases): readonly string[] | null {
+  for (const call of calls) {
+    if (call.name === 'Roles') return roleArgumentNames(call.args);
+    const aliased = aliases.get(call.name);
+    if (aliased !== undefined) return aliased;
+  }
+  return null;
 }
 
 /** `@Resolver(() => T)`, `@Resolver(T)` or `@Resolver('T')`: T. */
@@ -135,8 +146,12 @@ function handlerRole(calls: readonly DecoratorCall[], isController: boolean): Ha
   return null;
 }
 
-/** Every handler of one source file. */
-export function scanSource(file: string, source: string): ScannedHandler[] {
+/** Every handler of one source file; `@Roles` aliases resolve through `aliases`. */
+export function scanSource(
+  file: string,
+  source: string,
+  aliases: RolesAliases = rolesAliases(),
+): ScannedHandler[] {
   const sourceFile = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
   const handlers: ScannedHandler[] = [];
   const visit = (node: ts.Node): void => {
@@ -145,7 +160,7 @@ export function scanSource(file: string, source: string): ScannedHandler[] {
       const isController = classCalls.some((call) => call.name === 'Controller');
       const classAccess = accessOf(classCalls);
       const classPublic = classCalls.some((call) => call.name === 'Public');
-      const classRoles = rolesOf(classCalls);
+      const classRoles = rolesOf(classCalls, aliases);
       const typeName = resolverTypeName(classCalls);
       for (const member of node.members) {
         if (!ts.isMethodDeclaration(member)) continue;
@@ -168,7 +183,7 @@ export function scanSource(file: string, source: string): ScannedHandler[] {
           classAccess,
           handlerPublic: calls.some((call) => call.name === 'Public'),
           classPublic,
-          roles: rolesOf(calls) ?? classRoles ?? [],
+          roles: rolesOf(calls, aliases) ?? classRoles ?? [],
           params: member.parameters.flatMap((parameter) =>
             decoratorCalls(parameter).map((call) => call.name),
           ),
@@ -194,6 +209,14 @@ export function serviceSources(service: string): string[] {
 
 export function scanService(service: string): ScannedHandler[] {
   return serviceSources(service).flatMap((file) => scanSource(file, readRepoFile(file)));
+}
+
+/**
+ * Rule 5 reads `@Roles` aliases from their owner file only, so a service that sets the `@Roles`
+ * metadata any other way (a local alias, `SetMetadata(ROLES_KEY, …)`) breaks the rule.
+ */
+export function serviceRolesAliasViolations(service: string): string[] {
+  return serviceSources(service).flatMap((file) => localRolesAliasesOf(file, readRepoFile(file)));
 }
 
 export interface ClassificationRules {
@@ -287,6 +310,27 @@ function shapeViolations(handler: ScannedHandler, rules: ClassificationRules): s
   return out;
 }
 
+/**
+ * `@Public` and `@Access` resolve by specificity at run time (libs/backend-common/src/security/
+ * handler-access.ts): the handler's own declaration beats its class's, and on one target `@Access`
+ * beats `@Public`. Each combination in which that order has to decide is forbidden, so every
+ * operation states one classification and a class-level `@Public` never sits over a handler that
+ * asks for a decision.
+ */
+function publicAccessViolations(handler: ScannedHandler): string[] {
+  const out: string[] = [];
+  if (handler.handlerAccess !== null && handler.handlerPublic) {
+    out.push(`${where(handler)}: declares both @Access and @Public`);
+  }
+  if (handler.classAccess !== null && handler.classPublic) {
+    out.push(`${where(handler)}: its class declares both @Access and @Public`);
+  }
+  if (handler.handlerAccess !== null && handler.classPublic) {
+    out.push(`${where(handler)}: declares @Access under a class-level @Public`);
+  }
+  return out;
+}
+
 /** Every rule of ADR-051's classification invariant a module-access service's handlers break. */
 export function classificationViolations(
   handlers: readonly ScannedHandler[],
@@ -295,6 +339,7 @@ export function classificationViolations(
   const out = handlers.flatMap((handler) => [
     ...shapeViolations(handler, rules),
     ...accessViolations(handler, rules),
+    ...publicAccessViolations(handler),
   ]);
   const fields = new Set(handlers.filter((h) => h.role === 'field').map(fieldKey));
   for (const [key, reason] of Object.entries(rules.parentScoped)) {

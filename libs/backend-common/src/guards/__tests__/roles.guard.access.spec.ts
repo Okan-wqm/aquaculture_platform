@@ -10,6 +10,8 @@ import { RolesGuard, type RolesGuardEnrolment } from '../roles.guard';
 import {
   FixtureController,
   FixtureResolver,
+  PublicAndClassifiedClassResolver,
+  PublicClassResolver,
   SensorClassResolver,
   graphqlContext,
   httpContext,
@@ -154,6 +156,37 @@ describe('RolesGuard — module-access mode decides @Access with @Roles by kind'
     expect(outcome(guard, graphqlContext(SensorClassResolver, 'farmOverride', farmOnly))).toBe(
       'allowed',
     );
+  });
+
+  it('decides a handler’s @Access under a class-level @Public (the handler is more specific)', () => {
+    const decideIn = (handler: string, user: FixtureUser | undefined): string =>
+      outcome(guard, graphqlContext(PublicClassResolver, handler, requestWith(user)));
+    expect(decideIn('status', undefined)).toBe('allowed');
+    expect(decideIn('payrolls', undefined)).toBe('forbidden');
+    expect(decideIn('payrolls', member({ roles: ['MODULE_USER'], moduleAccess: {} }))).toBe(
+      'forbidden',
+    );
+    expect(decideIn('payrolls', member({ roles: ['MODULE_MANAGER'] }))).toBe('forbidden');
+    expect(decideIn('payrolls', member({ moduleAccess: { hr: 'MODULE_MANAGER' } }))).toBe(
+      'allowed',
+    );
+  });
+
+  it('admits a handler-level @Public under a class-level @Access', () => {
+    expect(
+      outcome(guard, graphqlContext(SensorClassResolver, 'ping', requestWith(undefined))),
+    ).toBe('allowed');
+  });
+
+  it('fails closed when one target declares both @Access and @Public', () => {
+    expect(decide('publicAndClassified', undefined)).toBe('forbidden');
+    expect(decide('publicAndClassified', member())).toBe('forbidden');
+    expect(
+      outcome(
+        guard,
+        graphqlContext(PublicAndClassifiedClassResolver, 'readings', requestWith(undefined)),
+      ),
+    ).toBe('forbidden');
   });
 
   it('denies a self, company or account handler that also names @Roles', () => {

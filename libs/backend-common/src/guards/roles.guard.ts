@@ -80,8 +80,10 @@ export class RolesGuard implements CanActivate {
   }
 
   /**
-   * ADR-051 §3 step 2: a public handler passes; every other handler is decided from its own
-   * metadata and the verified user (403 on deny or no `@Access`, 400 on a malformed claim).
+   * ADR-051 §3 step 2: a handler whose most specific declaration is `@Public()` passes (a
+   * handler's own `@Access` beats a class-level `@Public()`, handler-access.ts); every other
+   * handler is decided from its own metadata and the verified user (403 on deny or no `@Access`,
+   * 400 on a malformed claim).
    */
   private canActivateByModuleAccess(
     context: ExecutionContext,

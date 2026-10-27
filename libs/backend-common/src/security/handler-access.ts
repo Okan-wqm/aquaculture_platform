@@ -27,7 +27,7 @@ import { IS_PUBLIC_KEY, ROLES_KEY } from '../decorators/roles.decorator';
  */
 
 export interface HandlerAccess {
-  /** `@Public()` on the handler or its class. */
+  /** `@Public()` decides the handler: the most specific declaration of the two is `@Public()`. */
   readonly isPublic: boolean;
   /** `@Access(...)` of the handler, else of its class; undefined when neither declares one. */
   readonly spec: MemberAccessSpec | undefined;
@@ -45,10 +45,29 @@ function rolesMetadata(value: unknown): readonly PlatformRole[] {
   return Object.freeze(listed.filter(isPlatformRole));
 }
 
+/**
+ * Whether `@Public()` decides the handler, by specificity: the handler's own declaration beats its
+ * class's, and on one target `@Access` beats `@Public()`. WHY: reading `@Public()` from the handler
+ * or its class before `@Access` let a class-level `@Public()` admit a handler that declares its
+ * own `@Access` to a caller without the grant, the more general declaration overriding the more
+ * specific one (RBAC-HIGH-030's fail-open class). On one target `@Access` wins because it is the
+ * side that fails closed. The classification invariant (rule 6) forbids every combination in which
+ * this order has to choose; the order is what holds if one slips past it.
+ */
+function isPublicBySpecificity(reflector: Reflector, context: ExecutionContext): boolean {
+  for (const target of [context.getHandler(), context.getClass()]) {
+    if (reflector.get<MemberAccessSpec | undefined>(ACCESS_SPEC_KEY, target) !== undefined) {
+      return false;
+    }
+    if (reflector.get<boolean | undefined>(IS_PUBLIC_KEY, target) === true) return true;
+  }
+  return false;
+}
+
 export function readHandlerAccess(reflector: Reflector, context: ExecutionContext): HandlerAccess {
   const targets = [context.getHandler(), context.getClass()];
   return Object.freeze({
-    isPublic: reflector.getAllAndOverride<boolean | undefined>(IS_PUBLIC_KEY, targets) === true,
+    isPublic: isPublicBySpecificity(reflector, context),
     spec: reflector.getAllAndOverride<MemberAccessSpec | undefined>(ACCESS_SPEC_KEY, targets),
     roles: rolesMetadata(reflector.getAllAndOverride<unknown>(ROLES_KEY, targets)),
   });

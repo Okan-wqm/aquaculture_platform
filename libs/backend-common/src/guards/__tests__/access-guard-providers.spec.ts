@@ -16,7 +16,12 @@ import {
 } from '../access-guard-providers';
 import { RolesGuard } from '../roles.guard';
 
-import { FixtureResolver, graphqlContext, member } from './access-context.fixture';
+import {
+  FixtureResolver,
+  PublicClassResolver,
+  graphqlContext,
+  member,
+} from './access-context.fixture';
 import { ACCOUNT_ROLE_CASES } from './account-role.cases';
 
 /**
@@ -108,6 +113,19 @@ describe('guardProvidersForEnrolment — a module-access entry', () => {
     if (!(roles instanceof RolesGuard)) throw new Error('no RolesGuard registered');
     expect(decide(roles, 'unclassified', member())).toBe(false);
     expect(decide(new RolesGuard(new Reflector()), 'unclassified', member())).toBe(true);
+  });
+
+  it('denies an @Access handler under a class-level @Public to a caller without its grant', () => {
+    const context = graphqlContext(PublicClassResolver, 'payrolls', {
+      method: 'POST',
+      user: member({ roles: ['MODULE_USER'], moduleAccess: {} }),
+    });
+    const [classification, roles] = appGuards(providers);
+    if (!(classification instanceof AccessClassificationGuard) || !(roles instanceof RolesGuard)) {
+      throw new Error('the module-access guards are not registered in order');
+    }
+    expect(classification.canActivate(context)).toBe(true);
+    expect(() => roles.canActivate(context)).toThrow(ForbiddenException);
   });
 
   it('labels @AccessCaller() denials with the service through MODULE_ACCESS_SERVICE', () => {

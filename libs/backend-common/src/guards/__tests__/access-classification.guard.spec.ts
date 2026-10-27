@@ -10,6 +10,7 @@ import { AccessClassificationGuard } from '../access-classification.guard';
 import {
   FixtureController,
   FixtureResolver,
+  PublicClassResolver,
   SensorClassResolver,
   graphqlContext,
   httpContext,
@@ -67,6 +68,15 @@ describe('AccessClassificationGuard', () => {
 
   it('passes a @Public handler, authenticated or not', () => {
     expect(guard.canActivate(graphqlContext(FixtureResolver, 'health', { method: 'POST' }))).toBe(
+      true,
+    );
+  });
+
+  it('passes a class-level @Public handler, and one declaring @Access under it on to RolesGuard', () => {
+    expect(
+      guard.canActivate(graphqlContext(PublicClassResolver, 'status', { method: 'POST' })),
+    ).toBe(true);
+    expect(guard.canActivate(graphqlContext(PublicClassResolver, 'payrolls', tenantAdmin))).toBe(
       true,
     );
   });

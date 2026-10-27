@@ -14,7 +14,12 @@
  *   4. A handler taking `@AccessCaller()` has `@Access` on it or its class (else it always denies).
  *   5. `Access.module` names a module the service owns (SERVICE_ACCESS_MODULES); `Access.company`
  *      is only on a Query in a `company-layer/` directory; `company`, `self` and `account` carry no
- *      `@Roles` (decideAccess denies such a pairing).
+ *      `@Roles` and no alias of it, such as `@ModuleUserOrHigher()` (decideAccess denies such a
+ *      pairing to every caller). Aliases are read from roles.decorator.ts, their one owner; a
+ *      service that sets the `@Roles` metadata any other way fails.
+ *   6. No handler or class declares both `@Access` and `@Public`, and no handler declares `@Access`
+ *      under a class-level `@Public` (the guards resolve the two by specificity; the invariant
+ *      leaves them nothing to resolve).
  *
  * The rules apply to the services MODULE_ACCESS_ENROLMENT marks `module-access`, so they hold
  * vacuously in R1, when none is, and fail the PR that enrols a service it has not classified. The
@@ -47,8 +52,10 @@ import {
   referenceInventory,
   scanService,
   scanSource,
+  serviceRolesAliasViolations,
   type ClassificationRules,
 } from './helpers/module-access-handlers';
+import { localRolesAliasesOf, rolesAliases, rolesAliasesOf } from './helpers/roles-aliases';
 
 function rulesOf(service: AccessEnrolledService): ClassificationRules {
   return {
@@ -69,9 +76,10 @@ function violationsOf(
 
 describe('INVARIANT: module-access services classify every operation (ADR-051 §3)', () => {
   it('every module-access service passes every classification rule', () => {
-    const violations = moduleAccessServices().flatMap((service) =>
-      classificationViolations(scanService(service), rulesOf(service)),
-    );
+    const violations = moduleAccessServices().flatMap((service) => [
+      ...classificationViolations(scanService(service), rulesOf(service)),
+      ...serviceRolesAliasViolations(service),
+    ]);
     expect(violations).toEqual([]);
   });
 
@@ -211,6 +219,113 @@ describe('classification rules — self-tests on fixture sources', () => {
     ).toEqual([
       'apps/x/src/x.resolver.ts:3 R.me: Access.self reads no @Roles, but @Roles is declared',
     ]);
+  });
+
+  it('5. an alias of @Roles counts as @Roles, on the handler or its class', () => {
+    expect(
+      violationsOf(
+        '@Resolver()\nclass R {\n  @Access.self()\n  @ModuleUserOrHigher()\n  @Mutation(() => String)\n  submitLeaveRequest() {}\n}\n',
+      ),
+    ).toEqual([
+      'apps/x/src/x.resolver.ts:3 R.submitLeaveRequest: Access.self reads no @Roles, but @Roles is declared',
+    ]);
+    expect(
+      violationsOf(
+        "@Resolver()\nclass R {\n  @Access.account('roles:create')\n  @TenantAdminOrHigher()\n  @Mutation(() => String)\n  createRole() {}\n}\n",
+      ),
+    ).toEqual([
+      'apps/x/src/x.resolver.ts:3 R.createRole: Access.account reads no @Roles, but @Roles is declared',
+    ]);
+    expect(
+      violationsOf(
+        '@SuperAdminOnly()\n@Resolver()\nclass R {\n  @Access.self()\n  @Query(() => String)\n  me() {}\n}\n',
+      ),
+    ).toEqual([
+      'apps/x/src/x.resolver.ts:4 R.me: Access.self reads no @Roles, but @Roles is declared',
+    ]);
+  });
+
+  it('6. @Access and @Public: never both on one target, never @Access under a class-level @Public', () => {
+    expect(
+      violationsOf(
+        "@Resolver()\nclass R {\n  @Public()\n  @Access.module('farm')\n  @Query(() => String)\n  q() {}\n}\n",
+      ),
+    ).toEqual(['apps/x/src/x.resolver.ts:3 R.q: declares both @Access and @Public']);
+    expect(
+      violationsOf(
+        "@Public()\n@Access.module('farm')\n@Resolver()\nclass R {\n  @Query(() => String)\n  q() {}\n}\n",
+      ),
+    ).toEqual(['apps/x/src/x.resolver.ts:5 R.q: its class declares both @Access and @Public']);
+    expect(
+      violationsOf(
+        "@Public()\n@Controller('c')\nclass C {\n  @Access.module('farm')\n  @Get()\n  payrolls() {}\n}\n",
+      ),
+    ).toEqual([
+      'apps/x/src/x.resolver.ts:4 C.payrolls: declares @Access under a class-level @Public',
+    ]);
+    expect(
+      violationsOf(
+        "@Access.module('farm')\n@Resolver()\nclass R {\n  @Public()\n  @Query(() => String)\n  ping() {}\n}\n",
+      ),
+    ).toEqual([]);
+    expect(
+      violationsOf("@Public()\n@Controller('c')\nclass C {\n  @Get()\n  health() {}\n}\n"),
+    ).toEqual([]);
+  });
+});
+
+describe('@Roles aliases — read from their one owner file', () => {
+  it('resolves every alias of roles.decorator.ts to the roles it sets', () => {
+    expect(Object.fromEntries(rolesAliases())).toEqual(
+      expect.objectContaining({
+        SuperAdminOnly: ['SUPER_ADMIN'],
+        TenantAdminOrHigher: ['SUPER_ADMIN', 'TENANT_ADMIN'],
+        ModuleManagerOrHigher: ['SUPER_ADMIN', 'TENANT_ADMIN', 'MODULE_MANAGER'],
+        ModuleUserOrHigher: ['SUPER_ADMIN', 'TENANT_ADMIN', 'MODULE_MANAGER', 'MODULE_USER'],
+      }),
+    );
+    expect(rolesAliases().has('Public')).toBe(false);
+  });
+
+  it('resolves an alias of an alias, and fails on a Roles(...) call it cannot read', () => {
+    const chained = rolesAliasesOf(
+      'a.ts',
+      'export const A = () => Roles(Role.TENANT_ADMIN);\nexport const B = () => A();\n',
+    );
+    expect(chained.get('B')).toEqual(['TENANT_ADMIN']);
+    expect(() => rolesAliasesOf('a.ts', 'export const AnyOf = (r: Role) => Roles(r);\n')).toThrow(
+      'a.ts:1: Roles(...) is not the whole body',
+    );
+    expect(() =>
+      rolesAliasesOf(
+        'a.ts',
+        'export const Guarded = () => applyDecorators(Roles(Role.TENANT_ADMIN), UseGuards(G));\n',
+      ),
+    ).toThrow('a.ts:1: Roles(...) is not the whole body');
+  });
+
+  it('fails a service that sets the @Roles metadata other than by @Roles or an owner-file alias', () => {
+    expect(
+      localRolesAliasesOf('apps/x/src/a.ts', '@Roles(Role.MODULE_USER)\nclass C {}\n'),
+    ).toEqual([]);
+    expect(
+      localRolesAliasesOf(
+        'apps/x/src/a.ts',
+        'export const HrManagers = () => Roles(Role.MODULE_MANAGER);\n' +
+          "export const Raw = () => SetMetadata(ROLES_KEY, ['MODULE_USER']);\n" +
+          "export const Literal = () => SetMetadata('roles', ['MODULE_USER']);\n",
+      ).map((violation) => violation.split(': ')[0]),
+    ).toEqual(['apps/x/src/a.ts:1', 'apps/x/src/a.ts:2', 'apps/x/src/a.ts:3']);
+  });
+
+  it('gives the matrix the roles of an aliased reference resolver', () => {
+    const [reference] = scanSource(
+      'apps/x/src/x.resolver.ts',
+      "@Access.module('farm')\n@Resolver(() => Farm)\nclass R {\n  @ModuleManagerOrHigher()\n  @ResolveReference()\n" +
+        '  ref(@Parent() r: Ref, @AccessCaller() c: AccessCaller) {}\n}\n',
+    );
+    if (reference === undefined) throw new Error('the fixture declares no reference resolver');
+    expect(platformRolesOf(reference)).toEqual(['SUPER_ADMIN', 'TENANT_ADMIN', 'MODULE_MANAGER']);
   });
 });
 

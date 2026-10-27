@@ -2,7 +2,7 @@
 
 > Root rules in `/CLAUDE.md` apply where relevant, but this is a SEPARATE Rust runtime — the NestJS/TypeORM/TypeScript-specific root rules (entity `schema:` discipline, `getScopedRepository`, the NATS CONNECT-frame factory, `createBaseEvent`, ESLint bans) DO NOT apply here. This file is the authority for the edge crate.
 
-Crate `suderra-agent` (`sens-api-gateway/Cargo.toml`). Sensor protocol gateway running on edge hardware: Modbus-TCP (`rodbus`), OPC UA (`async-opcua` 0.18, optional), MQTT, I2C, Atlas EZO. Alarm engine, calibration, GPIO, backup, SCADA display/deploy orchestrator (`scada-display` feature → axum + tower-http).
+Crate `suderra-agent` (`sens-api-gateway/Cargo.toml`). Sensor protocol gateway running on edge hardware: Modbus-TCP/RTU (`tokio-modbus`; TLS via `tokio-rustls`), OPC UA (`async-opcua` 0.18, optional), MQTT, I2C, Atlas EZO. Alarm engine, calibration, GPIO, backup, SCADA display/deploy orchestrator (`scada-display` feature → axum + tower-http).
 
 ## Invariants
 - Memory & async safety: no `unwrap()`/`expect()` on fallible I/O in device/network paths; spawned tasks use a `TaskTracker` / `CancellationToken` for clean shutdown. Offline operation must be reliable — store-and-forward when the cloud link is down.

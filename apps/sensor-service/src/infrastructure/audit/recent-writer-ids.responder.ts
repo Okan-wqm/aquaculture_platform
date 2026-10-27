@@ -1,4 +1,4 @@
-import { runInTenantRead } from '@aquaculture/backend-common/database';
+import { runInTenantRead, SENSOR_SOURCE_SCHEMA } from '@aquaculture/backend-common/database';
 import { answerRecentWriterIds, readWriterCount } from '@aquaculture/backend-common/nats';
 import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { NatsRequestReply, type RequestReplyResponderHandle } from '@platform/event-bus';
@@ -65,7 +65,7 @@ export class SensorRecentWriterIdsResponder implements OnModuleInit, OnModuleDes
 
   answer(request: unknown): Promise<RecentWriterIdsReply> {
     return answerRecentWriterIds('sensor', request, (admitted) =>
-      runInTenantRead(this.dataSource, 'sensor', admitted.tenantId, (queryRunner) =>
+      runInTenantRead(this.dataSource, SENSOR_SOURCE_SCHEMA, admitted.tenantId, (queryRunner) =>
         countSensorRecentWriters(queryRunner, admitted),
       ),
     );

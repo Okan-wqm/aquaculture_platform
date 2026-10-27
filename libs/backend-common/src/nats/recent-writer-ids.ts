@@ -14,13 +14,13 @@
  * INTERNAL_ERROR, logged with the module and the error type only — never an id.
  * `readWriterCount` reads the `writers` column of the one row a counting query returns.
  */
+import type { ActiveOwnerModuleCode } from '@aquaculture/shared-contracts';
 import { Logger } from '@nestjs/common';
 import {
   admitRecentWriterIdsRequest,
   type RecentWriterIdsReply,
   type RecentWriterIdsRequest,
 } from '@platform/event-contracts';
-import type { ActiveOwnerModuleCode } from '@aquaculture/shared-contracts';
 
 /**
  * How a module counts the asked ids that wrote to it within the window, reading inside

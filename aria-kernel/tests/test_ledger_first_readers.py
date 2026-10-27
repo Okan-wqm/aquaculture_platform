@@ -1,7 +1,8 @@
 """M9+M10/E8 — write-only ledgers get their first readers, honestly.
 
 M9: memory/learning-events.jsonl had three writers (belief/convention
-recording, goldset promotion, pr-tracking merge outcomes) and ZERO readers —
+recording, goldset promotion, pr-tracking merge outcomes; F1.1 folded them into
+memory.record_learning_event) and ZERO readers —
 the never-forgetting system kept a journal nothing consumed. M10: the SLO
 alert renderer read fields the producer never writes (alert_kind/message vs
 the real reason/slo_state/observed), so every alert rendered as "None: ",
@@ -22,14 +23,17 @@ from aria_kernel.tool_registry import ensure_tools_dir
 
 class LearningEventsSectionTests(unittest.TestCase):
     def test_journal_rows_render_by_type(self) -> None:
-        # The REAL producer (private on purpose — its callers are the memory
-        # recording paths); the test exercises the writer-reader pair.
-        from aria_kernel.memory import _record_learning_event
+        # The REAL producer: the one public owner of the journal (F1.1). Its
+        # event kinds are a closed vocabulary, so the fixture writes kinds the
+        # kernel writes (belief_proposed, goldset_promoted), not invented ones.
+        from aria_kernel import memory
 
+        record_learning_event = getattr(memory, "record_learning_event", None)
+        self.assertIsNotNone(record_learning_event, "F1.1: aria_kernel.memory.record_learning_event does not exist")
         with tempfile.TemporaryDirectory() as tmp:
             root = ensure_tools_dir(Path(tmp) / "aria-tools")
-            for event_type in ("belief_recorded", "belief_recorded", "goldset_promoted"):
-                _record_learning_event(
+            for event_type in ("belief_proposed", "belief_proposed", "goldset_promoted"):
+                record_learning_event(
                     root,
                     cycle_id="cyc-m9",
                     event_type=event_type,
@@ -41,7 +45,7 @@ class LearningEventsSectionTests(unittest.TestCase):
                 )
             lines = "\n".join(_render_learning_events_section(root))
         self.assertIn("## Learning Events", lines)
-        self.assertIn("belief_recorded×2", lines)
+        self.assertIn("belief_proposed×2", lines)
         self.assertIn("goldset_promoted×1", lines)
         self.assertIn("Most recent: goldset_promoted", lines)
 

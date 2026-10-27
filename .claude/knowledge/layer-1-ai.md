@@ -55,7 +55,7 @@ Depends on: `layer-1-nestjs.md` (guards, interceptors, CQRS), `layer-2-patterns.
 
 - **No Agent SDK runtime dependency** — `apps/ai-service` uses `@anthropic-ai/sdk` for user-facing Messages API calls. The repository does not import `@anthropic-ai/claude-agent-sdk`, so that package must not be present in the production dependency graph.
 - **Review-loop dispatch is Claude Code's built-in `Agent()` tool** (auto-discovery of `.claude/agents/**/*.md`). No external CLI binary, no `npx claude-agent`, no `tools/scripts/orchestrator-runner.ts` — all of that was retired on 2026-04-18 (commit `e8f06e98`). Sub-agent invocation format: `Agent(subagent_type="<name>", description="...", prompt="...")`.
-- **Sub-agent isolation** — sub-agents run in their own context. Parent must pass findings in + pull results back via explicit message-passing, not shared state. The finding-registry (`docs/reviews/_registry/findings.jsonl`) is the SSoT for cross-agent state; never mutate another agent's in-flight context.
+- **Sub-agent isolation** — sub-agents run in their own context. Parent must pass findings in + pull results back via explicit message-passing, not shared state. The finding-registry (read with `finding-registry project`; its `docs/reviews/_registry/findings.jsonl` is the frozen genesis segment and later findings are event logs under `docs/reviews/_registry/findings/`) is the SSoT for cross-agent state; never mutate another agent's in-flight context.
 - **System prompt assembly** — sub-agent system prompts compose from the agent file header + `@`-referenced shared fragments (`.claude/shared/**`) + knowledge layers (this folder). Claude Code owns that assembly; agent files never inline SSoT content (W3 invariant).
 
 ## Gotchas

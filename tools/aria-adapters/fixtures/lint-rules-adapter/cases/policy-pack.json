@@ -1,0 +1,30 @@
+{
+  "name": "policy-pack",
+  "lane": "semantic_regression",
+  "input": {
+    "roots": [
+      "tools/aria-adapters/fixtures/lint-rules-adapter/workspaces/policy-pack/apps/sample-service/src"
+    ]
+  },
+  "expected": {
+    "status": "ok",
+    "required_findings": ["no-console", "@typescript-eslint/no-explicit-any"],
+    "required_observations": ["lint_rules_summary"],
+    "required_observation_values": [
+      {
+        "type": "lint_rules_summary",
+        "details.files": 2,
+        "details.ruleHistogram.no-console": 2,
+        "details.ruleHistogram.@typescript-eslint/no-explicit-any": 1
+      }
+    ]
+  },
+  "curation": {
+    "curator": "claude/DET-lint2 Z-B1 step 1 (2026-10-26)",
+    "gold_set": {
+      "true_positive_count": 3,
+      "known_false_positive_count": 0,
+      "false_positive_rules": []
+    }
+  }
+}

@@ -1060,6 +1060,32 @@ describe('TenantErasureService orchestrated dry-run semantics', () => {
     );
     expect(createQueryRunner).not.toHaveBeenCalled();
   });
+
+  it('fails closed on a stored proof whose event id is not a UUID instead of re-emitting it', async () => {
+    // storedProofToEvent must restore the persisted id through restoreEventId
+    // (validated); an inline `as ...['eventId']` cast would enqueue the garbage.
+    const request = orchestratedRequest(true);
+    const enqueue = jest.fn().mockResolvedValue(undefined);
+    const { dataSource } = makeDs({
+      entities: [],
+      storedProofRow: {
+        operationId: request.operationId,
+        tenantId: TENANT,
+        eventId: 'not-a-uuid',
+        proofHash: 'sha256:stored-dry-run',
+        erasedAt: '2026-07-31T10:00:02.000Z',
+        dryRun: true,
+        matchedRecordCount: 9,
+        erasedRecordCount: 0,
+      },
+    });
+    const service = makeTenantErasureService(dataSource, {
+      publisher: outboxPublisherDouble({ enqueue }),
+    });
+
+    await expect(service.eraseFromTenantErasureRequest(request)).rejects.toThrow(/restoreEventId/);
+    expect(enqueue).not.toHaveBeenCalled();
+  });
 });
 
 /**

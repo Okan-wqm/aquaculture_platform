@@ -30,10 +30,9 @@ back to the delivered commit, every commit on the way is:
    config off, replace refs off, ``core.attributesFile=/dev/null`` and the
    attributes read from the EMPTY tree (``--attr-source``), renormalisation
    off and hooks pointed at ``/dev/null``. No ``.gitattributes`` of the PR,
-   no merge driver the checkout registered (this repository registers
-   ``findings-registry``, a relative ``./node_modules/.bin/ts-node``), and no
-   replace ref can run code or make a conflicted merge look clean: only
-   git's own text merge decides, the one GitHub's ``update-branch`` makes.
+   no merge driver a checkout's config registers, and no replace ref can run
+   code or make a conflicted merge look clean: only git's own text merge
+   decides, the one GitHub's ``update-branch`` makes.
 
 And (GSEC-MEDIUM-003) an updated head is refused when the merged change
 touches a project the CI quarantine policy (``scripts/ci/affected-target-

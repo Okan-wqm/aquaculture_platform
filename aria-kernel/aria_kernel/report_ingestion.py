@@ -33,7 +33,7 @@ _TS_NODE_RELPATH: tuple[str, ...] = ("node_modules", ".bin", "ts-node")
 _REGISTRY_CLI = "tools/gates/finding-registry.ts"
 _GATES_TSCONFIG = "tools/gates/tsconfig.json"
 _REGISTRY_CLI_TIMEOUT_SECONDS = 300
-_PROJECT_JSONL: tuple[str, ...] = ("project", "--format=jsonl")
+_PROJECT_RECORDS: tuple[str, ...] = ("project", "--format=records")
 # findings.jsonl.schema.json `state` enum; pinned against the schema by
 # tests/test_report_ingestion_registry_view.py.
 REGISTRY_STATES: frozenset[str] = frozenset({"OPEN", "IN-PROGRESS", "RESOLVED", "STALE", "BLOCKED"})
@@ -41,7 +41,9 @@ REGISTRY_STATES: frozenset[str] = frozenset({"OPEN", "IN-PROGRESS", "RESOLVED", 
 
 @dataclass(frozen=True)
 class RegistryEntry:
-    """One finding's projected row and the repo-relative file that holds it."""
+    """One finding's projected row and the repo-relative file that holds it: its event
+    log when it has one, the frozen genesis segment otherwise (the registry's projection
+    names it; the store layout has one reader)."""
 
     row: dict[str, Any]
     source: str
@@ -68,9 +70,11 @@ def read_registry_view(repo_root: str | Path) -> RegistryView:
     second owner of one fact, so the kernel asks the owner, as
     ``autonomy_closure`` does for the chain.
 
-    WHAT: ``finding-registry.ts project --format=jsonl`` run by the
+    WHAT: ``finding-registry.ts project --format=records`` run by the
     repository's own ts-node in ``repo_root``: every row of the working
-    tree's registry, RESOLVED where history merged into HEAD closes it.
+    tree's registry (the frozen genesis segment and every event log folded),
+    RESOLVED where history merged into HEAD closes it, each with the file that
+    holds it.
     Needs the repository's node dependencies and its whole history (the
     kernel lanes provision both; tests/invariants/
     test_kernel_lanes_check_out_full_history.py). Without ts-node, or when the
@@ -85,16 +89,17 @@ def read_registry_view(repo_root: str | Path) -> RegistryView:
     if not chain.is_file():
         raise FileNotFoundError(f"finding_registry_missing:{chain.as_posix()}")
     entries: list[RegistryEntry] = []
-    for ordinal, line in enumerate(run_registry_cli(root, _PROJECT_JSONL).splitlines(), start=1):
+    for ordinal, line in enumerate(run_registry_cli(root, _PROJECT_RECORDS).splitlines(), start=1):
         if not line.strip():
             continue
         try:
-            row = json.loads(line)
+            record = json.loads(line)
         except json.JSONDecodeError as exc:
             raise GovernanceError(f"finding_registry_projection_unreadable:{ordinal}") from exc
-        if not isinstance(row, dict):
+        if not (isinstance(record, dict) and isinstance(record.get("row"), dict)
+                and isinstance(record.get("source"), str)):
             raise GovernanceError(f"finding_registry_projection_unreadable:{ordinal}")
-        entries.append(RegistryEntry(row, _REGISTRY_FINDINGS_REF))
+        entries.append(RegistryEntry(record["row"], record["source"]))
     return RegistryView(entries=tuple(entries))
 
 
@@ -128,7 +133,7 @@ def run_registry_cli(
 
     ``stdin`` is piped to the CLI (``verify --stdin``, ``project --stdin``).
     ``answer_exit_codes`` are the exits whose stdout is the answer: ``{0}``
-    for ``project --format=jsonl``; ``{0, 1}`` for the verdict commands, which
+    for ``project --format=records``; ``{0, 1}`` for the verdict commands, which
     print a verdict either way and exit 1 when it is negative.
     """
     ts_node = root.joinpath(*_TS_NODE_RELPATH)

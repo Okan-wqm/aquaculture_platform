@@ -20,10 +20,14 @@ const request: RecentWriterIdsRequest = {
  * ids asked about. A failed read is INTERNAL_ERROR, logged without ids.
  */
 describe('answerRecentWriterIds', () => {
-  let error: jest.SpyInstance;
+  // What the chokepoint logged, captured as text so a spec can read it without an untyped spy.
+  let errors: string[];
 
   beforeEach(() => {
-    error = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    errors = [];
+    jest.spyOn(Logger.prototype, 'error').mockImplementation((message: unknown) => {
+      errors.push(String(message));
+    });
   });
 
   it("hands the admitted request to the module's count and answers the count", async () => {
@@ -65,7 +69,7 @@ describe('answerRecentWriterIds', () => {
       ok: false,
       error: 'INTERNAL_ERROR',
     });
-    const logged = String(error.mock.calls[0]?.[0]);
+    const [logged = ''] = errors;
     expect(JSON.parse(logged)).toEqual({
       event: 'recent_writer_ids_read_failed',
       module: 'farm',

@@ -225,7 +225,11 @@ class StagedChange:
 
 
 class StubProver:
-    """Stands in for ``prove_red_first`` and records what the gate asked it."""
+    """Stands in for ``prove_red_first`` and records what the gate asked it.
+
+    ``timeout_ms`` has no default here (the prover's is 120 s, which is also the
+    proof's own ceiling): a gate that leaves the ceiling out must fail, not read as
+    having passed the number it was supposed to."""
 
     def __init__(self, verdict: str = "proven") -> None:
         self.verdict = verdict
@@ -233,7 +237,7 @@ class StubProver:
 
     def __call__(
         self, red_at: str, green_at: str, pin: dict[str, Any], *, workspace_root: Any, runner_identity: str,
-        base_dir: Any = None, timeout_ms: int = 120_000,
+        base_dir: Any = None, timeout_ms: int,
     ) -> dict[str, Any]:
         self.calls.append({
             "red_at": red_at, "green_at": green_at, "pin": copy.deepcopy(pin),

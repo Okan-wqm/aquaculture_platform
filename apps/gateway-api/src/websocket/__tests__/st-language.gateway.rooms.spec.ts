@@ -19,6 +19,7 @@ const FARM_OPERATOR_S1 = {
   assignedSiteIds: [S1],
 };
 const SENSOR_MANAGER = { roles: ['MODULE_USER'], moduleAccess: { sensor: 'MODULE_MANAGER' } };
+const SENSOR_MANAGER_S9 = { ...SENSOR_MANAGER, assignedSiteIds: [S9] };
 const SENSOR_OPERATOR_S9 = {
   roles: ['MODULE_USER'],
   moduleAccess: { sensor: 'MODULE_USER' },
@@ -100,14 +101,17 @@ function close(h: Harness, socket: Connected): void {
 
 /**
  * SEC-CRITICAL-207 room specs for /st-language (ADR-051 §3 step 1): the ST language socket
- * requires a sensor grant at the handshake, and automation pushes reach the sensor module rooms,
- * never a tenant-wide room.
+ * requires a member tenant-wide in sensor at the handshake, and automation pushes reach the sensor
+ * module room, never a tenant-wide room. A site-bound sensor operator is refused: sensor-service
+ * answers ST requests for the whole tenant, so the gateway cannot hold one to its sites
+ * (SENSOR-MEDIUM-204, PKG-11 lifts it).
  */
 describe('STLanguageGateway rooms (SEC-CRITICAL-207)', () => {
   it.each([
     ['role A (farm only)', ROLE_A],
     ['role B (Company Viewer, no grants)', ROLE_B],
     ['the farm operator on S1', FARM_OPERATOR_S1],
+    ['the S9 sensor operator (site-bound, SENSOR-MEDIUM-204)', SENSOR_OPERATOR_S9],
   ])('refuses %s, and its ST requests never reach sensor-service', async (_viewer, claims) => {
     const h = harness();
     const socket = await connect(h, claims);
@@ -141,11 +145,12 @@ describe('STLanguageGateway rooms (SEC-CRITICAL-207)', () => {
     close(h, socket);
   });
 
-  it('joins a site-bound sensor operator to the room of its site', async () => {
+  it('joins a sensor manager assigned to S9 to the sensor module room: a manager is tenant-wide', async () => {
     const h = harness();
-    const socket = await connect(h, SENSOR_OPERATOR_S9);
+    const socket = await connect(h, SENSOR_MANAGER_S9);
 
-    expect(socket.joined).toEqual([`t:${T}:m:sensor:site:${S9}`]);
+    expect(socket.joined).toEqual([`t:${T}:m:sensor`]);
+    expect(socket.disconnect).not.toHaveBeenCalled();
     close(h, socket);
   });
 

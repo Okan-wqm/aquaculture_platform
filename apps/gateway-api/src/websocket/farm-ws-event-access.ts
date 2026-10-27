@@ -29,7 +29,9 @@ import type { FarmEventType } from '@platform/event-contracts';
  *     when the event's wire schema carries `siteId` (`site: 'siteId'`). An event without a site
  *     reaches members tenant-wide in farm only; a site-bound operator never sees it.
  *     `farm-ws-event-access.spec.ts` holds `site` equal to the wire schema, so a producer that
- *     adds `siteId` makes the spec ask for the entry to follow.
+ *     adds `siteId` makes the spec ask for the entry to follow. The fourteen `NO_SITE`
+ *     farm-private events besides LowStockDetected (FARM-HIGH-336) get their site under
+ *     FARM-HIGH-483, consumer schema first, then the producers (C5).
  *   - registry kinds (`scoped('common-registry')`): sites, site departments, site contacts and
  *     supplier sites, sent to the registry room of the module that owns the rows. Every registry
  *     row is farm's until PKG-16 puts the module on the event (ADR-052 Decision 5).

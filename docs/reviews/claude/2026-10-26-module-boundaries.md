@@ -3706,3 +3706,104 @@ apps/auth-service/src/modules/tenant/services/tenant-admin.service.ts:337-366 (m
 apps/auth-service/src/modules/tenant/services/tenant.service.ts:609 (Remove Manager clears managerId only; the role and isPrimaryManager stay)
 web/modules/tenant-admin/src/graphql/module-queries.ts:44 (admin UI reads managerId as the module manager)
 ```
+
+## FARM-HIGH-483
+
+Defect. Fourteen farm-private events the /farms socket pushes carry no siteId on the wire
+(BatchCreated, FeedingRecorded, MealFed, MealSkipped, TankCreated, TankUpdated,
+TankStatusChanged, TankDeleted, SubEquipmentCreated, SubEquipmentUpdated, SubEquipmentDeleted,
+FeederCalibrationsSaved, TankCleared, BatchProductionCompleted), so a site-bound farm operator
+receives none of them live once /farms rooms are scoped by site, although it may read every one
+of them for its own site.
+
+Raised in the PKG-10 review, release R4, severity HIGH.
+
+Where. `FARM_WS_EVENT_ACCESS` (apps/gateway-api/src/websocket/farm-ws-event-access.ts) maps an
+event to the farm site room only when its wire schema declares `siteId`. The fourteen schemas
+above declare none, and every schema carries `additionalProperties: false`, so a producer that
+added the field today would have its events dropped by the bridge. These events therefore reach
+the farm module room only: members tenant-wide in farm receive them, and the operator on S1 does
+not. AquaMobil invalidates its tank, feeding-plan and daily-count queries on all fourteen; before
+PKG-10 the operator received them through `tenant:{id}`.
+
+Root cause. The farm events were designed for one tenant-wide room, so their producers never
+named the site of the tank, batch, meal or feeder they describe. LowStockDetected also carries no
+site, but that is FARM-HIGH-336 (minStock is catalog-level), not this finding.
+
+Fix tier 1 (impossible), sequenced under C5, consumer first:
+
+- PR1, one release before R4 enforcement: an optional `siteId` on the fourteen wire interfaces
+  (libs/event-contracts/src/farm-events.ts) and JSON schemas (schemas/farm-events.schema.ts), so
+  every consumer accepts it.
+- PR2, by R4: the farm-service producers stamp the site of the row they describe, and the fourteen
+  `FARM_WS_EVENT_ACCESS` entries become `ON_SITE`.
+
+The alternative is an owner decision, recorded in ADR-051 §4, that site-bound operators see these
+rows only on refetch.
+
+Pinned by `farm-ws-event-access.spec.ts`: once a schema declares `siteId`, the spec requires its
+entry to route by site. `farm.gateway.rooms.spec.ts` pins that the S1 operator does not receive
+MealFed today; PR2 turns that case around.
+
+Rule broken. ADR-051 §4: the farm operator on S1 reads the batches, tanks, feeding and meals of
+its own site, so the realtime pushes of those rows must reach it for its site. A site assignment
+restricts what an operator sees; it must not blind it.
+
+Evidence:
+
+```text
+apps/gateway-api/src/websocket/farm-ws-event-access.ts:71-110 (the fourteen events are NO_SITE: farm module room only)
+libs/event-contracts/src/schemas/farm-events.schema.ts:749-760 (BatchCreated declares no siteId; additionalProperties false through EVENT_OBJECT_OPTS)
+libs/event-contracts/src/schemas/farm-events.schema.ts:1152-1200 (MealFed and MealSkipped declare no siteId)
+web/apps/aquamobil/src/utils/farm-realtime-invalidation.ts:64-91 (AquaMobil invalidates its queries on these events)
+apps/gateway-api/src/websocket/__tests__/farm.gateway.rooms.spec.ts:122 (the S1 operator does not receive MealFed)
+```
+
+## SENSOR-MEDIUM-204
+
+Defect. sensor-service answers `st.language.*` requests for the whole tenant: tag completions,
+FB definitions and the variables of any programId the request names. The requests carry no
+member caller and no site scope, so the /st-language socket cannot admit a site-bound sensor
+operator.
+
+Package PKG-11, release R5, severity MEDIUM. Raised in the PKG-10 review.
+
+Where. The gateway's ST bridge sends each `st:request` to `st.language.{type}` with only the
+`x-tenant-id` header. sensor-service's handler reads the tenant from that header and calls
+`STLanguageService`. The service resolves `getTagCompletions(tenantId)`,
+`getFBDefinitions(tenantId)` and `getProgramVariables(programId, tenantId)`; the last one finds
+variables by `programId` alone. A program belongs to an edge device (`AutomationProgram.deviceId`),
+and the device carries the site.
+
+Root cause. The ST language service was built for tenant isolation only, and the gateway decided
+nothing beyond the tenant. PKG-10 now admits to /st-language only members who are tenant-wide in
+sensor (a sensor MODULE_MANAGER, TENANT_ADMIN), and refuses a site-bound sensor MODULE_USER: the
+gateway cannot scope a request by the site of the program it names. That restriction can be lifted
+only once sensor-service decides each request itself.
+
+Fix tier 1 (impossible). PKG-11 takes the st.language responder (`st-language.handler.ts`,
+`st-language.service.ts`, `st-intellisense.service.ts`) and the gateway ST bridge
+(`st-language-bridge.service.ts`) into its scope:
+
+- the request carries the member caller;
+- sensor-service decides `module('sensor')` with the site of the named program (device, then
+  site);
+- tag and FB completions are filtered to the caller's sites;
+- the /st-language handshake then admits site-bound operators to their site rooms.
+
+Pinned by `st-language.gateway.rooms.spec.ts`, which refuses the S9 sensor operator today; PKG-11
+turns that case into an admission together with responder specs for an S9 operator naming a
+program on another site.
+
+Rule broken. ADR-051 §1: a site assignment restricts every module where the user is MODULE_USER.
+ADR-051 §3: a path without a GraphQL guard decides at one chokepoint with the member's scope.
+
+Evidence:
+
+```text
+apps/sensor-service/src/automation/compiler/services/st-language.service.ts:81-91 (completions resolve tags, FB definitions and program variables by tenant and programId only)
+apps/sensor-service/src/automation/compiler/services/st-intellisense.service.ts:95-108 (program variables are found by programId alone, no site)
+apps/sensor-service/src/automation/compiler/nats-handlers/st-language.handler.ts:125-131 (the tenant comes from the x-tenant-id header; no member caller)
+apps/gateway-api/src/websocket/st-language-bridge.service.ts:147-164 (the gateway sends only the tenant header)
+apps/sensor-service/src/automation/entities/automation-program.entity.ts:146 (a program names its device, which carries the site)
+```

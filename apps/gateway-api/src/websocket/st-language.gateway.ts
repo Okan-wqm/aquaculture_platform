@@ -17,7 +17,8 @@ import {
   emitToModuleRooms,
   eventModuleRooms,
   joinModuleRooms,
-  memberModuleRooms,
+  moduleRoom,
+  moduleSocketScope,
   socketMemberOf,
 } from '@aquaculture/backend-common/websocket';
 
@@ -61,8 +62,8 @@ type STErrorCode =
   | 'INTERNAL_ERROR';
 
 /**
- * An automation change pushed to ST editors (STLanguageBridgeService). The
- * events name no site, so they reach members tenant-wide in sensor only.
+ * An automation change pushed to ST editors (STLanguageBridgeService). It
+ * reaches the sensor module room: members tenant-wide in sensor only.
  */
 export interface StAutomationPush {
   type: 'diagnostics_update' | 'program_deployed' | 'tags_changed' | 'fb_definitions_changed';
@@ -107,10 +108,17 @@ const MAX_CONNECTIONS_PER_TENANT = 10;
 /**
  * The ST language socket (/st-language). SEC-CRITICAL-207: it serves PLC/SCADA
  * program sources, which are sensor-private (D2), so the handshake requires a
- * sensor grant — `decideAccess` module('sensor') through the token's
- * `moduleAccess` — and joins the sensor module room, or the room of each
- * assigned site for a site-bound sensor operator. Automation pushes reach the
- * sensor module room; no tenant-wide room exists.
+ * member tenant-wide in sensor — `decideAccess` module('sensor') with
+ * MODULE_MANAGER through the token's `moduleAccess` (a sensor manager,
+ * TENANT_ADMIN) — and joins the sensor module room. Automation pushes reach
+ * that room; no tenant-wide room exists.
+ *
+ * A site-bound sensor MODULE_USER is refused (ADR-051 §1: a site assignment
+ * restricts every module where the user is MODULE_USER). sensor-service
+ * answers every `st.language.*` request for the whole tenant — tag and FB
+ * completions, and the variables of any programId the request names — so the
+ * gateway could not hold such a member to its sites. SENSOR-MEDIUM-204 (PKG-11,
+ * R5) scopes the responder by the program's site and then admits them.
  */
 @WebSocketGateway({
   cors: buildWsCorsConfig('STLanguageGateway'),
@@ -174,11 +182,11 @@ export class STLanguageGateway implements OnGatewayInit, OnGatewayConnection, On
         return;
       }
 
-      // SEC-CRITICAL-207: the ST language service needs a sensor grant (and, for
-      // a MODULE_USER, an assigned site).
-      const rooms = memberModuleRooms(member, 'sensor');
-      if (rooms.length === 0) {
-        this.logger.warn(`Client ${client.id} refused: no sensor grant`);
+      // SEC-CRITICAL-207, SENSOR-MEDIUM-204: the ST language service answers for
+      // the whole tenant, so only a member tenant-wide in sensor may use it.
+      const scope = moduleSocketScope(member, 'sensor');
+      if (scope === null || scope.kind !== 'module') {
+        this.logger.warn(`Client ${client.id} refused: not tenant-wide in sensor`);
         client.emit('error', { message: 'Forbidden' });
         client.disconnect();
         return;
@@ -217,7 +225,7 @@ export class STLanguageGateway implements OnGatewayInit, OnGatewayConnection, On
         messageTimes: [],
       });
 
-      await joinModuleRooms(client, rooms);
+      await joinModuleRooms(client, [moduleRoom(tenantId, 'sensor')]);
 
       // Start idle timer
       this.resetIdleTimer(client.id);
@@ -349,8 +357,8 @@ export class STLanguageGateway implements OnGatewayInit, OnGatewayConnection, On
 
   /**
    * Push an automation change to the ST editors of a tenant (used by
-   * STLanguageBridgeService when NATS events arrive). The change names no
-   * site, so it reaches members tenant-wide in sensor.
+   * STLanguageBridgeService when NATS events arrive). It reaches the sensor
+   * module room, the only room this socket joins.
    */
   pushAutomationEvent(tenantId: string, push: StAutomationPush): void {
     emitToModuleRooms(this.server, eventModuleRooms(tenantId, 'sensor', null), 'st:push', push);

@@ -17,12 +17,14 @@
  *      namespace, and no policy outlives its gateway;
  *   2. a `module-rooms` gateway builds its member from the verified token (`socketMemberOf`),
  *      joins and emits only through the vocabulary (no `client.join`, `server.to`, `.in` or
- *      `.except` of its own, no tenant room literal, no raw server handed out) and registers each
- *      socket with `WsTokenRevalidator`, which drops it once its token is revoked;
- *   3. a `requester-only` gateway joins no room at all; a `membership-rooms` gateway joins only
- *      per-user and per-channel rooms under the tenant; a `tenant-room-pending` gateway names the
- *      registered finding and package that move it, and fails here the day it no longer needs the
- *      exemption;
+ *      `.except` of its own, no tenant room literal, no raw server handed out), broadcasts to no
+ *      whole namespace (no `server.emit`, `server.sockets`, `client.broadcast` and the like, which
+ *      reach every socket of every tenant: the RT-011 shape of scada-runtime.gateway.ts) and
+ *      registers each socket with `WsTokenRevalidator`, which drops it once its token is revoked;
+ *   3. a `requester-only` gateway joins no room at all and broadcasts to no namespace; a
+ *      `membership-rooms` gateway joins only per-user and per-channel rooms under the tenant and
+ *      broadcasts to no namespace; a `tenant-room-pending` gateway names the registered finding
+ *      and package that move it, and fails here the day it no longer needs the exemption;
  *   4. every nginx location that forwards an Upgrade header to a service either routes a Socket.IO
  *      engine path whose gateways are all classified here, or is named below with the reason it
  *      serves no socket; and every gateway is reachable through such a location in the droplet
@@ -103,6 +105,31 @@ const DIRECT_ROOM_OPERATION =
 const TENANT_ROOM_LITERAL = /['"`]tenant:/;
 const REVALIDATION = /\btokenRevalidator\s*\.\s*register\s*\(/;
 const SUBSCRIPTION_TRANSPORT = /graphql-ws|subscriptions-transport-ws|installSubscriptionHandlers/;
+
+/** Receivers that stand for a whole namespace (or the root server) in a gateway. */
+const NAMESPACE_RECEIVERS = ['server', 'this\\.server', 'nsp', 'namespace'];
+/** Members of a namespace that send to, or hand out, every socket in it. */
+const NAMESPACE_WIDE_MEMBERS =
+  'emit|sockets|local|volatile|compress|timeout|of|serverSideEmit|fetchSockets';
+
+/**
+ * Whether `code` sends to a whole namespace: an emit on the server or namespace itself
+ * (`this.server.emit`, `this.server.sockets.emit`, `server.of(...)`, `client.nsp.emit`) or a
+ * socket's `broadcast`, each of which reaches every socket of every tenant on the namespace. The
+ * property a gateway declares under `@WebSocketServer()` counts as a receiver whatever its name.
+ */
+function broadcastsToNamespace(code: string): boolean {
+  const declared = firstGroup(
+    /@WebSocketServer\s*\(\s*\)\s*(?:(?:public|private|protected|readonly)\s+)*(\w+)/,
+    code,
+  );
+  const receivers = [...NAMESPACE_RECEIVERS];
+  if (declared !== null) receivers.push(`this\\.${declared}`, declared);
+  const wide = new RegExp(
+    `\\b(?:${receivers.join('|')})\\s*\\.\\s*(?:${NAMESPACE_WIDE_MEMBERS})\\b|\\.\\s*broadcast\\b`,
+  );
+  return wide.test(code);
+}
 
 function read(path: string): string {
   return readFileSync(resolve(REPO_ROOT, path), 'utf8');
@@ -230,6 +257,26 @@ function isService(host: string): boolean {
 describe('ws-module-scoped-rooms (SEC-CRITICAL-206, SEC-CRITICAL-207)', () => {
   const gateways = discoverGateways();
 
+  it('detects a namespace-wide broadcast, and not an emit through the vocabulary or to one socket', () => {
+    const wide = [
+      'this.server.emit("x", 1)',
+      'this.server.sockets.emit("x")',
+      'this.server.local.emit("x")',
+      'this.server.of("/farms").emit("x")',
+      'client.broadcast.emit("x")',
+      'socket.broadcast.to(room).emit("x")',
+      'client.nsp.emit("x")',
+      '@WebSocketServer()\n  private readonly io!: Server;\n  f() { this.io.emit("x"); }',
+    ];
+    const scoped = [
+      'emitToModuleRooms(this.server, rooms, "x", 1)',
+      'client.emit("connected", { tenantId })',
+      '@WebSocketServer()\n  server!: Server;\n  f() { client.emit("error", {}); }',
+    ];
+    expect(wide.filter((code) => !broadcastsToNamespace(code))).toEqual([]);
+    expect(scoped.filter((code) => broadcastsToNamespace(code))).toEqual([]);
+  });
+
   it('finds the socket gateways it guards', () => {
     expect(gateways.length).toBeGreaterThanOrEqual(Object.keys(GATEWAY_ROOM_POLICY).length);
   });
@@ -259,6 +306,7 @@ describe('ws-module-scoped-rooms (SEC-CRITICAL-206, SEC-CRITICAL-207)', () => {
         registersRevalidation: REVALIDATION.test(code),
         usesVocabulary: /\b(?:joinModuleRooms|emitToModuleRooms)\s*\(/.test(code),
         directRoomOperation: DIRECT_ROOM_OPERATION.test(code),
+        namespaceBroadcast: broadcastsToNamespace(code),
         tenantRoom: TENANT_ROOM_LITERAL.test(code),
         handsOutServer: /\bgetServer\s*\(/.test(code),
       }).toEqual({
@@ -267,6 +315,7 @@ describe('ws-module-scoped-rooms (SEC-CRITICAL-206, SEC-CRITICAL-207)', () => {
         registersRevalidation: true,
         usesVocabulary: true,
         directRoomOperation: false,
+        namespaceBroadcast: false,
         tenantRoom: false,
         handsOutServer: false,
       });
@@ -281,11 +330,13 @@ describe('ws-module-scoped-rooms (SEC-CRITICAL-206, SEC-CRITICAL-207)', () => {
       expect({
         file,
         directRoomOperation: DIRECT_ROOM_OPERATION.test(code),
+        namespaceBroadcast: broadcastsToNamespace(code),
         holdsServer: /@WebSocketServer\s*\(/.test(code),
         registersRevalidation: REVALIDATION.test(code),
       }).toEqual({
         file,
         directRoomOperation: false,
+        namespaceBroadcast: false,
         holdsServer: false,
         registersRevalidation: true,
       });
@@ -302,11 +353,18 @@ describe('ws-module-scoped-rooms (SEC-CRITICAL-206, SEC-CRITICAL-207)', () => {
       expect({
         file,
         tenantRoom: TENANT_ROOM_LITERAL.test(code),
+        namespaceBroadcast: broadcastsToNamespace(code),
         registersRevalidation: REVALIDATION.test(code),
         roomsOutsideTenant: rooms
           .filter((room) => !/tenantId$/.test(room[2] as string))
           .map((room) => room[0]),
-      }).toEqual({ file, tenantRoom: false, registersRevalidation: true, roomsOutsideTenant: [] });
+      }).toEqual({
+        file,
+        tenantRoom: false,
+        namespaceBroadcast: false,
+        registersRevalidation: true,
+        roomsOutsideTenant: [],
+      });
     });
   });
 

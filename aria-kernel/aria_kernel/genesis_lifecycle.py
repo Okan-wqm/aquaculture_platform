@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
 
@@ -8,7 +10,7 @@ from .agent_eval import _require_operator_approval_future, _validate_real_eval_p
 from .genesis_policy import genesis_lifecycle_policy
 from .ledger import append_declared_jsonl, load_declared_jsonl
 from .ledger_refs import find_row_by_source_ledger_ref
-from .tool_registry import GovernanceError, bound_workspace_root, ensure_tools_dir, utc_now
+from .tool_registry import GovernanceError, bound_workspace_root, ensure_tools_dir, parse_utc_stamp, utc_now
 from .digest import is_sha256_digest
 
 
@@ -68,23 +70,45 @@ def lifecycle_events_path(base_dir: str | Path | None = None) -> Path:
     return ensure_tools_dir(base_dir) / "genesis-lifecycle" / "events.jsonl"
 
 
+def _entity_rows(*, entity_id: str, base_dir: str | Path | None) -> Iterator[dict[str, Any]]:
+    """The entity's rows of the lifecycle ledger, oldest first: the one loop over the events file."""
+    for row in load_declared_jsonl(
+        lifecycle_events_path(base_dir), expected_surface="genesis_lifecycle_events"
+    ):
+        if row.get("entity_id") == entity_id:
+            yield row
+
+
 def current_lifecycle_state(
     *,
     entity_id: str,
     base_dir: str | Path | None = None,
 ) -> GenesisState | None:
     state: GenesisState | None = None
-    root = ensure_tools_dir(base_dir)
-    for row in load_declared_jsonl(
-        root / "genesis-lifecycle" / "events.jsonl",
-        expected_surface="genesis_lifecycle_events",
-    ):
-        if row.get("entity_id") != entity_id:
-            continue
+    for row in _entity_rows(entity_id=entity_id, base_dir=base_dir):
         next_state = row.get("to_state")
         if next_state in GENESIS_LIFECYCLE_STATES:
             state = next_state
     return state
+
+
+def eval_window_entered_at(
+    *,
+    entity_id: str,
+    base_dir: str | Path | None = None,
+) -> datetime | None:
+    """When the entity entered EVAL_WINDOW (an aware instant), or None.
+
+    F1.8(a) — the anchor of the paired gain test. The test is valid at every
+    look only if the evidence it counts accumulates, so its comparison starts
+    at one fixed instant per entity, recorded once in this append-only ledger,
+    rather than sliding with the clock. None when the entity has no
+    EVAL_WINDOW row or its stamp cannot be read; the caller must not invent one.
+    """
+    for row in _entity_rows(entity_id=entity_id, base_dir=base_dir):
+        if row.get("to_state") == "EVAL_WINDOW":
+            return parse_utc_stamp(str(row.get("recorded_at", "")))
+    return None
 
 
 def validate_transition(

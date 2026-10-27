@@ -3,29 +3,25 @@
  * as one implementation with no I/O and no process state.
  *
  * `finding-registry.ts` owned private copies of `canonicalJson`, `rechain`
- * and `verify`. That was fine while the CLI was the only writer. It stopped
- * being fine the moment a SECOND writer needed the same algebra: the git
- * merge driver (`finding-registry-merge-driver.ts`) runs inside `git merge`,
- * long before any CLI subcommand, and a second transcription of a hash
- * chain is a second chance to disagree with the first — silently, in a
- * ledger whose whole value is that it cannot be edited unnoticed.
+ * and `verify`. A second transcription of a hash chain is a second chance to
+ * disagree with the first — silently, in a ledger whose whole value is that
+ * it cannot be edited unnoticed — so the algebra lives here, once, and every
+ * reader and writer imports it: the genesis segment's chain (findings.jsonl,
+ * frozen since MF-2) and the per-finding event chains
+ * (finding-registry-events.ts) hash with the same `canonicalJson`.
  *
- * So the algebra moved here and the CLI imports it. Two properties are
- * load-bearing and both are exercised by
- * `tests/invariants/finding-registry-merge-driver.spec.ts`:
+ * Two properties are load-bearing:
  *
  *   1. The chain is a PURE FUNCTION of (entry contents, order).
  *      `content_hash = sha256(canonical(entry minus content_hash))`, and
  *      `prev_hash` is itself part of the hashed body, so the whole chain is
  *      determined by the rows and their order — nothing else. This is why
- *      `rechain(entries, 0)` is idempotent on an already-valid chain and
- *      why a merge may rechain from zero without rewriting a single hash it
- *      did not have to: an unchanged prefix hashes to the values it already
- *      carried.
+ *      `rechain(entries, 0)` is idempotent on an already-valid chain: an
+ *      unchanged prefix hashes to the values it already carried.
  *
- *   2. `verify` is the only admission test. Anything that writes the
- *      registry runs it on the result and refuses on failure, rather than
- *      trusting that its own mutation was chain-safe.
+ *   2. `verify` is the only admission test of the genesis segment: the
+ *      registry verifier (`finding-registry verify`) runs it, and the pin
+ *      (genesis.json) records the tip it reaches.
  *
  * The independent re-implementation in
  * `tests/invariants/finding-registry-integrity.spec.ts` is deliberately NOT
@@ -115,9 +111,8 @@ export function sha256hex(input: string): string {
 }
 
 /**
- * Key-sorted JSON without whitespace. Canonical form for hashing;
- * identical to the algorithm in tools/scripts/seed-finding-registry.mjs
- * and tests/invariants/finding-registry-integrity.spec.ts.
+ * Key-sorted JSON without whitespace. Canonical form for hashing; identical
+ * to the independent algorithm in tests/invariants/finding-registry-integrity.spec.ts.
  */
 export function canonicalJson(value: unknown): string {
   if (value === null || typeof value !== 'object') {
@@ -146,27 +141,10 @@ export function parseRegistryJsonl(raw: string): Finding[] {
 }
 
 /**
- * The identity of a finding ROW, excluding the chain pointers a rechain
- * owns. Two rows that differ only in `prev_hash`/`content_hash` carry the
- * same recorded fact; a merge must treat them as unchanged, or every
- * upstream rechain would read as a concurrent edit of every row after it.
- */
-export function sameFindingBody(left: Finding, right: Finding): boolean {
-  return findingBodyDigest(left) === findingBodyDigest(right);
-}
-
-export function findingBodyDigest(entry: Finding): string {
-  // prev_hash and content_hash are the two fields `rechain` owns; the body
-  // digest is everything else.
-  const { prev_hash: _prevHash, content_hash: _contentHash, ...body } = entry;
-  return canonicalJson(body);
-}
-
-/**
  * Recompute prev_hash + content_hash pointers from `startIndex` to the
- * end of `entries`. Mutation in place. Used by `close` after mutating
- * a past entry; every downstream entry carries a stale prev_hash until
- * rechained here.
+ * end of `entries`. Mutation in place. No registry writer calls it since
+ * the genesis segment froze (MF-2); fixtures build a chain-valid segment
+ * with it.
  */
 export function rechain(entries: Finding[], startIndex: number): void {
   let prev = startIndex === 0 ? ZERO_HASH : (entries[startIndex - 1]?.content_hash ?? ZERO_HASH);

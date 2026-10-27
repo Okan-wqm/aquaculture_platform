@@ -1,41 +1,33 @@
 /**
  * Integration spec for the compliance-attestation-coverage gate.
- * Exercises the exported runCoverageCheck() against the real
- * findings.jsonl + docs/compliance/evidence/ to assert the gate's
- * grandfathering + scope logic.
+ * Exercises the exported runCoverageCheck() against the real registry +
+ * docs/compliance/evidence/ to assert the gate's grandfathering + scope
+ * logic.
+ *
+ * The registry is the whole store: the frozen genesis segment
+ * (findings.jsonl) plus one event log per finding born after it. The gate
+ * reads it through the projection, so every question this spec asks of the
+ * registry (what severity does a finding carry) goes through the same reader.
+ * A severity map built from the frozen file alone cannot place a finding born
+ * after the freeze: the gate reports it and the map has never heard of it.
+ * tests/invariants/finding-registry-born-readers.spec.ts runs the gate on a
+ * repository that holds such findings and pins that this spec reads through
+ * the projection.
  */
 
-import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import {
   main as attestationMain,
   runCoverageCheck,
 } from '../../../../../../tools/gates/compliance-attestation-coverage';
+import { readRegistryRows } from '../../../../../../tools/gates/finding-registry-projection';
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
+const REPO_ROOT = resolve(__dirname, '../../../../../..');
 
+/** The severity of every finding the registry holds, those born after the freeze included. */
 function registrySeverityById(): ReadonlyMap<string, string> {
-  const registryPath = resolve(
-    __dirname,
-    '../../../../../../docs/reviews/_registry/findings.jsonl',
-  );
-  const entries = new Map<string, string>();
-  for (const line of readFileSync(registryPath, 'utf8').split('\n')) {
-    if (line.trim() === '') continue;
-    const parsed: unknown = JSON.parse(line);
-    if (
-      !isRecord(parsed) ||
-      typeof parsed['id'] !== 'string' ||
-      typeof parsed['severity'] !== 'string'
-    ) {
-      throw new Error('findings registry contains an invalid severity record');
-    }
-    entries.set(parsed['id'], parsed['severity']);
-  }
-  return entries;
+  return new Map(readRegistryRows(REPO_ROOT).map((row) => [row.id, row.severity]));
 }
 
 describe('compliance-attestation-coverage gate', () => {

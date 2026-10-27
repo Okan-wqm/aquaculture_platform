@@ -14,9 +14,10 @@ Two SHAs, both explicit, never substituted for each other:
 
 * ``evidence_target_sha`` — the code tree every runtime predicate is judged
   at. The closure policy (``docs/aria/policy/autonomy-closure-findings.json``)
-  and the structured registry (``docs/reviews/_registry/findings.jsonl``) are
-  read from THAT tree's Git objects, never from the checkout or a later
-  commit, and the autonomy evidence status is derived at it.
+  and the structured registry (``docs/reviews/_registry``: the frozen genesis
+  segment ``findings.jsonl``, its pin and the per-finding event logs) are read
+  from THAT tree's Git objects, never from the checkout or a later commit, and
+  the autonomy evidence status is derived at it.
 * ``report_commit_sha`` — the final ``origin/main`` commit that carries the
   closure report. It is consulted only for ancestry, its allowed diff and
   the report blob: it must be the main tip, descend strictly from the
@@ -33,7 +34,10 @@ The parts it reads each have one owner, and this module only asks them:
 the policy's structure and refs (``autonomy_evidence._operator_policy_shape``),
 the capability evidence (``autonomy_evidence.derive_autonomy_evidence_status``),
 and the registry's hash chain and closure rules (``finding-registry.ts verify
---stdin``: the chain of ``finding-registry-chain.ts``; ``finding-registry.ts
+--stdin``: the chain of ``finding-registry-chain.ts`` over the segment's bytes;
+``finding-registry.ts verify --ref``: the whole store as the evidence commit
+holds it, its pin and every event log's chain, so the verdict claims no more
+registry than was checked; ``finding-registry.ts
 project --stdin --format=closures``: the projection's closure of each finding
 at the evidence target — derived from the trailers merged into it, or a
 recorded closer that is reachable, not rejected by an override reopen and
@@ -75,7 +79,8 @@ REPORT_COMMIT_PATHS = frozenset({
     "docs/aria/CURRENT_STATE.md",
     "docs/aria/BEHAVIOUR.md",
 })
-REGISTRY_PATH = "docs/reviews/_registry/findings.jsonl"
+REGISTRY_DIR = "docs/reviews/_registry"
+REGISTRY_PATH = f"{REGISTRY_DIR}/findings.jsonl"
 POLICY_PATH = "docs/aria/policy/autonomy-closure-findings.json"
 MAIN_REF = "refs/remotes/origin/main"
 # The report's canonical payload is the one fenced block with this info
@@ -312,13 +317,17 @@ class RegistrySnapshotVerdict:
 def _registry_snapshot(
     repo: Path, evidence: str, evidence_ok: bool, finding_ids: tuple[str, ...],
 ) -> tuple[ClosurePredicate, RegistrySnapshotVerdict | None]:
-    """The registry blob at the evidence target, judged by its owner."""
+    """The registry at the evidence target, judged by its owner: the segment's blob,
+    and the whole store (pin and event logs) the evidence ref names by tree id."""
     name = "registry_chain_valid_at_evidence_target"
     if not evidence_ok:
         return ClosurePredicate(name, False, ("evidence_target_unavailable",)), None
     try:
         entry = _git_tree_entry(repo, evidence, REGISTRY_PATH)
         if entry is None or entry[1] not in {"100644", "100755"} or entry[2] != "blob":
+            return ClosurePredicate(name, False, ("registry_unavailable",)), None
+        store = _git_tree_entry(repo, evidence, REGISTRY_DIR)
+        if store is None or store[2] != "tree":
             return ClosurePredicate(name, False, ("registry_unavailable",)), None
         raw = _read_git_blob_bounded(
             repo, entry[3], max_bytes=_MAX_REGISTRY_BYTES,
@@ -329,14 +338,15 @@ def _registry_snapshot(
     verdict = verify_registry_snapshot(repo, raw, at=evidence, finding_ids=finding_ids)
     if not verdict.chain_ok:
         return ClosurePredicate(name, False, (f"registry_chain_invalid:{verdict.chain_reason}",)), None
-    refs = (f"{evidence}:{REGISTRY_PATH}@{entry[3]}",)
+    # The tree id covers every byte the verdict judged: the segment, its pin, the event logs.
+    refs = (f"{evidence}:{REGISTRY_DIR}@{store[3]}",)
     return ClosurePredicate(name, True, evidence_refs=refs), verdict
 
 
-def _verdict_lines(repo: Path, raw: bytes, args: list[str]) -> list[Any] | None:
-    """A verdict command of the registry CLI run on ``raw``: its stdout's JSON
-    lines (it prints its verdict and exits 0 or 1), or None when stdout is not
-    JSON lines."""
+def _verdict_lines(repo: Path, raw: bytes | None, args: list[str]) -> list[Any] | None:
+    """A verdict command of the registry CLI run on ``raw`` (nothing for a command that
+    reads a commit): its stdout's JSON lines (it prints its verdict and exits 0 or 1),
+    or None when stdout is not JSON lines."""
     stdout = run_registry_cli(repo, args, stdin=raw, answer_exit_codes=frozenset({0, 1}))
     try:
         return [json.loads(line) for line in stdout.strip().splitlines()]
@@ -352,6 +362,11 @@ def verify_registry_snapshot(
     ``finding-registry.ts verify --stdin`` applies
     ``finding-registry-chain.verify``, the one admission test every registry
     writer runs, to the bytes given and prints ``{ok, entries, reason, tip}``.
+    ``finding-registry.ts verify --ref=<at>`` then judges the whole store as
+    ``at`` holds it (the segment's pin, every event log's chain and anchors, the
+    fold and the row contract), because the closure projection below folds those
+    event logs: a chain verdict over the segment's bytes alone would claim a
+    verified registry it did not check.
     ``finding-registry.ts project --stdin --ref=<at> --format=closures --ids
     <ID>...`` then judges each named finding's closure in that snapshot as of
     ``at`` (finding-registry-projection.ts, MF-1): closed when the trailers
@@ -362,17 +377,10 @@ def verify_registry_snapshot(
     did not run or refused (``RegistryCliRefused``) is a failed chain verdict
     naming the refusal.
     """
-    try:
-        chain = _verdict_lines(repo, raw, ["verify", "--stdin"])
-    except RegistryCliRefused as exc:
-        return RegistrySnapshotVerdict(False, str(exc))
-    if chain is None:
-        return RegistrySnapshotVerdict(False, "registry_verifier_output_unreadable")
-    result = chain[-1] if chain else None
-    if not isinstance(result, dict) or not isinstance(result.get("ok"), bool):
-        return RegistrySnapshotVerdict(False, "registry_verifier_output_unreadable")
-    if result["ok"] is not True:
-        return RegistrySnapshotVerdict(False, str(result.get("reason") or "registry_chain_invalid"))
+    for verification, stdin in ((["verify", "--stdin"], raw), (["verify", f"--ref={at}"], None)):
+        refused = _verification_refusal(repo, stdin, verification)
+        if refused is not None:
+            return refused
     if not finding_ids:
         return RegistrySnapshotVerdict(True, None, {})
     try:
@@ -394,6 +402,22 @@ def verify_registry_snapshot(
     if set(closures) != set(finding_ids):
         return RegistrySnapshotVerdict(False, "registry_verifier_output_unreadable")
     return RegistrySnapshotVerdict(True, None, closures, closers)
+
+
+def _verification_refusal(repo: Path, raw: bytes | None, args: list[str]) -> RegistrySnapshotVerdict | None:
+    """The failed verdict of one verify command of the registry CLI; None when it passes."""
+    try:
+        lines = _verdict_lines(repo, raw, args)
+    except RegistryCliRefused as exc:
+        return RegistrySnapshotVerdict(False, str(exc))
+    if lines is None:
+        return RegistrySnapshotVerdict(False, "registry_verifier_output_unreadable")
+    result = lines[-1] if lines else None
+    if not isinstance(result, dict) or not isinstance(result.get("ok"), bool):
+        return RegistrySnapshotVerdict(False, "registry_verifier_output_unreadable")
+    if result["ok"] is not True:
+        return RegistrySnapshotVerdict(False, str(result.get("reason") or "registry_chain_invalid"))
+    return None
 
 
 def _closure_findings_resolved(

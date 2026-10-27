@@ -1,0 +1,243 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aquaculture-platform/docs/reviews/_registry/finding-event.schema.json",
+  "title": "Finding Event",
+  "description": "One JSON object per line in docs/reviews/_registry/findings/<PREFIX>/<ID>.jsonl, the append-only event log of one finding (MF-2). findings.jsonl is the frozen genesis segment genesis.json pins; every change after the freeze is one of these events. The vocabulary is closed and cannot express RESOLVED: a finding is RESOLVED only when a merged Closes: trailer closes it, and the projection (tools/gates/finding-registry-projection.ts) derives that at read time. Written only by appendFindingEvents (tools/gates/finding-registry-events.ts); referenced properties come from findings.jsonl.schema.json, the row contract.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "finding_id",
+    "version",
+    "event_type",
+    "payload",
+    "actor",
+    "reason",
+    "occurred_at",
+    "prev_hash",
+    "content_hash"
+  ],
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+      "description": "A name-based UUID of (finding_id, version, prev_hash): the same position in the same chain always has the same id, so a mirror (the Postgres finding_events ledger) stores the git event under its own key."
+    },
+    "finding_id": {
+      "$ref": "https://aquaculture-platform/docs/reviews/_registry/findings.schema.json#/properties/id"
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "The 1-based line number of the event in its finding's file."
+    },
+    "event_type": {
+      "enum": [
+        "CREATED",
+        "STATE_TRANSITIONED",
+        "CLOSURE_REJECTED",
+        "OWNER_ASSIGNED",
+        "AMENDED",
+        "SUPERSEDED"
+      ]
+    },
+    "payload": {
+      "type": "object"
+    },
+    "actor": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^\\S(.*\\S)?$",
+      "description": "A .github/CODEOWNERS handle or the lane that wrote the event (finding-registry/<subcommand>)."
+    },
+    "reason": {
+      "type": ["string", "null"],
+      "description": "Why the event was written: null on CREATED (the row carries its own narrative), required and non-blank on every other event."
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "prev_hash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "Line 1: the content_hash of the finding's genesis row, or the genesis tip for a finding born after the freeze. Line n: line n-1's content_hash."
+    },
+    "content_hash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "sha256 of the canonical JSON of the line without content_hash (finding-registry-chain.ts canonicalJson)."
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "event_type": { "const": "CREATED" } },
+        "required": ["event_type"]
+      },
+      "then": {
+        "properties": {
+          "reason": { "type": "null" },
+          "payload": { "$ref": "#/$defs/created" }
+        }
+      },
+      "else": {
+        "properties": {
+          "reason": { "type": "string", "pattern": "\\S" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "event_type": { "const": "STATE_TRANSITIONED" } },
+        "required": ["event_type"]
+      },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/stateTransitioned" } } }
+    },
+    {
+      "if": {
+        "properties": { "event_type": { "const": "CLOSURE_REJECTED" } },
+        "required": ["event_type"]
+      },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/closureRejected" } } }
+    },
+    {
+      "if": {
+        "properties": { "event_type": { "const": "OWNER_ASSIGNED" } },
+        "required": ["event_type"]
+      },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/ownerAssigned" } } }
+    },
+    {
+      "if": {
+        "properties": { "event_type": { "const": "AMENDED" } },
+        "required": ["event_type"]
+      },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/amended" } } }
+    },
+    {
+      "if": {
+        "properties": { "event_type": { "const": "SUPERSEDED" } },
+        "required": ["event_type"]
+      },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/superseded" } } }
+    }
+  ],
+  "$defs": {
+    "gitStateTarget": {
+      "$comment": "Every state but RESOLVED (GitStateTarget in tools/gates/finding-registry-events.ts). RESOLVED is derived from a merged Closes: trailer and never written.",
+      "enum": ["OPEN", "IN-PROGRESS", "STALE", "BLOCKED"]
+    },
+    "sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{7,40}$"
+    },
+    "created": {
+      "$comment": "The full row body minus the chain fields; the row contract (findings.jsonl.schema.json) is applied to the projected row by the writer. A finding is born OPEN or IN-PROGRESS with no closure.",
+      "type": "object",
+      "required": [
+        "id",
+        "severity",
+        "state",
+        "title",
+        "owner_agent",
+        "raised_in_cycle",
+        "created_at",
+        "closed_at",
+        "closing_commits"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "https://aquaculture-platform/docs/reviews/_registry/findings.schema.json#/properties/id"
+        },
+        "state": { "enum": ["OPEN", "IN-PROGRESS"] },
+        "closed_at": { "type": "null" },
+        "closing_commits": { "type": "array", "maxItems": 0 },
+        "prev_hash": false,
+        "content_hash": false
+      }
+    },
+    "stateTransitioned": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from_state", "to_state"],
+      "properties": {
+        "from_state": {
+          "$ref": "https://aquaculture-platform/docs/reviews/_registry/findings.schema.json#/properties/state"
+        },
+        "to_state": { "$ref": "#/$defs/gitStateTarget" }
+      }
+    },
+    "closureRejected": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["shas"],
+      "properties": {
+        "shas": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/sha" }
+        }
+      }
+    },
+    "ownerAssigned": {
+      "$comment": "Fills a missing owner_user or deadline; never changes one (finding-registry-assign.ts).",
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "owner_user": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^\\S(.*\\S)?$"
+        },
+        "deadline": {
+          "$ref": "https://aquaculture-platform/docs/reviews/_registry/findings.schema.json#/properties/deadline",
+          "type": "string"
+        }
+      }
+    },
+    "amended": {
+      "$comment": "Non-identity, non-state, non-chain fields only.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fields"],
+      "properties": {
+        "fields": {
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "properties": {
+            "owner_user": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^\\S(.*\\S)?$"
+            },
+            "evidence": {
+              "$ref": "https://aquaculture-platform/docs/reviews/_registry/findings.schema.json#/properties/evidence"
+            },
+            "notes": {
+              "$ref": "https://aquaculture-platform/docs/reviews/_registry/findings.schema.json#/properties/notes"
+            },
+            "title": {
+              "$ref": "https://aquaculture-platform/docs/reviews/_registry/findings.schema.json#/properties/title"
+            },
+            "narrative": {
+              "$ref": "https://aquaculture-platform/docs/reviews/_registry/findings.schema.json#/properties/narrative"
+            }
+          }
+        }
+      }
+    },
+    "superseded": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["successor_finding_id"],
+      "properties": {
+        "successor_finding_id": {
+          "$ref": "https://aquaculture-platform/docs/reviews/_registry/findings.schema.json#/properties/id"
+        }
+      }
+    }
+  }
+}

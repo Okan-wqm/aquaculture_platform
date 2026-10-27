@@ -20,14 +20,13 @@ opened (``own_pr_delivery.aria_opened_prs``) on an ``aria-impl-*`` branch:
 * through GitHub's ``update-branch`` endpoint with ``expected_head_sha``:
   the server merges ``main`` into the branch only if the head is still the
   one judged here, so a racing push is refused rather than merged over. It
-  is the same merge a person makes with ``git merge origin/main``. The
-  repository's custom merge driver (``.gitattributes``:
-  ``docs/reviews/_registry/findings.jsonl merge=findings-registry``) is not
-  needed for these branches: that registry is in
-  ``implementation_safety.READONLY_PATHS``, so no ARIA implementation diff
-  carries it (the registry appends that make other PRs ``DIRTY`` on GitHub
-  cannot conflict with an ARIA branch), and a genuine code conflict is
-  ``DIRTY``, which this step never touches;
+  is the same merge a person makes with ``git merge origin/main``, git's own
+  text merge with no driver: the repository declares none, and the finding
+  registry keeps one append-only event file per finding (MF-2), so only two
+  decisions about the same finding conflict. ``docs/reviews/_registry`` is
+  in ``implementation_safety.READONLY_PATHS`` besides, so no ARIA
+  implementation diff carries it, and a genuine code conflict is ``DIRTY``,
+  which this step never touches;
 * on the delivery's own credential path (``hold_delivery_credentials``,
   consumer ``pr_branch_update``, minted only when a PR qualifies, one hold
   for the batch) and through ``run_gh_write`` (installation token or no

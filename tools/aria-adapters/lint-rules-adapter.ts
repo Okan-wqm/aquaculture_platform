@@ -9,7 +9,9 @@
 // starts from. The rules are not written here: the open-source packs that
 // implement SonarSource's JS/TS rules and the security pack run under
 // ARIA's own configuration (`lint-rules.eslint.config.mjs`), in shadow, and
-// the repository's labels decide rule by rule what stays.
+// the repository's labels decide rule by rule what stays. The third pack,
+// `policy`, is what CLAUDE.md names FORBIDDEN and the developer lint leaves
+// off in most backend projects (console calls, `any`, `as unknown as T`).
 // WHAT (deterministic, no build required):
 //   one finding per rule message, `rule` = the ESLint rule id
 //   (`sonarjs/no-identical-expressions`, `security/detect-eval-with-expression`),
@@ -97,7 +99,7 @@ interface LintEngine {
 }
 
 export const LINT_RULES_CONFIG_PATH = resolve(__dirname, 'lint-rules.eslint.config.mjs');
-export const RULE_PACKS = ['sonarjs', 'security'] as const;
+export const RULE_PACKS = ['sonarjs', 'security', 'policy'] as const;
 const TEST_FILE_RE = /\.(spec|test)\.[cm]?[jt]sx?$/;
 // The scan surface is the manifest's declared scope, TypeScript sources: a
 // generated `.js` beside them (a wasm binding, a build artefact) is outside
@@ -117,9 +119,21 @@ const SOURCE_EXTENSIONS = ['.ts', '.tsx'];
 // it cannot crowd the judges' sample with a hazard class it does not carry.
 const HEURISTIC_RULES: ReadonlySet<string> = new Set(['security/detect-object-injection']);
 
+// The repository-policy pack (`lint-rules.eslint.config.mjs`): constructs
+// CLAUDE.md names FORBIDDEN. A rule's own `meta.type` classifies code style
+// (`no-console` and `no-explicit-any` are `suggestion` and would enter at
+// `low`), whereas the repository's policy is what makes these findings:
+// medium, whatever the plugin says.
+const POLICY_RULES: ReadonlySet<string> = new Set([
+  'no-console',
+  '@typescript-eslint/no-explicit-any',
+  'aria-policy/no-double-type-assertion',
+]);
+
 export function severityFor(ruleId: string, meta: RuleMeta | undefined): Severity {
   if (HEURISTIC_RULES.has(ruleId)) return 'low';
   if (ruleId.startsWith('security/')) return 'high';
+  if (POLICY_RULES.has(ruleId)) return 'medium';
   if (meta?.type === 'problem') return 'medium';
   return 'low';
 }

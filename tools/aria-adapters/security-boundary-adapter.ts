@@ -17,6 +17,8 @@ type FindingRule =
   | 'public_write_endpoint_without_allowlist'
   | 'mutation_missing_role_boundary'
   | 'controller_missing_guard_boundary'
+  | 'authz_boundary_missing_among_peers'
+  | 'capability_differs_from_class_majority'
   | 'dangerous_html_without_sanitizer'
   | 'raw_security_sensitive_import';
 
@@ -90,15 +92,46 @@ interface SecurityContext {
   readonly serviceGuards: ReadonlyMap<string, readonly string[]>;
 }
 
+interface DecoratorUse {
+  readonly name: string;
+  readonly args: readonly ts.Expression[];
+}
+
+// One route of a class as its peers see it. `carriesBoundary` is the method's
+// own Roles, Permissions, RequiresCapability or UseGuards; `capability` is the
+// value the method's RequiresCapability names, undefined when it names none.
+interface PeerRoute {
+  readonly name: string;
+  readonly line: number;
+  readonly writes: boolean;
+  readonly isPublic: boolean;
+  readonly carriesBoundary: boolean;
+  readonly capability: string | undefined;
+}
+
+interface PeerClass {
+  readonly name: string;
+  readonly hasClassAuthz: boolean;
+  readonly routes: readonly PeerRoute[];
+}
+
 const ROUTE_DECORATORS = new Set(['Get', 'Post', 'Put', 'Patch', 'Delete', 'Query', 'Mutation']);
 const WRITE_DECORATORS = new Set(['Post', 'Put', 'Patch', 'Delete', 'Mutation']);
+// What a class-level decorator must be to cover every route of the class: an
+// authorisation, not a guard (a class-level UseGuards is authentication or tenant
+// routing, which every route of a service already has).
+const AUTHZ_DECORATORS = new Set(['Roles', 'Permissions', 'RequiresCapability']);
 const SECURITY_DECORATORS = new Set([
   'UseGuards',
-  'Roles',
-  'Permissions',
+  ...AUTHZ_DECORATORS,
   'Public',
   'SkipTenantGuard',
 ]);
+// Peer rules (Z-C1): a boundary is judged against the boundaries of its class
+// peers. Both need a class large enough to have peers, and a share of 75% or
+// more; the share is compared in integers so the threshold has no rounding.
+const PEER_MIN_WRITE_ROUTES = 3;
+const PEER_MIN_CAPABILITY_ROUTES = 4;
 const SAFE_RAW_IMPORT_ALLOWLIST = [
   'apps/ai-service/src/agent/agent-runner.service.ts',
   'tools/eslint-rules/no-claude-sdk-raw-call.ts',
@@ -172,6 +205,7 @@ function analyzeSecurityUnit(
 ): void {
   const allowlisted = allowlist.has(unit.relativePath);
   analyzeEndpoints(unit, result, allowlisted, context);
+  analyzePeerBoundaries(unit, result, allowlisted);
   analyzeDangerousHtml(unit, result, allowlisted);
   analyzeRawSecurityImports(unit, result, allowlisted);
   analyzeExistingGates(unit, result);
@@ -276,6 +310,138 @@ function analyzeEndpoints(
       });
     }
   });
+}
+
+function analyzePeerBoundaries(
+  unit: SourceUnit,
+  result: AnalysisResult,
+  allowlisted: boolean,
+): void {
+  if (allowlisted) {
+    return;
+  }
+  visit(unit.sourceFile, (node) => {
+    if (!ts.isClassDeclaration(node)) {
+      return;
+    }
+    const peerClass = collectPeerClass(node, unit.sourceFile);
+    result.findings.push(
+      ...boundaryMissingAmongPeers(unit.relativePath, peerClass),
+      ...capabilityDiffersFromMajority(unit.relativePath, peerClass),
+    );
+  });
+}
+
+function collectPeerClass(classNode: ts.ClassDeclaration, sourceFile: ts.SourceFile): PeerClass {
+  const classDecorators = decoratorsOf(classNode);
+  const routes = classNode.members.filter(ts.isMethodDeclaration).flatMap((method): PeerRoute[] => {
+    const decorators = decoratorsOf(method);
+    const routeNames = decorators
+      .map((decorator) => decorator.name)
+      .filter((name) => ROUTE_DECORATORS.has(name));
+    if (routeNames.length === 0) {
+      return [];
+    }
+    const capabilities = decorators
+      .filter((decorator) => decorator.name === 'RequiresCapability')
+      .map((decorator) => capabilityValue(decorator, sourceFile));
+    return [
+      {
+        name: method.name.getText(sourceFile),
+        line: lineOf(sourceFile, method),
+        writes: routeNames.some((name) => WRITE_DECORATORS.has(name)),
+        isPublic: [...classDecorators, ...decorators].some(
+          (decorator) => decorator.name === 'Public',
+        ),
+        carriesBoundary: decorators.some(
+          (decorator) => decorator.name === 'UseGuards' || AUTHZ_DECORATORS.has(decorator.name),
+        ),
+        capability: capabilities.length === 0 ? undefined : capabilities.sort().join('|'),
+      },
+    ];
+  });
+  return {
+    name: classNode.name?.text ?? '<anonymous>',
+    hasClassAuthz: classDecorators.some((decorator) => AUTHZ_DECORATORS.has(decorator.name)),
+    routes,
+  };
+}
+
+// The capability a decorator names, by value: quote style and argument order
+// do not make two routes differ (a route admits any one of the listed values).
+function capabilityValue(decorator: DecoratorUse, sourceFile: ts.SourceFile): string {
+  return decorator.args
+    .map((arg) => (ts.isStringLiteralLike(arg) ? arg.text : arg.getText(sourceFile)))
+    .sort()
+    .join(',');
+}
+
+function isPeerMajority(count: number, total: number): boolean {
+  return count * 4 >= total * 3;
+}
+
+function boundaryMissingAmongPeers(path: string, peerClass: PeerClass): AdapterFinding[] {
+  const peers = peerClass.routes.filter((route) => route.writes && !route.isPublic);
+  const guarded = peers.filter((route) => route.carriesBoundary);
+  if (
+    peerClass.hasClassAuthz ||
+    peers.length < PEER_MIN_WRITE_ROUTES ||
+    !isPeerMajority(guarded.length, peers.length)
+  ) {
+    return [];
+  }
+  return peers
+    .filter((route) => !route.carriesBoundary)
+    .map((route) => ({
+      id: `authz-boundary-missing-among-peers:${path}:${route.line}`,
+      rule: 'authz_boundary_missing_among_peers',
+      severity: 'medium',
+      path,
+      line: route.line,
+      message: `Write route ${peerClass.name}.${route.name} has no role, permission, capability or guard decorator, but ${guarded.length} of the ${peers.length} write routes of its class carry one and the class has no class-level role, permission or capability.`,
+      evidence: [{ path, line: route.line }],
+      details: {
+        name: route.name,
+        peerWriteRoutes: peers.length,
+        peersWithBoundary: guarded.length,
+      },
+    }));
+}
+
+function capabilityDiffersFromMajority(path: string, peerClass: PeerClass): AdapterFinding[] {
+  const gated = peerClass.routes.flatMap((route) =>
+    route.capability === undefined ? [] : [{ route, capability: route.capability }],
+  );
+  if (gated.length < PEER_MIN_CAPABILITY_ROUTES) {
+    return [];
+  }
+  const counts = new Map<string, number>();
+  for (const { capability } of gated) {
+    counts.set(capability, (counts.get(capability) ?? 0) + 1);
+  }
+  const majority = [...counts].find(([, count]) => isPeerMajority(count, gated.length));
+  if (majority === undefined) {
+    return [];
+  }
+  const [majorityCapability, majorityRoutes] = majority;
+  return gated
+    .filter(({ capability }) => capability !== majorityCapability)
+    .map(({ route, capability }) => ({
+      id: `capability-differs-from-class-majority:${path}:${route.line}`,
+      rule: 'capability_differs_from_class_majority',
+      severity: 'medium',
+      path,
+      line: route.line,
+      message: `Route ${peerClass.name}.${route.name} names capability '${capability}', but ${majorityRoutes} of the ${gated.length} capability-gated routes of its class name '${majorityCapability}'.`,
+      evidence: [{ path, line: route.line }],
+      details: {
+        name: route.name,
+        capability,
+        majorityCapability,
+        majorityRoutes,
+        capabilityRoutes: gated.length,
+      },
+    }));
 }
 
 function collectServiceGuards(
@@ -507,13 +673,19 @@ function analyzeExistingGates(unit: SourceUnit, result: AnalysisResult): void {
   }
 }
 
-function decoratorNames(node: ts.Node): string[] {
+function decoratorsOf(node: ts.Node): DecoratorUse[] {
   const decorators = ts.canHaveDecorators(node) ? (ts.getDecorators(node) ?? []) : [];
-  return decorators
-    .map((decorator) => decorator.expression)
-    .map((expression) => (ts.isCallExpression(expression) ? expression.expression : expression))
-    .map((expression) => expression.getText())
-    .map((text) => text.split('.').pop() ?? text)
+  return decorators.map((decorator) => {
+    const expression = decorator.expression;
+    const call = ts.isCallExpression(expression) ? expression : undefined;
+    const text = (call ? call.expression : expression).getText();
+    return { name: text.split('.').pop() ?? text, args: call ? [...call.arguments] : [] };
+  });
+}
+
+function decoratorNames(node: ts.Node): string[] {
+  return decoratorsOf(node)
+    .map((decorator) => decorator.name)
     .sort();
 }
 

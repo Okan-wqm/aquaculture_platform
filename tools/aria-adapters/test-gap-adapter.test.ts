@@ -114,10 +114,7 @@ writeFileSync(
   'utf8',
 );
 
-const output = analyzeTestGaps(
-  { roots: ['apps/farm-service/src'], includeWriteBoundaryFindings: true },
-  workspace,
-);
+const output = analyzeTestGaps({ roots: ['apps/farm-service/src'] }, workspace);
 
 assert.equal(output.metadata.adapter, 'test-gap-adapter');
 assert.equal(
@@ -239,6 +236,40 @@ export class SessionController {
 }
 `,
 );
+// DET testgap-2 (ledger B03): the write-boundary rule is part of the default
+// input, so a write that is NOT public is judged by the same coverage signals.
+// One is reached by an e2e spec through its route; its twin, on the same
+// controller prefix, is reached by nothing.
+write(
+  'apps/farm-service/src/harvest/seal-harvest.controller.ts',
+  `import { Controller, Post } from '@nestjs/common';
+
+@Controller('harvests')
+export class SealHarvestController {
+  constructor(private readonly harvests: HarvestService) {}
+
+  @Post('seal')
+  seal(): Promise<void> {
+    return this.harvests.seal();
+  }
+}
+`,
+);
+write(
+  'apps/farm-service/src/harvest/void-harvest.controller.ts',
+  `import { Controller, Post } from '@nestjs/common';
+
+@Controller('harvests')
+export class VoidHarvestController {
+  constructor(private readonly harvests: HarvestService) {}
+
+  @Post('void')
+  voidOut(): Promise<void> {
+    return this.harvests.voidOut();
+  }
+}
+`,
+);
 // '@Public' in prose only: no public write, no guard.
 write(
   'apps/auth-service/src/session/public-routes.service.ts',
@@ -257,6 +288,13 @@ write(
   'e2e/tests/mobile/ai-action-confirm.spec.ts',
   `test('provision', async () => {
   await client.query(\`query ProvisionAi { aiServiceHealth }\`, {}, { token });
+});
+`,
+);
+write(
+  'e2e/tests/farm/harvest.spec.ts',
+  `test('seal a harvest', async () => {
+  await request.post('/api/harvests/seal').send({ harvestId });
 });
 `,
 );
@@ -311,6 +349,21 @@ assert.deepEqual(
   flagged(covered, 'session/session.controller.ts'),
   [],
   'an e2e spec calling the route covers the public REST write',
+);
+assert.deepEqual(
+  flagged(uncovered, 'harvest/seal-harvest.controller.ts'),
+  ['high_risk_source_without_adjacent_test'],
+  'a write route with no coverage signal is a write-boundary gap by default',
+);
+assert.deepEqual(
+  flagged(covered, 'harvest/seal-harvest.controller.ts'),
+  [],
+  'an e2e spec calling the route covers the write, so it is not a write-boundary gap',
+);
+assert.deepEqual(
+  flagged(covered, 'harvest/void-harvest.controller.ts'),
+  ['high_risk_source_without_adjacent_test'],
+  'a coverage root covers the routes its specs call, not every write on the same controller prefix',
 );
 assert.ok(
   covered.read_paths.includes('e2e/tests/mobile/ai-action-confirm.spec.ts'),
@@ -585,13 +638,9 @@ const writeGaps = (result: ReturnType<typeof analyzeTestGaps>): string[] =>
     .map((finding) => finding.path.slice(`${writesRoot}/`.length))
     .sort();
 
-// Zero production change: the write-boundary findings stay behind their flag.
-assert.deepEqual(
-  writeGaps(analyzeTestGaps({ roots: [writesRoot] }, writesWorkspace)),
-  [],
-  'without includeWriteBoundaryFindings the rule emits nothing, whatever the predicate says',
-);
-
+// DET testgap-2 (ledger B03): the rule has no switch. It runs on the input a
+// caller gives with nothing but roots, which is what the production manifest
+// hands the adapter.
 const expectedWriteGaps = [
   'batch/retire-batch.handler.ts',
   'feed/record-feed.handler.ts',
@@ -603,9 +652,7 @@ const expectedWriteGaps = [
   'write-routes/post-route.controller.ts',
   'write-routes/put-route.controller.ts',
 ];
-const actualWriteGaps = writeGaps(
-  analyzeTestGaps({ roots: [writesRoot], includeWriteBoundaryFindings: true }, writesWorkspace),
-);
+const actualWriteGaps = writeGaps(analyzeTestGaps({ roots: [writesRoot] }, writesWorkspace));
 assert.deepEqual(
   {
     missed: expectedWriteGaps.filter((path) => !actualWriteGaps.includes(path)),
@@ -632,6 +679,48 @@ assert.deepEqual(
     `${semanticFixtures}/workspaces/semantic-testgap/apps/billing-service/src/payment/refund.handler.ts`,
   ],
   'the semantic fixture flags the uncovered command handler only: not its covered twin, not the query handler',
+);
+
+// DET testgap-2 (ledger B03): a PRODUCTION DEFAULT CHANGE. The kernel merges the
+// manifest's default_input under the caller's keys (run_tool), and the rule used
+// to be switched off right there. What the manifest hands the adapter, over the
+// same workspace, must now report exactly the write-boundary gaps.
+const manifest = JSON.parse(
+  readFileSync(join(repoRoot, 'tools/aria-adapters/test-gap-adapter.tool.json'), 'utf8'),
+) as { readonly default_input: Parameters<typeof analyzeTestGaps>[0] };
+assert.equal(
+  'includeWriteBoundaryFindings' in manifest.default_input,
+  false,
+  'the manifest does not switch the write-boundary rule: the flag is gone, not set to true',
+);
+assert.deepEqual(
+  writeGaps(analyzeTestGaps(manifest.default_input, writesWorkspace)),
+  expectedWriteGaps,
+  'the production default input reports the write-boundary gaps',
+);
+// A caller still sending the removed switch as false (a stale cached input) must
+// not silence the rule: nothing reads it. It is built as a variable, not a
+// literal, so it type-checks whether or not the field still exists.
+const staleCaller = { roots: [writesRoot], includeWriteBoundaryFindings: false };
+assert.deepEqual(
+  writeGaps(analyzeTestGaps(staleCaller, writesWorkspace)),
+  expectedWriteGaps,
+  'no input key switches the write-boundary rule off',
+);
+
+// The rule moves the real-repo baseline: 221 findings on clean main become 349
+// (210 migration + 11 security + 128 write-boundary, measured on 20ff4f8a7),
+// above the old cap of 300. The fixture lane judges the full-repo scan against
+// this cap, and a lane over its cap blocks readiness, so the cap is set where
+// the other adapters set theirs: a round number well above the measured count
+// (here about 29% headroom), not one finding above it.
+const baselineCase = JSON.parse(
+  readFileSync(join(repoRoot, semanticFixtures, 'cases', 'real-repo-baseline.json'), 'utf8'),
+) as { readonly expected: { readonly max_findings: number } };
+assert.equal(
+  baselineCase.expected.max_findings,
+  450,
+  'the real-repo baseline cap holds the rule-on population (349 measured) with headroom',
 );
 
 process.stdout.write('test-gap-adapter tests passed\n');

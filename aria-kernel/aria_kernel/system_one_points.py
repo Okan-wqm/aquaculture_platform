@@ -41,6 +41,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
+from .finding_id_grammar import FINDING_ID_SOURCE, parse_finding_id
 from .git_object_id import ANY_OBJECT_FORMAT, is_object_id
 from .system_one import Answer, Registry, StateRef, ask, load_registry
 from .tool_registry import bound_workspace_root
@@ -54,9 +55,8 @@ GIT_TIMEOUT_SECONDS = 20
 SHADOW_BUDGET_SECONDS = 15.0
 _clock: Callable[[], float] = time.monotonic
 _SKIP_PATH = re.compile(r"^(docs/|\.claude/)|\.md$|findings\.jsonl$|\.generated\.|/generated/|package-lock\.json$")
-_CLOSES = re.compile(r"^Closes:\s*\S+?#([A-Z][A-Z0-9]*-[A-Z]+-\d+)\s*$", re.MULTILINE)
-# The id shapes the ledger's subject law and the finding builder accept.
-_FINDING_ID = re.compile(r"^[A-Z][A-Z0-9]*(?:-[A-Z][A-Z0-9]*)*-[0-9]{1,6}$")
+# A ``Closes:`` trailer naming a registry finding; the id is the grammar's (finding_id_grammar).
+_CLOSES = re.compile(rf"^Closes:\s*\S+?#({FINDING_ID_SOURCE})\s*$", re.MULTILINE)
 _CITED_LINE = re.compile(r"^(.+?):(\d+)$")
 _OUTLINE = re.compile(
     r"^\s*(export |@|class |interface |type |enum |async |function |public |private |protected |def "
@@ -187,7 +187,7 @@ def shadow_judge_fanout(
                 ask(question.id, {"rule": StateRef(finding_id=finding_id), "file": StateRef(path=path),
                                  "excerpt": StateRef(commit=head, path=path, line=line)},
                     decision_point="judge_fanout", base_dir=base_dir,
-                    subject=finding_id if _FINDING_ID.match(finding_id) else None)
+                    subject=finding_id if parse_finding_id(finding_id) is not None else None)
     except Exception:  # noqa: BLE001 — a shadow reflex never breaks the fan-out
         return
 
@@ -230,7 +230,7 @@ def rank_candidate_files(
             return []
         content = plan() or {}
         finding_id = content.get("finding_id")
-        if not isinstance(finding_id, str) or not _FINDING_ID.match(finding_id):
+        if not isinstance(finding_id, str) or parse_finding_id(finding_id) is None:
             return []
         problem = f"{content.get('title') or ''}\n{content.get('summary') or ''}"
         root = workspace_root if workspace_root is not None else bound_workspace_root(base_dir)

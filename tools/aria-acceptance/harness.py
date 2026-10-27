@@ -22,6 +22,10 @@ Three checks, all deterministic:
 * ``assert_reacts_*`` — seeds a synthetic stimulus and asserts ARIA reacts as
   specified (belief decays, consensus escalates, runtime signal becomes pressure).
 
+A fourth entry, ``baseline-exam`` (F1.3), is not a check of ARIA's output: it
+re-derives the section test's tally from a kept store, offline and with no
+model, and stamps every number with (ARIA SHA, corpus hash, provider/model).
+
 Run directly: ``python3 tools/aria-acceptance/harness.py`` (exit 0 = accept).
 """
 from __future__ import annotations
@@ -32,8 +36,9 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from collections import Counter
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 # The kernel is imported for the evidence-verification + cycle primitives. The
@@ -588,6 +593,327 @@ def review_change(
     return report
 
 
+# ── F1.3 slice a: the stamped, offline baseline exam ─────────────────────────
+# The section test of 2026-10-20 reported "0/13 located; 29 of 643 named noise,
+# 614 not" from driver scripts that are not in the tree, at a system nobody
+# pinned, on a corpus nobody hashed. `baseline_exam` re-derives what the kept
+# store can still prove, offline and with no model, and stamps every number
+# with the triple that makes two numbers comparable. It only SCORES: it is not
+# a BOARD_CANDIDATE_ENTRIES member (that exempts a body from the derived
+# authority set, and a scorer's imports must join it). It computes no recall:
+# the producer is `role_fitness` (ARIA-HIGH-758), not wired, and the status says so.
+BASELINE_CORPUS_SCHEMA = "aria/baseline-corpus/v1"
+BASELINE_EXAM_SCHEMA = "aria/baseline-exam/v1"
+COMMITTED_CORPUS = Path(__file__).resolve().parent / "corpora" / "bolum-v1.json"
+STAMP_FIELDS = ("aria_sha", "corpus_hash", "provider", "model")
+NO_MODEL = "none"  # the (provider, model) of a number no model produced
+PRACTICE_LABEL = "practice_score_contaminated"
+# No offline read can prove which kernel executed the stored runs: the stamp's
+# aria_sha is the tree the store says it scanned, declared in-tree. Slice c closes
+# this by running the pinned tree itself.
+ARIA_SHA_BASIS = "in_tree_run_declared"
+_CORPUS_GIT_TIMEOUT_SECONDS = 60
+
+
+def _refuse(name: str, detail: str) -> NoReturn:
+    """Raise the kernel's governance refusal ``name: detail``; the name is what a caller matches."""
+    from aria_kernel.tool_registry import GovernanceError
+
+    raise GovernanceError(f"{name}: {detail}")
+
+
+def _require_commit_sha(what: str, value: str) -> str:
+    """``value`` iff it is one full lowercase 40-hex commit id, else ``baseline_exam_sha_malformed``.
+
+    The one test every SHA of the stamp and the corpus passes, BEFORE it reaches git:
+    the corpus's ids are SHA-1 constants, and a branch name or an option-shaped string
+    must never become a git argument.
+    """
+    from aria_kernel.git_object_id import SHA1_OBJECT_FORMAT, is_object_id
+
+    if not is_object_id(value, formats=SHA1_OBJECT_FORMAT):
+        _refuse("baseline_exam_sha_malformed", f"{what} is not a full lowercase 40-hex commit id: {value!r}")
+    return value
+
+
+def measurement_stamp(*, aria_sha: str, corpus_hash: str, provider: str, model: str) -> dict[str, str]:
+    """The triple a number must carry to be compared with another: system, corpus, provider/model.
+
+    ``(none, none)`` says no model produced the number; otherwise the fleet must list the
+    model under that provider, so a stamp cannot name a model its provider does not run.
+    """
+    from aria_kernel.digest import is_sha256_digest
+    from aria_kernel.model_fleet import provider_for_model
+
+    _require_commit_sha("aria_sha", aria_sha)
+    if not is_sha256_digest(corpus_hash):
+        _refuse("baseline_exam_corpus_hash_malformed", f"corpus_hash is not a sha256 digest: {corpus_hash!r}")
+    if (provider, model) != (NO_MODEL, NO_MODEL) and provider_for_model(model) != provider:
+        _refuse("baseline_exam_provider_model_mismatch", f"the fleet does not list model {model!r} under provider {provider!r}")
+    return {"aria_sha": aria_sha, "corpus_hash": corpus_hash, "provider": provider, "model": model}
+
+
+def stamps_match(left: dict[str, str], right: dict[str, str]) -> list[str]:
+    """The names of the stamp fields that differ, [] when the two numbers are comparable.
+
+    Whole-value equality: a prefix of a SHA is a different SHA, and a field missing on
+    either side differs.
+    """
+    return [
+        field for field in STAMP_FIELDS
+        if field not in left or field not in right or left[field] != right[field]
+    ]
+
+
+def load_baseline_corpus(path: Path) -> dict[str, Any]:
+    """The corpus manifest at ``path``, with its schema, kind and every commit id checked (no git is run)."""
+    corpus = json.loads(Path(path).read_text(encoding="utf-8"))
+    if corpus.get("$schema") != BASELINE_CORPUS_SCHEMA or corpus.get("kind") != "practice":
+        _refuse("baseline_exam_corpus_malformed", f"{path} is not a {BASELINE_CORPUS_SCHEMA} manifest of kind practice")
+    _require_commit_sha("the corpus head", corpus["head"])
+    for case in corpus["cases"]:
+        _require_commit_sha("a corpus case's revert_sha", case["revert_sha"])
+    return corpus
+
+
+def _corpus_git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    """One git call against ``repo`` under the scrubbed environment: no GIT_* the caller's shell
+    exports can point it at another repository (ARIA-MEDIUM-824's evidence)."""
+    from aria_kernel.main_anchor import scrubbed_git_env
+
+    return subprocess.run(
+        ["git", "-C", str(repo), *args], env=scrubbed_git_env(), capture_output=True, text=True,
+        check=False, timeout=_CORPUS_GIT_TIMEOUT_SECONDS,
+    )
+
+
+def _head_tree_of_verified_corpus(repo: Path, corpus: dict[str, Any]) -> str:
+    """The tree id of the corpus head, once the head and every case are commits of ``repo`` and
+    every revert is an ancestor of the head: a corpus the repo does not hold is not the corpus."""
+    head = corpus["head"]
+    reverts = [case["revert_sha"] for case in corpus["cases"]]
+    for sha in (head, *reverts):
+        if _corpus_git(repo, "rev-parse", "--verify", "--quiet", f"{sha}^{{commit}}").returncode != 0:
+            _refuse("baseline_exam_corpus_commit_missing", f"{sha} is not a commit of {repo}")
+    for sha in reverts:
+        if _corpus_git(repo, "merge-base", "--is-ancestor", sha, head).returncode != 0:
+            _refuse("baseline_exam_corpus_commit_missing", f"{sha} is not an ancestor of the corpus head {head}")
+    return _corpus_git(repo, "rev-parse", f"{head}^{{tree}}").stdout.strip()
+
+
+def _read_cycle(
+    store: Path, cycle_id: str,
+) -> tuple[dict[str, dict[str, Any]], list[tuple[str, dict[str, Any]]], set[str]]:
+    """(per-tool status and finding count, every (tool_id, finding), the trees the runs scanned).
+
+    The store is read the way a frozen profile reads one: ``ensure_tools_dir_readonly`` and
+    the plain ledger path. ``tool_health.runs_path`` and ``ensure_tools_dir`` rewrite
+    ``integrity_index.json`` and bootstrap a directory that is not a store. Findings come
+    through ``run_raw_findings`` only: the row's sample is truncated and its count is a
+    claim, so a row with no artifact-backed list is refused, never counted as zero.
+    """
+    from aria_kernel.runs_reader import read_runs_rows
+    from aria_kernel.runtime_artifacts import run_raw_findings
+    from aria_kernel.tool_registry import ensure_tools_dir_readonly
+
+    root = ensure_tools_dir_readonly(store)
+    if root is None:
+        _refuse("baseline_exam_not_a_store", f"{store} holds no repo_identity.json: not a bound ARIA store")
+    rows = [row for row in read_runs_rows(root / "runs.jsonl", base_dir=root) if row.get("cycle_id") == cycle_id]
+    if not rows:
+        _refuse("baseline_exam_no_runs_for_cycle", f"{root} holds no run of cycle {cycle_id!r}")
+    tools: dict[str, dict[str, Any]] = {}
+    findings: list[tuple[str, dict[str, Any]]] = []
+    for row in rows:
+        tool_id = row["tool_id"]
+        # What makes the stamp's `provider: none` checkable from the store.
+        if row["runner"].get("type") != "subprocess":
+            _refuse("baseline_exam_non_deterministic_run", f"{tool_id} ran as {row['runner'].get('type')!r}, not a subprocess")
+        if tool_id in tools:
+            _refuse("baseline_exam_ambiguous_runs", f"{tool_id} has more than one run in cycle {cycle_id!r}")
+        raw = run_raw_findings(row, base_dir=root)
+        if raw is None:
+            _refuse("baseline_exam_findings_unavailable", f"no artifact holds the full findings of run {row['run_id']} ({tool_id})")
+        tools[tool_id] = {"status": row["status"], "raw_findings": len(raw)}
+        findings.extend((tool_id, finding) for finding in raw)
+    # A row whose evidence_validation spilled over the inline cap keeps no envelopes
+    # (EVIDENCE_VALIDATION_STRUCTURAL_KEYS): the tree comes from the rows that kept theirs.
+    scanned = {
+        envelope["target_sha"] for row in rows
+        for envelope in row["evidence_validation"].get("evidence_envelopes", [])
+    }
+    return tools, findings, scanned
+
+
+def _single_scanned_sha(scanned: set[str], *, head: str, aria_sha: str) -> str:
+    """The one tree the cycle scanned, which must be the corpus head and the stamped ARIA SHA."""
+    if not scanned:
+        _refuse("baseline_exam_scanned_sha_unknown", "no run of the cycle recorded the tree it scanned")
+    if len(scanned) > 1:
+        _refuse("baseline_exam_scanned_sha_ambiguous", f"the cycle's runs scanned {len(scanned)} trees: {sorted(scanned)}")
+    (scanned_sha,) = scanned
+    if scanned_sha != head:
+        _refuse("baseline_exam_store_not_scanned_at_corpus_head", f"the store scanned {scanned_sha}, the corpus head is {head}")
+    if scanned_sha != aria_sha:
+        _refuse("baseline_exam_aria_sha_not_the_scanned_tree", f"--aria-sha {aria_sha} is not the scanned tree {scanned_sha}")
+    return scanned_sha
+
+
+def _tally(findings: list[tuple[str, dict[str, Any]]], named_noise: list[dict[str, Any]]) -> dict[str, Any]:
+    """Raw findings split by the manifest's named noise classes and nothing else judged.
+
+    A finding is named noise iff its tool_id and rule equal an entry's and, when the entry
+    has a ``path``, its path equals it; the first entry that matches takes it, so the
+    classes partition the named noise. Whether the rest is true needs a model or a person:
+    ``verified_true`` stays null.
+    """
+    classes = [{**entry, "count": 0} for entry in named_noise]
+    by_rule: Counter[str] = Counter()
+    named = 0
+    for tool_id, finding in findings:
+        by_rule[f"{tool_id}/{finding['rule']}"] += 1
+        for entry in classes:
+            if (entry["tool_id"] == tool_id and entry["rule"] == finding["rule"]
+                    and ("path" not in entry or entry["path"] == finding.get("path"))):
+                entry["count"] += 1
+                named += 1
+                break
+    return {
+        "raw_findings": len(findings), "named_noise": named, "not_named_noise": len(findings) - named,
+        "verified_true": None, "verification": "not_measured_here",
+        "by_class": classes, "by_rule": dict(sorted(by_rule.items())),
+    }
+
+
+def _legacy_claim(legacy: dict[str, Any], tally: dict[str, Any], stamp: dict[str, str]) -> dict[str, Any]:
+    """The earlier section test's numbers, carried as a claim about a different measurement.
+
+    It has no stamp and is never comparable to a stamped number. Its recall is never
+    printed without the label and its exact interval, which the one interval owner computes.
+    The tally is checked against the store only for the same system: another system's
+    counts are neither reproduced nor refuted (M11).
+    """
+    from aria_kernel import judge_calibration
+
+    hits, trials = legacy["recall"]["hits"], legacy["recall"]["n"]
+    low, high = judge_calibration.exact_binomial_interval(hits, trials, confidence=0.95)
+    reproduced = None
+    if legacy["system_sha"] == stamp["aria_sha"]:
+        reproduced = (legacy["tally"]["named_noise"] == tally["named_noise"]
+                      and legacy["tally"]["not_named_noise"] == tally["not_named_noise"])
+    return {
+        "source": legacy["source"], "system_sha": legacy["system_sha"],
+        "stamp": None, "comparable_to_stamped": False,
+        "recall": {"hits": hits, "n": trials, "label": PRACTICE_LABEL, "interval_exact_95": [low, high]},
+        "tally": legacy["tally"], "reproduced_from_store": {"tally": reproduced},
+    }
+
+
+def baseline_exam(
+    *, store: Path, cycle_id: str, repo: Path, corpus: Path, aria_sha: str, provider: str, model: str,
+) -> dict[str, Any]:
+    """The stamped baseline of one cycle of a kept store against a practice corpus (``aria/baseline-exam/v1``).
+
+    Offline and read-only: the store and the repo are only read, no model runs, nothing is
+    written. Every refusal is a ``GovernanceError`` named ``baseline_exam_*``. The report
+    is plain JSON and holds no clock or random id, so a later run compares equal when the
+    store, the corpus and the scorer do.
+    """
+    from aria_kernel.digest import sha256_digest_file
+    from aria_kernel.ledger import sha256_digest_of_canonical_json
+
+    _require_commit_sha("aria_sha", aria_sha)
+    manifest = load_baseline_corpus(corpus)
+    tools, findings, scanned = _read_cycle(Path(store), cycle_id)
+    scanned_sha = _single_scanned_sha(scanned, head=manifest["head"], aria_sha=aria_sha)
+    head_tree = _head_tree_of_verified_corpus(Path(repo), manifest)
+    stamp = measurement_stamp(
+        aria_sha=aria_sha, provider=provider, model=model,
+        corpus_hash=sha256_digest_of_canonical_json({
+            "manifest": {key: value for key, value in manifest.items() if key != "legacy_claim"},
+            "head_tree": head_tree,
+        }),
+    )
+    tally = _tally(findings, manifest["named_noise"])
+    detector_reverts = [case["revert_sha"] for case in manifest["cases"] if case["detector"]]
+    return {
+        "$schema": BASELINE_EXAM_SCHEMA,
+        "stamp": stamp, "aria_sha_basis": ARIA_SHA_BASIS,
+        "scorer": {
+            "path": Path(__file__).resolve().relative_to(_REPO_ROOT).as_posix(),
+            "sha256": sha256_digest_file(Path(__file__)),
+        },
+        "store": {
+            "cycle_id": cycle_id, "scanned_sha": scanned_sha, "tools": tools,
+            "crashed_tools": sorted(tool for tool, run in tools.items() if run["status"] == "crash"),
+        },
+        "measurements": {
+            "tally": {"stamp": dict(stamp), **tally},
+            "recall": {
+                "stamp": dict(stamp), "status": "unmeasured:discovery_recall_producer_not_wired",
+                "producer": "role_fitness.measure_discovery_recall (D9; ARIA-HIGH-758)", "label": PRACTICE_LABEL,
+                "contamination": manifest["contamination"], "n_cases": len(manifest["cases"]),
+                "detector_cases": {"n": len(detector_reverts), "revert_shas": detector_reverts},
+                "other_cases": {"n": len(manifest["cases"]) - len(detector_reverts)},
+            },
+        },
+        "legacy_claim": _legacy_claim(manifest["legacy_claim"], tally, stamp),
+    }
+
+
+def _baseline_exam_command(args: Any) -> int:
+    """The ``baseline-exam`` subcommand: 0 = reported (and reproduced, with --against), 1 = same
+    triple but different numbers, 2 = refused. ``--out`` is created exclusively, after every
+    refusal that can precede it; the command writes nothing else."""
+    from aria_kernel.tool_registry import GovernanceError
+
+    try:
+        out, store = Path(args.out), Path(args.store)
+        if os.path.lexists(out):
+            _refuse("baseline_exam_out_exists", f"{out} exists; a report is never overwritten")
+        if out.resolve().is_relative_to(store.resolve()):
+            _refuse("baseline_exam_out_inside_store", f"{out} lies inside the store it reads")
+        prior = None
+        if args.against is not None:
+            prior = json.loads(Path(args.against).read_text(encoding="utf-8"))
+            if prior.get("$schema") != BASELINE_EXAM_SCHEMA or not {"stamp", "measurements"} <= prior.keys():
+                _refuse("baseline_exam_prior_malformed", f"{args.against} is not an {BASELINE_EXAM_SCHEMA} report")
+        report = baseline_exam(
+            store=store, cycle_id=args.cycle_id, repo=args.repo, corpus=args.corpus,
+            aria_sha=args.aria_sha, provider=args.provider, model=args.model,
+        )
+        if prior is not None:
+            differing = stamps_match(prior["stamp"], report["stamp"])
+            if differing:
+                # Matched triples only: nothing of either side's numbers is compared or printed.
+                _refuse("baseline_exam_stamps_differ", str(differing))
+    except GovernanceError as refusal:
+        print(f"refused: {refusal}", file=sys.stderr)
+        return 2
+    with out.open("x", encoding="utf-8") as handle:
+        handle.write(json.dumps(report, indent=2, sort_keys=True) + "\n")
+    print(f"baseline-exam report written: {out}")
+    if prior is not None:
+        blocks = sorted(prior["measurements"].keys() | report["measurements"].keys())
+        differing = [name for name in blocks if prior["measurements"].get(name) != report["measurements"].get(name)]
+        print(f"reproduced: {'false' if differing else 'true'}")
+        if differing:
+            print(f"blocks that differ: {', '.join(differing)}")
+        return 1 if differing else 0
+    stamp, tally, legacy, scanned = report["stamp"], report["measurements"]["tally"], report["legacy_claim"], report["store"]
+    print(f"stamp: {' '.join(f'{field}={stamp[field]}' for field in STAMP_FIELDS)} (aria_sha_basis: {report['aria_sha_basis']})")
+    print(f"store: cycle {scanned['cycle_id']} scanned at {scanned['scanned_sha']}; "
+          f"{len(scanned['tools'])} tools, crashed: {scanned['crashed_tools']}")
+    print(f"tally: raw_findings={tally['raw_findings']} named_noise={tally['named_noise']} "
+          f"not_named_noise={tally['not_named_noise']} verified_true=null ({tally['verification']})")
+    print(f"recall: {report['measurements']['recall']['status']}")
+    recall = legacy["recall"]
+    print(f"legacy claim (no stamp, not comparable to the numbers above): recall {recall['hits']}/{recall['n']} "
+          f"{recall['label']}, exact 95% interval {recall['interval_exact_95']}; "
+          f"tally reproduced from this store: {legacy['reproduced_from_store']['tally']}")
+    return 0
+
+
 # ── orchestration ────────────────────────────────────────────────────────────
 def run_all(*, repo_root: Path | None = None, skip_poc: bool = False) -> dict[str, Any]:
     results = []
@@ -710,7 +1036,29 @@ def main() -> int:
                         help="the room's tree, holding the kernel and the change's history")
     review.add_argument("--rounds", type=int, default=3,
                         help="the most drains to run before the round cap stops the loop (default 3)")
+    exam = sub.add_parser(
+        "baseline-exam",
+        help="re-derive a kept store's section-test tally offline, every number stamped (F1.3)",
+        description=(
+            "Read one cycle of a kept ARIA store against a practice corpus: no model, nothing "
+            "written but --out. Every number carries (aria_sha, corpus_hash, provider, model); "
+            "recall is left unmeasured by name. Exit 0 = reported (reproduced, with --against), "
+            "1 = same stamp but different numbers, 2 = refused."
+        ),
+    )
+    exam.add_argument("--store", required=True, type=Path, help="the kept store (its aria-tools directory), read only")
+    exam.add_argument("--cycle-id", required=True, help="the cycle of the store to read")
+    exam.add_argument("--repo", required=True, type=Path, help="a checkout holding the corpus commits, read only")
+    exam.add_argument("--aria-sha", required=True, help="the full SHA of the tree the stored runs scanned")
+    exam.add_argument("--out", required=True, type=Path,
+                      help="the report to create; it must not exist and must not lie inside --store")
+    exam.add_argument("--corpus", type=Path, default=COMMITTED_CORPUS, help="the corpus manifest (default: the committed bolum-v1)")
+    exam.add_argument("--provider", default=NO_MODEL, help="the provider of the model that produced a number (default: none)")
+    exam.add_argument("--model", default=NO_MODEL, help="the model that produced a number (default: none)")
+    exam.add_argument("--against", type=Path, default=None, help="a prior report to reproduce: compared only when the stamps match")
     args = parser.parse_args()
+    if args.command == "baseline-exam":
+        return _baseline_exam_command(args)
     if args.command == "review-change" and args.rounds < 0:
         review.error("--rounds must be 0 or more")
     if args.command == "review-change":

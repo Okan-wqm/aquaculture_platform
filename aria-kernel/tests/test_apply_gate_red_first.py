@@ -45,12 +45,15 @@ import copy
 import inspect
 import json
 import math
+import sys
 import tempfile
 import unittest
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Iterator, Sequence
 from unittest import mock
+
+import yaml
 
 from aria_kernel import apply_engine, implementation_delivery, validation, validation_runs_ledger
 from aria_kernel.apply_engine import _record_apply_action, gate_apply_action, run_apply_gate
@@ -66,6 +69,12 @@ from tests._helpers.sandbox_pins import require_sandbox_backend
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 KERNEL_DIR = REPO_ROOT / "aria-kernel" / "aria_kernel"
+# The executor's drain window is priced by the executor (ARIA-HIGH-124), so the
+# window test below reads its one derivation, like test_state_lock_liveness_bound.
+if str(REPO_ROOT / "tools" / "aria-poc") not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT / "tools" / "aria-poc"))
+
+import ci_executor  # noqa: E402
 
 BRANCH = "aria-impl-0123abcd0123abcd"
 RUNNER = "aria-f35-gate-test"
@@ -108,6 +117,15 @@ def _proof_runs() -> int:
     raise AssertionError("RED_FIRST_PROOF_RUNS is defined in neither implementation_delivery nor apply_engine")
 
 
+def _proof_timeout_ms() -> int:
+    """The ceiling every proof run is bounded by, as its one owner names it. A
+    missing name is an assertion, not an AttributeError."""
+    value = getattr(apply_engine, "RED_FIRST_PROOF_TIMEOUT_MS", None)
+    if value is None:
+        raise AssertionError("apply_engine.RED_FIRST_PROOF_TIMEOUT_MS does not exist: the proof runs under the suite's ceiling")
+    return value
+
+
 class StagedChange:
     """One change staged exactly as production stages it, and its tip committed.
 
@@ -115,12 +133,16 @@ class StagedChange:
     the pricing readers that never run the gate). ``action_change_id`` overrides
     what the staged action carries (None: the operator lane's action, which has
     no change); the planned change and the baseline always exist.
+    ``staged_suite`` / ``staged_timeout_ms`` are the suite and ceiling the staged
+    action carries (the baseline always ran ``SUITE``): the pricing readers never
+    run them, the gate runs whatever it carries.
     """
 
     def __init__(
         self, case: unittest.TestCase, *, finding_id: str = "F-020", plan_id: str = "p-1",
         tip: dict[str, str] | None = None, delete: tuple[str, ...] = (),
         intended: tuple[str, ...] = ("calc.py", "tests/test_fix.py"), action_change_id: Any = _UNSET,
+        staged_suite: Sequence[str] = SUITE, staged_timeout_ms: int = TIMEOUT_MS,
     ) -> None:
         tmp = tempfile.TemporaryDirectory(prefix="aria-f35-gate-")
         case.addCleanup(tmp.cleanup)
@@ -156,9 +178,9 @@ class StagedChange:
         self.staged_change_id = self.change_id if action_change_id is _UNSET else action_change_id
         _record_apply_action(
             proposal_id=self.proposal_id, workspace_root=self.repo, base_sha=self.base, branch=BRANCH,
-            validation_commands=list(SUITE), changed_files=self.intended, status="staged_for_implementation",
+            validation_commands=list(staged_suite), changed_files=self.intended, status="staged_for_implementation",
             plan_id=plan_id, change_id=self.staged_change_id, baseline_validation_ref=str(baseline["ledger_hash"]),
-            validation_timeout_ms=TIMEOUT_MS, base_dir=self.store,
+            validation_timeout_ms=staged_timeout_ms, base_dir=self.store,
         )
         self.tip: str | None = None
         if tip is not None:
@@ -423,7 +445,9 @@ class VerdictMappingTests(unittest.TestCase):
                 self.assertEqual(len(call["red_at"]), 40)
                 self.assertEqual(len(call["green_at"]), 40)
                 self.assertEqual((call["red_at"], call["green_at"]), (case.base, case.tip))
-                self.assertEqual(call["timeout_ms"], TIMEOUT_MS, "the proof runs under the staged action's ceiling")
+                self.assertEqual(call["timeout_ms"], _proof_timeout_ms(),
+                                 "the proof runs under its own bounded ceiling, not under the suite's")
+                self.assertNotEqual(call["timeout_ms"], TIMEOUT_MS)
                 self.assertEqual(call["runner_identity"], RUNNER)
                 self.assertEqual(call["workspace_root"], case.repo)
                 self.assertEqual(call["base_dir"], case.store.resolve())
@@ -798,7 +822,7 @@ class PricingTests(unittest.TestCase):
         return implementation_delivery.staged_delivery_worst_case_seconds(proposal_id=case.proposal_id, base_dir=case.store)
 
     def test_r10_the_proof_adds_exactly_its_runs_at_the_staged_ceiling_for_a_finding_origin_change_only(self) -> None:
-        extra = _proof_runs() * math.ceil(TIMEOUT_MS / 1000)
+        extra = _proof_runs() * math.ceil(_proof_timeout_ms() / 1000)
         plan = self.prices(StagedChange(self, finding_id="plan:p-1", plan_id="p-1"))
         operator = self.prices(StagedChange(self, action_change_id=None))
         finding = self.prices(StagedChange(self, finding_id="F-020"))
@@ -821,7 +845,7 @@ class PricingTests(unittest.TestCase):
         none = price(validation_commands=SUITE, validation_timeout_ms=TIMEOUT_MS)
         self.assertEqual(price(validation_commands=SUITE, validation_timeout_ms=TIMEOUT_MS, proof_runs=0), none)
         self.assertEqual(price(validation_commands=SUITE, validation_timeout_ms=TIMEOUT_MS, proof_runs=2) - none,
-                         2 * math.ceil(TIMEOUT_MS / 1000))
+                         2 * math.ceil(_proof_timeout_ms() / 1000), "a proof run is priced at the proof's ceiling")
         canonical = price(validation_commands=CANONICAL_VALIDATION_COMMANDS_EXECUTABLE,
                           validation_timeout_ms=CANONICAL_VALIDATION_TIMEOUT_MS)
         self.assertEqual(implementation_delivery.IMPLEMENTATION_DELIVERY_WORST_CASE_SECONDS,
@@ -835,7 +859,7 @@ class PricingTests(unittest.TestCase):
         suite_only = implementation_delivery.delivery_worst_case_seconds(
             validation_commands=SUITE, validation_timeout_ms=TIMEOUT_MS,
         )
-        between = suite_only + _proof_runs() * math.ceil(TIMEOUT_MS / 1000) // 2
+        between = suite_only + _proof_runs() * math.ceil(_proof_timeout_ms() / 1000) // 2
         now = 1000.0
 
         def admission(case: StagedChange) -> str | None:
@@ -851,7 +875,44 @@ class PricingTests(unittest.TestCase):
 
 
 class DeliveryWindowTests(unittest.TestCase):
-    """The seam between the gate and the delivery: nothing here beyond the pricing above."""
+    """The seam between the gate and the delivery: the pricing above, and the drain window it must fit."""
+
+    def drain_window(self) -> tuple[int, int]:
+        """MAX_TIMEOUT_SECONDS and ARIA_DRAIN_BUDGET_SECONDS as the live workflow sets them."""
+        workflow = yaml.safe_load((REPO_ROOT / ".github" / "workflows" / "aria-agent-executor.yml").read_text(encoding="utf-8"))
+        step = next(step for job in workflow["jobs"].values() for step in job.get("steps", []) if step.get("id") == "executor")
+        return int(step["env"]["MAX_TIMEOUT_SECONDS"]), int(step["env"]["ARIA_DRAIN_BUDGET_SECONDS"])
+
+    def test_a_finding_origin_canonical_suite_request_still_fits_the_live_drain_window(self) -> None:
+        """The drain starts an implementation child only while its whole worst case fits the window
+        (`drain_window_skip`, never claimed). Staging always carries the canonical suite at the
+        canonical ceiling, so a proof priced at THAT ceiling (two more 2.7M ms runs, 5400 s) made
+        every finding-origin request unschedulable; a proof bounded by its own ceiling fits."""
+        from aria_kernel.implementation_safety import CANONICAL_VALIDATION_TIMEOUT_MS
+        from aria_kernel.validation_suite import CANONICAL_VALIDATION_COMMANDS_EXECUTABLE
+
+        max_timeout, drain_budget = self.drain_window()
+        child_seconds: dict[str, int] = {}
+        for label, finding_id, plan_id in (("plan-origin", "plan:p-1", "p-1"), ("finding-origin", "F-020", "p-2")):
+            case = StagedChange(
+                self, finding_id=finding_id, plan_id=plan_id,
+                staged_suite=CANONICAL_VALIDATION_COMMANDS_EXECUTABLE, staged_timeout_ms=CANONICAL_VALIDATION_TIMEOUT_MS,
+            )
+            delivery_seconds = implementation_delivery.staged_delivery_worst_case_seconds(
+                proposal_id=case.proposal_id, base_dir=case.store,
+            )
+            child_seconds[label] = ci_executor.child_worst_case_seconds(
+                max_timeout, worktree_per_request=True, implementation_delivery_seconds=delivery_seconds,
+            )
+        self.assertLessEqual(child_seconds["plan-origin"], drain_budget, "the plan-origin request no longer fits the window")
+        self.assertLessEqual(
+            child_seconds["finding-origin"], drain_budget,
+            f"the drain would skip every finding-origin implementation request by name: {child_seconds} against {drain_budget} s",
+        )
+        self.assertEqual(
+            child_seconds["finding-origin"] - child_seconds["plan-origin"],
+            _proof_runs() * math.ceil(_proof_timeout_ms() / 1000),
+        )
 
     def test_the_delivery_prices_through_the_staged_actions_own_classification(self) -> None:
         source = (KERNEL_DIR / "implementation_delivery.py").read_text(encoding="utf-8")

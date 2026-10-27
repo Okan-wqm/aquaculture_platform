@@ -47,17 +47,20 @@ from aria_kernel.system_one import CALLS_RELPATH, Answer, StateRef, Unavailable
 from aria_kernel.tool_registry import ensure_tools_dir
 from tests import test_system_one as ask_tests
 from tests import test_system_one_points as point_tests
+from tests._helpers.finding_id_table import accepted_ids, rejected_values
 
-_TABLE_PATH = Path(__file__).resolve().parents[2] / "tools" / "gates" / "fixtures" / "finding-id-grammar-table.json"
-_TABLE = json.loads(_TABLE_PATH.read_text(encoding="utf-8"))
-
-_ACCEPTED = [entry["id"] for entry in _TABLE["accept"]]
-# F-NNN and DEBT are other grammars the registry never holds; a refused id with
-# whitespace in it is the trailer line's business, not the id grammar's.
-_REFUSED = [value for value in _TABLE["reject"] if not value.startswith(("F-", "DEBT-"))]
-_REFUSED_IN_A_TRAILER = [value for value in _REFUSED if not re.search(r"\s", value)]
 # The ids a loose ``[0-9]{1,6}`` or ``\d+`` reader takes for ids and the owner refuses.
 _LOOSELY_READ = ("ARIA-HIGH-99", "ARIA-HIGH-0999", "ARIA-HIGH-10000", "ARIA-HIGH-010000", "ARIA-HIGH-1000\n")
+
+
+def _refused() -> list[str]:
+    """The table's refused values, less the F-NNN and DEBT forms: those are other grammars the registry never holds."""
+    return [value for value in rejected_values() if not value.startswith(("F-", "DEBT-"))]
+
+
+def _refused_in_a_trailer() -> list[str]:
+    """Those a trailer line could carry: a refused id with whitespace in it is the trailer line's business, not the id grammar's."""
+    return [value for value in _refused() if not re.search(r"\s", value)]
 
 
 def _refusal(result: Answer | Unavailable) -> str:
@@ -69,7 +72,7 @@ def _refusal(result: Answer | Unavailable) -> str:
 class TheTableCoversTheIdsTheLooseReadersTook(unittest.TestCase):
     def test_every_loosely_read_id_is_one_the_table_refuses(self) -> None:
         # A table that stopped listing them would make every pin below vacuous for them.
-        self.assertLessEqual(set(_LOOSELY_READ), set(_TABLE["reject"]))
+        self.assertLessEqual(set(_LOOSELY_READ), set(rejected_values()))
 
 
 class AFindingReferenceIsAnIdTheOwnerReads(ask_tests._Store):
@@ -84,13 +87,14 @@ class AFindingReferenceIsAnIdTheOwnerReads(ask_tests._Store):
         return reason
 
     def test_every_tabled_id_is_a_well_formed_reference(self) -> None:
-        for finding_id in _ACCEPTED:
+        for finding_id in accepted_ids():
             with self.subTest(finding_id=finding_id):
                 self.assertEqual(self._reason(finding_id), "finding_not_registered")
 
     def test_no_refused_id_is_a_reference(self) -> None:
-        self.assertGreater(len(_REFUSED), 25)
-        for value in _REFUSED:
+        refused = _refused()
+        self.assertGreater(len(refused), 25)
+        for value in refused:
             with self.subTest(value=value):
                 self.assertEqual(self._reason(value), "finding_id_malformed")
 
@@ -115,7 +119,7 @@ class AFindingReferenceIsAnIdTheOwnerReads(ask_tests._Store):
 
 class ASubjectIsAnIdTheOwnerReads(ask_tests._Store):
     def test_every_tabled_id_is_a_subject_the_ledger_records(self) -> None:
-        for finding_id in _ACCEPTED:
+        for finding_id in accepted_ids():
             with self.subTest(finding_id=finding_id):
                 self.reset_rows()
                 result = self.ask("J0", self.refs(), ask_tests._Transport(ask_tests._noul(0.9)), subject=finding_id)
@@ -124,7 +128,7 @@ class ASubjectIsAnIdTheOwnerReads(ask_tests._Store):
                 self.assertEqual(row["subject"], finding_id)
 
     def test_no_refused_id_is_a_subject(self) -> None:
-        for value in _REFUSED:
+        for value in _refused():
             with self.subTest(value=value):
                 transport = ask_tests._Transport()
                 self.assertEqual(_refusal(self.ask("J0", self.refs(), transport, subject=value)), "subject_not_an_id")
@@ -151,13 +155,14 @@ class TheMergeAuthorityReadsTheOwnersIdsFromATrailer(unittest.TestCase):
         return points.closes_ids([f"fix(x): y\n\nCloses: docs/reviews/a.md#{finding_id}"])
 
     def test_every_tabled_id_is_read(self) -> None:
-        for finding_id in _ACCEPTED:
+        for finding_id in accepted_ids():
             with self.subTest(finding_id=finding_id):
                 self.assertEqual(self._read(finding_id), [finding_id])
 
     def test_no_refused_id_is_read(self) -> None:
-        self.assertGreater(len(_REFUSED_IN_A_TRAILER), 15)
-        for value in _REFUSED_IN_A_TRAILER:
+        refused = _refused_in_a_trailer()
+        self.assertGreater(len(refused), 15)
+        for value in refused:
             with self.subTest(value=value):
                 self.assertEqual(self._read(value), [])
 
@@ -225,7 +230,7 @@ class TheDecisionPointsTakeTheOwnersId(unittest.TestCase):
         self.assertEqual({row["subject"] for row in recorded}, {self._PLAN_FINDING})
 
     def test_an_r4_plan_naming_an_id_the_owner_refuses_asks_nothing_and_writes_nothing(self) -> None:
-        for value in sorted(set(_REFUSED) | set(_LOOSELY_READ)):
+        for value in sorted(set(_refused()) | set(_LOOSELY_READ)):
             with self.subTest(value=value):
                 self.assertEqual(self._rank(value), ([], [], []))
 

@@ -33,9 +33,7 @@ from __future__ import annotations
 # aria-kernel.yml's always-run `workspace` job, never in a skippable shard.
 READS_LIVE_CHECKOUT = 'tools/gates/fixtures/finding-id-grammar-table.json is the one table both finding-id grammar owners are held to'
 
-import json
 import unittest
-from pathlib import Path
 
 from aria_kernel.finding_id_grammar import (
     FINDING_SEQUENCE_MAX,
@@ -44,35 +42,33 @@ from aria_kernel.finding_id_grammar import (
     format_finding_id,
     parse_finding_id,
 )
-
-_TABLE_PATH = Path(__file__).resolve().parents[2] / "tools" / "gates" / "fixtures" / "finding-id-grammar-table.json"
-_TABLE = json.loads(_TABLE_PATH.read_text(encoding="utf-8"))
+from tests._helpers.finding_id_table import finding_id_table
 
 
 class TheTableBothOwnersAreHeldTo(unittest.TestCase):
     def test_the_table_holds_the_ids_the_specification_names(self) -> None:
-        accepted = {entry["id"] for entry in _TABLE["accept"]}
+        accepted = {entry["id"] for entry in finding_id_table()["accept"]}
         self.assertLessEqual({"ARIA-HIGH-999", "ARIA-HIGH-1000"}, accepted)
         self.assertLessEqual(
-            {"ARIA-HIGH-0999", "ARIA-HIGH-99", "aria-high-1000", "ARIA-HIGH-10000"}, set(_TABLE["reject"])
+            {"ARIA-HIGH-0999", "ARIA-HIGH-99", "aria-high-1000", "ARIA-HIGH-10000"}, set(finding_id_table()["reject"])
         )
 
     def test_the_allocator_limit_is_the_tables(self) -> None:
         self.assertEqual(FINDING_SEQUENCE_MAX, 9999)
-        self.assertEqual(FINDING_SEQUENCE_MAX, _TABLE["limit"])
+        self.assertEqual(FINDING_SEQUENCE_MAX, finding_id_table()["limit"])
 
 
 class TheRegexAndTheParser(unittest.TestCase):
     def test_every_tabled_id_matches_and_every_refused_one_does_not(self) -> None:
-        for entry in _TABLE["accept"]:
+        for entry in finding_id_table()["accept"]:
             with self.subTest(accept=entry["id"]):
                 self.assertIsNotNone(REGISTRY_FINDING_ID_RE.fullmatch(entry["id"]))
-        for value in _TABLE["reject"]:
+        for value in finding_id_table()["reject"]:
             with self.subTest(reject=value):
                 self.assertIsNone(REGISTRY_FINDING_ID_RE.fullmatch(value))
 
     def test_parse_splits_a_tabled_id(self) -> None:
-        for entry in _TABLE["accept"]:
+        for entry in finding_id_table()["accept"]:
             with self.subTest(accept=entry["id"]):
                 parsed = parse_finding_id(entry["id"])
                 self.assertIsNotNone(parsed)
@@ -83,7 +79,7 @@ class TheRegexAndTheParser(unittest.TestCase):
                 self.assertEqual(parsed.sequence, entry["sequence"])
 
     def test_parse_refuses_every_refused_id(self) -> None:
-        for value in _TABLE["reject"]:
+        for value in finding_id_table()["reject"]:
             with self.subTest(reject=value):
                 self.assertIsNone(parse_finding_id(value))
 
@@ -96,7 +92,7 @@ class TheRegexAndTheParser(unittest.TestCase):
 
 class FormatAndOrder(unittest.TestCase):
     def test_format_zero_pads_to_three_digits_and_never_truncates(self) -> None:
-        for entry in _TABLE["format"]:
+        for entry in finding_id_table()["format"]:
             with self.subTest(sequence=entry["sequence"]):
                 self.assertEqual(
                     format_finding_id(entry["domain"], entry["classifier"], entry["sequence"]),
@@ -104,7 +100,7 @@ class FormatAndOrder(unittest.TestCase):
                 )
 
     def test_format_refuses_a_sequence_the_grammar_cannot_spell(self) -> None:
-        for sequence in _TABLE["formatRefused"]:
+        for sequence in finding_id_table()["formatRefused"]:
             with self.subTest(sequence=sequence):
                 with self.assertRaises((ValueError, TypeError)):
                     format_finding_id("ARIA", "HIGH", sequence)
@@ -120,7 +116,7 @@ class FormatAndOrder(unittest.TestCase):
                 self.assertEqual(parsed.sequence, sequence)
 
     def test_the_sequence_orders_as_a_number_never_as_text(self) -> None:
-        order = list(_TABLE["order"])
+        order = list(finding_id_table()["order"])
         self.assertNotEqual(sorted(order), order, "the table must be one text order cannot give")
         self.assertEqual(sorted(reversed(order), key=finding_id_sort_key), order)
         self.assertLess(finding_id_sort_key("ARIA-LOW-999"), finding_id_sort_key("ARIA-LOW-1000"))

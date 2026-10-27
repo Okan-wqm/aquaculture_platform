@@ -177,6 +177,31 @@ class TheAtlasFindsTheKnownFacts(AtlasCase):
         self.assertEqual(funnel["liveness"], "dormant")
 
 
+# J4 (ARIA-HIGH-1083, ARIA-HIGH-1084) — the two single-owner families the judge-fan-out package declares: the owner
+# of what a sampled adapter finding cites, and the owner of the closing set's mixed-tree law. Neither carries a finding.
+JUDGE_FANOUT_FAMILIES = {
+    "item_citations": f"{KERNEL}item_citations.py:item_cited_refs",
+    "closing_tree": f"{KERNEL}feedback_store.py:tree_is_mixed",
+}
+
+
+class TheJudgeFanoutFamiliesAreDeclared(AtlasCase):
+    """At the branch base neither family exists, which each test reports as an assertion failure."""
+
+    def test_each_family_names_its_owner_and_carries_no_finding(self) -> None:
+        for family_id, owner in JUDGE_FANOUT_FAMILIES.items():
+            with self.subTest(family=family_id):
+                facts = self.family(family_id)
+                self.assertEqual(facts["owner"], owner)
+                self.assertIsNone(facts["finding"], "a family with one owner carries no copy finding")
+                self.assertIsNone(facts["plan_package"])
+
+    def test_every_writer_or_computer_of_each_family_sits_in_its_owner_module(self) -> None:
+        for family_id, owner in JUDGE_FANOUT_FAMILIES.items():
+            with self.subTest(family=family_id):
+                self.assertEqual({path_of(site) for site in self.family(family_id)["writers"]}, {path_of(owner)})
+
+
 class EveryCopyIsATrackedFinding(AtlasCase):
     """Families with copies are not folded here: each names its package and a finding."""
 

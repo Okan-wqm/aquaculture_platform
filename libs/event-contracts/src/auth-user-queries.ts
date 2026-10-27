@@ -16,6 +16,8 @@
  * NOT the event-stream `AQUACULTURE_EVENTS.*` namespace.
  */
 
+import type { ModuleAccess } from '@aquaculture/shared-contracts';
+
 export const AUTH_USER_QUERY_SUBJECTS = {
   VALIDATE_TENANT_MEMBERSHIP: 'request.auth.user.validateTenantMembership',
   /**
@@ -128,6 +130,17 @@ export interface ResolveCallerCapabilitiesResult {
   active: boolean;
   roles: string[];
   resourcePermissions: string[];
+  /**
+   * RBAC-HIGH-028 (ADR-051 §2 Transport): the caller's module grants, exactly the `moduleAccess`
+   * claim a fresh token would carry; `{}` for no grant and on every failure.
+   */
+  moduleAccess: ModuleAccess;
+  /**
+   * RBAC-HIGH-028: the farm-service Site ids a fresh token would carry (`assignedSiteIds`); `[]`
+   * for a caller without site restriction or on failure. Together with `moduleAccess` and `roles`
+   * they let a caller without a JWT build the member caller (PKG-25 reads them in the bridge).
+   */
+  assignedSiteIds: string[];
   errorCode?: 'VALIDATION_ERROR' | 'INTERNAL_ERROR';
   error?: string;
 }

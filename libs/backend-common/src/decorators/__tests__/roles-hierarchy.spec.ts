@@ -7,7 +7,9 @@
  * exact prior bug cannot silently return.
  */
 
-import { Role, ROLE_HIERARCHY, roleHasPermission } from '../roles.decorator';
+import { PLATFORM_ROLES_BY_PRIVILEGE, platformRoleSatisfies } from '@aquaculture/shared-contracts';
+
+import { Role, roleHasPermission } from '../roles.decorator';
 
 describe('canonical role hierarchy (SSOT-H-06 regression)', () => {
   it('SUPER_ADMIN inherits TENANT_ADMIN — the exact route the HR fork guard denied', () => {
@@ -28,9 +30,12 @@ describe('canonical role hierarchy (SSOT-H-06 regression)', () => {
     expect(roleHasPermission(Role.MODULE_USER, Role.TENANT_ADMIN)).toBe(false);
   });
 
-  it('every Role enum member has a hierarchy entry (no missing-key silent fail)', () => {
-    for (const r of Object.values(Role)) {
-      expect(ROLE_HIERARCHY[r]).toBeDefined();
+  it('derives from the one owner (RBAC-MEDIUM-024): every Role, every pair, the same answer', () => {
+    expect([...Object.values(Role)].sort()).toEqual([...PLATFORM_ROLES_BY_PRIVILEGE].sort());
+    for (const held of Object.values(Role)) {
+      for (const required of Object.values(Role)) {
+        expect(roleHasPermission(held, required)).toBe(platformRoleSatisfies(held, required));
+      }
     }
   });
 });

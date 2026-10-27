@@ -21,6 +21,7 @@
 
 import * as yaml from 'js-yaml';
 
+import { FINDING_ID_REGEX } from '../../tools/gates/finding-id-grammar';
 import {
   ADMIN_SERVICE_SRC,
   adminControllerFiles,
@@ -72,7 +73,7 @@ describe('INVARIANT (ADMIN-CRITICAL-102): every admin mutation handler is audite
     for (const entry of entries) {
       expect(actual.has(entry.handler)).toBe(true);
       expect(entry.owner).toMatch(/\S/);
-      expect(entry.findingId).toMatch(/^[A-Z]+-[A-Z]+-\d+$/);
+      expect(entry.findingId).toMatch(FINDING_ID_REGEX);
       expect(entry.reason).toMatch(/\S/);
       const expiry =
         entry.expiry instanceof Date ? entry.expiry.toISOString().slice(0, 10) : entry.expiry;

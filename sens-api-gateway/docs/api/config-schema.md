@@ -146,7 +146,7 @@ Evidence: `src/config.rs:1036-1113`.
 | `baud_rate` | integer (u32) | no | — | RTU only |
 | `registers` | `ModbusRegisterConfig[]` | no | `[]` | Registers to poll |
 | `security` | `ModbusSecurityConfig` | no | defaults | Function-code whitelist, rate limit, burst, max register count |
-| `tls` | `ModbusTlsConfig` | no | defaults | TLS for Modbus TCP (v1.2.0 — rodbus-native) |
+| `tls` | `ModbusTlsConfig` | no | defaults | TLS for Modbus TCP (v1.2.0 — Modbus/TCP Security over `tokio-rustls`) |
 
 ### ModbusRegisterConfig
 

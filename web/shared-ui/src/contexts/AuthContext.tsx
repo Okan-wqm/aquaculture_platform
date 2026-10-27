@@ -26,15 +26,18 @@ import {
 } from '../utils/api-client';
 import { tokenLifecycle, decodeResourcePermissions } from '../utils/token-lifecycle';
 import { logoutCleanup } from '../utils/logout-cleanup';
+import { platformRoleSatisfies, type PlatformRole } from '@aquaculture/shared-contracts';
 
 // ============================================================================
 // Types
 // ============================================================================
 
 /**
- * User roles matching backend Role enum
+ * The platform roles, from their one owner (`@aquaculture/shared-contracts`,
+ * access/platform-roles.ts; RBAC-MEDIUM-024). The backend `Role` enum spells the
+ * same roles, so this type cannot drift from it.
  */
-export type UserRole = 'SUPER_ADMIN' | 'TENANT_ADMIN' | 'MODULE_MANAGER' | 'MODULE_USER';
+export type UserRole = PlatformRole;
 
 /**
  * Module info returned from backend
@@ -204,21 +207,16 @@ interface AuthContextValue extends AuthState {
 }
 
 // ============================================================================
-// Role Hierarchy (matching backend)
+// Role checks — the hierarchy is the shared owner's (platformRoleSatisfies),
+// the same one the backend RolesGuard applies; this file keeps no copy.
 // ============================================================================
 
-const ROLE_HIERARCHY: Record<UserRole, UserRole[]> = {
-  SUPER_ADMIN: ['TENANT_ADMIN', 'MODULE_MANAGER', 'MODULE_USER'],
-  TENANT_ADMIN: ['MODULE_MANAGER', 'MODULE_USER'],
-  MODULE_MANAGER: ['MODULE_USER'],
-  MODULE_USER: [],
-};
-
-function roleHasPermission(userRole: UserRole, requiredRole: UserRole): boolean {
-  if (userRole === requiredRole) return true;
-  return ROLE_HIERARCHY[userRole]?.includes(requiredRole) ?? false;
-}
-
+/**
+ * Nav visibility from the session's `modules` list. This is not the server's
+ * module rule (`decideAccess`, which reads the `moduleAccess` claim): the web
+ * receives that claim in release R2 (plan PKG-04) and the nav decides through
+ * `decideAccess` from PKG-34 (release R10), which replaces this function.
+ */
 function roleHasModuleAccess(
   userRole: UserRole | undefined,
   modules: UserModule[],
@@ -710,7 +708,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
   const hasRoleOrHigher = useCallback(
     (role: UserRole): boolean => {
       if (!userRole) return false;
-      return roleHasPermission(userRole, role);
+      return platformRoleSatisfies(userRole, role);
     },
     [userRole],
   );
@@ -800,7 +798,7 @@ export function useAuthContext(): AuthContextValue {
       isTenantAdmin: () => user.role === 'TENANT_ADMIN',
       isModuleManager: () => user.role === 'MODULE_MANAGER',
       isModuleUser: () => user.role === 'MODULE_USER',
-      hasRoleOrHigher: (role: UserRole) => roleHasPermission(user.role, role),
+      hasRoleOrHigher: (role: UserRole) => platformRoleSatisfies(user.role, role),
       hasModuleAccess: (moduleCode: string) => roleHasModuleAccess(user.role, modules, moduleCode),
     };
   }

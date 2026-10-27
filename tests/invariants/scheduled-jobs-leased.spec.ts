@@ -31,6 +31,7 @@ import { resolve } from 'node:path';
 
 import * as yaml from 'js-yaml';
 
+import { FINDING_ID_REGEX } from '../../tools/gates/finding-id-grammar';
 import {
   REPO_ROOT,
   allScheduledMethods,
@@ -134,7 +135,7 @@ describe('INVARIANT (ADMIN-HIGH-013): every scheduled method is leased and heart
     for (const entry of allowlist.entries) {
       expect(rawIds.has(entry.site)).toBe(true);
       expect(entry.owner.trim().length).toBeGreaterThan(0);
-      expect(entry.findingId).toMatch(/^[A-Z]+-(CRITICAL|HIGH|MEDIUM|LOW)-\d{3}$/);
+      expect(entry.findingId).toMatch(FINDING_ID_REGEX);
       expect(entry.reason.trim().length).toBeGreaterThan(20);
       expect(expiryIso(entry.expiry) >= today).toBe(true);
     }
@@ -205,7 +206,7 @@ describe('INVARIANT (ADMIN-HIGH-013): every scheduled method is leased and heart
     for (const entry of allowlist.directHeartbeatFiles) {
       expect(direct).toContain(entry.site);
       expect(expiryIso(entry.expiry) >= today).toBe(true);
-      expect(entry.findingId).toMatch(/^[A-Z]+-(CRITICAL|HIGH|MEDIUM|LOW)-\d{3}$/);
+      expect(entry.findingId).toMatch(FINDING_ID_REGEX);
     }
   });
 });

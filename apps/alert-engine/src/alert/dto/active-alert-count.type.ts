@@ -1,6 +1,7 @@
 import { Field, ID, Int, ObjectType, registerEnumType } from '@nestjs/graphql';
 import { AlertSeverity } from '../../database/entities/alert-rule.entity';
-import { AlertModule } from '../entities/alert-module.enum';
+import type { OwnerModuleCode } from '@aquaculture/shared-contracts';
+import { ALERT_MODULE_ENUM } from '../entities/alert-module.enum';
 
 /**
  * The dimensions activeAlertCounts can additionally group by.
@@ -50,8 +51,8 @@ export class ActiveAlertCount {
   @Field(() => ID, { nullable: true })
   siteId?: string | null;
 
-  @Field(() => AlertModule, { nullable: true })
-  module?: AlertModule | null;
+  @Field(() => ALERT_MODULE_ENUM, { nullable: true })
+  module?: OwnerModuleCode | null;
 
   @Field(() => Int)
   count!: number;

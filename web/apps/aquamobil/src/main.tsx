@@ -1,5 +1,5 @@
 import { I18nProvider } from '@aquaculture/shared-ui/i18n';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryCache, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
@@ -11,6 +11,7 @@ import { IdentityBoundary } from './components/IdentityBoundary';
 import { AuthProvider } from './hooks/useAuth';
 import { OfflineProvider } from './hooks/useOfflineQueue';
 import { announceUpdate } from './pwa/update-available';
+import { dropRefusedQueryData } from './services/drop-refused-query-data';
 import './styles/main.css';
 import { logger } from './utils/logger';
 
@@ -30,6 +31,9 @@ function getErrorStatus(error: unknown): number | undefined {
 
 // Create query client with offline-friendly defaults
 const queryClient = new QueryClient({
+  // MOB-MEDIUM-031: a fetch the server refuses (FORBIDDEN, UNAUTHENTICATED, 401/403) drops the
+  // query's data, so a screen never keeps showing what the caller may no longer read.
+  queryCache: new QueryCache({ onError: dropRefusedQueryData }),
   defaultOptions: {
     queries: {
       staleTime: 1000 * 60 * 5, // 5 minutes

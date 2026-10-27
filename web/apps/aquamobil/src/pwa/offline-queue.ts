@@ -10,11 +10,10 @@ import type {
   QueuedPayload,
 } from '@/types';
 import { logger } from '@/utils/logger';
-import type { UserScopedCacheKey } from '@/utils/user-scoped-cache-key';
 
-// Separate stores for queue and cache to avoid full-store scans (PERF-08)
+// Separate stores for queue, read cache (offline-cache.ts) and keys avoid full-store
+// scans (PERF-08).
 const queueStore = createStore('aquamobil-queue', 'queue');
-const cacheStore = createStore('aquamobil-cache', 'cache');
 const keyStore = createStore('aquamobil-keys', 'keys');
 // MSG-MEDIUM-055: dedicated store for offline media BLOBS. The encrypted JSON
 // queue cannot carry binary, so a recorded/selected Blob is persisted here and
@@ -23,7 +22,6 @@ const keyStore = createStore('aquamobil-keys', 'keys');
 const blobStore = createStore('aquamobil-blobs', 'blobs');
 
 const QUEUE_PREFIX = 'pending_';
-const CACHE_PREFIX = 'cache_';
 const BLOB_PREFIX = 'pending_blob_';
 const DURABLE_QUEUE_KEY = 'queue-key-v1';
 const DEVICE_ID_KEY = 'device-id-v1';
@@ -89,7 +87,8 @@ export const QUEUE_WARNING_THRESHOLD = 180;
 // ============================================================================
 // The queue key is stored as a non-extractable CryptoKey in IndexedDB so queued
 // commands survive full app restarts without persisting raw key material. Logout
-// still clears queued data and cache entries through clearAllOperations().
+// clears queued data and the key through clearAllOperations(), and the read cache
+// through offline-cache.ts clearCache() (useAuth.clearAllUserData).
 
 let _sessionKey: CryptoKey | null = null;
 
@@ -194,10 +193,11 @@ async function decryptPayload(iv: string, ciphertext: string): Promise<Operation
   return JSON.parse(new TextDecoder().decode(plaintext)) as OperationPayload;
 }
 
-// SEC-03-A: Generic encrypt/decrypt helpers for cache data (reuses the same
-// per-session AES-GCM key used by the queue). These operate on arbitrary
-// stringified JSON rather than typed OperationPayload.
-async function encryptString(plaintext: string): Promise<{ iv: string; ciphertext: string }> {
+// SEC-03-A: Generic encrypt/decrypt helpers over the same device AES-GCM key the queue
+// uses, for arbitrary stringified JSON rather than a typed OperationPayload: the pending
+// blob store below and the offline read cache (offline-cache.ts, MOB-MEDIUM-031) seal with
+// them, so one key — wiped by clearAllOperations() on logout — protects everything at rest.
+export async function encryptString(plaintext: string): Promise<{ iv: string; ciphertext: string }> {
   const key = await getSessionKey();
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const encoded = new TextEncoder().encode(plaintext);
@@ -208,7 +208,7 @@ async function encryptString(plaintext: string): Promise<{ iv: string; ciphertex
   };
 }
 
-async function decryptString(iv: string, ciphertext: string): Promise<string> {
+export async function decryptString(iv: string, ciphertext: string): Promise<string> {
   const key = await getSessionKey();
   const ivBytes = Uint8Array.from(atob(iv), (c) => c.charCodeAt(0));
   const ctBytes = Uint8Array.from(atob(ciphertext), (c) => c.charCodeAt(0));
@@ -586,165 +586,6 @@ export async function clearAllOperations(tenantId?: string): Promise<void> {
     _sessionKey = null;
     await del(DURABLE_QUEUE_KEY, keyStore);
   }
-}
-
-// ============================================================================
-// Data Cache Operations (for offline tank/batch data)
-// ============================================================================
-
-// SEC-03-A: Cache entries are now AES-GCM encrypted at rest, matching the
-// queue encryption strategy. TTL metadata (cachedAt, expiresAt) remains in
-// plaintext so expiry checks don't require decryption. Backwards-compatible:
-// if a legacy unencrypted entry is encountered, getCachedData() deletes it
-// and returns null rather than leaking data or crashing.
-
-interface EncryptedCacheEntry {
-  _enc: { iv: string; ciphertext: string };
-  cachedAt: string;
-  expiresAt: string;
-}
-
-/**
- * Store tenant-scoped data in the encrypted IndexedDB cache.
- *
- * SECURITY (FE-CRITICAL-002 fix): tenantId is a REQUIRED parameter and is
- * included in the cache key as `cache_${tenantId}:${key}`. This makes
- * cross-tenant cache leakage STRUCTURALLY IMPOSSIBLE -- on tenant switch or
- * shared-device reuse, data from a previous tenant cannot be served because
- * the key namespace is different.
- *
- * @param tenantId - Current tenant UUID (REQUIRED for tenant isolation)
- * @param key - Domain-specific cache key (e.g., 'schedule_2026-04-07')
- * @param data - Data to cache (will be AES-GCM encrypted)
- * @param ttlMs - Time-to-live in milliseconds (default: 1 hour)
- */
-export async function cacheData<T>(tenantId: string, key: string, data: T, ttlMs: number = 1000 * 60 * 60): Promise<void> {
-  if (!tenantId) {
-    throw new Error('cacheData: tenantId is required for tenant-isolated caching');
-  }
-  const _enc = await encryptString(JSON.stringify(data));
-  const entry: EncryptedCacheEntry = {
-    _enc,
-    cachedAt: new Date().toISOString(),
-    expiresAt: new Date(Date.now() + ttlMs).toISOString(),
-  };
-  // SECURITY: Key format cache_${tenantId}:${key} prevents cross-tenant reads
-  await set(`${CACHE_PREFIX}${tenantId}:${key}`, entry, cacheStore);
-}
-
-/**
- * Retrieve tenant-scoped data from the encrypted IndexedDB cache.
- *
- * SECURITY (FE-CRITICAL-002 fix): tenantId is required in the key lookup,
- * so cached data from tenant A is never returned when tenant B is active.
- *
- * @param tenantId - Current tenant UUID (REQUIRED for tenant isolation)
- * @param key - Domain-specific cache key
- */
-export async function getCachedData<T>(tenantId: string, key: string): Promise<T | null> {
-  if (!tenantId) {
-    throw new Error('getCachedData: tenantId is required for tenant-isolated caching');
-  }
-  // WHY the explicit Record<string, unknown> type arg: idb-keyval's get<T = any>
-  // defaults to `any`, which trips no-unsafe-assignment and discards type safety.
-  // Cache entries are written as objects (EncryptedCacheEntry, or a legacy plain
-  // object), so the unknown-valued record is the correct, honest read type — each
-  // field is then narrowed explicitly below.
-  const entry = await get<Record<string, unknown>>(`${CACHE_PREFIX}${tenantId}:${key}`, cacheStore);
-  if (!entry) return null;
-
-  // Check TTL first (plaintext metadata -- no decryption needed)
-  const expiresAt = entry.expiresAt as string | undefined;
-  if (expiresAt && new Date(expiresAt) < new Date()) {
-    await del(`${CACHE_PREFIX}${tenantId}:${key}`, cacheStore);
-    return null;
-  }
-
-  // SEC-03-A: Encrypted entry path
-  if (entry._enc && typeof entry._enc === 'object') {
-    const enc = entry._enc as { iv: string; ciphertext: string };
-    try {
-      const decrypted = await decryptString(enc.iv, enc.ciphertext);
-      return JSON.parse(decrypted) as T;
-    } catch {
-      // Decryption failed (session key rotated or data corrupted) -- purge entry
-      await del(`${CACHE_PREFIX}${tenantId}:${key}`, cacheStore);
-      return null;
-    }
-  }
-
-  // Backwards-compat: legacy unencrypted entry -- purge it instead of returning
-  // plaintext data, so the caller re-fetches and stores an encrypted copy.
-  await del(`${CACHE_PREFIX}${tenantId}:${key}`, cacheStore);
-  return null;
-}
-
-/**
- * Store USER-scoped data in the encrypted IndexedDB cache.
- *
- * SECURITY (MT-CRITICAL-051): on shared field devices, two users of the SAME
- * tenant must never share a cache namespace. The `key` is a branded
- * {@link UserScopedCacheKey} that can ONLY be produced by `userScopedCacheKey`,
- * which structurally REQUIRES a userId. So a callsite caching a `my*` resolver
- * result cannot forget the user partition — it would not compile. This is the
- * single user-scoped write path; it delegates to {@link cacheData} so the
- * AES-GCM encryption + TTL handling remain one implementation (no duplicated
- * crypto). The branded key still rides inside the `cache_${tenantId}:` prefix,
- * so the logout wipe (`clearCache()` with no tenant) clears it too.
- *
- * @param tenantId - Current tenant UUID (REQUIRED for tenant isolation)
- * @param key - Branded user-scoped cache key (from `userScopedCacheKey`)
- * @param data - Data to cache (will be AES-GCM encrypted)
- * @param ttlMs - Time-to-live in milliseconds (default: 1 hour)
- */
-export async function cacheUserData<T>(
-  tenantId: string,
-  key: UserScopedCacheKey,
-  data: T,
-  ttlMs: number = 1000 * 60 * 60,
-): Promise<void> {
-  await cacheData(tenantId, key, data, ttlMs);
-}
-
-/**
- * Retrieve USER-scoped data from the encrypted IndexedDB cache.
- *
- * SECURITY (MT-CRITICAL-051): the branded {@link UserScopedCacheKey} guarantees
- * the lookup namespace embeds the user id, so tenant A/user A's cached `my*`
- * data is never returned for tenant A/user B on a shared device. Delegates to
- * {@link getCachedData} so the decryption + TTL-expiry + legacy-purge logic stay
- * the single source of truth.
- *
- * @param tenantId - Current tenant UUID (REQUIRED for tenant isolation)
- * @param key - Branded user-scoped cache key (from `userScopedCacheKey`)
- */
-export async function getCachedUserData<T>(
-  tenantId: string,
-  key: UserScopedCacheKey,
-): Promise<T | null> {
-  return getCachedData<T>(tenantId, key);
-}
-
-/**
- * Clear all cache entries, optionally scoped to a specific tenant.
- *
- * SECURITY (FE-CRITICAL-002 fix): When tenantId is provided, only that
- * tenant's cache entries are cleared. The full-clear variant is used on
- * logout to wipe all cached data from the device.
- *
- * @param tenantId - Optional tenant UUID. If provided, only clears that tenant's entries.
- */
-export async function clearCache(tenantId?: string): Promise<void> {
-  const allKeys = await keys(cacheStore);
-  const prefix = tenantId
-    ? `${CACHE_PREFIX}${tenantId}:`
-    : CACHE_PREFIX;
-  // Cache keys are always the `${CACHE_PREFIX}…` strings we wrote, so narrow to
-  // string (avoids the base-to-string hazard on idb-keyval's IDBValidKey union).
-  const cacheKeys = allKeys.filter(
-    (k): k is string => typeof k === 'string' && k.startsWith(prefix),
-  );
-  await Promise.all(cacheKeys.map((k) => del(k, cacheStore)));
 }
 
 // ============================================================================

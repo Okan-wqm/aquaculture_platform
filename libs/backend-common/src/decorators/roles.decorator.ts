@@ -1,3 +1,4 @@
+import { platformRoleSatisfies, type PlatformRole } from '@aquaculture/shared-contracts';
 import { SetMetadata, applyDecorators } from '@nestjs/common';
 
 /**
@@ -76,22 +77,29 @@ export const INVITABLE_ROLES: readonly Role[] = PLATFORM_ROLES.filter(
 );
 
 /**
- * Role hierarchy for permission inheritance
- * Higher roles inherit permissions from lower roles
+ * Compile-time parity with the one owner of the platform roles (RBAC-MEDIUM-024): `Role` spells
+ * exactly `PlatformRole` (`@aquaculture/shared-contracts`, access/platform-roles.ts), checked in
+ * both directions. A role added to one and not the other makes this constant's type `false` and
+ * fails the build; `tests/invariants/role-hierarchy-single-owner.spec.ts` checks the same at run
+ * time.
  */
-export const ROLE_HIERARCHY: Record<Role, Role[]> = {
-  [Role.SUPER_ADMIN]: [Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER],
-  [Role.TENANT_ADMIN]: [Role.MODULE_MANAGER, Role.MODULE_USER],
-  [Role.MODULE_MANAGER]: [Role.MODULE_USER],
-  [Role.MODULE_USER]: [],
-};
+type RoleSpellsPlatformRoles = [`${Role}`] extends [PlatformRole]
+  ? [PlatformRole] extends [`${Role}`]
+    ? true
+    : false
+  : false;
+const ROLE_SPELLS_PLATFORM_ROLES: RoleSpellsPlatformRoles = true;
+void ROLE_SPELLS_PLATFORM_ROLES;
 
 /**
- * Check if a role has permission of another role (hierarchy check)
+ * Check if a role has permission of another role (hierarchy check).
+ *
+ * The hierarchy is the owner's (`PLATFORM_ROLES_BY_PRIVILEGE`): this module keeps no copy. A
+ * higher role inherits every lower one, across account and module roles alike — the check of the
+ * services not yet enrolled in ADR-051 (`account-role`); `decideAccess` applies it by kind.
  */
 export function roleHasPermission(userRole: Role, requiredRole: Role): boolean {
-  if (userRole === requiredRole) return true;
-  return ROLE_HIERARCHY[userRole]?.includes(requiredRole) ?? false;
+  return platformRoleSatisfies(userRole, requiredRole);
 }
 
 /**

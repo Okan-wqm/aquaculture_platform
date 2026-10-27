@@ -6,6 +6,7 @@ import { resolve } from 'path';
 import { getSharedConfigWithRecharts } from '../../shared-ui/src/federation/federationSharedConfig';
 import { sharedUiAlias } from '../../shared-ui/src/federation/sharedUiAlias';
 import { unresolvedAssetUrlGate } from '../../shared-ui/src/federation/unresolvedAssetUrlGate';
+import { buildManifestPlugin } from '../../shared-ui/src/federation/buildManifestPlugin';
 import createVitestTestPolicy from '@aquaculture/testing/vitest';
 
 /**
@@ -20,6 +21,9 @@ export default defineConfig(({ mode }) => ({
   plugins: [
     react(),
     unresolvedAssetUrlGate(),
+    // FE-MEDIUM-380: exports this build's id from remoteEntry.js and serves it in
+    // build-manifest.json, so an open console tab reloads onto a new deploy of this remote.
+    buildManifestPlugin({ kind: 'remote', entry: 'remoteEntry.js' }),
     federation({
       dts: false,
       name: 'dashboard',

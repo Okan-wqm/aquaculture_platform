@@ -216,6 +216,12 @@
       "reason": "Edge agent release build from a release tag."
     },
     {
+      "workflow": "edge-release-unpublish.yml",
+      "name": "Edge Release Unpublish (rodbus)",
+      "role": "main_verdict",
+      "reason": "Dispatched one-shot that withdraws rodbus-linked edge releases from public download."
+    },
+    {
       "workflow": "finding-state-sweep.yml",
       "name": "Finding State Sweep",
       "role": "main_verdict",

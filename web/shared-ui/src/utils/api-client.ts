@@ -6,6 +6,7 @@
 
 import { print, type DocumentNode } from 'graphql';
 import { backendHealthCircuit } from './backend-health-circuit';
+import { reportGraphqlErrors } from './graphql-validation-signal';
 import { bumpSessionEpoch } from './session-epoch';
 import { tokenLifecycle } from './token-lifecycle';
 
@@ -867,6 +868,9 @@ class GraphQLClient {
 
       // Check for GraphQL errors
       if (result.errors && result.errors.length > 0) {
+        // FE-MEDIUM-380: a document the router refuses tells the shell's build-skew check
+        // that this tab may predate the schema (graphql-validation-signal.ts).
+        reportGraphqlErrors(result.errors as GraphQLErrorResponse[]);
         const error = result.errors[0] as GraphQLErrorResponse;
 
         // Check for user-session auth errors (HTTP 200 but token expired/invalid).
@@ -1308,6 +1312,7 @@ class PublicGraphQLClient {
       backendHealthCircuit.recordSuccess();
 
       if (result.errors?.length) {
+        reportGraphqlErrors(result.errors as GraphQLErrorResponse[]);
         throw new GraphQLClientError(
           result.errors[0]?.message || 'GraphQL error',
           'GRAPHQL_ERROR',

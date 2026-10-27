@@ -4,15 +4,15 @@ import { gql } from 'graphql-tag';
 
 
 import { useAuth } from './useAuth';
+import { useOfflineCacheScope } from './useOfflineCacheScope';
 
 import type {
   GetMyWeeklyPlanQuery,
   GetMyWeeklyPlanQueryVariables,
 } from '@/generated/graphql';
-import { cacheUserData, getCachedUserData } from '@/pwa/offline-queue';
+import { readThroughOfflineCache } from '@/pwa/offline-cache';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
-import { userScopedCacheKey } from '@/utils/user-scoped-cache-key';
 
 export interface ShiftInfo {
   id: string;
@@ -97,37 +97,30 @@ async function fetchMySchedule(
 
 export function useMySchedule(weekOffset = 0): UseQueryResult<WeeklyPlan | null, Error> {
   const { accessToken, tenantId, user, isAuthenticated } = useAuth();
+  const cacheScope = useOfflineCacheScope();
 
   const targetDate = new Date();
   targetDate.setDate(targetDate.getDate() + weekOffset * 7);
   const weekStartDate = getWeekMonday(targetDate);
 
   return useQuery({
-    // SECURITY (MT-CRITICAL-051): user.id is part of BOTH the React Query key
-    // (in-memory isolation) AND the IndexedDB cache key below (offline isolation)
-    // — mySchedule is the current user's PRIVATE schedule, so on a shared device
-    // user A's plan must never be served to user B of the same tenant.
+    // SECURITY (MT-CRITICAL-051): user.id is part of the React Query key
+    // (in-memory isolation) and of the offline cache scope (IndexedDB isolation,
+    // MOB-MEDIUM-031) — mySchedule is the current user's PRIVATE schedule, so on
+    // a shared device user A's plan must never be served to user B of the same
+    // tenant.
     queryKey: createTenantQueryKey(tenantId, 'mySchedule', user?.id, weekStartDate),
     queryFn: async () => {
       if (!accessToken || !tenantId || !user?.id) {
         throw new Error('Not authenticated');
       }
 
-      // SECURITY (MT-CRITICAL-051): the branded user-scoped key STRUCTURALLY
-      // embeds user.id, so the offline cache namespace is per-user, not per-tenant.
-      const cacheKey = userScopedCacheKey(user.id, 'schedule', weekStartDate);
-
-      try {
-        const plan = await fetchMySchedule(weekStartDate);
-        if (plan) {
-          await cacheUserData(tenantId, cacheKey, plan, 1000 * 60 * 30); // 30 min TTL
-        }
-        return plan;
-      } catch (error) {
-        const cached = await getCachedUserData<WeeklyPlan>(tenantId, cacheKey);
-        if (cached) return cached;
-        throw error;
-      }
+      const read = await readThroughOfflineCache(
+        cacheScope,
+        { key: `schedule:${weekStartDate}`, ttlMs: 1000 * 60 * 30 }, // 30 min TTL
+        () => fetchMySchedule(weekStartDate),
+      );
+      return read.data;
     },
     enabled: isAuthenticated && !!tenantId && !!user?.id,
     staleTime: 1000 * 60 * 5,

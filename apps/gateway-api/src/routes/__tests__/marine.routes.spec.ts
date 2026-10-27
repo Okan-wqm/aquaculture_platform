@@ -55,6 +55,7 @@ function makeUser(): AuthenticatedUser {
     roles: ['TENANT_ADMIN'],
     assignedSiteIds: ['site-1'],
     mobileFeatures: ['offline-sync'],
+    moduleAccess: { farm: 'MODULE_MANAGER' },
     iat: 1,
     exp: 2,
   };
@@ -272,6 +273,8 @@ describe('MarineRoutesController', () => {
       assignedSiteIds: ['site-1'],
       mobileFeatures: ['offline-sync'],
       resourcePermissions: undefined,
+      // RBAC-HIGH-028: the module grants ride the farm-bound assertion too.
+      moduleAccess: { farm: 'MODULE_MANAGER' },
     });
     expect(target.statusMock).toHaveBeenCalledWith(200);
     expect(target.setHeaderMock).toHaveBeenCalledWith('Content-Type', 'image/png');
@@ -329,6 +332,7 @@ describe('MarineRoutesController', () => {
       assignedSiteIds: undefined,
       mobileFeatures: undefined,
       resourcePermissions: undefined,
+      moduleAccess: undefined,
     });
     expect(signedFetchMock).toHaveBeenCalledWith(
       'http://farm-service:3000/api/internal/marine/sites/site-1/render',

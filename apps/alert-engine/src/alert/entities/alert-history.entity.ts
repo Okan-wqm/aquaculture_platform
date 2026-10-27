@@ -2,7 +2,8 @@ import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, Index } from 
 import { ObjectType, Field, ID, GraphQLISODateTime } from '@nestjs/graphql';
 import GraphQLJSON from 'graphql-type-json';
 import { AlertSeverity } from '../../database/entities/alert-rule.entity';
-import { AlertModule } from './alert-module.enum';
+import { OWNER_MODULE, type OwnerModuleCode } from '@aquaculture/shared-contracts';
+import { ALERT_MODULE_ENUM } from './alert-module.enum';
 
 /**
  * Alert History Entity
@@ -75,12 +76,12 @@ export class AlertHistory {
   siteId?: string | null;
 
   /**
-   * The module the alarm originates in (AlertModule). Null only on rows that
+   * The module the alarm originates in (a module dictionary owner module). Null only on rows that
    * predate the column and whose rule the backfill could not attribute.
    */
-  @Field(() => AlertModule, { nullable: true })
-  @Column({ name: 'module', type: 'enum', enum: AlertModule, nullable: true })
-  module?: AlertModule | null;
+  @Field(() => ALERT_MODULE_ENUM, { nullable: true })
+  @Column({ name: 'module', type: 'enum', enum: OWNER_MODULE, nullable: true })
+  module?: OwnerModuleCode | null;
 
   @Field(() => AlertSeverity)
   @Column({ name: 'severity', type: 'enum', enum: AlertSeverity })

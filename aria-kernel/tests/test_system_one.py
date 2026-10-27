@@ -46,6 +46,7 @@ from aria_kernel.ledger import load_declared_jsonl
 from aria_kernel.state_manifest import STATE_SURFACES
 from aria_kernel.system_one import Answer, StateRef, Unavailable, ask, load_registry
 from aria_kernel.tool_registry import ensure_tools_dir
+from tests._helpers.registry_projection import project_public_registry_as_stored
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _KERNEL = _REPO_ROOT / "aria-kernel" / "aria_kernel"
@@ -107,6 +108,7 @@ class _Store(unittest.TestCase):
         pinned = mock.patch.object(system_one, "PUBLIC_REPOSITORY_URL", str(self.origin))
         pinned.start()
         self.addCleanup(pinned.stop)
+        project_public_registry_as_stored(self)
         self.base = self.commit_file("src/x.ts", "repo.getRepository(X)\n", "base")
         self.fix = self.commit_file("src/x.ts", "repo.getScopedRepository(X)\n", "scope the repository")
         self.tools = ensure_tools_dir(self.root / "aria-tools")

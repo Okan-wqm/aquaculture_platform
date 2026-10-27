@@ -54,18 +54,28 @@ auth-service, admin-api-service, event-store-service, messaging-service).
 Mandatory checks (the gates enforce them, but reviewer pre-empts the
 PR-fail churn):
 
-- [ ] **Blue-green safety** — ALTER TABLE ADD COLUMN NOT NULL ONLY
-      when paired with a backfill + SET NOT NULL three-step. Generated
-      ADDs default to nullable; the post-condition rewrite is the
-      reviewer's job.
+- [ ] **Blue-green safety** — ADD COLUMN … NOT NULL in one statement
+      only with a constant DEFAULT that is true for every existing row,
+      on an existing ordinary table, one table per migration, under
+      `SET LOCAL lock_timeout` ≤ 2 s (ADR-053; gate rules
+      `add-column-rewriting-default` and `add-column-exemption-shape`).
+      Every other NOT NULL add uses nullable → backfill → SET NOT NULL.
 - [ ] **FK actions** — every CREATE TABLE / ALTER TABLE adding a
       foreign key declares `ON DELETE RESTRICT ON UPDATE RESTRICT`.
       CASCADE is forbidden outside the protected-tables waiver path
       (per ADR-025 + Faz 1.4).
 - [ ] **Search path pinned** — `await pinSearchPath(queryRunner, '<svc>')`
       at the top of up(). `migration-helpers.ts` provides the helper.
+      Not in a migration that uses the ADR-053 one-statement NOT NULL
+      add: the db-migrate orchestrator already pins each schema before
+      every migration, and `add-column-exemption-shape` allows no call
+      there but ``queryRunner.query(`…`)``, because the gate cannot read
+      what a helper runs.
 - [ ] **DDL safety wrapper** — wrap the heavy section in
       `withDdlSafety(queryRunner, { schema, advisoryLockKeySuffix })`.
+      Not in a migration that uses the ADR-053 one-statement NOT NULL
+      add: its 30 s default overrides the 2 s bound, so the gate rule
+      `add-column-exemption-shape` rejects it there.
 - [ ] **No SAVEPOINT** — silent-rollback class banned. If genuinely
       needed (idempotency-only PL/pgSQL block with `EXCEPTION WHEN
       duplicate_object`), add `-- ALLOWS-SAVEPOINT: <reason>` marker
@@ -137,7 +147,8 @@ nx affected --target=lint
 ```
 
 CI gates (db-migration-check.yml workflow):
-- migration-sql-lint (R1-R12 + R13 protected-tables R6)
+
+- migration-sql-lint (R1-R14; R13/R14 are the ADR-053 ADD COLUMN rules)
 - migration-deletion-witness
 - entity-diff-witness
 - schema-drift-registration
@@ -173,9 +184,9 @@ types per the `commit-msg-validator.ts` gate.
 
 | Pattern | Why banned | Alternative |
 |---|---|---|
-| `SAVEPOINT` inside up() | silent-rollback class | three-step blue-green ADD; post-condition probe |
+| `SAVEPOINT` inside up() | silent-rollback class | an ADD shape allowed by the Blue-green safety item; post-condition probe |
 | `EXCEPTION WHEN OTHERS THEN NULL` | swallows security failures | `EXCEPTION WHEN duplicate_object THEN NULL` (specific) |
-| `ALTER TABLE ADD COLUMN NOT NULL DEFAULT ...` on populated table | rewrites every row in one tx | nullable add → backfill → SET NOT NULL |
+| `ADD COLUMN … NOT NULL DEFAULT` with a volatile default, a `GENERATED … STORED` column, a constrained domain type or an inline constraint, on a populated table | rewrites or scans the table under ACCESS EXCLUSIVE | nullable add → backfill → SET NOT NULL |
 | `CREATE INDEX` (not CONCURRENTLY) on populated table | ACCESS EXCLUSIVE on writes | `CREATE INDEX CONCURRENTLY IF NOT EXISTS` + `transaction = false` on the migration |
 | Bare `DROP TABLE` on protected name | data loss + audit invariant break | COMPLIANCE-WAIVER marker + CODEOWNERS approval + ADR |
 | `Align*EntitySurface` / `Heal*Drift` / `Replay*` filename | drift archaeology pattern | post-Faz-6: invariant `drift-repair-naming` blocks; root-cause the missing migration instead |
@@ -202,5 +213,9 @@ If a migration ships a bug:
 - RLS helper: `libs/backend-common/src/database/rls/apply-tenant-rls.helper.ts`
 - Protected tables: `libs/backend-common/src/constants/protected-tables.ts`
 - Drift classes: `libs/backend-common/src/database/schema-drift/drift-classes.ts`
-- Invariants: `tests/invariants/{entity-schema-declaration,entity-diff-implies-migration,no-savepoint-in-migrations,protected-tables-guard,rls-predicate-canonical,tenant-fanout-entity-parity,shared-schema-canonical}.spec.ts`
-- ADRs: 011 Schema Ownership · 012 Drift Prevention · 025 Edge Per-Tenant · 030 Day-One Reset
+- Invariants (`tests/invariants/<name>.spec.ts`): `entity-schema-declaration`,
+  `entity-diff-implies-migration`, `no-savepoint-in-migrations`, `protected-tables-guard`,
+  `rls-predicate-canonical`, `tenant-fanout-entity-parity`, `shared-schema-canonical`,
+  `migration-files-export-only-migrations`
+- ADRs: 011 Schema Ownership · 012 Drift Prevention · 025 Edge Per-Tenant · 030 Day-One Reset ·
+  053 Constant-default ADD COLUMN

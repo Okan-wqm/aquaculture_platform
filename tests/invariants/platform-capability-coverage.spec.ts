@@ -24,6 +24,7 @@
 
 import * as yaml from 'js-yaml';
 
+import { FINDING_ID_REGEX } from '../../tools/gates/finding-id-grammar';
 import { loadNatsServices } from '../../tools/gates/nats-services';
 
 import {
@@ -73,7 +74,7 @@ describe('INVARIANT (ADR-0016): platform capabilities — one enum, one projecti
     for (const entry of entries) {
       expect(actual.has(entry.handler)).toBe(true);
       expect(entry.owner).toMatch(/\S/);
-      expect(entry.findingId).toMatch(/^[A-Z]+-[A-Z]+-\d+$/);
+      expect(entry.findingId).toMatch(FINDING_ID_REGEX);
       expect(entry.reason).toMatch(/\S/);
       const expiry =
         entry.expiry instanceof Date ? entry.expiry.toISOString().slice(0, 10) : entry.expiry;

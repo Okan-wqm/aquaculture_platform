@@ -2,6 +2,8 @@
  * User management domain types
  */
 
+import type { PlatformRole } from '@aquaculture/shared-contracts';
+
 import type { ApiSchema } from '../contract';
 
 export interface User {
@@ -41,30 +43,16 @@ export interface UserStats {
 export type CreateUserDto = ApiSchema<'CreateUserDto'>;
 
 /**
- * The platform's role vocabulary, as the contract declares it.
+ * The platform's role vocabulary is owned by `@aquaculture/shared-contracts`
+ * (access/platform-roles.ts: `PlatformRole`, `isPlatformRole`; RBAC-MEDIUM-024).
  *
  * Four hand-typed copies of this list had drifted apart — admin-api's DTOs
  * named `MANAGER`/`OPERATOR`/`VIEWER`, its role catalogue published
  * `SUPERVISOR` and `OPERATOR`, and this module's forms typed `role` as a bare
- * `string` so none of it was checkable (ADMIN-CRITICAL-133). Sourced from the
- * generated contract, a role the server does not accept is a compile error in
- * the form that offers it.
- */
-export const PLATFORM_ROLES = [
-  'SUPER_ADMIN',
-  'TENANT_ADMIN',
-  'MODULE_MANAGER',
-  'MODULE_USER',
-] as const;
-
-export type PlatformRole = (typeof PLATFORM_ROLES)[number];
-
-/**
- * The contract is the authority, and this proves the runtime list above still
- * equals it — in BOTH directions, so neither a role added on the server nor one
- * invented here can pass. A `<select>` hands back a `string`, so the list has to
- * exist at runtime for `isPlatformRole` to narrow it; this assertion is what
- * stops that list from becoming a fifth hand-typed copy.
+ * `string` so none of it was checkable (ADMIN-CRITICAL-133). The contract this
+ * module calls is the authority for what the server accepts, and this proves the
+ * owner's roles still equal it — in BOTH directions, so neither a role added on
+ * the server nor one invented in the owner can pass.
  */
 type RolesMatchContract = [PlatformRole] extends [NonNullable<CreateUserDto['role']>]
   ? [NonNullable<CreateUserDto['role']>] extends [PlatformRole]
@@ -73,10 +61,6 @@ type RolesMatchContract = [PlatformRole] extends [NonNullable<CreateUserDto['rol
   : never;
 const ROLES_MATCH_CONTRACT: RolesMatchContract = true;
 void ROLES_MATCH_CONTRACT;
-
-/** Narrow a `<select>` value — or any string off the wire — to a platform role. */
-export const isPlatformRole = (value: string): value is PlatformRole =>
-  (PLATFORM_ROLES as readonly string[]).includes(value);
 
 export interface InviteUserDto {
   tenantId: string;

@@ -31,7 +31,7 @@ import {
   hasResourcePermission,
   hasAllResourcePermissions,
 } from '@aquaculture/backend-common/decorators';
-import { findAiPersona } from '@aquaculture/shared-contracts';
+import { findAiPersona, highestPlatformRole } from '@aquaculture/shared-contracts';
 import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { TenantGuard } from '@aquaculture/backend-common/guards';
 
@@ -540,28 +540,13 @@ export class ChannelResolver {
   }
 
   /**
-   * Extract the highest platform role from the user payload.
+   * Extract the highest platform role from the user payload, in the one platform
+   * role hierarchy (RBAC-MEDIUM-024); a payload naming no platform role is a
+   * MODULE_USER.
    */
   private getPrimaryRole(user: CurrentUserPayload): string {
-    const hierarchy: string[] = [
-      Role.SUPER_ADMIN,
-      Role.TENANT_ADMIN,
-      Role.MODULE_MANAGER,
-      Role.MODULE_USER,
-    ];
-
-    const userRoles = user.roles ?? [];
-    if (user.role && !userRoles.includes(user.role)) {
-      userRoles.push(user.role);
-    }
-
-    for (const role of hierarchy) {
-      if (userRoles.includes(role)) {
-        return role;
-      }
-    }
-
-    return Role.MODULE_USER;
+    const userRoles = [...(user.roles ?? []), ...(user.role ? [user.role] : [])];
+    return highestPlatformRole(userRoles) ?? Role.MODULE_USER;
   }
 }
 

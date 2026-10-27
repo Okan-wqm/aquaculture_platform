@@ -23,9 +23,16 @@ export class PermissionAction {
 
 /**
  * Permission Resource
+ *
+ * `key` is the catalogue resource key (`company`, `edge_devices`, `users`): `${key}:${action}` is
+ * the capability a role holds. `name` is only the label the editor shows. The editor must build
+ * capabilities from `key`; a panel keyed by `name` grants nothing (RBAC-MEDIUM-033).
  */
 @ObjectType()
 export class PermissionResource {
+  @Field()
+  key!: string;
+
   @Field()
   name!: string;
 

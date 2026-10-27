@@ -56,6 +56,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import { loadCanonicalToAliases } from '../../tools/gates/finding-id-aliases';
+import { parseFindingId } from '../../tools/gates/finding-id-grammar';
 import {
   FINDING_STATES,
   type Finding,
@@ -1298,8 +1299,8 @@ describe('three-store invariants', () => {
         // Accept either full-id anchor (canonical) or short-form anchor
         // for pre-Phase-6 seed findings. Registry re-annotation under
         // Phase 12.1 collapses these to canonical.
-        const shortForm = e.id.match(/^P0-(?:CRITICAL|HIGH|MEDIUM|LOW)-0*(\d+)$/);
-        const shortAnchor = shortForm ? `P0-${shortForm[1]}` : null;
+        const parsed = parseFindingId(e.id);
+        const shortAnchor = parsed?.domain === 'P0' ? `P0-${parsed.sequence}` : null;
 
         const hasFullId = content.includes(e.id);
         const hasShort = shortAnchor !== null && content.includes(shortAnchor);

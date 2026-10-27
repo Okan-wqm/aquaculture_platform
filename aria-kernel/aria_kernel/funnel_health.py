@@ -243,7 +243,7 @@ def load_learning_funnel_inputs(base_dir: str | Path) -> LearningFunnelInputs:
     from .feedback_store import load_feedback, load_jsonl, promotions_path, raw_findings_path
     from .fixture_runner import latest_fixture_status, load_fixture_runs
     from .judge_calibration import calibration_path
-    from .tool_registry import GovernanceError, ensure_tools_dir_readonly, list_tools
+    from .tool_registry import FIXTURE_SET_FIELD, GovernanceError, ensure_tools_dir_readonly, list_tools
 
     root = ensure_tools_dir_readonly(base_dir)
     if root is None:
@@ -254,7 +254,11 @@ def load_learning_funnel_inputs(base_dir: str | Path) -> LearningFunnelInputs:
 
     tools = {str(tool["tool_id"]): tool for tool in list_tools(base_dir=root) if tool.get("tool_id")}
     promotions = ledger(promotions_path(root))
-    promoted_tools = {str(row.get("tool_id") or "") for row in promotions} & set(tools)
+    # Fixture evidence is read for the tools that own a suite: an agent-backed tool (change-review) has none,
+    # its evidence being checked per answer at the answer's commit, so there is no verdict to read for it.
+    promoted_tools = {str(row.get("tool_id") or "") for row in promotions} & {
+        tool_id for tool_id, tool in tools.items() if FIXTURE_SET_FIELD in tool
+    }
     return LearningFunnelInputs(
         raw_findings=ledger(raw_findings_path(root)),
         requests=tuple(list_agent_invocation_requests(base_dir=root)),

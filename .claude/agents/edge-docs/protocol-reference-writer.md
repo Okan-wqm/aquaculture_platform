@@ -29,7 +29,7 @@ One chapter per protocol under `sens-api-gateway/docs/protocols/`:
 
 | File | Scope |
 |------|-------|
-| `modbus-tcp.md` | Modbus-TCP client (rodbus=1.4.0) — FC whitelist, addressing, byte order, TLS |
+| `modbus-tcp.md` | Modbus-TCP client (tokio-modbus ~0.17; TLS via tokio-rustls) — FC whitelist, addressing, byte order, TLS |
 | `modbus-rtu.md` | Modbus-RTU over serial (tokio-serial) — framing, CRC, inter-frame gap, parity |
 | `mqtt.md` | MQTT 3.1.1 + 5.0 support matrix, LWT, retained messages, TLS config, failover |
 | `opc-ua.md` | OPC UA client (IEC 62541) — SecurityPolicy, MessageSecurityMode, Session, Subscription |
@@ -50,11 +50,11 @@ Plus one top-level index:
 ## Mandatory chapter sections (per protocol)
 
 1. **Standard + version** — IEC/IEEE/IETF/vendor ID, year; commercial spec URL if public.
-2. **Crate + feature flag** — `rodbus = "=1.4.0"` cited from Cargo.toml:line; feature flag name.
+2. **Crate + feature flag** — `tokio-modbus = "~0.17"` cited from Cargo.toml:line; feature flag name.
 3. **Supported operations** — function codes / message types / command set, with a **"Supported / Not Supported / Roadmap"** column. EXAMPLE for Modbus-TCP: FC1/2/3/4/5/6 supported, FC15/16/17/22/23/43 NOT (per ORPHAN-EDGE-010).
 4. **Wire format** — frame layout, byte order, encoding. Binary protocols get a byte-level table; text protocols get a grammar.
 5. **Error handling** — error code table, retry policy (backoff shape, max attempts), timeout defaults.
-6. **Authentication + encryption** — today's reality + roadmap. E.g. Modbus-TCP: "rodbus supports Modbus Security TLS client-side; configured via `tls.enabled`; mTLS client cert optional — **ORPHAN-EDGE-003 pending for per-device cert**".
+6. **Authentication + encryption** — today's reality + roadmap. E.g. Modbus-TCP: "`src/modbus.rs` implements Modbus/TCP Security TLS client-side over `tokio-rustls`; configured via `tls.enabled`; mTLS client cert optional — **ORPHAN-EDGE-003 pending for per-device cert**".
 7. **Configuration schema** — YAML block from `sens-api-gateway/config.example.yaml` or `src/config.rs` matching the protocol's struct.
 8. **Worked example** — one end-to-end config block + one wire capture (if available).
 9. **Test coverage** — link to test file(s); note if HIL coverage missing.

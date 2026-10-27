@@ -15,6 +15,8 @@
  * Zero-dependency by design (see index.ts).
  */
 
+import type { ActiveOwnerModuleCode } from '../modules/platform-modules';
+
 import {
   AI_PERSONA_TIERS,
   AI_SPECIALTY_IDS,
@@ -45,9 +47,6 @@ export const AI_PERSONA_COLORS = Object.freeze([
 ] as const);
 export type AiPersonaColor = (typeof AI_PERSONA_COLORS)[number];
 
-/** Tenant modules a specialty can require. */
-export type AiSpecialtyModule = 'farm';
-
 /** The surface capability every AI caller needs before any persona applies. */
 export const AI_ASSISTANT_USE_CAPABILITY = 'ai_assistant:use';
 
@@ -55,11 +54,24 @@ export function aiPersonaTierCapability(tier: AiPersonaTier): `ai_personas:${AiP
   return `ai_personas:${tier}`;
 }
 
+/**
+ * The capability a specialty of `module` requires. A specialty can require only a module whose
+ * features ship (the module dictionary's active owner modules).
+ */
 export function aiSpecialtyCapability(
-  module: AiSpecialtyModule,
-): `ai_specialties:${AiSpecialtyModule}` {
+  module: ActiveOwnerModuleCode,
+): `ai_specialties:${ActiveOwnerModuleCode}` {
   return `ai_specialties:${module}`;
 }
+
+/**
+ * A capability a persona can require: its tier's, and its specialty module's. Each one is a
+ * tenant capability (access/tenant-capabilities.ts derives `ai_personas` and `ai_specialties`
+ * from this catalogue), so a persona gate is a check the catalogue offers.
+ */
+export type AiPersonaCapability =
+  | ReturnType<typeof aiPersonaTierCapability>
+  | ReturnType<typeof aiSpecialtyCapability>;
 
 /** Presentation that varies per tier (used by the `general` specialty only). */
 interface AiTierPresentation {
@@ -154,7 +166,7 @@ export interface AiSpecialtyDefinition {
   readonly color: AiPersonaColor;
   readonly capabilities: readonly string[];
   /** Tenant module the specialty needs; `null` = core. */
-  readonly requiresModule: AiSpecialtyModule | null;
+  readonly requiresModule: ActiveOwnerModuleCode | null;
   /**
    * Tiers this specialty is published at. Farm specialists stop at `expert`:
    * the supervisor tier is the autonomous one, and farm experts only advise —
@@ -243,7 +255,7 @@ export interface AiPersonaCatalogueEntry {
    * module-gated. `ai_assistant:use` is the surface gate and is checked by the
    * entry points, not per persona.
    */
-  readonly requiredCapabilities: readonly string[];
+  readonly requiredCapabilities: readonly AiPersonaCapability[];
 }
 
 function composeEntry(
@@ -253,7 +265,7 @@ function composeEntry(
   const tierPresentation = AI_TIER_PRESENTATION[tier];
   const isGeneral = specialty.id === 'general';
   const presentation = isGeneral ? tierPresentation : specialty;
-  const requiredCapabilities: string[] = [aiPersonaTierCapability(tier)];
+  const requiredCapabilities: AiPersonaCapability[] = [aiPersonaTierCapability(tier)];
   if (specialty.requiresModule !== null) {
     requiredCapabilities.push(aiSpecialtyCapability(specialty.requiresModule));
   }
@@ -285,6 +297,20 @@ export const AI_PERSONA_CATALOGUE: readonly AiPersonaCatalogueEntry[] = Object.f
 const CATALOGUE_BY_ID: ReadonlyMap<string, AiPersonaCatalogueEntry> = new Map(
   AI_PERSONA_CATALOGUE.map((entry) => [entry.id, entry]),
 );
+
+/**
+ * Every module a published specialty requires, once each, in catalogue order: the actions of the
+ * `ai_specialties` tenant capability. A specialty for a new module is grantable the moment it is
+ * published, and no capability is offered for a module no published specialty needs.
+ */
+export const AI_SPECIALTY_MODULE_CODES: readonly ActiveOwnerModuleCode[] = Object.freeze([
+  ...new Set(
+    AI_SPECIALTY_IDS.flatMap((specialtyId) => {
+      const { requiresModule, publishedTiers } = AI_SPECIALTY_CATALOGUE[specialtyId];
+      return requiresModule !== null && publishedTiers.length > 0 ? [requiresModule] : [];
+    }),
+  ),
+]);
 
 /** Catalogue lookup; `undefined` for any id that is not a published persona. */
 export function findAiPersona(id: string): AiPersonaCatalogueEntry | undefined {

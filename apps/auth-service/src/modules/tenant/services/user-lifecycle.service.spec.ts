@@ -19,6 +19,7 @@ import { UserModuleAssignment } from '../../authentication/entities/user-module-
 import { User } from '../../authentication/entities/user.entity';
 import { DurableUserTokenInvalidationService } from '../../authentication/services/durable-user-token-invalidation.service';
 import { MobileUserSettings } from '../entities/mobile-user-settings.entity';
+import { TenantModule } from '../entities/tenant-module.entity';
 import { Tenant, TenantStatus, TenantPlan } from '../entities/tenant.entity';
 
 import { CapabilityAuthorityService } from './capability-authority';
@@ -622,6 +623,118 @@ describe('UserLifecycleService', () => {
       expect(JSON.stringify(publishedEvent)).not.toContain('newuser@tenant.com');
     });
 
+    // RBAC-HIGH-027: every writer sets the role by the backfill's rule over the inputs as they
+    // stand (assignment-module-role.ts) — and hr is managed only by its primary manager.
+    it('writes each module grant with its role: the primary module and non-hr modules managed, hr used', async () => {
+      const FARM = '30000000-0000-4000-8000-000000000001';
+      const HR = '30000000-0000-4000-8000-000000000002';
+      const SENSOR = '30000000-0000-4000-8000-000000000003';
+      tenantRepository.findOne.mockResolvedValue(createMockTenant());
+      userRepository.count.mockResolvedValue(5);
+      userRepository.findOne
+        .mockResolvedValueOnce(
+          createMockUser({ id: ADMIN_USER_ID, role: Role.TENANT_ADMIN, tenantId: TENANT_ID }),
+        )
+        .mockResolvedValueOnce(null);
+      const txUserModuleAssignmentRepo = createMockRepository();
+      // saveMany hands the repository the whole row array, as TypeORM's create(array) does.
+      txUserModuleAssignmentRepo.create.mockImplementation((rows: unknown) => rows);
+      txUserModuleAssignmentRepo.save.mockResolvedValue([]);
+      const invitedUser = createMockUser({ id: 'invited-user-id', role: Role.MODULE_MANAGER });
+      const txManager = {
+        getRepository: jest.fn((entity: unknown) => {
+          if (entity === UserModuleAssignment) return txUserModuleAssignmentRepo;
+          if (entity === Tenant) return { increment: jest.fn().mockResolvedValue(undefined) };
+          throw new Error('Unexpected repository');
+        }),
+        find: jest.fn().mockResolvedValue([
+          { id: FARM, code: 'farm' },
+          { id: HR, code: 'hr' },
+          { id: SENSOR, code: 'sensor' },
+        ]),
+        create: jest.fn(<T>(_entity: unknown, data: T) => ({ ...data })),
+        save: jest.fn((entity: unknown, data: Record<string, unknown>) => {
+          if (entity === User) return Promise.resolve(invitedUser);
+          if (entity === Invitation) return Promise.resolve({ id: 'invitation-id', ...data });
+          return Promise.resolve({ id: 'action-token-id', ...data });
+        }),
+        createQueryBuilder: jest.fn(() => createMockTenantCounterBuilder()),
+      };
+      mockDataSource.transaction.mockImplementationOnce(async (...args: unknown[]) => {
+        const cb = args.find(
+          (arg): arg is (manager: unknown) => Promise<unknown> => typeof arg === 'function',
+        );
+        if (!cb) throw new Error('Missing transaction callback');
+        return cb(txManager);
+      });
+
+      await service.adminInviteUser({
+        tenantId: TENANT_ID,
+        email: 'manager@tenant.com',
+        role: Role.MODULE_MANAGER,
+        moduleIds: [FARM, HR, SENSOR],
+        primaryModuleId: FARM,
+        invitedBy: ADMIN_USER_ID,
+        sendInvitation: false,
+      });
+
+      const [saved] = txUserModuleAssignmentRepo.save.mock.calls[0] ?? [];
+      expect(saved).toEqual([
+        expect.objectContaining({ moduleId: FARM, isPrimaryManager: true, role: 'MODULE_MANAGER' }),
+        expect.objectContaining({ moduleId: HR, isPrimaryManager: false, role: 'MODULE_USER' }),
+        expect.objectContaining({
+          moduleId: SENSOR,
+          isPrimaryManager: false,
+          role: 'MODULE_MANAGER',
+        }),
+      ]);
+    });
+
+    it('refuses a module id the catalogue does not hold, before writing any grant', async () => {
+      tenantRepository.findOne.mockResolvedValue(createMockTenant());
+      userRepository.count.mockResolvedValue(5);
+      userRepository.findOne
+        .mockResolvedValueOnce(
+          createMockUser({ id: ADMIN_USER_ID, role: Role.TENANT_ADMIN, tenantId: TENANT_ID }),
+        )
+        .mockResolvedValueOnce(null);
+      const txUserModuleAssignmentRepo = createMockRepository();
+      const txManager = {
+        getRepository: jest.fn((entity: unknown) => {
+          if (entity === UserModuleAssignment) return txUserModuleAssignmentRepo;
+          if (entity === Tenant) return { increment: jest.fn().mockResolvedValue(undefined) };
+          throw new Error('Unexpected repository');
+        }),
+        find: jest.fn().mockResolvedValue([]),
+        create: jest.fn(<T>(_entity: unknown, data: T) => ({ ...data })),
+        save: jest.fn((entity: unknown, data: Record<string, unknown>) => {
+          if (entity === User) return Promise.resolve(createMockUser({ id: 'invited-user-id' }));
+          if (entity === Invitation) return Promise.resolve({ id: 'invitation-id', ...data });
+          return Promise.resolve({ id: 'action-token-id', ...data });
+        }),
+        createQueryBuilder: jest.fn(() => createMockTenantCounterBuilder()),
+      };
+      mockDataSource.transaction.mockImplementationOnce(async (...args: unknown[]) => {
+        const cb = args.find(
+          (arg): arg is (manager: unknown) => Promise<unknown> => typeof arg === 'function',
+        );
+        if (!cb) throw new Error('Missing transaction callback');
+        return cb(txManager);
+      });
+
+      await expect(
+        service.adminInviteUser({
+          tenantId: TENANT_ID,
+          email: 'manager@tenant.com',
+          role: Role.MODULE_USER,
+          moduleIds: ['30000000-0000-4000-8000-00000000000f'],
+          invitedBy: ADMIN_USER_ID,
+          sendInvitation: false,
+        }),
+      ).rejects.toThrow(BadRequestException);
+      expect(txUserModuleAssignmentRepo.save).not.toHaveBeenCalled();
+    });
+
     it('does not publish UserInvited when delivery is not requested', async () => {
       tenantRepository.findOne.mockResolvedValue(createMockTenant());
       userRepository.count.mockResolvedValue(5);
@@ -728,6 +841,9 @@ describe('UserLifecycleService', () => {
       const user = createMockUser();
       userRepository.findOne.mockResolvedValue(user);
       userRepository.save.mockResolvedValue(user);
+      // The default transaction manager serves every scoped repository from the user double:
+      // this member holds no module grant to re-derive.
+      userRepository.find.mockResolvedValue([]);
 
       const updated = await service.adminUpdateUser(USER_ID, {
         role: Role.MODULE_MANAGER,
@@ -737,6 +853,68 @@ describe('UserLifecycleService', () => {
       expect(refreshTokenRepository.update).toHaveBeenCalledTimes(1);
       expect(mockDurableUserTokenInvalidation.enqueue).toHaveBeenCalledTimes(1);
       expect(mockDurableUserTokenInvalidation.applyImmediately).toHaveBeenCalledTimes(1);
+    });
+
+    // RBAC-HIGH-027: users.role is an input of the module grant roles (a legacy global
+    // MODULE_MANAGER manages every module but hr), so the role edit re-derives them in the
+    // transaction that writes it — last, bound to the user's tenant: the command arrives over
+    // NATS with no tenant, where the forced RLS policy would hide every grant.
+    it('re-derives the module grant roles in the transaction that changes users.role', async () => {
+      const FARM = '30000000-0000-4000-8000-000000000001';
+      const user = createMockUser({ role: Role.MODULE_MANAGER });
+      userRepository.findOne.mockResolvedValue(user);
+      userRepository.save.mockResolvedValue(user);
+      const assignments = createMockRepository();
+      assignments.find.mockResolvedValue([
+        Object.assign(new UserModuleAssignment(), {
+          id: 'uma-farm',
+          userId: USER_ID,
+          moduleId: FARM,
+          tenantId: TENANT_ID,
+          isPrimaryManager: false,
+          isActive: true,
+          role: 'MODULE_MANAGER',
+          module: { id: FARM, code: 'farm' },
+        }),
+      ]);
+      assignments.update.mockResolvedValue({ affected: 1, raw: [], generatedMaps: [] });
+      const tenantModules = createMockRepository();
+      tenantModules.find.mockResolvedValue([]);
+      const transactionQuery = jest.fn().mockResolvedValue([]);
+      mockDataSource.transaction.mockImplementationOnce(async (...args: unknown[]) => {
+        const cb = args.find(
+          (arg): arg is (manager: unknown) => Promise<unknown> => typeof arg === 'function',
+        );
+        if (!cb) throw new Error('Missing transaction callback');
+        return cb({
+          query: transactionQuery,
+          withRepository: jest.fn((repository: unknown) => repository),
+          getRepository: jest.fn((entity: unknown) => {
+            if (entity === UserModuleAssignment) return assignments;
+            if (entity === TenantModule) return tenantModules;
+            throw new Error('Unexpected repository');
+          }),
+        });
+      });
+
+      await service.adminUpdateUser(USER_ID, { role: Role.MODULE_USER });
+
+      expect(assignments.find).toHaveBeenCalledWith({
+        where: { userId: USER_ID, tenantId: TENANT_ID },
+        relations: { module: true },
+      });
+      expect(assignments.update).toHaveBeenCalledWith(
+        { id: 'uma-farm', tenantId: TENANT_ID },
+        { role: 'MODULE_USER' },
+      );
+      expect(transactionQuery).toHaveBeenCalledWith('SELECT set_config($1, $2, true)', [
+        'app.current_tenant',
+        TENANT_ID,
+      ]);
+      // The binding lasts until commit, so it comes after the credential writes it must not move.
+      expect(mockDurableUserTokenInvalidation.enqueue.mock.invocationCallOrder[0]).toBeLessThan(
+        transactionQuery.mock.invocationCallOrder[0]!,
+      );
     });
 
     it('keeps profile-only admin updates out of the credential revocation transaction', async () => {

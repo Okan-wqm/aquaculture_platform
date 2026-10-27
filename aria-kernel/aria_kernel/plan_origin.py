@@ -23,9 +23,14 @@ WHAT. Three facts, all derived and none asked of the agent:
   the terms the gate enforces: the exact trailer line when the origin has a
   form the gate accepts on a CI checkout, or no trailer and the commit
   types the gate does not require one for. The rules are the gate's own
-  (``REQUIRE_CLOSES_TYPES``, ``CLOSES_TRAILER_REGEX``), mirrored here and
-  pinned against the TypeScript source by
-  ``tests/test_plan_origin_commit_contract.py`` so the mirror cannot drift.
+  (``REQUIRE_CLOSES_TYPES``, ``CLOSES_TRAILER_REGEX``). The first is mirrored
+  here and pinned against the TypeScript source by
+  ``tests/test_plan_origin_commit_contract.py``; the second is mirrored too,
+  with the registry id in it the grammar's (``finding_id_grammar``): the whole
+  pattern is compared with the gate's template literal, the owner's id source
+  in its placeholder, by ``tests/test_closes_trailer_frame.py``, and the id is
+  held to the gate's by one table
+  (``tests/test_registry_finding_id_four_digits.py``).
 
 The contract rides on the implementation envelope as a structured field
 (``commit_contract``), the prompt prints it verbatim, and the pre-PR-open
@@ -49,6 +54,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .finding import FINDING_ID_RE
+from .finding_id_grammar import FINDING_ID_SOURCE, FINDING_SEQUENCE_SOURCE, FINDING_SEVERITY_SOURCE
 from .tool_registry import GovernanceError
 from .digest import sha256_digest_text
 
@@ -60,9 +66,14 @@ COMMIT_CONTRACT_SCHEMA_VERSION = 1
 REQUIRE_CLOSES_SUBJECT_RE = re.compile(r"^(fix|security|refactor\(agentic,phase-|feat)")
 
 # tools/gates/commit-msg-validator.ts — CLOSES_TRAILER_REGEX, the hard
-# format of one trailer line.
+# format of one trailer line. The registry id inside it is the grammar's
+# (finding_id_grammar), as it is the gate's (finding-id-grammar.ts); the F and
+# DEBT forms are other grammars and are mirrored verbatim. The whole pattern is
+# held to the gate's template literal by tests/test_closes_trailer_frame.py: an
+# edit of the frame, the F-NNN, F-AUTO-V or DEBT form or the closing ``\s*$`` on
+# either side turns it red.
 CLOSES_TRAILER_RE = re.compile(
-    r"^Closes:\s+(\S+?)#([A-Z][A-Z0-9]+-(?:CRITICAL|HIGH|MEDIUM|LOW)-\d{3}"
+    rf"^Closes:\s+(\S+?)#({FINDING_ID_SOURCE}"
     r"|F-\d{3}|F-AUTO-V\d+\.\d+(?:-[A-Z0-9-]+)+|DEBT-\d{4}-\d{2}-\d{2}-\d{3})\s*$"
 )
 
@@ -83,7 +94,7 @@ CLOSES_TRAILER_RE = re.compile(
 # so a hand-seeded plan carrying one never CONVERGES — a plan with an origin
 # the kernel cannot contract is refused before a round is spent on it, not
 # at the implementation mint after staging.
-ORPHAN_FINDING_ID_RE = re.compile(r"^ORPHAN-(?:CRITICAL|HIGH|MEDIUM|LOW)-\d{3}$")
+ORPHAN_FINDING_ID_RE = re.compile(rf"ORPHAN-{FINDING_SEVERITY_SOURCE}-{FINDING_SEQUENCE_SOURCE}\Z")
 ORPHAN_FINDINGS_DOCUMENT = "docs/reviews/orphan-findings.md"
 # The F-finding family this module recognises as an origin.
 #

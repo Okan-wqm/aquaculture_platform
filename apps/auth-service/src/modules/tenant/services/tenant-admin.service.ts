@@ -45,6 +45,7 @@ import { TenantSecurityPolicy, UpdateTenantSecurityPolicyInput } from '../dto/te
 import { TenantModule } from '../entities/tenant-module.entity';
 import { Tenant, TenantStatus } from '../entities/tenant.entity';
 import { FarmSiteAssignmentValidator } from './farm-site-assignment-validator.service';
+import { memberModuleGrant } from './module-assignment-grants';
 import {
   createCredentialInvalidationIntent,
   lockUserForCredentialMutation,
@@ -240,7 +241,6 @@ export class TenantAdminService {
       throw new NotFoundException('Admin not found');
     }
 
-    // Verify module belongs to tenant
     const tenantModule = await this.tenantModuleRepository.findOne({
       where: { tenantId: admin.tenantId, moduleId: input.moduleId },
       relations: ['module'],
@@ -250,7 +250,6 @@ export class TenantAdminService {
       throw new ForbiddenException('Module not assigned to tenant');
     }
 
-    // Check tenant user limit
     const tenant = await this.tenantRepository.findOne({
       where: { id: admin.tenantId },
     });
@@ -263,7 +262,6 @@ export class TenantAdminService {
       throw new ForbiddenException('Tenant is not active');
     }
 
-    // Check if user already exists
     let user = await this.userRepository.findOne({
       where: { email: input.email.toLowerCase(), tenantId: admin.tenantId },
     });
@@ -282,7 +280,6 @@ export class TenantAdminService {
       const assignmentRepo = tenantManagerRepo(manager, UserModuleAssignment, admin.tenantId!);
 
       if (!user) {
-        // Check user limit
         const currentUserCount = await userRepo.count({
           where: { tenantId: admin.tenantId!, isActive: true },
         });
@@ -329,16 +326,16 @@ export class TenantAdminService {
         );
       }
 
-      // Check existing assignment
+      // RBAC-HIGH-027: the grant's role, by the backfill's rule (assignment-module-role.ts).
+      const grant = memberModuleGrant(tenantModule, user, input.role === 'manager');
       const existingAssignment = await assignmentRepo.findOne({
         where: { userId: user.id, moduleId: input.moduleId },
       });
 
       if (existingAssignment) {
-        // Reactivate if inactive
         if (!existingAssignment.isActive) {
           existingAssignment.isActive = true;
-          existingAssignment.isPrimaryManager = input.role === 'manager';
+          Object.assign(existingAssignment, grant);
           await assignmentRepo.save(existingAssignment);
 
           return {
@@ -357,12 +354,11 @@ export class TenantAdminService {
         };
       }
 
-      // Create assignment
       const assignment = assignmentRepo.create({
         userId: user.id,
         moduleId: input.moduleId,
         tenantId: admin.tenantId!,
-        isPrimaryManager: input.role === 'manager',
+        ...grant,
         isActive: true,
         assignedBy: tenantAdminId,
       });

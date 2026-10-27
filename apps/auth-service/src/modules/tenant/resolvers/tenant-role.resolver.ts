@@ -66,7 +66,7 @@ import {
   UpdateTenantUserInput,
   RevokeUserRoleInput,
 } from '../dto/tenant-role.dto';
-import { TenantRoleService, PERMISSION_CATEGORIES } from '../services/tenant-role.service';
+import { TenantRoleService } from '../services/tenant-role.service';
 import { TenantUserManagementService, UserRoleAssignmentResult } from '../services/tenant-user-management.service';
 
 @Resolver(() => TenantRole)
@@ -140,7 +140,9 @@ export class TenantRoleResolver {
     return Object.entries(categories).map(([key, category]) => ({
       categoryKey: key,
       name: category.name,
-      resources: Object.entries(category.resources).map(([, resource]) => ({
+      // The key, not the display name, is what `${key}:${action}` capabilities are built from.
+      resources: Object.entries(category.resources).map(([resourceKey, resource]) => ({
+        key: resourceKey,
         name: resource.name,
         actions: resource.actions,
       })),

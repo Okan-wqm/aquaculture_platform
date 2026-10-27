@@ -36,7 +36,8 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
-import { HrModuleCode } from '../common/enums';
+import type { OwnerModuleCode } from '@aquaculture/shared-contracts';
+import { HR_MODULE_CODE_ENUM } from '../common/enums';
 import { GqlAuthGuard } from '../common/guards/gql-auth.guard';
 import { RolesGuard } from '@aquaculture/backend-common/guards';
 import { Employee } from '../hr/entities/employee.entity';
@@ -216,7 +217,8 @@ export class LeaveResolver {
     @Args('endDate', { nullable: true }) endDate?: string,
     @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit?: number,
     @Args('page', { type: () => Int, nullable: true, defaultValue: 1 }) page?: number,
-    @Args('moduleCode', { type: () => HrModuleCode, nullable: true }) moduleCode?: HrModuleCode,
+    @Args('moduleCode', { type: () => HR_MODULE_CODE_ENUM, nullable: true })
+    moduleCode?: OwnerModuleCode,
   ): Promise<IStandardPaginatedResult<LeaveRequest>> {
     const tenantId = this.getTenantId(context);
     const result = await this.queryBus.execute<
@@ -275,7 +277,8 @@ export class LeaveResolver {
     @Args('departmentId', { type: () => ID, nullable: true }) departmentId?: string,
     @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit?: number,
     @Args('page', { type: () => Int, nullable: true, defaultValue: 1 }) page?: number,
-    @Args('moduleCode', { type: () => HrModuleCode, nullable: true }) moduleCode?: HrModuleCode,
+    @Args('moduleCode', { type: () => HR_MODULE_CODE_ENUM, nullable: true })
+    moduleCode?: OwnerModuleCode,
   ): Promise<IStandardPaginatedResult<LeaveRequest>> {
     const tenantId = this.getTenantId(context);
     const userId = this.getUserId(context);
@@ -309,7 +312,8 @@ export class LeaveResolver {
     @Args('startDate') startDate: string,
     @Args('endDate') endDate: string,
     @Args('departmentId', { type: () => ID, nullable: true }) departmentId?: string,
-    @Args('moduleCode', { type: () => HrModuleCode, nullable: true }) moduleCode?: HrModuleCode,
+    @Args('moduleCode', { type: () => HR_MODULE_CODE_ENUM, nullable: true })
+    moduleCode?: OwnerModuleCode,
   ): Promise<LeaveCalendarEntry[]> {
     const tenantId = this.getTenantId(context);
     return this.queryBus.execute<GetTeamLeaveCalendarQuery, LeaveCalendarEntry[]>(

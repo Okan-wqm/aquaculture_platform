@@ -5,6 +5,7 @@ import { OutboxPublisher } from '@platform/outbox';
 
 import { Invitation } from '../../../authentication/entities/invitation.entity';
 import { User } from '../../../authentication/entities/user.entity';
+import { DurableUserTokenInvalidationService } from '../../../authentication/services/durable-user-token-invalidation.service';
 import { Tenant, TenantStatus } from '../../entities/tenant.entity';
 import { AuditLogService } from '../../../../audit/audit-log.service';
 import { TenantProvisioningCommandService } from '../tenant-provisioning-command.service';
@@ -102,6 +103,8 @@ describe('TenantProvisioningCommandService — suspension audit trio', () => {
         // W5: lokalizasyon komutunun fail-CLOSED denetim izi (lifecycle
         // yolunda çağrılmaz, ancak DI grafiği için sağlanmalıdır).
         { provide: AuditLogService, useValue: { log: jest.fn() } },
+        // RBAC-HIGH-035: RemoveModule's durable invalidation (unused on the lifecycle path).
+        { provide: DurableUserTokenInvalidationService, useValue: {} },
       ],
     }).compile();
 

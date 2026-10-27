@@ -525,7 +525,7 @@ export function QuantityStepper(props: {
           >
             <Minus size={22} className={theme.accentText} />
           </button>
-          <div className="text-hero font-mono font-bold text-ink-1 min-w-[90px] text-center tabular-nums">
+          <div className="text-hero font-bold text-ink-1 min-w-[90px] text-center tabular-nums">
             {value}
           </div>
           <button

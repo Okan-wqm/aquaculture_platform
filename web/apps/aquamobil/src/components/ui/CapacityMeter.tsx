@@ -56,7 +56,7 @@ export function CapacityMeter({
       <div className="flex items-baseline justify-between gap-3">
         <span className="text-meta text-ink-3">Density against consent</span>
         {readout !== undefined && (
-          <span className="text-meta font-mono text-ink-2 tabular-nums">{readout}</span>
+          <span className="text-meta text-ink-2 tabular-nums">{readout}</span>
         )}
       </div>
       <div
@@ -77,7 +77,7 @@ export function CapacityMeter({
       </div>
       {/* The thresholds in words — this is what keeps the bands from being
           colour-alone, so it is not optional decoration. */}
-      <div className="flex justify-between text-meta font-mono text-ink-3">
+      <div className="flex justify-between text-meta tabular-nums text-ink-3">
         <span>0</span>
         <span>{watchAt}% watch</span>
         <span>{limitAt}% density</span>

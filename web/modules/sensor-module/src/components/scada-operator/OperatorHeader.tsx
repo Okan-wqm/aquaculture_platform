@@ -83,7 +83,7 @@ const LiveClock = memo(() => {
       aria-label={`Current date and time: ${date} ${time}`}
     >
       <Clock size={14} className="text-gray-400 dark:text-gray-500 shrink-0" aria-hidden="true" />
-      <span className="text-xs font-mono tabular-nums">
+      <span className="text-xs tabular-nums">
         {date}
         <span className="mx-1 text-gray-600 dark:text-gray-400" aria-hidden="true">
           |

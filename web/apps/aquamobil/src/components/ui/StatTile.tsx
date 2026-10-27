@@ -63,7 +63,7 @@ export function StatTile({
     <Card className={clsx('p-3 flex flex-col gap-2', className)}>
       <span className="text-meta text-ink-3">{label}</span>
       <span className="flex items-baseline gap-1.5">
-        <span className={clsx('font-mono font-bold text-display tabular-nums', VALUE_CLASS[state])}>
+        <span className={clsx('font-bold text-display tabular-nums', VALUE_CLASS[state])}>
           {value}
         </span>
         {unit !== undefined && <span className="text-meta text-ink-3">{unit}</span>}

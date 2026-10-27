@@ -74,11 +74,12 @@ def _load_harness() -> Any:
 
 harness = _load_harness()  # puts aria-kernel on sys.path
 
-from aria_kernel import judge_calibration, record_run, register_tool  # noqa: E402
+from aria_kernel import judge_calibration  # noqa: E402
 from aria_kernel.digest import sha256_digest_file  # noqa: E402
 from aria_kernel.ledger import sha256_digest_of_canonical_json  # noqa: E402
 from aria_kernel.model_fleet import provider_for_model  # noqa: E402
-from aria_kernel.tool_registry import GovernanceError  # noqa: E402
+from aria_kernel.tool_health import record_run  # noqa: E402
+from aria_kernel.tool_registry import GovernanceError, register_tool  # noqa: E402
 
 # ── what the real store looks like (the 17 rows of the kept store, cycle goldset-battery-1) ──
 REAL_RUN_ROW_KEYS = frozenset({

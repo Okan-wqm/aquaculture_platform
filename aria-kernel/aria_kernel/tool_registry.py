@@ -64,7 +64,16 @@ RUNNER_REQUIRED_STATUSES = ("SHADOW", "ACTIVE", "CALIBRATE")
 # optional on a row, boolean when present, and read through
 # `is_security_class` only, which reads an undeclared row as security class.
 SECURITY_CLASS_FIELD = "security_class"
-RUNNER_TYPES = ("subprocess",)
+# A runner KIND says who produces a tool's runs. ``subprocess``: the kernel
+# spawns the manifest's argv (``tool_runner.run_tool``). ``agent``: a bound
+# agent's accepted answer is the run, recorded by the supporting bridge
+# (``change_review``); the kernel never spawns it, so it declares no argv and
+# owns no fixture suite (its evidence is checked per answer, at the commit the
+# answer is about).
+SUBPROCESS_RUNNER_TYPE = "subprocess"
+AGENT_RUNNER_TYPE = "agent"
+RUNNER_TYPES = (SUBPROCESS_RUNNER_TYPE, AGENT_RUNNER_TYPE)
+FIXTURE_SET_FIELD = "fixture_set"
 # ARIA-MEDIUM-508 — the files a runner executes that the repository does not
 # track (`npm ci` installs them), named workspace-relative. A workspace without
 # one cannot run the tool at all, so the runner refuses to spawn and records
@@ -932,7 +941,8 @@ def effective_freshness_window_hours(tool: dict[str, Any]) -> float:
 def validate_tool_definition(tool: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(tool, dict):
         raise GovernanceError("tool definition must be a JSON object")
-    missing = [field for field in REQUIRED_TOOL_FIELDS if field not in tool]
+    required = required_tool_fields(tool)
+    missing = [field for field in required if field not in tool]
     if missing:
         raise GovernanceError(f"tool definition missing required field(s): {', '.join(missing)}")
 
@@ -950,7 +960,7 @@ def validate_tool_definition(tool: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(candidate["output_schema"], dict) or not candidate["output_schema"]:
         raise GovernanceError("output_schema must be a non-empty object")
     _validate_output_schema(candidate["output_schema"])
-    if not candidate["fixture_set"]:
+    if FIXTURE_SET_FIELD in required and not candidate[FIXTURE_SET_FIELD]:
         raise GovernanceError("fixture_set must not be empty")
     if not isinstance(candidate["health_thresholds"], dict):
         raise GovernanceError("health_thresholds must be an object")
@@ -975,9 +985,16 @@ def validate_tool_definition(tool: dict[str, Any]) -> dict[str, Any]:
         # ARIA-HIGH-324 — the per-rule judgment contract (rule_contract) is
         # checked at the one gate every registry row passes, so a contract
         # the judge fan-out or the promotion could not use never registers.
-        from .rule_contract import validate_rule_contracts
+        from .rule_contract import DYNAMIC_RULE_KEY, validate_rule_contracts
 
         candidate["rules"] = validate_rule_contracts(candidate["rules"], tool_id=str(candidate["tool_id"]))
+        if is_agent_backed(candidate) and DYNAMIC_RULE_KEY in candidate["rules"]:
+            # An agent names its rule in every claim, so the declared rules ARE the closed set a claim may name;
+            # a '*' would make any word the agent writes a family.
+            raise GovernanceError(
+                f"rule_contract_invalid: {candidate['tool_id']}: an agent-backed tool declares every rule it accepts, "
+                f"never {DYNAMIC_RULE_KEY!r}"
+            )
 
     # E13-C11 — freshness metadata (see DEFAULT_FRESHNESS_WINDOW_HOURS
     # comment for the full WHY). Optional in the manifest; defaulted when
@@ -1027,12 +1044,39 @@ def validate_tool_definition(tool: dict[str, Any]) -> dict[str, Any]:
     return candidate
 
 
+def runner_type(tool: dict[str, Any]) -> Any:
+    """The kind of runner ``tool`` (a manifest or a registry row) declares; ``None`` when it declares none."""
+    runner = tool.get("runner")
+    return runner.get("type") if isinstance(runner, dict) else None
+
+
+def is_agent_backed(tool: dict[str, Any]) -> bool:
+    """Is a bound agent's answer, not a spawned process, this tool's run?"""
+    return runner_type(tool) == AGENT_RUNNER_TYPE
+
+
+def required_tool_fields(tool: dict[str, Any]) -> tuple[str, ...]:
+    """The fields a definition must carry: an agent-backed tool owns no fixture suite."""
+    if is_agent_backed(tool):
+        return tuple(field for field in REQUIRED_TOOL_FIELDS if field != FIXTURE_SET_FIELD)
+    return REQUIRED_TOOL_FIELDS
+
+
 def validate_runner_definition(runner: Any) -> dict[str, Any]:
     if not isinstance(runner, dict):
         raise GovernanceError("runner must be a JSON object")
     candidate = deepcopy(runner)
     if candidate.get("type") not in RUNNER_TYPES:
         raise GovernanceError(f"unknown runner type: {candidate.get('type')}")
+    if candidate["type"] == AGENT_RUNNER_TYPE:
+        # Nothing for the kernel to spawn: argv, cwd and a timeout would be
+        # fields no runner reads, and a subprocess field on this row would make
+        # it look runnable.
+        if set(candidate) != {"type"}:
+            raise GovernanceError(
+                f"runner.type {AGENT_RUNNER_TYPE!r} declares no other field, got {sorted(set(candidate) - {'type'})}"
+            )
+        return candidate
     argv = candidate.get("argv")
     if not isinstance(argv, list) or not argv:
         raise GovernanceError("runner.argv must be a non-empty array")
@@ -1256,8 +1300,13 @@ def get_tool(
 
 
 def is_dispatchable(tool: dict[str, Any]) -> bool:
-    """A row the runner runs: its lifecycle status is one of RUNNER_REQUIRED_STATUSES."""
-    return tool.get("status") in RUNNER_REQUIRED_STATUSES
+    """A row the runner runs: its lifecycle status is one of RUNNER_REQUIRED_STATUSES and it is not agent-backed.
+
+    An agent-backed row is never spawned: its runs are accepted answers
+    (``is_agent_backed``), so no dispatcher or observation lane that asks this
+    predicate sees it.
+    """
+    return tool.get("status") in RUNNER_REQUIRED_STATUSES and not is_agent_backed(tool)
 
 
 def is_security_class(tool: dict[str, Any]) -> bool:

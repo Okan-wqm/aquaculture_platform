@@ -41,7 +41,11 @@
  * seven invariant specs check with rules of their own (INFRA-LOW-232).
  */
 
-export const FINDING_ID = /^[A-Z]+-(?:CRITICAL|HIGH|MEDIUM|LOW)-\d{3}$/;
+// The registry's finding-id grammar (tools/gates/finding-id-grammar.ts owns it). This file is
+// plain ESM that CI runs with `node` and cannot import the owner, so the pattern is held to the
+// one table both owners are held to by tests/invariants/finding-id-reviewed-exception.spec.ts.
+export const FINDING_ID =
+  /^[A-Z][A-Z0-9]*-(?:CRITICAL|HIGH|MEDIUM|LOW)-(?:[1-9][0-9]{3}|[0-9]{3})$/;
 export const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 export const MIN_REASON_LENGTH = 30;
 

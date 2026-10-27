@@ -67,6 +67,8 @@ import { resolve } from 'node:path';
 
 import * as yaml from 'js-yaml';
 
+import { FINDING_ID_REGEX } from '../../tools/gates/finding-id-grammar';
+
 const REPO_ROOT = resolve(__dirname, '../..');
 const ALLOWLIST = '.claude/allowlists/web-design-system-ratchet.yaml';
 const ROOTS = ['web/modules', 'web/shell/src', 'web/apps'];
@@ -389,7 +391,7 @@ function assertGoverned(
   today: string,
 ): void {
   expect(entry.owner).toBeTruthy();
-  expect(entry.findingId).toMatch(/^[A-Z]+-[A-Z]+-\d+$/);
+  expect(entry.findingId).toMatch(FINDING_ID_REGEX);
   expect(entry.reason.length).toBeGreaterThan(20);
   expect(expiryIso(entry.expiry) > today).toBe(true);
 }

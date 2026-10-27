@@ -744,14 +744,7 @@ impl ModbusClient {
         // Reset circuit breaker on reconnection attempt
         self.circuit_breaker.reset();
 
-        let timeout_msg = format!("Modbus connect {}", self.config.name);
-        let opened = match with_timeout(self.open_transport(), CONNECT_TIMEOUT, &timeout_msg).await
-        {
-            Ok(opened) => opened,
-            Err(e) => Err(anyhow::anyhow!("{e}")),
-        };
-
-        match opened {
+        match self.open_transport(CONNECT_TIMEOUT).await {
             Ok(ctx) => {
                 self.link = Link::Up(LiveLink {
                     ctx,
@@ -768,10 +761,12 @@ impl ModbusClient {
         }
     }
 
-    /// Open a fresh transport for this device.
-    async fn open_transport(&self) -> Result<ModbusContext> {
+    /// Open a fresh transport for this device. Every network step of the
+    /// open shares one deadline, `budget` from now; an RTU port opens
+    /// synchronously.
+    async fn open_transport(&self, budget: Duration) -> Result<ModbusContext> {
         match self.config.connection_type.as_str() {
-            "tcp" => self.open_tcp().await,
+            "tcp" => self.open_tcp(Instant::now() + budget).await,
             "rtu" => self.open_rtu(),
             other => Err(anyhow::anyhow!("Unknown connection type: {other}")),
         }
@@ -782,7 +777,9 @@ impl ModbusClient {
     /// # TLS Support
     /// When `config.tls.enabled = true`, uses encrypted TLS connection.
     /// This provides IEC 62443 SL2 FR4 (Data Confidentiality) compliance.
-    async fn open_tcp(&self) -> Result<ModbusContext> {
+    ///
+    /// The TCP connect and the TLS handshake both end at `deadline`.
+    async fn open_tcp(&self, deadline: Instant) -> Result<ModbusContext> {
         let socket_addr: SocketAddr = self
             .config
             .address
@@ -851,18 +848,34 @@ impl ModbusClient {
             }
         };
 
-        let stream = TcpStream::connect(socket_addr).await.with_context(|| {
-            format!(
-                "TCP connect to Modbus device '{}' at {} failed",
-                self.config.name, socket_addr
-            )
-        })?;
+        let stream = tokio::time::timeout_at(deadline, TcpStream::connect(socket_addr))
+            .await
+            .map_err(|_| {
+                anyhow::anyhow!(
+                    "TCP connect to Modbus device '{}' at {} timed out",
+                    self.config.name,
+                    socket_addr
+                )
+            })?
+            .with_context(|| {
+                format!(
+                    "TCP connect to Modbus device '{}' at {} failed",
+                    self.config.name, socket_addr
+                )
+            })?;
 
         let ctx = match tls {
             Some((tls_config, server_name)) => {
-                let tls_stream = TlsConnector::from(tls_config)
-                    .connect(server_name, stream)
+                let handshake = TlsConnector::from(tls_config).connect(server_name, stream);
+                let tls_stream = tokio::time::timeout_at(deadline, handshake)
                     .await
+                    .map_err(|_| {
+                        anyhow::anyhow!(
+                            "TLS handshake with Modbus device '{}' at {} timed out",
+                            self.config.name,
+                            socket_addr
+                        )
+                    })?
                     .with_context(|| {
                         format!(
                             "TLS handshake with Modbus device '{}' at {} failed",
@@ -976,17 +989,9 @@ impl ModbusClient {
             // Schedule the follow-up attempt before awaiting, so an attempt
             // cancelled by an outer timeout still honours the backoff.
             self.link = self.reconnect.down_after(next_delay);
-            let ctx = tokio::time::timeout(MODBUS_TIMEOUT, self.open_transport())
-                .await
-                .map_err(|_| {
-                    anyhow::anyhow!(
-                        "Reconnect to Modbus device '{}' timed out",
-                        self.config.name
-                    )
-                })?
-                .with_context(|| {
-                    format!("Reconnect to Modbus device '{}' failed", self.config.name)
-                })?;
+            let ctx = self.open_transport(MODBUS_TIMEOUT).await.with_context(|| {
+                format!("Reconnect to Modbus device '{}' failed", self.config.name)
+            })?;
             info!("Reconnected to Modbus device '{}'", self.config.name);
             self.link = Link::Up(LiveLink {
                 ctx,

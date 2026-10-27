@@ -30,6 +30,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
+      # reason: PATCH each listed release to draft — the job's only write
       contents: write
     env:
       GH_TOKEN: ${{ github.token }}
@@ -58,12 +59,17 @@ jobs:
       - name: Turn every listed release into a draft
         run: |
           set -euo pipefail
+          # All-or-nothing: every listed tag must resolve to exactly one
+          # release before any release is changed.
           for tag in ${RODBUS_RELEASE_TAGS}; do
-            id="$(jq -r --arg t "$tag" '.[] | select(.tag_name == $t) | .id' releases-before.json)"
-            if [ -z "$id" ]; then
-              echo "::error::release ${tag} not found"
+            count="$(jq --arg t "$tag" '[.[] | select(.tag_name == $t)] | length' releases-before.json)"
+            if [ "$count" != "1" ]; then
+              echo "::error::release ${tag} resolves to ${count} releases; nothing was changed"
               exit 1
             fi
+          done
+          for tag in ${RODBUS_RELEASE_TAGS}; do
+            id="$(jq -r --arg t "$tag" '.[] | select(.tag_name == $t) | .id' releases-before.json)"
             if [ "$(jq -r --arg t "$tag" '.[] | select(.tag_name == $t) | .draft' releases-before.json)" = "true" ]; then
               echo "${tag}: already a draft"
               continue

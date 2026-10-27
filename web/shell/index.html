@@ -18,24 +18,23 @@
       default-src 'self';
       script-src 'self' https://cdn.jsdelivr.net;
       script-src-elem 'self' https://cdn.jsdelivr.net;
-      style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net;
-      style-src-elem 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net;
+      style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net;
+      style-src-elem 'self' 'unsafe-inline' https://cdn.jsdelivr.net;
       worker-src 'self' blob:;
       img-src 'self' data: blob: https://*.tile.openstreetmap.org https://server.arcgisonline.com https://*.basemaps.cartocdn.com;
       connect-src 'self' wss: https://cdn.jsdelivr.net https://*.basemaps.cartocdn.com https://*.tile.openstreetmap.org;
-      font-src 'self' data: https://fonts.gstatic.com https://cdn.jsdelivr.net;
+      font-src 'self' data: https://cdn.jsdelivr.net;
       frame-src 'self';
       object-src 'none';
       base-uri 'self';
       form-action 'self';
     " />
     <title>Aquaculture Platform</title>
-    <!-- The five families theme.css names and no others (FE-MEDIUM-090): --font-sans, --font-mono,
-         --font-display (the auth pages) and the tenant console's Industry pair --font-body-sd /
-         --font-display-sd (Barlow 400-700, Barlow Condensed 600). Same two origins, so the CSP is unchanged. -->
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@600&family=Geist+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <!-- The faces theme.css names are served from /fonts (shared-ui fonts.css declares them;
+         FE-MEDIUM-090), not fetched from a font host: the CSP is font-src 'self'. Only Inter's
+         latin subset is preloaded, because the brand loader below paints in it before any
+         stylesheet loads; latin-ext (Turkish) and Geist Mono load on demand by unicode-range. -->
+    <link rel="preload" href="/fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin />
     <!-- First paint (FE-MEDIUM-083) is the brand loader (FE-MEDIUM-349): the same markup and
          stylesheet as shared-ui's BrandLoader, so React's first loader takes over from this one
          with nothing changing on screen. This is the loader's only stylesheet — it has to paint
@@ -45,7 +44,7 @@
          is the source; edit the tokens there, then run tools/design/generate-boot-splash.ts). -->
     <style>
       /* BEGIN GENERATED BRAND LOADER TOKENS (tools/design/generate-boot-splash.ts) */
-      :root { --brand-loader-ground: #f2f2f3; --brand-loader-ink: #5d5d60; --brand-loader-rule: rgba(29, 31, 32, 0.16); --brand-loader-plate: #f5f5f8; --brand-loader-font: 'Barlow', system-ui, -apple-system, sans-serif; }
+      :root { --brand-loader-ground: #f2f2f3; --brand-loader-ink: #5d5d60; --brand-loader-rule: rgba(29, 31, 32, 0.16); --brand-loader-plate: #f5f5f8; --brand-loader-font: Inter, system-ui, -apple-system, sans-serif; }
       @media (prefers-color-scheme: dark) { :root:not([data-theme]) { --brand-loader-ground: #202224; --brand-loader-ink: #a8aaad; --brand-loader-rule: rgba(236, 238, 240, 0.15); } }
       :root[data-theme='dark'] { --brand-loader-ground: #202224; --brand-loader-ink: #a8aaad; --brand-loader-rule: rgba(236, 238, 240, 0.15); }
       /* END GENERATED BRAND LOADER TOKENS */

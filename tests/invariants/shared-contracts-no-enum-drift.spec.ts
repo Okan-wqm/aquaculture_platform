@@ -106,6 +106,21 @@ describe('INVARIANT (ORPHAN-087): shared-contracts declares no domain enums', ()
       // reads take, and the batch size the dashboard asks them in — one number,
       // so a client batch cannot outgrow the server's bound.
       './measurement/unit-reads',
+      // The module dictionary (RBAC-MEDIUM-023): the one declaration of the
+      // platform's module codes, read by the backend services, the GraphQL
+      // enums, the migrations' invariant and the web nav alike. Frozen objects,
+      // not enums (the first rule above).
+      './modules/platform-modules',
+      // The access vocabulary (RBAC-MEDIUM-024; ADR-051 §1): the platform roles and their one
+      // hierarchy, the tenant capabilities and the one capability check, ModuleScope, the
+      // access kinds, the member caller and its claims, and decideAccess — read by the backend
+      // guards and the web alike. Frozen objects, not enums.
+      './access/platform-roles',
+      './access/tenant-capabilities',
+      './access/module-scope',
+      './access/access-spec',
+      './access/user-caller',
+      './access/decide-access',
     ]);
     const index = readFileSync(resolve(REPO_ROOT, 'libs/shared-contracts/src/index.ts'), 'utf8');
     const exportFroms = [

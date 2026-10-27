@@ -65,15 +65,15 @@ Do NOT invoke for fields internal to a service that never cross a bounded contex
 
 **Cross-domain notifications:** `frontend-expert` if GraphQL schema changes (consumer codegen update needed).
 
-### Step 4 — Generate migration (blue-green 3-step if NOT NULL on populated table)
+### Step 4 — Generate migration (NOT NULL on a populated table: ADR-053)
 
 **Affected files:** `apps/<svc>/src/database/migrations/<timestamp>-Add<FieldName>To<Entity>.ts`
 
-**Mechanism:** if the column is NOT NULL on a table with existing rows, the single migration MUST be split into THREE migrations per data-expert's invariant: (1) nullable ADD COLUMN, (2) backfill via `UPDATE … WHERE … IS NULL`, (3) `ALTER COLUMN … SET NOT NULL`. Each migration has its own timestamp + file. The `migration-sql-lint` gate R2 rejects single-step non-null add.
+**Mechanism:** if the column is NOT NULL on a table with existing rows, the migration takes a shape that the Blue-green safety item of `docs/runbooks/migration-authoring.md` allows (ADR-053). Each migration has its own timestamp + file. The `migration-sql-lint` gate rejects the other shapes (R2, R13 `add-column-rewriting-default`, R14 `add-column-exemption-shape`).
 
 If the column is nullable OR the table is empty, one migration with `ALTER TABLE … ADD COLUMN IF NOT EXISTS …` + `SET LOCAL lock_timeout = '2s'` + `SET LOCAL statement_timeout = '30s'` + `SET LOCAL search_path = '<schema>', public` envelope is sufficient.
 
-**Why:** single-step NOT NULL takes `ACCESS EXCLUSIVE` on a populated table and fails if any row is NULL — blue-green avoids both. Lock-timeout envelope prevents pile-up during deploy.
+**Why:** a NOT NULL add outside those shapes rewrites or scans a populated table under `ACCESS EXCLUSIVE`, or fails if any row is NULL (runbook anti-pattern row; ADR-053 Decision 2). Lock-timeout envelope prevents pile-up during deploy.
 
 **Verification:** `tools/gates/migration-sql-lint.ts` staged mode clean (`--mode=staged`). `apps/<svc>/src/database/data-source.ts` migration run test in CI.
 
@@ -120,7 +120,7 @@ If the column is nullable OR the table is empty, one migration with `ALTER TABLE
 - [ ] Step 1 design note exists in the implementation-planner package body.
 - [ ] Step 2 entity column passes `aquaculture/require-entity-schema` + `tsc --noEmit`.
 - [ ] Step 3 DTO + GraphQL field present; integration test round-trip PASS.
-- [ ] Step 4 migration passes `migration-sql-lint --mode=staged`; blue-green 3-step enforced if NOT NULL + populated table.
+- [ ] Step 4 migration passes `migration-sql-lint --mode=staged`; a NOT NULL add on a populated table has a shape the runbook's Blue-green safety item allows (ADR-053).
 - [ ] Step 5 source schema + MODULE_SCHEMAS.<svc>.tables updated; adoption invariant green.
 - [ ] Step 6 (if event emission) event interface carries OPTIONAL field; upcaster-chain invariant green.
 - [ ] Step 7 migration registered + staging `validateModuleSchemas()` PASS.
@@ -136,9 +136,10 @@ If the column is nullable OR the table is empty, one migration with `ALTER TABLE
 - ADR-006 — event contract flat-pattern (Step 6).
 - ADR-011 — schema ownership model (Steps 2, 5, 7).
 - ADR-012 — schema drift prevention (Step 5).
+- ADR-053 — constant-default ADD COLUMN; `docs/runbooks/migration-authoring.md` Blue-green safety item (Step 4).
 - `.claude/agents/data-expert.md` — migration-delta safety invariants (Step 4).
 - `.claude/agents/database-reviewer.md` — column type discipline (Step 1).
-- `tools/gates/migration-sql-lint.ts` — R2 single-step NOT NULL rejection (Step 4).
+- `tools/gates/migration-sql-lint.ts` — R2 single-step NOT NULL rejection, R13 `add-column-rewriting-default` and R14 `add-column-exemption-shape` (Step 4).
 
 ## Changelog
 

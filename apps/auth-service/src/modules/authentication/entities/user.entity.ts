@@ -3,7 +3,7 @@ import {
   verifyPassword as verifyPasswordWithPepper,
   PEPPERED_PREFIX_V1,
 } from '@aquaculture/backend-common/auth';
-import { Role } from '@aquaculture/backend-common/decorators';
+import { Role, roleHasPermission } from '@aquaculture/backend-common/decorators';
 import { ObjectType, Field, ID, HideField, registerEnumType } from '@nestjs/graphql';
 import {
   Entity,
@@ -406,13 +406,11 @@ export class User {
   }
 
   /**
-   * Check if user has at least the given role level
+   * Check if user has at least the given role level, in the one platform role
+   * hierarchy (RBAC-MEDIUM-024): no local ordering.
    */
   hasRoleOrHigher(requiredRole: Role): boolean {
-    const roleOrder = [Role.MODULE_USER, Role.MODULE_MANAGER, Role.TENANT_ADMIN, Role.SUPER_ADMIN];
-    const userRoleIndex = roleOrder.indexOf(this.role);
-    const requiredRoleIndex = roleOrder.indexOf(requiredRole);
-    return userRoleIndex >= requiredRoleIndex;
+    return roleHasPermission(this.role, requiredRole);
   }
 
   /**

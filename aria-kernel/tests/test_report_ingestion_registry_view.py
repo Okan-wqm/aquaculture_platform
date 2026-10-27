@@ -33,6 +33,7 @@ from pathlib import Path
 from typing import Any
 
 from aria_kernel import deadlines
+from aria_kernel.finding_id_grammar import finding_id_sort_key
 from aria_kernel.ledger import read_jsonl
 from aria_kernel.plan_synthesizer import scan_orphan_findings
 from aria_kernel.report_ingestion import (
@@ -64,11 +65,29 @@ class RegistryViewContractTests(unittest.TestCase):
     @unittest.skipUnless((_REPO_ROOT / "node_modules/.bin/ts-node").is_file(),
                          "the repository's ts-node is not installed in this checkout")
     def test_the_live_registry_reads_through_the_view(self) -> None:
+        # MF-2: the frozen genesis segment, then every finding born after the
+        # freeze, one event log each (docs/reviews/_registry/findings/<PREFIX>/<ID>.jsonl),
+        # in the registry's order of ids: the sequence as a number (finding_id_sort_key),
+        # not the text order of the paths, which puts ARIA-LOW-1003 before ARIA-LOW-986.
         chain = _REPO_ROOT.joinpath(*REGISTRY_FINDINGS_RELPATH).read_text(encoding="utf-8")
         chain_ids = [json.loads(line)["id"] for line in chain.splitlines() if line.strip()]
+        store = _REPO_ROOT / "docs/reviews/_registry/findings"
+        genesis_ids = set(chain_ids)
+        born = [
+            path.stem
+            for path in sorted(store.glob("*/*.jsonl"), key=lambda p: finding_id_sort_key(p.stem))
+            if path.stem not in genesis_ids
+        ]
         view = read_registry_view(_REPO_ROOT)
-        self.assertEqual([row["id"] for row in view.rows], chain_ids)
-        self.assertEqual({entry.source for entry in view.entries}, {_BASE_REF})
+        self.assertEqual([row["id"] for row in view.rows], chain_ids + born)
+        # Each finding's source is the file that holds it: its event log when it has one (born
+        # after the freeze, or amended since), the frozen segment otherwise.
+        logs = {path.stem: path.relative_to(_REPO_ROOT).as_posix() for path in store.glob("*/*.jsonl")}
+        self.assertEqual(
+            [entry.source for entry in view.entries],
+            [logs.get(entry.row["id"], _BASE_REF) for entry in view.entries],
+        )
+        self.assertTrue(any(source != _BASE_REF for source in (entry.source for entry in view.entries)))
 
 
 @unittest.skipUnless((_REPO_ROOT / "node_modules/.bin/ts-node").is_file(),

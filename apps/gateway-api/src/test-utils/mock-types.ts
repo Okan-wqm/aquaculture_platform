@@ -310,21 +310,18 @@ export function createMockTenantContext(
     tenantId: string;
     tenantName: string;
     plan: string;
-    modules: string[];
     isActive: boolean;
   }> = {},
 ): {
   tenantId: string;
   tenantName?: string;
   plan?: string;
-  modules?: string[];
   isActive: boolean;
 } {
   return {
     tenantId: 'tenant-123',
     tenantName: 'Test Tenant',
     plan: 'professional',
-    modules: ['farm', 'sensor', 'alert'],
     isActive: true,
     ...overrides,
   };

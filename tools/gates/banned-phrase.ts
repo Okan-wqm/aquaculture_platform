@@ -280,7 +280,6 @@ const EXEMPT_PATHS: readonly RegExp[] = [
   // banned word in order to recognise them (meta-text, same as this file).
   /^tools\/gates\/banned-phrase-excuse\.ts$/,
   /^tools\/gates\/banned-phrase\.test\.(ts|mjs)$/,
-  /^tools\/scripts\/seed-finding-registry\.(mjs|ts)$/, // finding seed text references banned phrases by name (meta-text)
   /^tests\/invariants\//,
   // HR performance domain: GoalStatus.DEFERRED is a legitimate enum value
   // for the performance-management domain (a deferred goal is parked but

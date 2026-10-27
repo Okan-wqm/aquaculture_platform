@@ -4,6 +4,7 @@
  */
 
 import type { ReactNode } from 'react';
+import type { PlatformRole } from '@aquaculture/shared-contracts';
 
 export type { DeclarativeNavigateResult } from './react-router-declarative';
 
@@ -12,10 +13,10 @@ export type { DeclarativeNavigateResult } from './react-router-declarative';
 // ============================================================================
 
 /**
- * System user roles - hierarchical
- * SUPER_ADMIN > TENANT_ADMIN > MODULE_MANAGER > MODULE_USER
+ * System user roles, from their one owner (`@aquaculture/shared-contracts`,
+ * access/platform-roles.ts; RBAC-MEDIUM-024), which also orders them.
  */
-export type UserRole = 'SUPER_ADMIN' | 'TENANT_ADMIN' | 'MODULE_MANAGER' | 'MODULE_USER';
+export type UserRole = PlatformRole;
 
 /**
  * Module info for user access

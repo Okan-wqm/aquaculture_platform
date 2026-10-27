@@ -1,7 +1,8 @@
 import { InputType, Field } from '@nestjs/graphql';
 import { IsEnum, IsNotEmpty, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
 
-import { HrModuleCode } from '../../common/enums';
+import { OWNER_MODULE, type OwnerModuleCode } from '@aquaculture/shared-contracts';
+import { HR_MODULE_CODE_ENUM } from '../../common/enums';
 
 /**
  * Every property carries a class-validator decorator: the global ValidationPipe is
@@ -32,13 +33,13 @@ export class CreateDepartmentInput {
   @IsUUID(undefined, { message: 'Site ID must be a valid UUID' })
   siteId?: string;
 
-  @Field(() => HrModuleCode, {
+  @Field(() => HR_MODULE_CODE_ENUM, {
     nullable: true,
     description: 'Owning module; omit for a company-wide department',
   })
   @IsOptional()
-  @IsEnum(HrModuleCode)
-  moduleCode?: HrModuleCode;
+  @IsEnum(OWNER_MODULE)
+  moduleCode?: OwnerModuleCode;
 
   @Field({ nullable: true })
   @IsOptional()

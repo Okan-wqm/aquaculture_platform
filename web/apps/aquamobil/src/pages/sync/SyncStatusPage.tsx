@@ -11,6 +11,8 @@ import {
 } from 'lucide-react';
 import type { JSX } from 'react';
 
+import { RejectedReplayList } from './RejectedReplayList';
+
 import { AppHeader } from '@/components/AppHeader';
 import { DataFreshness } from '@/components/DataFreshness';
 import { Button, Card, EmptyState, IconButton } from '@/components/ui';
@@ -19,6 +21,8 @@ import {
   MAX_RETRY_COUNT,
   isPermanentlyFailed as isOperationPermanentlyFailed,
 } from '@/pwa/offline-queue';
+import { isRejectedReplay } from '@/pwa/rejected-replays';
+import type { QueuedOperation } from '@/types';
 import { getLastSyncAt } from '@/utils/last-sync';
 
 // WHY: Every OperationType must have a friendly label so the sync status page
@@ -51,9 +55,16 @@ const OPERATION_LABELS: Record<string, { label: string; icon: string }> = {
   markMessagesRead: { label: 'Mark Read', icon: '👁️' },
 };
 
+function operationLabel(op: QueuedOperation): string {
+  return (OPERATION_LABELS[op.type] || { label: op.type }).label;
+}
+
 export function SyncStatusPage(): JSX.Element {
   const { pendingOperations, pendingCount, isOnline, isSyncing, syncNow, removeFromQueue } =
     useOfflineQueue();
+  // PKG-42: a replay the server rejected is listed for re-entry on its own
+  // (RejectedReplayList), not among the operations still waiting to sync.
+  const waitingOperations = pendingOperations.filter((op) => !isRejectedReplay(op));
 
   const formatDate = (dateStr: string): string => {
     const date = new Date(dateStr);
@@ -121,11 +132,20 @@ export function SyncStatusPage(): JSX.Element {
           </Button>
         </div>
 
+        <RejectedReplayList
+          operations={pendingOperations}
+          labelOf={operationLabel}
+          formatDate={formatDate}
+          onDismiss={(id) => {
+            void removeFromQueue(id);
+          }}
+        />
+
         {/* Pending Operations List */}
-        {pendingOperations.length > 0 ? (
+        {waitingOperations.length > 0 ? (
           <section className="flex flex-col gap-2">
             <h2 className="text-body font-semibold text-ink-3 px-1">Pending Operations</h2>
-            {pendingOperations.map((op) => {
+            {waitingOperations.map((op) => {
               const config = OPERATION_LABELS[op.type] || { label: op.type, icon: '📝' };
               // BUG-17: Distinguish between retryable failures (will auto-retry)
               // and permanently failed operations (exceeded MAX_RETRY_COUNT).
@@ -193,13 +213,13 @@ export function SyncStatusPage(): JSX.Element {
               );
             })}
           </section>
-        ) : (
+        ) : pendingOperations.length === 0 ? (
           <EmptyState
             icon={<CheckCircle size={22} />}
             title="All Synced!"
             description="No pending operations"
           />
-        )}
+        ) : null}
 
         {/* Info */}
         <Card tone={2} elevated={false} className="p-4">

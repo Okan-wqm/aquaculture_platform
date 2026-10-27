@@ -1,4 +1,4 @@
-import type { HrModuleCode } from '../../common/enums';
+import type { OwnerModuleCode } from '@aquaculture/shared-contracts';
 
 export class GetOvertimeSummaryQuery {
   constructor(
@@ -8,6 +8,6 @@ export class GetOvertimeSummaryQuery {
     public readonly employeeId?: string,
     public readonly departmentId?: string,
     /** Only plans of employees whose live department is in this module; absent = every module. */
-    public readonly moduleCode?: HrModuleCode,
+    public readonly moduleCode?: OwnerModuleCode,
   ) {}
 }

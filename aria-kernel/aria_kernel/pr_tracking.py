@@ -16,8 +16,8 @@ from .ledger import (
     append_declared_jsonl,
     load_declared_jsonl,
 )
-from .memory import latest_beliefs
-from .tool_registry import GovernanceError, ensure_tools_dir, list_tools, utc_now
+from .memory import latest_beliefs, record_learning_event
+from .tool_registry import FIXTURE_SET_FIELD, GovernanceError, ensure_tools_dir, list_tools, utc_now
 
 if TYPE_CHECKING:
     from .workspace import WorkspacePaths
@@ -46,7 +46,6 @@ _DECLARED_SURFACE_BY_JSONL_SUFFIX: dict[str, str] = {
     "evidence-impact.jsonl": "evidence_impact",
     "cycle-state/incremental-plans.jsonl": "cycle_incremental_plans",
     "memory/beliefs.jsonl": "memory_beliefs",
-    "memory/learning-events.jsonl": "memory_learning_events",
 }
 
 
@@ -297,6 +296,7 @@ def dispatch_change_intelligence(
     context-recall file set.
     """
     from .agent_invocations import create_agent_invocation_request, minted_subject_refs
+    from .change_review import CLAIMS_KEY
     from .pressure_evidence import split_citable_refs
     from .request_admission import admit_request
     from .text_safety import untrusted_block
@@ -389,7 +389,13 @@ def dispatch_change_intelligence(
             + "\nReturn details.impact_map with beliefs_needs_revalidation, "
             "findings_needs_revalidation, fixtures_requires_rerun and "
             "confirmed_unchanged. Ground every entry in the change's commits, "
-            "not in its description."
+            "not in its description.\n"
+            f"Also return details.{CLAIMS_KEY}: every defect this change introduces "
+            "that the repository at the change's head shows, each with its "
+            "evidence_refs, an expectation_ref outside the changed lines, a "
+            "verbatim quote and a confidence; an empty list says you found none. "
+            "The claim shape and the claim families are in your delivered "
+            "contract. A claim is a hypothesis the kernel measures, not a finding."
         )
         request = create_agent_invocation_request(
             target_agent=CHANGE_INTELLIGENCE_AGENT,
@@ -645,20 +651,16 @@ def _mark_beliefs_for_revalidation(root: Path, cycle_id: str, impacted: list[dic
             },
         )
         append_jsonl(root / "memory" / "beliefs.jsonl", row)
-        append_jsonl(
-            root / "memory" / "learning-events.jsonl",
-            {
-                "schema_version": 1,
-                "recorded_at": utc_now(),
-                "cycle_id": cycle_id,
-                "event_type": "evidence_invalidated",
-                "target_type": "belief",
-                "target_id": belief_id,
-                "repo_state_id": row.get("repo_state_id"),
-                "base_commit_sha": row.get("base_commit_sha"),
-                "evidence_hashes": _string_list(row.get("evidence_hashes")),
-                "details": {"reason": "PR or merge changed evidence reference"},
-            },
+        record_learning_event(
+            root,
+            cycle_id=cycle_id,
+            event_type="evidence_invalidated",
+            target_type="belief",
+            target_id=belief_id,
+            repo_state_id=row.get("repo_state_id"),
+            base_commit_sha=row.get("base_commit_sha"),
+            evidence_hashes=_string_list(row.get("evidence_hashes")),
+            details={"reason": "PR or merge changed evidence reference"},
         )
 
 
@@ -698,8 +700,12 @@ def _impacted_findings(root: Path, changed_files: list[str]) -> list[dict[str, A
 def _impacted_adapters(root: Path, changed_files: list[str]) -> list[dict[str, Any]]:
     impacted = []
     for tool in list_tools(base_dir=root):
+        if FIXTURE_SET_FIELD not in tool:
+            # An agent-backed tool owns no suite (tool_registry.required_tool_fields): a merge has no
+            # fixtures of it to rerun, and an empty name would match every path as the pattern "/**".
+            continue
         tool_id = str(tool.get("tool_id") or "")
-        fixture_set = str(tool.get("fixture_set") or "")
+        fixture_set = str(tool[FIXTURE_SET_FIELD])
         patterns = [
             "aria-tools/registry.json",
             "aria-tools/fixtures/**",

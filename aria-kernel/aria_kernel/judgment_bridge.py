@@ -47,6 +47,7 @@ from .feedback_store import (
 from .independence_check import is_executor_identity
 from .model_fleet import provider_reports_confidence
 from .must_satisfy import TRUE_POSITIVE_PREMISE_KINDS
+from .pr_tracking import CHANGE_INTELLIGENCE_ROLE
 from .typed_judgment import (
     PRIMITIVES,
     ChoiceQuestion,
@@ -57,6 +58,7 @@ from .typed_judgment import (
     parse_single_answer,
 )
 from .bridge_exceptions import BridgeContractRefused
+from .change_review import CLAIMS_KEY, bridge_defect_claims
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
 
 
@@ -585,6 +587,13 @@ def persist_supporting_payload(
     `aria-tools/judgment-pipeline/<role>/<request_id>.json` so the
     consuming kernel command does not have to re-read the raw envelope.
 
+    WP-D3 — a `change_intelligence` response may also carry
+    `details.defect_claims`: the agent's hypotheses about defects the change
+    introduces. They are not persisted beside the impact map; they become
+    raw rows of the registered tool `change-review`
+    (`change_review.bridge_defect_claims`, which owns every rule about them)
+    and the summary rides on the returned metadata as `defect_claims`.
+
     Returns the persisted-payload row metadata, or None when the role is
     not a supporting role.
     """
@@ -620,7 +629,10 @@ def persist_supporting_payload(
             "at": utc_now(),
         },
     )
-    return {"role": role, "request_id": request_id, "path": str(out_path)}
+    persisted: dict[str, Any] = {"role": role, "request_id": request_id, "path": str(out_path)}
+    if role == CHANGE_INTELLIGENCE_ROLE and CLAIMS_KEY in details:
+        persisted[CLAIMS_KEY] = bridge_defect_claims(request=request, claims=details[CLAIMS_KEY], base_dir=root)
+    return persisted
 
 
 def run_consensus(

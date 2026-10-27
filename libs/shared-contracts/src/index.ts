@@ -68,6 +68,110 @@ export type {
 export { MESSAGING_MEDIA_MIME_ALLOWLIST } from './enums/messaging-media-mime';
 export type { MessagingMediaMime } from './enums/messaging-media-mime';
 
+// ── Module dictionary (RBAC-MEDIUM-023) ──
+// The one declaration of the platform's module codes: every tenant module, the
+// owner modules (farm, hr, sensor, hydroponics; hydroponics reserved) and the
+// guards for codes crossing a trust boundary. Token grants, registry keys,
+// department and alarm modules, Postgres labels and GraphQL enums derive from it.
+export {
+  PLATFORM_MODULE,
+  PLATFORM_MODULE_CODES,
+  MODULE_DESCRIPTORS,
+  OWNER_MODULE,
+  OWNER_MODULE_CODES,
+  ACTIVE_OWNER_MODULE_CODES,
+  isPlatformModuleCode,
+  isOwnerModuleCode,
+  isActiveOwnerModuleCode,
+} from './modules/platform-modules';
+export type {
+  PlatformModuleKey,
+  PlatformModuleCode,
+  ModuleLifecycle,
+  ModuleDescriptor,
+  OwnerModuleCode,
+  ActiveOwnerModuleCode,
+} from './modules/platform-modules';
+
+// ── Access vocabulary (RBAC-MEDIUM-024; ADR-051 §1) ──
+// The platform roles and their one hierarchy, the tenant capability catalogue and the one
+// capability check, the access kinds, the member and service callers, ModuleScope, and the one
+// pure decideAccess that guards, NATS responders, sockets, notification fan-out and the nav call.
+export {
+  PLATFORM_ROLES_BY_PRIVILEGE,
+  PLATFORM_ROLE,
+  PLATFORM_ROLE_KIND,
+  PLATFORM_ROLE_HIERARCHY,
+  ACCOUNT_ROLES,
+  MODULE_ROLES,
+  isPlatformRole,
+  isAccountRole,
+  isModuleRole,
+  platformRoleSatisfies,
+  highestPlatformRole,
+  accountRoleOf,
+} from './access/platform-roles';
+export type {
+  PlatformRole,
+  PlatformRoleKind,
+  AccountRole,
+  ModuleRole,
+} from './access/platform-roles';
+export {
+  TENANT_CAPABILITY_CATALOGUE,
+  TENANT_CAPABILITIES,
+  COMPANY_VIEW_CAPABILITY,
+  EDGE_DEVICE_IO_CONFIG_CAPABILITY,
+  isTenantCapability,
+  holdsTenantCapabilities,
+} from './access/tenant-capabilities';
+export type {
+  TenantCapability,
+  TenantCapabilityCatalogue,
+  TenantCapabilityCategoryKey,
+  TenantCapabilityHolder,
+  TenantCapabilityPanel,
+} from './access/tenant-capabilities';
+export {
+  ALL_MODULES_SCOPE,
+  ScopeWideningError,
+  moduleScopeOf,
+  moduleScopeIncludes,
+  narrowModuleScope,
+} from './access/module-scope';
+export type { ModuleScope, NonEmptyReadonlyArray } from './access/module-scope';
+export { NATS_SERVICE_NAMES, serviceCaller } from './access/access-spec';
+export { MalformedCallerError, isModuleAccess, userCaller } from './access/user-caller';
+export type {
+  CallerClaim,
+  ModuleAccess,
+  UserCaller,
+  VerifiedMemberIdentity,
+} from './access/user-caller';
+export type {
+  AccessIntent,
+  ServiceIntent,
+  ScopedKind,
+  ModuleAccessSpec,
+  ScopedAccessSpec,
+  CompanyAccessSpec,
+  SelfAccessSpec,
+  AccountAccessSpec,
+  ServiceAccessSpec,
+  MemberAccessSpec,
+  AccessSpec,
+  AccessKind,
+  AccessRequest,
+  NatsServiceName,
+  ServiceCaller,
+  Caller,
+  UserSubjectAccess,
+  ServiceSubjectAccess,
+  SubjectAccess,
+} from './access/access-spec';
+export { decideAccess, deriveServiceGrants } from './access/decide-access';
+export type { AccessDecision, AccessDenyReason, ServiceGrants } from './access/decide-access';
+
 // ── AI Persona Grammar + Catalogue ──
 // Single source of truth for persona ids (`<tier>[-<specialty>]-v<N>`) and the
 // published persona catalogue (names, icons, RBAC requirements). Consumed by
@@ -93,6 +197,7 @@ export {
   AI_TIER_PRESENTATION,
   AI_SPECIALTY_CATALOGUE,
   AI_PERSONA_CATALOGUE,
+  AI_SPECIALTY_MODULE_CODES,
   findAiPersona,
   DEFAULT_AI_PERSONA_ID,
   AI_GENERAL_ASSISTANT_PICKER_ENTRY,
@@ -100,9 +205,9 @@ export {
 export type {
   AiPersonaIcon,
   AiPersonaColor,
-  AiSpecialtyModule,
   AiSpecialtyDefinition,
   AiPersonaCatalogueEntry,
+  AiPersonaCapability,
 } from './ai/persona-catalogue';
 
 // ── Sensor-reading tier policy (SENSOR-MEDIUM-149) ──

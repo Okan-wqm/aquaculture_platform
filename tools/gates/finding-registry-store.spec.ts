@@ -17,18 +17,22 @@ import { hostname, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { after, test } from 'node:test';
 
+import { parseFindingId } from './finding-id-grammar';
 import {
   appendAllocatedFinding,
   appendExplicitFinding,
   appendNarrativeFinding,
-  checkCanonicalRegistryPrefix,
   type FindingAllocationAuthority,
   type Finding,
-  parseRechainStartIndex,
-  prepareRegistryRechain,
   resolveGitFindingAllocationAuthority,
-  validateRegistrySuffixForRechain,
 } from './finding-registry';
+import {
+  foldRegistry,
+  readRegistryStoreIn,
+  registryLayout,
+  type RegistryLayout,
+} from './finding-registry-projection';
+import { rowContractViolations } from './finding-registry-rows';
 import {
   atomicWriteRegistryFile,
   claimedSequences,
@@ -53,18 +57,58 @@ function git(repoRoot: string, args: readonly string[]): string {
   }).trim();
 }
 
+const REGISTRY_SOURCE_DIR = resolve(__dirname, '..', '..', 'docs', 'reviews', '_registry');
+
+/**
+ * An empty registry directory: an empty genesis segment and the row and event
+ * contracts, as a checkout before its first finding holds it.
+ */
+function emptyRegistry(dir: string): RegistryLayout {
+  const layout = registryLayout(dir);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(layout.genesisPath, '', 'utf8');
+  copyFileSync(join(REGISTRY_SOURCE_DIR, 'findings.jsonl.schema.json'), layout.rowSchemaPath);
+  copyFileSync(join(REGISTRY_SOURCE_DIR, 'finding-event.schema.json'), layout.eventSchemaPath);
+  return layout;
+}
+
+/** The sequence of a finding id of the grammar. */
+function sequenceOf(id: string): number {
+  const parsed = parseFindingId(id);
+  assert.ok(parsed, `${id} is a finding id`);
+  return parsed.sequence;
+}
+
+/** The rows a registry directory records: its genesis segment and events folded. */
+function recordedRows(layout: RegistryLayout): Finding[] {
+  return foldRegistry(readRegistryStoreIn(layout.dir));
+}
+
+/** Every recorded row as one JSON line: what an append adds and a refusal leaves alone. */
+function recordedJsonl(layout: RegistryLayout): string {
+  return recordedRows(layout)
+    .map((row) => JSON.stringify(row))
+    .join('\n');
+}
+
+/** Every recorded id, as one line each, for "nothing was written" comparisons. */
+function recordedIds(layout: RegistryLayout): string {
+  return recordedRows(layout)
+    .map((row) => row.id)
+    .join('\n');
+}
+
 function runWorktreeAllocatorChild(): never {
   const repoRoot = process.argv[3];
-  const registryPath = process.argv[4];
-  const schemaPath = process.argv[5];
-  const stubPath = process.argv[6];
-  if (!repoRoot || !registryPath || !schemaPath || !stubPath) process.exit(64);
+  const registryDir = process.argv[4];
+  const stubPath = process.argv[5];
+  if (!repoRoot || !registryDir || !stubPath) process.exit(64);
 
   const authority = resolveGitFindingAllocationAuthority(repoRoot);
   const exitCode = withRegistryFileLock(
-    registryPath,
+    registryDir,
     (lease) =>
-      appendAllocatedFinding('PROC', stubPath, lease, { registryPath, schemaPath }, authority),
+      appendAllocatedFinding('PROC', stubPath, lease, registryLayout(registryDir), authority),
     {
       lockPath: authority.lockPath,
       timeoutMs: 5_000,
@@ -95,48 +139,11 @@ if (childMode === '--worktree-allocator-child') {
     assert.equal(id, 'FARM-HIGH-020');
   });
 
-  void test('rechain authority preserves the canonical main prefix', () => {
-    const canonical = [{ id: 'FARM-HIGH-001' }, { id: 'FARM-HIGH-002' }];
-    const branch = [...canonical, { id: 'FARM-HIGH-003' }];
-
-    assert.deepEqual(checkCanonicalRegistryPrefix(branch, canonical, 2), {
-      branchSuffixStartIndex: 2,
-      violation: null,
-    });
-    assert.match(
-      checkCanonicalRegistryPrefix(branch, canonical, 1).violation ?? '',
-      /enters the canonical origin\/main prefix/,
-    );
-    assert.match(
-      checkCanonicalRegistryPrefix(
-        [{ id: 'FARM-HIGH-001' }, { id: 'FARM-HIGH-TAMPERED' }, branch[2]],
-        canonical,
-        2,
-      ).violation ?? '',
-      /entry 1 differs/,
-    );
-  });
-
-  void test('rechain index parser rejects partial, signed, padded, and unsafe numbers', () => {
-    assert.equal(parseRechainStartIndex('1296'), 1296);
-    assert.equal(parseRechainStartIndex('0'), 0);
-    for (const invalid of [
-      undefined,
-      '',
-      '01',
-      '+1',
-      '-1',
-      '1.0',
-      '1296junk',
-      '9007199254740992',
-    ]) {
-      assert.equal(parseRechainStartIndex(invalid), null);
-    }
-  });
-
   void test('nextFindingId rejects malformed domains and exhausted sequences', () => {
     assert.throws(() => nextFindingId('farm', 'LOW', []), /uppercase alphanumeric/);
-    assert.throws(() => nextFindingId('INFRA', 'CRITICAL', ['INFRA-LOW-999']), /space exhausted/);
+    assert.throws(() => nextFindingId('INFRA', 'CRITICAL', ['INFRA-LOW-9999']), /space exhausted/);
+    // 999 is no longer the last id: the sequence is the grammar's (finding-id-grammar.ts).
+    assert.equal(nextFindingId('INFRA', 'CRITICAL', ['INFRA-LOW-999']), 'INFRA-CRITICAL-1000');
   });
 
   void test('readOrphanMarkdownStore sees every heading form the file uses', () => {
@@ -230,15 +237,6 @@ if (childMode === '--worktree-allocator-child') {
     );
   });
 
-  const narrativeImportSchemaPath = resolve(
-    __dirname,
-    '..',
-    '..',
-    'docs',
-    'reviews',
-    '_registry',
-    'findings.jsonl.schema.json',
-  );
   const narrativeReviewFile = 'docs/reviews/orphan-findings.md';
 
   function narrativeImportFixture(
@@ -252,21 +250,19 @@ if (childMode === '--worktree-allocator-child') {
       evidence?: string[];
     } = {},
   ): {
-    registryPath: string;
+    layout: RegistryLayout;
     narrativePath: string;
     stubPath: string;
     paths: {
-      registryPath: string;
-      schemaPath: string;
+      layout: RegistryLayout;
       narrativePath: string;
       narrativeReviewFile: string;
     };
   } {
     const id = options.id ?? 'ORPHAN-HIGH-775';
-    const registryPath = join(fixtureRoot, `${name}.jsonl`);
+    const layout = emptyRegistry(join(fixtureRoot, name));
     const narrativePath = join(fixtureRoot, `${name}.md`);
     const stubPath = join(fixtureRoot, `${name}-stub.json`);
-    writeFileSync(registryPath, '', 'utf8');
     writeFileSync(
       narrativePath,
       options.narrative ?? `## ${id} — historical narrative — RESOLVED\n`,
@@ -288,12 +284,11 @@ if (childMode === '--worktree-allocator-child') {
       'utf8',
     );
     return {
-      registryPath,
+      layout,
       narrativePath,
       stubPath,
       paths: {
-        registryPath,
-        schemaPath: narrativeImportSchemaPath,
+        layout,
         narrativePath,
         narrativeReviewFile,
       },
@@ -302,12 +297,13 @@ if (childMode === '--worktree-allocator-child') {
 
   void test('narrative import appends the exact anchored heading as a new OPEN row', () => {
     const fixture = narrativeImportFixture('narrative-import-success');
-    const exitCode = withRegistryFileLock(fixture.registryPath, (lease) =>
+    const exitCode = withRegistryFileLock(fixture.layout.dir, (lease) =>
       appendNarrativeFinding(fixture.stubPath, lease, fixture.paths),
     );
 
     assert.equal(exitCode, 0);
-    const imported = JSON.parse(readFileSync(fixture.registryPath, 'utf8').trim()) as Finding;
+    const [imported] = recordedRows(fixture.layout);
+    assert.ok(imported);
     assert.equal(imported.id, 'ORPHAN-HIGH-775');
     assert.equal(imported.state, 'OPEN');
     assert.equal(imported.closed_at, null);
@@ -317,29 +313,30 @@ if (childMode === '--worktree-allocator-child') {
 
   void test('narrative import replay cannot append an already-imported row', () => {
     const fixture = narrativeImportFixture('narrative-import-replay');
-    const firstExit = withRegistryFileLock(fixture.registryPath, (lease) =>
+    const firstExit = withRegistryFileLock(fixture.layout.dir, (lease) =>
       appendNarrativeFinding(fixture.stubPath, lease, fixture.paths),
     );
     assert.equal(firstExit, 0);
-    const afterFirst = readFileSync(fixture.registryPath, 'utf8');
+    const eventLog = join(fixture.layout.storeDir, 'ORPHAN', 'ORPHAN-HIGH-775.jsonl');
+    const afterFirst = readFileSync(eventLog, 'utf8');
 
-    const replayExit = withRegistryFileLock(fixture.registryPath, (lease) =>
+    const replayExit = withRegistryFileLock(fixture.layout.dir, (lease) =>
       appendNarrativeFinding(fixture.stubPath, lease, fixture.paths),
     );
     assert.equal(replayExit, 1);
-    assert.equal(readFileSync(fixture.registryPath, 'utf8'), afterFirst);
+    assert.equal(readFileSync(eventLog, 'utf8'), afterFirst);
   });
 
   void test('narrative import refuses a sequence claimed by an unrelated heading', () => {
     const fixture = narrativeImportFixture('narrative-import-unrelated', {
       narrative: '## ORPHAN-MEDIUM-775 — a different finding\n',
     });
-    const exitCode = withRegistryFileLock(fixture.registryPath, (lease) =>
+    const exitCode = withRegistryFileLock(fixture.layout.dir, (lease) =>
       appendNarrativeFinding(fixture.stubPath, lease, fixture.paths),
     );
 
     assert.equal(exitCode, 1);
-    assert.equal(readFileSync(fixture.registryPath, 'utf8'), '');
+    assert.equal(recordedIds(fixture.layout), '');
   });
 
   void test('narrative import refuses an ambiguous duplicate heading', () => {
@@ -347,12 +344,12 @@ if (childMode === '--worktree-allocator-child') {
     const fixture = narrativeImportFixture('narrative-import-ambiguous', {
       narrative: `${heading}${heading}`,
     });
-    const exitCode = withRegistryFileLock(fixture.registryPath, (lease) =>
+    const exitCode = withRegistryFileLock(fixture.layout.dir, (lease) =>
       appendNarrativeFinding(fixture.stubPath, lease, fixture.paths),
     );
 
     assert.equal(exitCode, 1);
-    assert.equal(readFileSync(fixture.registryPath, 'utf8'), '');
+    assert.equal(recordedIds(fixture.layout), '');
   });
 
   void test('narrative import refuses an exact heading with a suffixed severity variant on the same sequence', () => {
@@ -361,82 +358,82 @@ if (childMode === '--worktree-allocator-child') {
         '## ORPHAN-HIGH-775 — requested historical finding\n' +
         '## ORPHAN-LOW-775b — conflicting suffixed re-open\n',
     });
-    const exitCode = withRegistryFileLock(fixture.registryPath, (lease) =>
+    const exitCode = withRegistryFileLock(fixture.layout.dir, (lease) =>
       appendNarrativeFinding(fixture.stubPath, lease, fixture.paths),
     );
 
     assert.equal(exitCode, 1);
-    assert.equal(readFileSync(fixture.registryPath, 'utf8'), '');
+    assert.equal(recordedIds(fixture.layout), '');
   });
 
   void test('narrative import refuses a missing heading', () => {
     const fixture = narrativeImportFixture('narrative-import-missing', {
       narrative: '## ORPHAN-HIGH-776 — another historical finding\n',
     });
-    const exitCode = withRegistryFileLock(fixture.registryPath, (lease) =>
+    const exitCode = withRegistryFileLock(fixture.layout.dir, (lease) =>
       appendNarrativeFinding(fixture.stubPath, lease, fixture.paths),
     );
 
     assert.equal(exitCode, 1);
-    assert.equal(readFileSync(fixture.registryPath, 'utf8'), '');
+    assert.equal(recordedIds(fixture.layout), '');
   });
 
   void test('narrative import refuses severity drift from the heading id', () => {
     const fixture = narrativeImportFixture('narrative-import-severity', {
       severity: 'MEDIUM',
     });
-    const exitCode = withRegistryFileLock(fixture.registryPath, (lease) =>
+    const exitCode = withRegistryFileLock(fixture.layout.dir, (lease) =>
       appendNarrativeFinding(fixture.stubPath, lease, fixture.paths),
     );
 
     assert.equal(exitCode, 2);
-    assert.equal(readFileSync(fixture.registryPath, 'utf8'), '');
+    assert.equal(recordedIds(fixture.layout), '');
   });
 
   void test('narrative import refuses a review file that does not own the heading', () => {
     const fixture = narrativeImportFixture('narrative-import-review-file', {
       reviewFile: 'docs/reviews/other.md',
     });
-    const exitCode = withRegistryFileLock(fixture.registryPath, (lease) =>
+    const exitCode = withRegistryFileLock(fixture.layout.dir, (lease) =>
       appendNarrativeFinding(fixture.stubPath, lease, fixture.paths),
     );
 
     assert.equal(exitCode, 1);
-    assert.equal(readFileSync(fixture.registryPath, 'utf8'), '');
+    assert.equal(recordedIds(fixture.layout), '');
   });
 
   void test('narrative import refuses evidence that does not resolve to the exact heading', () => {
     const fixture = narrativeImportFixture('narrative-import-evidence', {
       evidence: [`${narrativeReviewFile}#ORPHAN-HIGH-776`],
     });
-    const exitCode = withRegistryFileLock(fixture.registryPath, (lease) =>
+    const exitCode = withRegistryFileLock(fixture.layout.dir, (lease) =>
       appendNarrativeFinding(fixture.stubPath, lease, fixture.paths),
     );
 
     assert.equal(exitCode, 1);
-    assert.equal(readFileSync(fixture.registryPath, 'utf8'), '');
+    assert.equal(recordedIds(fixture.layout), '');
   });
 
   void test('narrative import refuses an id present only in a sibling registry', () => {
     const fixture = narrativeImportFixture('narrative-import-sibling');
-    const siblingRegistryPath = join(fixtureRoot, 'narrative-import-sibling-other.jsonl');
+    const sibling = emptyRegistry(join(fixtureRoot, 'narrative-import-sibling-other'));
     const lockPath = join(fixtureRoot, 'narrative-import-sibling.lock');
     const reservationPath = join(fixtureRoot, 'narrative-import-sibling-reservations.json');
-    writeFileSync(siblingRegistryPath, '{"id":"ORPHAN-HIGH-775"}\n', 'utf8');
+    writeFileSync(sibling.genesisPath, '{"id":"ORPHAN-HIGH-775"}\n', 'utf8');
     const authority: FindingAllocationAuthority = {
       lockPath,
       reservationPath,
-      activeRegistryPaths: () => [fixture.registryPath, siblingRegistryPath],
+      activeRegistryPaths: () => [fixture.layout.dir, sibling.dir],
     };
 
     const exitCode = withRegistryFileLock(
-      fixture.registryPath,
+      fixture.layout.dir,
       (lease) => appendNarrativeFinding(fixture.stubPath, lease, fixture.paths, authority),
       { lockPath },
     );
 
     assert.equal(exitCode, 1);
-    assert.equal(readFileSync(fixture.registryPath, 'utf8'), '');
+    assert.equal(recordedIds(fixture.layout), '');
     assert.equal(existsSync(reservationPath), false);
   });
 
@@ -464,15 +461,11 @@ if (childMode === '--worktree-allocator-child') {
   void test('Git common-dir authority serializes and reserves across active worktrees', async () => {
     const repoA = join(fixtureRoot, 'worktree-a');
     const repoB = join(fixtureRoot, 'worktree-b');
-    const registryRelativePath = join('docs', 'reviews', '_registry', 'findings.jsonl');
-    const schemaRelativePath = join('docs', 'reviews', '_registry', 'findings.jsonl.schema.json');
-    const registryA = join(repoA, registryRelativePath);
-    const registryB = join(repoB, registryRelativePath);
-    const schemaA = join(repoA, schemaRelativePath);
-    const schemaB = join(repoB, schemaRelativePath);
-    mkdirSync(join(repoA, 'docs', 'reviews', '_registry'), { recursive: true });
-    copyFileSync(resolve(__dirname, '..', '..', schemaRelativePath), schemaA);
-    writeFileSync(registryA, '', 'utf8');
+    const registryRelativeDir = join('docs', 'reviews', '_registry');
+    const registryA = join(repoA, registryRelativeDir);
+    const registryB = join(repoB, registryRelativeDir);
+    const layoutA = emptyRegistry(registryA);
+    const layoutB = registryLayout(registryB);
 
     git(repoA, ['init', '--quiet', '--initial-branch=main']);
     git(repoA, ['config', 'user.email', 'finding-registry-spec@invalid.local']);
@@ -517,12 +510,7 @@ if (childMode === '--worktree-allocator-child') {
 
     const registerPath = require.resolve('ts-node/register/transpile-only');
     const projectPath = resolve(__dirname, 'tsconfig.json');
-    const launch = (
-      repoRoot: string,
-      registryPath: string,
-      schemaPath: string,
-      stubPath: string,
-    ): Promise<void> =>
+    const launch = (repoRoot: string, registryDir: string, stubPath: string): Promise<void> =>
       new Promise((resolveChild, rejectChild) => {
         const child = spawn(
           process.execPath,
@@ -532,8 +520,7 @@ if (childMode === '--worktree-allocator-child') {
             __filename,
             '--worktree-allocator-child',
             repoRoot,
-            registryPath,
-            schemaPath,
+            registryDir,
             stubPath,
           ],
           {
@@ -553,20 +540,11 @@ if (childMode === '--worktree-allocator-child') {
         });
       });
 
-    await Promise.all([
-      launch(repoA, registryA, schemaA, stubA),
-      launch(repoB, registryB, schemaB, stubB),
-    ]);
+    await Promise.all([launch(repoA, registryA, stubA), launch(repoB, registryB, stubB)]);
 
-    const worktreeEntries = [registryA, registryB].flatMap((registryPath) =>
-      readFileSync(registryPath, 'utf8')
-        .trim()
-        .split('\n')
-        .filter(Boolean)
-        .map((line) => JSON.parse(line) as { id: string }),
-    );
+    const worktreeEntries = [layoutA, layoutB].flatMap(recordedRows);
     assert.deepEqual(
-      worktreeEntries.map((entry) => Number.parseInt(entry.id.slice(-3), 10)).sort((a, b) => a - b),
+      worktreeEntries.map((entry) => sequenceOf(entry.id)).sort((a, b) => a - b),
       [1, 2],
     );
     const reservations = JSON.parse(readFileSync(authorityA.reservationPath, 'utf8')) as {
@@ -579,10 +557,7 @@ if (childMode === '--worktree-allocator-child') {
     const localBStub = join(fixtureRoot, 'worktree-b-local-infra.json');
     makeStub(localBStub, 'LOW', 'Active worktree high-water finding', '2026-07-17T01:00:02Z');
     const localExit = withRegistryFileLock(registryB, (lease) =>
-      appendAllocatedFinding('INFRA', localBStub, lease, {
-        registryPath: registryB,
-        schemaPath: schemaB,
-      }),
+      appendAllocatedFinding('INFRA', localBStub, lease, layoutB),
     );
     assert.equal(localExit, 0);
 
@@ -595,18 +570,11 @@ if (childMode === '--worktree-allocator-child') {
     );
     const authorityExit = withRegistryFileLock(
       registryA,
-      (lease) =>
-        appendAllocatedFinding(
-          'INFRA',
-          authorityAStub,
-          lease,
-          { registryPath: registryA, schemaPath: schemaA },
-          authorityA,
-        ),
+      (lease) => appendAllocatedFinding('INFRA', authorityAStub, lease, layoutA, authorityA),
       { lockPath: authorityA.lockPath },
     );
     assert.equal(authorityExit, 0);
-    assert.match(readFileSync(registryA, 'utf8'), /"id":"INFRA-HIGH-002"/);
+    assert.match(recordedJsonl(layoutA), /"id":"INFRA-HIGH-002"/);
 
     const zeroStub = join(fixtureRoot, 'worktree-a-explicit-zero.json');
     makeStub(
@@ -618,21 +586,15 @@ if (childMode === '--worktree-allocator-child') {
     const zeroValue = JSON.parse(readFileSync(zeroStub, 'utf8')) as Record<string, unknown>;
     zeroValue['id'] = 'PROC-HIGH-000';
     writeFileSync(zeroStub, JSON.stringify(zeroValue), 'utf8');
-    const registryBeforeZero = readFileSync(registryA, 'utf8');
+    const registryBeforeZero = recordedJsonl(layoutA);
     const reservationsBeforeZero = readFileSync(authorityA.reservationPath, 'utf8');
     const zeroExit = withRegistryFileLock(
       registryA,
-      (lease) =>
-        appendExplicitFinding(
-          zeroStub,
-          lease,
-          { registryPath: registryA, schemaPath: schemaA },
-          authorityA,
-        ),
+      (lease) => appendExplicitFinding(zeroStub, lease, layoutA, authorityA),
       { lockPath: authorityA.lockPath },
     );
     assert.equal(zeroExit, 2);
-    assert.equal(readFileSync(registryA, 'utf8'), registryBeforeZero);
+    assert.equal(recordedJsonl(layoutA), registryBeforeZero);
     assert.equal(readFileSync(authorityA.reservationPath, 'utf8'), reservationsBeforeZero);
 
     // The governed fixed-id path must not provide a cross-worktree bypass.
@@ -652,25 +614,13 @@ if (childMode === '--worktree-allocator-child') {
 
     const explicitExit = withRegistryFileLock(
       registryB,
-      (lease) =>
-        appendExplicitFinding(
-          explicitStub,
-          lease,
-          { registryPath: registryB, schemaPath: schemaB },
-          authorityB,
-        ),
+      (lease) => appendExplicitFinding(explicitStub, lease, layoutB, authorityB),
       { lockPath: authorityB.lockPath },
     );
     assert.equal(explicitExit, 0);
     const duplicateExit = withRegistryFileLock(
       registryA,
-      (lease) =>
-        appendExplicitFinding(
-          explicitStub,
-          lease,
-          { registryPath: registryA, schemaPath: schemaA },
-          authorityA,
-        ),
+      (lease) => appendExplicitFinding(explicitStub, lease, layoutA, authorityA),
       { lockPath: authorityA.lockPath },
     );
     assert.equal(duplicateExit, 1);
@@ -690,18 +640,11 @@ if (childMode === '--worktree-allocator-child') {
     );
     const afterRemovalExit = withRegistryFileLock(
       registryA,
-      (lease) =>
-        appendAllocatedFinding(
-          'PROC',
-          afterRemovalStub,
-          lease,
-          { registryPath: registryA, schemaPath: schemaA },
-          authorityA,
-        ),
+      (lease) => appendAllocatedFinding('PROC', afterRemovalStub, lease, layoutA, authorityA),
       { lockPath: authorityA.lockPath },
     );
     assert.equal(afterRemovalExit, 0);
-    assert.match(readFileSync(registryA, 'utf8'), /"id":"PROC-LOW-011"/);
+    assert.match(recordedJsonl(layoutA), /"id":"PROC-LOW-011"/);
 
     const cveStub = join(fixtureRoot, 'worktree-a-explicit-cve.json');
     makeStub(
@@ -715,13 +658,7 @@ if (childMode === '--worktree-allocator-child') {
     writeFileSync(cveStub, JSON.stringify(cveValue), 'utf8');
     const cveExit = withRegistryFileLock(
       registryA,
-      (lease) =>
-        appendExplicitFinding(
-          cveStub,
-          lease,
-          { registryPath: registryA, schemaPath: schemaA },
-          authorityA,
-        ),
+      (lease) => appendExplicitFinding(cveStub, lease, layoutA, authorityA),
       { lockPath: authorityA.lockPath },
     );
     assert.equal(cveExit, 0);
@@ -735,33 +672,16 @@ if (childMode === '--worktree-allocator-child') {
     );
     const afterCveExit = withRegistryFileLock(
       registryA,
-      (lease) =>
-        appendAllocatedFinding(
-          'RUST',
-          afterCveStub,
-          lease,
-          { registryPath: registryA, schemaPath: schemaA },
-          authorityA,
-        ),
+      (lease) => appendAllocatedFinding('RUST', afterCveStub, lease, layoutA, authorityA),
       { lockPath: authorityA.lockPath },
     );
     assert.equal(afterCveExit, 0);
-    assert.match(readFileSync(registryA, 'utf8'), /"id":"RUST-LOW-021"/);
+    assert.match(recordedJsonl(layoutA), /"id":"RUST-LOW-021"/);
   });
 
   void test('allocated append validates schema and writes under the held lease', () => {
-    const resourcePath = join(fixtureRoot, 'schema-validated.jsonl');
-    const schemaPath = resolve(
-      __dirname,
-      '..',
-      '..',
-      'docs',
-      'reviews',
-      '_registry',
-      'findings.jsonl.schema.json',
-    );
+    const layout = emptyRegistry(join(fixtureRoot, 'schema-validated'));
     const validStubPath = join(fixtureRoot, 'valid-stub.json');
-    writeFileSync(resourcePath, '', 'utf8');
     writeFileSync(
       validStubPath,
       JSON.stringify({
@@ -776,14 +696,11 @@ if (childMode === '--worktree-allocator-child') {
       'utf8',
     );
 
-    const exitCode = withRegistryFileLock(resourcePath, (lease) =>
-      appendAllocatedFinding('PROC', validStubPath, lease, {
-        registryPath: resourcePath,
-        schemaPath,
-      }),
+    const exitCode = withRegistryFileLock(layout.dir, (lease) =>
+      appendAllocatedFinding('PROC', validStubPath, lease, layout),
     );
     assert.equal(exitCode, 0);
-    const afterValid = readFileSync(resourcePath, 'utf8');
+    const afterValid = recordedJsonl(layout);
     assert.match(afterValid, /"id":"PROC-HIGH-001"/);
     assert.doesNotMatch(afterValid, /"layer":/);
 
@@ -802,14 +719,11 @@ if (childMode === '--worktree-allocator-child') {
       }),
       'utf8',
     );
-    const explicitWithoutLayerExit = withRegistryFileLock(resourcePath, (lease) =>
-      appendExplicitFinding(explicitWithoutLayerPath, lease, {
-        registryPath: resourcePath,
-        schemaPath,
-      }),
+    const explicitWithoutLayerExit = withRegistryFileLock(layout.dir, (lease) =>
+      appendExplicitFinding(explicitWithoutLayerPath, lease, layout),
     );
     assert.equal(explicitWithoutLayerExit, 0);
-    const afterExplicitWithoutLayer = readFileSync(resourcePath, 'utf8');
+    const afterExplicitWithoutLayer = recordedJsonl(layout);
     assert.match(afterExplicitWithoutLayer, /"id":"CLAUDE-LOW-001"/);
 
     const mismatchedClassifierPath = join(fixtureRoot, 'explicit-mismatched-classifier.json');
@@ -826,14 +740,11 @@ if (childMode === '--worktree-allocator-child') {
       }),
       'utf8',
     );
-    const mismatchedClassifierExit = withRegistryFileLock(resourcePath, (lease) =>
-      appendExplicitFinding(mismatchedClassifierPath, lease, {
-        registryPath: resourcePath,
-        schemaPath,
-      }),
+    const mismatchedClassifierExit = withRegistryFileLock(layout.dir, (lease) =>
+      appendExplicitFinding(mismatchedClassifierPath, lease, layout),
     );
     assert.equal(mismatchedClassifierExit, 2);
-    assert.equal(readFileSync(resourcePath, 'utf8'), afterExplicitWithoutLayer);
+    assert.equal(recordedJsonl(layout), afterExplicitWithoutLayer);
 
     const invalidStubPath = join(fixtureRoot, 'invalid-stub.json');
     writeFileSync(
@@ -849,14 +760,11 @@ if (childMode === '--worktree-allocator-child') {
       }),
       'utf8',
     );
-    const invalidExitCode = withRegistryFileLock(resourcePath, (lease) =>
-      appendAllocatedFinding('PROC', invalidStubPath, lease, {
-        registryPath: resourcePath,
-        schemaPath,
-      }),
+    const invalidExitCode = withRegistryFileLock(layout.dir, (lease) =>
+      appendAllocatedFinding('PROC', invalidStubPath, lease, layout),
     );
     assert.equal(invalidExitCode, 1);
-    assert.equal(readFileSync(resourcePath, 'utf8'), afterExplicitWithoutLayer);
+    assert.equal(recordedJsonl(layout), afterExplicitWithoutLayer);
 
     const invalidEvidenceStubPath = join(fixtureRoot, 'invalid-evidence-stub.json');
     writeFileSync(
@@ -873,14 +781,11 @@ if (childMode === '--worktree-allocator-child') {
       }),
       'utf8',
     );
-    const invalidEvidenceExit = withRegistryFileLock(resourcePath, (lease) =>
-      appendAllocatedFinding('PROC', invalidEvidenceStubPath, lease, {
-        registryPath: resourcePath,
-        schemaPath,
-      }),
+    const invalidEvidenceExit = withRegistryFileLock(layout.dir, (lease) =>
+      appendAllocatedFinding('PROC', invalidEvidenceStubPath, lease, layout),
     );
     assert.equal(invalidEvidenceExit, 1);
-    assert.equal(readFileSync(resourcePath, 'utf8'), afterExplicitWithoutLayer);
+    assert.equal(recordedJsonl(layout), afterExplicitWithoutLayer);
 
     const invalidExplicitEvidencePath = join(fixtureRoot, 'invalid-explicit-evidence.json');
     writeFileSync(
@@ -897,14 +802,11 @@ if (childMode === '--worktree-allocator-child') {
       }),
       'utf8',
     );
-    const invalidExplicitEvidenceExit = withRegistryFileLock(resourcePath, (lease) =>
-      appendExplicitFinding(invalidExplicitEvidencePath, lease, {
-        registryPath: resourcePath,
-        schemaPath,
-      }),
+    const invalidExplicitEvidenceExit = withRegistryFileLock(layout.dir, (lease) =>
+      appendExplicitFinding(invalidExplicitEvidencePath, lease, layout),
     );
     assert.equal(invalidExplicitEvidenceExit, 1);
-    assert.equal(readFileSync(resourcePath, 'utf8'), afterExplicitWithoutLayer);
+    assert.equal(recordedJsonl(layout), afterExplicitWithoutLayer);
 
     const emptyHighEvidenceStubPath = join(fixtureRoot, 'empty-high-evidence-stub.json');
     writeFileSync(
@@ -920,20 +822,16 @@ if (childMode === '--worktree-allocator-child') {
       }),
       'utf8',
     );
-    const emptyHighEvidenceExit = withRegistryFileLock(resourcePath, (lease) =>
-      appendAllocatedFinding('PROC', emptyHighEvidenceStubPath, lease, {
-        registryPath: resourcePath,
-        schemaPath,
-      }),
+    const emptyHighEvidenceExit = withRegistryFileLock(layout.dir, (lease) =>
+      appendAllocatedFinding('PROC', emptyHighEvidenceStubPath, lease, layout),
     );
     assert.equal(emptyHighEvidenceExit, 1);
-    assert.equal(readFileSync(resourcePath, 'utf8'), afterExplicitWithoutLayer);
+    assert.equal(recordedJsonl(layout), afterExplicitWithoutLayer);
   });
 
   void test('allocated append admits the governed ARIA finding domain', () => {
-    const resourcePath = join(fixtureRoot, 'aria-domain.jsonl');
+    const layout = emptyRegistry(join(fixtureRoot, 'aria-domain'));
     const stubPath = join(fixtureRoot, 'aria-domain-stub.json');
-    writeFileSync(resourcePath, '', 'utf8');
     writeFileSync(
       stubPath,
       JSON.stringify({
@@ -949,30 +847,17 @@ if (childMode === '--worktree-allocator-child') {
       'utf8',
     );
 
-    const exitCode = withRegistryFileLock(resourcePath, (lease) =>
-      appendAllocatedFinding('ARIA', stubPath, lease, {
-        registryPath: resourcePath,
-        schemaPath: narrativeImportSchemaPath,
-      }),
+    const exitCode = withRegistryFileLock(layout.dir, (lease) =>
+      appendAllocatedFinding('ARIA', stubPath, lease, layout),
     );
 
     assert.equal(exitCode, 0);
-    assert.match(readFileSync(resourcePath, 'utf8'), /"id":"ARIA-HIGH-001"/);
+    assert.match(recordedJsonl(layout), /"id":"ARIA-HIGH-001"/);
   });
 
   void test('canonical evidence SSOT accepts every supported path shape', () => {
-    const resourcePath = join(fixtureRoot, 'canonical-evidence.jsonl');
-    const schemaPath = resolve(
-      __dirname,
-      '..',
-      '..',
-      'docs',
-      'reviews',
-      '_registry',
-      'findings.jsonl.schema.json',
-    );
+    const layout = emptyRegistry(join(fixtureRoot, 'canonical-evidence'));
     const stubPath = join(fixtureRoot, 'canonical-evidence-stub.json');
-    writeFileSync(resourcePath, '', 'utf8');
     writeFileSync(
       stubPath,
       JSON.stringify({
@@ -995,58 +880,26 @@ if (childMode === '--worktree-allocator-child') {
       'utf8',
     );
 
-    const exitCode = withRegistryFileLock(resourcePath, (lease) =>
-      appendAllocatedFinding('PROC', stubPath, lease, { registryPath: resourcePath, schemaPath }),
+    const exitCode = withRegistryFileLock(layout.dir, (lease) =>
+      appendAllocatedFinding('PROC', stubPath, lease, layout),
     );
     assert.equal(exitCode, 0);
     assert.match(
-      readFileSync(resourcePath, 'utf8'),
+      recordedJsonl(layout),
       /"narrative":\["Free-form diagnostic prose remains valid here\."\]/,
     );
 
-    const validEntry = JSON.parse(readFileSync(resourcePath, 'utf8').trim()) as Finding;
+    // The row contract every writer applies: a recent row's evidence must take a
+    // canonical shape; a historical row keeps the relaxed contract it was written under.
+    const [validEntry] = recordedRows(layout);
+    assert.ok(validEntry);
+    const evidenceOf = (entry: Finding): string =>
+      JSON.stringify(rowContractViolations(entry, layout.rowSchemaPath, 'post-cutover').evidence);
+    assert.equal(evidenceOf(validEntry), '[]');
     const invalidRecentEntry = { ...validEntry, evidence: ['GitHub Actions run 123456'] };
-    assert.match(
-      validateRegistrySuffixForRechain([invalidRecentEntry], 0, schemaPath).join('\n'),
-      /refusing|evidence\[0\]|GitHub Actions run 123456/,
-    );
-    const validBranchTail = { ...validEntry, id: 'PROC-HIGH-999' };
-    assert.match(
-      validateRegistrySuffixForRechain(
-        [validEntry, invalidRecentEntry, validBranchTail],
-        1,
-        schemaPath,
-      ).join('\n'),
-      /entry 1.*evidence\[0\]/,
-      'semantic validation must start at the canonical boundary even when rehashing starts later',
-    );
-    const historicalEntry = {
-      ...invalidRecentEntry,
-      created_at: '2026-05-09T23:59:59.999Z',
-    };
-    assert.deepEqual(validateRegistrySuffixForRechain([historicalEntry], 0, schemaPath), []);
-
-    const unchained: Finding[] = [
-      { ...validEntry, id: 'PROC-HIGH-101' },
-      { ...validEntry, id: 'PROC-HIGH-102' },
-      { ...validEntry, id: 'PROC-HIGH-103' },
-    ];
-    const initialized = prepareRegistryRechain(unchained, 0, 0, schemaPath);
-    if (!initialized.ok) assert.fail(initialized.failures.join('\n'));
-    assert.equal(initialized.ok, true);
-
-    const brokenBeforeRequestedStart = structuredClone(initialized.entries);
-    const brokenEntry = brokenBeforeRequestedStart[1];
-    assert.ok(brokenEntry);
-    brokenEntry.title = 'Semantically valid but hash-stale branch finding';
-    const bytesBeforeWrongStart = JSON.stringify(brokenBeforeRequestedStart);
-    const wrongStart = prepareRegistryRechain(brokenBeforeRequestedStart, 0, 2, schemaPath);
-
-    assert.equal(wrongStart.ok, false);
-    if (wrongStart.ok) assert.fail('a later rechain start must not bless an earlier hash break');
-    assert.equal(wrongStart.stage, 'integrity');
-    assert.match(wrongStart.failures.join('\n'), /hash mismatch at entry 1/);
-    assert.equal(JSON.stringify(brokenBeforeRequestedStart), bytesBeforeWrongStart);
+    assert.match(evidenceOf(invalidRecentEntry), /GitHub Actions run 123456/);
+    const historicalEntry = { ...invalidRecentEntry, created_at: '2026-05-09T23:59:59.999Z' };
+    assert.equal(evidenceOf(historicalEntry), '[]');
   });
 
   void test('dead same-host stale lock is quarantined before takeover', () => {
@@ -1188,34 +1041,6 @@ if (childMode === '--worktree-allocator-child') {
     assert.deepEqual(
       readdirSync(fixtureRoot).filter((name) => name.endsWith('.new')),
       [],
-    );
-  });
-
-  void test('historical registry scripts cannot directly rewrite the JSONL', () => {
-    const repoRoot = resolve(__dirname, '..', '..');
-    const governedScripts = [
-      'tools/audit/migrate-schema-violations.ts',
-      'tools/audit/seed-audit-findings.ts',
-      'tools/scripts/patch-registry-phase2b.ts',
-      'tools/scripts/seed-claude-audit-findings.ts',
-      'tools/scripts/seed-finding-registry.ts',
-    ];
-    for (const relativePath of governedScripts) {
-      const source = readFileSync(resolve(repoRoot, relativePath), 'utf8');
-      assert.doesNotMatch(
-        source,
-        /\bwriteFileSync\s*\(\s*(?:REGISTRY|REGISTRY_PATH)\b/,
-        `${relativePath} must mutate only through the common authority`,
-      );
-    }
-
-    assert.match(
-      readFileSync(resolve(repoRoot, 'tools/audit/migrate-schema-violations.ts'), 'utf8'),
-      /mutating mode is retired/,
-    );
-    assert.match(
-      readFileSync(resolve(repoRoot, 'tools/scripts/patch-registry-phase2b.ts'), 'utf8'),
-      /atomicWriteRegistryFile/,
     );
   });
 }

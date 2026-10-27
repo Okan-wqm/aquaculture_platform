@@ -22,19 +22,19 @@
  */
 import { isValidUUID } from '@aquaculture/backend-common/database';
 
-import { AlertModule } from '../entities/alert-module.enum';
+import { OWNER_MODULE, type OwnerModuleCode } from '@aquaculture/shared-contracts';
 
 export interface AlertOrigin {
-  readonly module: AlertModule;
+  readonly module: OwnerModuleCode;
   readonly siteId: string | null;
 }
 
 export function farmOrigin(siteId: string | null | undefined): AlertOrigin {
-  return { module: AlertModule.FARM, siteId: storableSite(siteId) };
+  return { module: OWNER_MODULE.FARM, siteId: storableSite(siteId) };
 }
 
 export function sensorOrigin(siteId: string | null | undefined): AlertOrigin {
-  return { module: AlertModule.SENSOR, siteId: storableSite(siteId) };
+  return { module: OWNER_MODULE.SENSOR, siteId: storableSite(siteId) };
 }
 
 /** A feed-coverage scope key's site: the key itself when it is a site UUID, else none. */

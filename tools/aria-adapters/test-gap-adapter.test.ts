@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 
 import { makeFixtureTree } from '../gates/fixture-tree';
 
@@ -28,11 +28,15 @@ writeFileSync(
   `,
   'utf8',
 );
+// A write boundary is a route or handler the framework wires up (DET testgap-1):
+// the method carries its write decorator, not just a name that sounds like one.
 writeFileSync(
   join(root, 'batch', 'unsafe.controller.ts'),
   `
+    import { Post } from '@nestjs/common';
     export class UnsafeController {
       constructor(private readonly batches: BatchWriter) {}
+      @Post()
       create() { return this.batches.write(); }
     }
   `,
@@ -110,10 +114,7 @@ writeFileSync(
   'utf8',
 );
 
-const output = analyzeTestGaps(
-  { roots: ['apps/farm-service/src'], includeWriteBoundaryFindings: true },
-  workspace,
-);
+const output = analyzeTestGaps({ roots: ['apps/farm-service/src'] }, workspace);
 
 assert.equal(output.metadata.adapter, 'test-gap-adapter');
 assert.equal(
@@ -235,6 +236,40 @@ export class SessionController {
 }
 `,
 );
+// DET testgap-2 (ledger B03): the write-boundary rule is part of the default
+// input, so a write that is NOT public is judged by the same coverage signals.
+// One is reached by an e2e spec through its route; its twin, on the same
+// controller prefix, is reached by nothing.
+write(
+  'apps/farm-service/src/harvest/seal-harvest.controller.ts',
+  `import { Controller, Post } from '@nestjs/common';
+
+@Controller('harvests')
+export class SealHarvestController {
+  constructor(private readonly harvests: HarvestService) {}
+
+  @Post('seal')
+  seal(): Promise<void> {
+    return this.harvests.seal();
+  }
+}
+`,
+);
+write(
+  'apps/farm-service/src/harvest/void-harvest.controller.ts',
+  `import { Controller, Post } from '@nestjs/common';
+
+@Controller('harvests')
+export class VoidHarvestController {
+  constructor(private readonly harvests: HarvestService) {}
+
+  @Post('void')
+  voidOut(): Promise<void> {
+    return this.harvests.voidOut();
+  }
+}
+`,
+);
 // '@Public' in prose only: no public write, no guard.
 write(
   'apps/auth-service/src/session/public-routes.service.ts',
@@ -253,6 +288,13 @@ write(
   'e2e/tests/mobile/ai-action-confirm.spec.ts',
   `test('provision', async () => {
   await client.query(\`query ProvisionAi { aiServiceHealth }\`, {}, { token });
+});
+`,
+);
+write(
+  'e2e/tests/farm/harvest.spec.ts',
+  `test('seal a harvest', async () => {
+  await request.post('/api/harvests/seal').send({ harvestId });
 });
 `,
 );
@@ -308,6 +350,21 @@ assert.deepEqual(
   [],
   'an e2e spec calling the route covers the public REST write',
 );
+assert.deepEqual(
+  flagged(uncovered, 'harvest/seal-harvest.controller.ts'),
+  ['high_risk_source_without_adjacent_test'],
+  'a write route with no coverage signal is a write-boundary gap by default',
+);
+assert.deepEqual(
+  flagged(covered, 'harvest/seal-harvest.controller.ts'),
+  [],
+  'an e2e spec calling the route covers the write, so it is not a write-boundary gap',
+);
+assert.deepEqual(
+  flagged(covered, 'harvest/void-harvest.controller.ts'),
+  ['high_risk_source_without_adjacent_test'],
+  'a coverage root covers the routes its specs call, not every write on the same controller prefix',
+);
 assert.ok(
   covered.read_paths.includes('e2e/tests/mobile/ai-action-confirm.spec.ts'),
   'coverage-provider specs are read, so they appear in read_paths',
@@ -315,6 +372,355 @@ assert.ok(
 assert.ok(
   !covered.findings.some((finding) => finding.path.startsWith('e2e/')),
   'a coverage root only provides coverage; it never becomes a finding subject',
+);
+
+// DET testgap-1 (ledger B03, Z-C3) — "performs writes" is what the class DOES:
+// a write decorator on a method, or a @CommandHandler class that is not a
+// @QueryHandler. It used to be a text regex over the whole file, which read
+// createQueryBuilder( in a query handler, `@Post` in a comment and `.create(`
+// entity construction as writes, and missed a command handler that only
+// saves, inserts or soft-deletes.
+const writesWorkspace = makeFixtureTree('aria-test-gap-writes-');
+const writesRoot = 'apps/farm-service/src';
+const put = (path: string, body: string): void => {
+  mkdirSync(join(writesWorkspace, writesRoot, path, '..'), { recursive: true });
+  writeFileSync(join(writesWorkspace, writesRoot, path), body, 'utf8');
+};
+writeFileSync(
+  join(writesWorkspace, 'tsconfig.base.json'),
+  JSON.stringify({ compilerOptions: { paths: { '@farm/*': [`${writesRoot}/*`] } } }),
+  'utf8',
+);
+
+// Writes with no spec anywhere: every one is a gap.
+put(
+  'pond/pond-registry.controller.ts',
+  `import { Body, Controller, Post } from '@nestjs/common';
+
+@Controller('ponds')
+export class PondRegistryController {
+  constructor(private readonly ponds: PondService) {}
+
+  @Post()
+  createPond(@Body() dto: CreatePondDto): Promise<string> {
+    return this.ponds.register(dto);
+  }
+}
+`,
+);
+// Each write decorator on its own, with a method name no text rule would read.
+for (const decorator of ['Post', 'Put', 'Patch', 'Delete', 'Mutation']) {
+  const resolver = decorator === 'Mutation';
+  put(
+    `write-routes/${decorator.toLowerCase()}-route.${resolver ? 'resolver' : 'controller'}.ts`,
+    `export class ${decorator}Route${resolver ? 'Resolver' : 'Controller'} {
+  constructor(private readonly store: RouteStore) {}
+
+  @${decorator}()
+  apply(): Promise<void> {
+    return this.store.apply();
+  }
+}
+`,
+  );
+}
+put(
+  'shift/shift-swap.handler.ts',
+  `import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
+
+@CommandHandler(SwapShiftCommand)
+export class SwapShiftHandler implements ICommandHandler<SwapShiftCommand> {
+  constructor(private readonly shifts: ShiftRepository) {}
+
+  async execute(command: SwapShiftCommand): Promise<void> {
+    await this.shifts.remove(command.shiftId);
+  }
+}
+`,
+);
+// Command handlers whose only writes are verbs the text rule never knew.
+put(
+  'feed/record-feed.handler.ts',
+  `import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
+
+@CommandHandler(RecordFeedCommand)
+export class RecordFeedHandler implements ICommandHandler<RecordFeedCommand> {
+  constructor(private readonly feeds: FeedRepository) {}
+
+  async execute(command: RecordFeedCommand): Promise<void> {
+    await this.feeds.insert(command.entry);
+  }
+}
+`,
+);
+put(
+  'batch/retire-batch.handler.ts',
+  `import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
+
+@CommandHandler(RetireBatchCommand)
+export class RetireBatchHandler implements ICommandHandler<RetireBatchCommand> {
+  constructor(private readonly batches: BatchRepository) {}
+
+  async execute(command: RetireBatchCommand): Promise<void> {
+    await this.batches.softDelete(command.batchId);
+  }
+}
+`,
+);
+
+// Near-misses: none of these performs a write, so none is a write-boundary gap.
+put(
+  'pond/pond-report.controller.ts',
+  `import { Controller, Get } from '@nestjs/common';
+
+@Controller('ponds')
+export class PondReportController {
+  constructor(private readonly ponds: PondRepository) {}
+
+  @Get('report')
+  report(): Promise<PondRow[]> {
+    return this.ponds.createQueryBuilder('pond').getMany();
+  }
+}
+`,
+);
+put(
+  'batch/get-batch.handler.ts',
+  `import { IQueryHandler, QueryHandler } from '@nestjs/cqrs';
+
+@QueryHandler(GetBatchQuery)
+export class GetBatchHandler implements IQueryHandler<GetBatchQuery> {
+  constructor(private readonly batches: BatchRepository) {}
+
+  async execute(query: GetBatchQuery): Promise<BatchView[]> {
+    const builder = this.batches.createQueryBuilder('batch');
+    const runner = this.batches.manager.connection.createQueryRunner();
+    await runner.release();
+    return builder.where('batch.pondId = :pondId', { pondId: query.pondId }).getMany();
+  }
+}
+`,
+);
+put(
+  'pond/list-ponds.handler.ts',
+  `import { IQueryHandler, QueryHandler } from '@nestjs/cqrs';
+
+@QueryHandler(ListPondsQuery)
+export class ListPondsHandler implements IQueryHandler<ListPondsQuery> {
+  constructor(private readonly ponds: PondRepository) {}
+
+  async execute(query: ListPondsQuery): Promise<PondView[]> {
+    const rows = await this.ponds.find({ where: { farmId: query.farmId } });
+    return rows.map((row) => this.ponds.create(row));
+  }
+}
+`,
+);
+put(
+  'pond/pond-comments.controller.ts',
+  `import { Controller, Get } from '@nestjs/common';
+
+// Reads only. Writes live in PondRegistryController (@Post) and are never
+// reached from here: no update(), no delete(), no remove().
+/* @Delete is deliberately absent. */
+@Controller('ponds')
+export class PondCommentsController {
+  constructor(private readonly ponds: PondRepository) {}
+
+  @Get('comments')
+  comments(): Promise<string[]> {
+    return this.ponds.listComments();
+  }
+}
+`,
+);
+put(
+  'pond/pond-docs.controller.ts',
+  `import { Controller, Get } from '@nestjs/common';
+
+@Controller('ponds')
+export class PondDocsController {
+  constructor(private readonly docs: DocsRepository) {}
+
+  @Get('docs')
+  @ApiOperation({ summary: 'Read-only listing: a @Post here is rejected, use the registry' })
+  listDocs(): Promise<string[]> {
+    return this.docs.titles();
+  }
+}
+`,
+);
+// A service is not one of the role suffixes, whatever decorates it.
+put(
+  'pond/pond-registry.service.ts',
+  `import { Post } from '@nestjs/common';
+
+export class PondRegistryService {
+  constructor(private readonly ponds: PondRepository) {}
+
+  @Post()
+  register(dto: CreatePondDto): Promise<string> {
+    return this.ponds.add(dto);
+  }
+}
+`,
+);
+// A write handler with a spec beside it (adjacency) ...
+put(
+  'shift/swap-seat.handler.ts',
+  `import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
+
+@CommandHandler(SwapSeatCommand)
+export class SwapSeatHandler implements ICommandHandler<SwapSeatCommand> {
+  constructor(private readonly seats: SeatRepository) {}
+
+  async execute(command: SwapSeatCommand): Promise<void> {
+    await this.seats.save(command.seat);
+  }
+}
+`,
+);
+put(
+  'shift/__tests__/swap-seat.handler.spec.ts',
+  `import { SwapSeatHandler } from '../swap-seat.handler';
+
+test('swaps a seat', async () => {
+  const seats = { save: jest.fn() };
+  await new SwapSeatHandler(seats).execute({ seat: {} });
+});
+`,
+);
+// ... and one reached only by an import through the workspace path alias.
+put(
+  'pond/open-pond.handler.ts',
+  `import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
+
+@CommandHandler(OpenPondCommand)
+export class OpenPondHandler implements ICommandHandler<OpenPondCommand> {
+  constructor(private readonly ponds: PondRepository) {}
+
+  async execute(command: OpenPondCommand): Promise<void> {
+    await this.ponds.save(command.pond);
+  }
+}
+`,
+);
+put(
+  '__tests__/integration/pond-lifecycle.spec.ts',
+  `import { OpenPondHandler } from '@farm/pond/open-pond.handler';
+
+test('opens a pond', async () => {
+  const ponds = { save: jest.fn() };
+  await new OpenPondHandler(ponds).execute({ pond: {} });
+});
+`,
+);
+// A decorated write that returns a constant and takes nothing has no
+// behaviour a test could pin (the existing constant carve-out).
+put(
+  'status/ping.controller.ts',
+  `import { Controller, Post } from '@nestjs/common';
+
+@Controller('ping')
+export class PingController {
+  @Post()
+  acknowledge(): string {
+    return 'ok';
+  }
+}
+`,
+);
+
+const writeGapRule = 'high_risk_source_without_adjacent_test';
+const writeGaps = (result: ReturnType<typeof analyzeTestGaps>): string[] =>
+  result.findings
+    .filter((finding) => finding.rule === writeGapRule)
+    .map((finding) => finding.path.slice(`${writesRoot}/`.length))
+    .sort();
+
+// DET testgap-2 (ledger B03): the rule has no switch. It runs on the input a
+// caller gives with nothing but roots, which is what the production manifest
+// hands the adapter.
+const expectedWriteGaps = [
+  'batch/retire-batch.handler.ts',
+  'feed/record-feed.handler.ts',
+  'pond/pond-registry.controller.ts',
+  'shift/shift-swap.handler.ts',
+  'write-routes/delete-route.controller.ts',
+  'write-routes/mutation-route.resolver.ts',
+  'write-routes/patch-route.controller.ts',
+  'write-routes/post-route.controller.ts',
+  'write-routes/put-route.controller.ts',
+];
+const actualWriteGaps = writeGaps(analyzeTestGaps({ roots: [writesRoot] }, writesWorkspace));
+assert.deepEqual(
+  {
+    missed: expectedWriteGaps.filter((path) => !actualWriteGaps.includes(path)),
+    falseAlarms: actualWriteGaps.filter((path) => !expectedWriteGaps.includes(path)),
+  },
+  { missed: [], falseAlarms: [] },
+  'a write decorator or a @CommandHandler is a write boundary; a @QueryHandler, a @Get route, ' +
+    'a comment or string naming a decorator, a non-role file, a covered handler and a constant ' +
+    'class are not',
+);
+
+// The curated semantic_regression case is the fixture lane's pin of the same
+// predicate. Its input runs here as well, so the write handler, its covered twin
+// and the query-handler trap are enforced by this suite, not only by the nightly
+// fixture refresh.
+const repoRoot = resolve(__dirname, '..', '..');
+const semanticFixtures = 'tools/aria-adapters/fixtures/test-gap-adapter';
+const semanticCase = JSON.parse(
+  readFileSync(join(repoRoot, semanticFixtures, 'cases', 'semantic-adjacent-tests.json'), 'utf8'),
+) as { readonly input: Parameters<typeof analyzeTestGaps>[0] };
+assert.deepEqual(
+  analyzeTestGaps(semanticCase.input, repoRoot).findings.map((finding) => finding.path),
+  [
+    `${semanticFixtures}/workspaces/semantic-testgap/apps/billing-service/src/payment/refund.handler.ts`,
+  ],
+  'the semantic fixture flags the uncovered command handler only: not its covered twin, not the query handler',
+);
+
+// DET testgap-2 (ledger B03): a PRODUCTION DEFAULT CHANGE. The kernel merges the
+// manifest's default_input under the caller's keys (run_tool), and the rule used
+// to be switched off right there. What the manifest hands the adapter, over the
+// same workspace, must now report exactly the write-boundary gaps.
+const manifest = JSON.parse(
+  readFileSync(join(repoRoot, 'tools/aria-adapters/test-gap-adapter.tool.json'), 'utf8'),
+) as { readonly default_input: Parameters<typeof analyzeTestGaps>[0] };
+assert.equal(
+  'includeWriteBoundaryFindings' in manifest.default_input,
+  false,
+  'the manifest does not switch the write-boundary rule: the flag is gone, not set to true',
+);
+assert.deepEqual(
+  writeGaps(analyzeTestGaps(manifest.default_input, writesWorkspace)),
+  expectedWriteGaps,
+  'the production default input reports the write-boundary gaps',
+);
+// A caller still sending the removed switch as false (a stale cached input) must
+// not silence the rule: nothing reads it. It is built as a variable, not a
+// literal, so it type-checks whether or not the field still exists.
+const staleCaller = { roots: [writesRoot], includeWriteBoundaryFindings: false };
+assert.deepEqual(
+  writeGaps(analyzeTestGaps(staleCaller, writesWorkspace)),
+  expectedWriteGaps,
+  'no input key switches the write-boundary rule off',
+);
+
+// The rule moves the real-repo baseline: 221 findings on clean main become 349
+// (210 migration + 11 security + 128 write-boundary, measured on 20ff4f8a7),
+// above the old cap of 300. The fixture lane judges the full-repo scan against
+// this cap, and a lane over its cap blocks readiness, so the cap is set where
+// the other adapters set theirs: a round number well above the measured count
+// (here about 29% headroom), not one finding above it.
+const baselineCase = JSON.parse(
+  readFileSync(join(repoRoot, semanticFixtures, 'cases', 'real-repo-baseline.json'), 'utf8'),
+) as { readonly expected: { readonly max_findings: number } };
+assert.equal(
+  baselineCase.expected.max_findings,
+  450,
+  'the real-repo baseline cap holds the rule-on population (349 measured) with headroom',
 );
 
 process.stdout.write('test-gap-adapter tests passed\n');

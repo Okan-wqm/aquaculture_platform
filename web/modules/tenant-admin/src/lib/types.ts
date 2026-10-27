@@ -6,6 +6,8 @@
  * or related domain types.
  */
 
+import type { PlatformRole } from '@aquaculture/shared-contracts';
+
 import type { PanelPermissions, TenantRolePermissions } from '../types/permissions';
 
 // ============================================================================
@@ -17,7 +19,8 @@ export type TenantPlan = 'TRIAL' | 'STARTER' | 'PROFESSIONAL' | 'ENTERPRISE';
 
 export type TenantStatus = 'PENDING' | 'ACTIVE' | 'SUSPENDED' | 'CANCELLED';
 
-export type UserRole = 'SUPER_ADMIN' | 'TENANT_ADMIN' | 'MODULE_MANAGER' | 'MODULE_USER';
+/** The platform roles, from their one owner in shared-contracts (RBAC-MEDIUM-024). */
+export type UserRole = PlatformRole;
 
 export type UserStatus = 'ACTIVE' | 'INACTIVE' | 'PENDING';
 

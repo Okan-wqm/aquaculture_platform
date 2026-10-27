@@ -38,6 +38,7 @@ import { execFileSync, execSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
+import { FINDING_ID_SOURCE } from './finding-id-grammar';
 import { findingTrailerTargets, messageClosesFinding } from './finding-registry-projection';
 import { ORPHAN_MD_HEADING_REGEX, readOrphanMarkdownStore } from './finding-registry-store';
 import { type FindingTrailerTarget } from './finding-traceability';
@@ -73,6 +74,18 @@ function writeStderr(message = ''): void {
 }
 
 /**
+ * Where a finding id is looked up, for the messages that tell an author what
+ * the gate searched. The registry is the whole store (MF-2): the frozen
+ * genesis segment `findings.jsonl` plus one event log per finding born after
+ * the freeze, `findings/<PREFIX>/<ID>.jsonl`. The gate reads it through the
+ * projection (`findingTrailerTargets`), so a message that names the segment
+ * alone sends an author to a file that cannot hold the id they just filed.
+ */
+const FINDING_REGISTRY_LOCATION =
+  'the finding registry (docs/reviews/_registry: the frozen genesis segment findings.jsonl ' +
+  'plus the event logs findings/<PREFIX>/<ID>.jsonl)';
+
+/**
  * Conventional-commit subject prefixes that REQUIRE a Closes: trailer.
  *
  *   fix()                         — closes a bug finding
@@ -100,17 +113,25 @@ const REQUIRE_CLOSES_TYPES = /^(fix|security|refactor\(agentic,phase-|feat)/;
 /** Hard format for the trailer; stricter than a free-text "closes" mention.
  *
  * ID alternation (in order):
- *   1. `<PREFIX>-(CRITICAL|HIGH|MEDIUM|LOW)-\d{3}` — registry / orphan IDs
- *      (UH-HIGH-001, ORPHAN-MEDIUM-032, etc.).
+ *   1. a registry / orphan id of the one grammar (finding-id-grammar.ts:
+ *      `<DOMAIN>-<SEVERITY>-<SEQUENCE>`, sequence 001..9999; UH-HIGH-001,
+ *      ORPHAN-MEDIUM-032, ARIA-HIGH-1000, etc.).
  *   2. `F-\d{3}` — ARIA finding IDs (e.g. F-001) under `aria-findings/`.
  *   3. `DEBT-\d{4}-\d{2}-\d{2}-\d{3}` — ARIA debt IDs (e.g.
  *      DEBT-2026-05-08-001) under `aria-debts/`.
  *
  * Routing based on path prefix happens in `validateCommit` so the gate
  * never fakes-validates an ARIA ID against the registry or vice versa.
+ *
+ * The kernel mints this trailer (aria-kernel/aria_kernel/plan_origin.py,
+ * CLOSES_TRAILER_RE), and aria-kernel/tests/test_closes_trailer_frame.py
+ * compares that pattern with this template literal, the owner's id source in
+ * `${FINDING_ID_SOURCE}`. Keep it one `new RegExp(` template literal: the test
+ * reads it from this source.
  */
-const CLOSES_TRAILER_REGEX =
-  /^Closes:\s+(\S+?)#([A-Z][A-Z0-9]+-(?:CRITICAL|HIGH|MEDIUM|LOW)-\d{3}|F-\d{3}|F-AUTO-V\d+\.\d+(?:-[A-Z0-9-]+)+|DEBT-\d{4}-\d{2}-\d{2}-\d{3})\s*$/;
+const CLOSES_TRAILER_REGEX = new RegExp(
+  `^Closes:\\s+(\\S+?)#(${FINDING_ID_SOURCE}|F-\\d{3}|F-AUTO-V\\d+\\.\\d+(?:-[A-Z0-9-]+)+|DEBT-\\d{4}-\\d{2}-\\d{2}-\\d{3})\\s*$`,
+);
 
 /** True when the path points at an ARIA-owned artifact (finding or debt). */
 function isAriaArtifactPath(path: string): boolean {
@@ -251,7 +272,7 @@ const PRE_PHASE6_SHAS: ReadonlySet<string> = new Set([
   '4b5174db', // fix(migration): replace archived migration imports with Baseline (3 services) — cherry-picked from f757b3ed
   // WASM-adoption feature commits whose Closes: trailers used a hyphenated
   // finding-ID prefix (SCADA-SANDBOX-*, CODEC-WASM-*) that fails the
-  // CLOSES_TRAILER_REGEX PREFIX rule ([A-Z][A-Z0-9]+, no hyphen). The findings
+  // CLOSES_TRAILER_REGEX PREFIX rule (the grammar's domain: no hyphen). The findings
   // are real (docs/reviews/claude/2026-07-13-*.md); only the trailer ID shape
   // was wrong. Amending is barred by the force-push ban, so these SHAs are
   // allowlisted. Later WASM-adoption commits use compliant ORPHAN-{SEV}-NNN IDs.
@@ -390,7 +411,9 @@ const PRE_PHASE6_SHAS: ReadonlySet<string> = new Set([
   // (derivation applies the same binding) and cannot be amended without a
   // force-push. The root cause is the allocator's per-clone reservation
   // ledger: two clones can mint the same sequence with no knowledge of each
-  // other, and only the merge driver's duplicate-id refusal caught it.
+  // other. Since MF-2 two clones that mint one id write the same event-log
+  // path, an add/add conflict git raises at merge, and the integrity
+  // invariant refuses an id held twice.
   'ac780802', // fix(admin-panel): a price sheet that failed was offered anyway, at a guessed price (trailer names ADMIN-HIGH-135; finding is ADMIN-HIGH-159)
   // 2026-10-22 WP-J landing (PLAN-v2 F0.3, branch landing/aria-wp-j-l). Added
   // by PROGRAM-LEAD DECISION (WP-J landing item 5, under the operator's ARIA
@@ -667,7 +690,7 @@ function validateCommit(
         out.push({
           sha: commit.shortSha,
           subject: commit.subject,
-          reason: `Closes: trailer references unknown ORPHAN finding ID: ${findingId} (no matching "## ${findingId}" heading in docs/reviews/orphan-findings.md, and no such id in docs/reviews/_registry/findings.jsonl)`,
+          reason: `Closes: trailer references unknown ORPHAN finding ID: ${findingId} (no matching "## ${findingId}" heading in docs/reviews/orphan-findings.md, and no such id in ${FINDING_REGISTRY_LOCATION})`,
         });
       } else if (
         registryTarget !== undefined &&
@@ -689,7 +712,7 @@ function validateCommit(
         out.push({
           sha: commit.shortSha,
           subject: commit.subject,
-          reason: `Closes: trailer references unknown finding ID: ${findingId} (not in docs/reviews/_registry/findings.jsonl)`,
+          reason: `Closes: trailer references unknown finding ID: ${findingId} (not in ${FINDING_REGISTRY_LOCATION})`,
         });
       } else if (!messageClosesFinding(commit.body, target)) {
         // The id exists, but this trailer could never CLOSE it: the closure
@@ -745,7 +768,8 @@ function report(violations: Violation[]): void {
   writeStderr('Every fix/security/refactor(agentic,phase-*) commit must carry:');
   writeStderr('  Closes: docs/reviews/<agent>/<date>-<topic>.md#<FINDING-ID>');
   writeStderr('');
-  writeStderr('Finding IDs live in: docs/reviews/_registry/findings.jsonl');
+  writeStderr(`Finding IDs live in: ${FINDING_REGISTRY_LOCATION}`);
+  writeStderr('List them with:      npm run findings:list:all');
   writeStderr('Finding-ID regex:    {PREFIX}-(CRITICAL|HIGH|MEDIUM|LOW)-NNN');
   writeStderr(
     'Phase 6 reference:   docs/plans/2026-04-17-agentic-post-audit-consolidation-plan.md#Phase-6',
@@ -836,6 +860,7 @@ if (require.main === module) {
 // helper shipped without unit tests).
 export {
   CLOSES_TRAILER_REGEX,
+  FINDING_REGISTRY_LOCATION,
   ORPHAN_HEADING_REGEX,
   REQUIRE_CLOSES_TYPES,
   commitFromMsgFile,

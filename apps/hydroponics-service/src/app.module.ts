@@ -28,7 +28,11 @@ import {
   TenantSchemaCacheModule,
 } from '@aquaculture/backend-common/database';
 import { TenantExecutionContextModule } from '@aquaculture/backend-common/context';
-import { RolesGuard, ServiceIdentityGuard, TenantGuard } from '@aquaculture/backend-common/guards';
+import {
+  accessGuardProviders,
+  ServiceIdentityGuard,
+  TenantGuard,
+} from '@aquaculture/backend-common/guards';
 import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
 import { ServiceMetricsModule } from '@aquaculture/backend-common/metrics';
 import {
@@ -263,11 +267,9 @@ type QueryComplexityOperationContext = {
         new TenantGuard(reflector, undefined, configService),
       inject: [Reflector, ConfigService],
     },
-    {
-      provide: APP_GUARD,
-      useFactory: (reflector: Reflector): RolesGuard => new RolesGuard(reflector),
-      inject: [Reflector],
-    },
+    // SECURITY: RolesGuard enforces @Roles(); once this service is enrolled in ADR-051 its
+    // MODULE_ACCESS_ENROLMENT entry adds the access-classification guard (RBAC-HIGH-030).
+    ...accessGuardProviders('hydroponics-service'),
     {
       provide: APP_GUARD,
       useFactory: (

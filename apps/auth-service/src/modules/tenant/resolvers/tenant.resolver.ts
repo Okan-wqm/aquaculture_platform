@@ -284,8 +284,9 @@ export class TenantResolver {
   async assignModuleManager(
     @Args('input') input: AssignModuleManagerInput,
     @CurrentUser('tenantId') tenantId: string,
+    @CurrentUser('sub') actorId: string,
   ): Promise<TenantModule> {
-    return this.tenantService.assignModuleManager(tenantId, input.moduleId, input.userId);
+    return this.tenantService.assignModuleManager(tenantId, input.moduleId, input.userId, actorId);
   }
 
   /**

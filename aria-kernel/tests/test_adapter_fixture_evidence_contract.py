@@ -54,11 +54,17 @@ from aria_kernel.adapter_fixture_contract import (
     expected_run_status,
     fixture_cases_for_manifest,
 )
-from aria_kernel.fixture_runner import evaluate_fixture_expectation, run_fixture_suite
+from aria_kernel.fixture_runner import (
+    evaluate_fixture_expectation,
+    resolve_fixture_dir,
+    run_fixture_case,
+    run_fixture_suite,
+)
 from aria_kernel.tool_registry import (
     GovernanceError,
     ensure_tools_dir,
     get_tool,
+    is_agent_backed,
     list_tools,
     missing_repo_local_dependencies,
 )
@@ -72,6 +78,15 @@ def _shipped_manifests() -> list[tuple[Path, dict]]:
         (path, json.loads(path.read_text(encoding="utf-8")))
         for path in sorted(MANIFEST_DIR.glob("*.tool.json"))
     ]
+
+
+def _suite_owning_manifests() -> list[tuple[Path, dict]]:
+    """The shipped manifests whose tool owns a fixture suite: all but an agent-backed tool.
+
+    An agent-backed tool has no program whose output a case could pin (its evidence is
+    checked per answer, at the answer's commit), so it declares no ``fixture_set`` at all.
+    """
+    return [(path, manifest) for path, manifest in _shipped_manifests() if not is_agent_backed(manifest)]
 
 
 def _runner_unavailable(registered: dict) -> str | None:
@@ -95,8 +110,18 @@ class ShippedManifestContractTests(unittest.TestCase):
         self.assertIn("agent-harness-security-adapter", ids)
         self.assertGreaterEqual(len(ids), 10)
 
+    def test_an_agent_backed_manifest_declares_no_fixture_suite(self) -> None:
+        agent_backed = [manifest for _, manifest in _shipped_manifests() if is_agent_backed(manifest)]
+        # Direct, not incidental (removed-tests audit): reclassifying an existing adapter as agent-backed, or adding a
+        # second agent-backed tool, must be a decision this assertion records.
+        self.assertEqual(sorted(manifest["tool_id"] for manifest in agent_backed), ["change-review"])
+        for manifest in agent_backed:
+            with self.subTest(tool=manifest["tool_id"]):
+                self.assertNotIn("fixture_set", manifest)
+                self.assertEqual(assert_fixture_backed(manifest, REPO_ROOT), [])
+
     def test_every_shipped_manifest_is_fixture_backed(self) -> None:
-        for path, manifest in _shipped_manifests():
+        for path, manifest in _suite_owning_manifests():
             with self.subTest(manifest=path.name):
                 cases = assert_fixture_backed(manifest, REPO_ROOT)
                 self.assertTrue(cases, f"{path.name} has no fixture case")
@@ -116,7 +141,7 @@ class ShippedManifestContractTests(unittest.TestCase):
             lambda: os.environ.__setitem__("ARIA_REPO_ROOT", saved) if saved is not None
             else os.environ.pop("ARIA_REPO_ROOT", None),
         )
-        for path, manifest in _shipped_manifests():
+        for path, manifest in _suite_owning_manifests():
             with self.subTest(manifest=path.name):
                 tools = ensure_tools_dir(tmp / manifest["tool_id"] / "aria-tools")
                 register_tool(manifest, base_dir=tools)
@@ -156,6 +181,51 @@ class ShippedManifestContractTests(unittest.TestCase):
                         f"{json.dumps(case['evidence_validation'].get('errors', []))[:400]} — "
                         f"stderr: {case['stderr_sample']}",
                     )
+
+
+class LintRulesPolicyPackFixtureCase(unittest.TestCase):
+    """ARIA-DET Z-B1 step 1 — the policy rules' findings meet the real evidence validator.
+
+    The suite test above holds a case to ``ok`` only: the nightly refresh is
+    where a case's expectations are judged. The repository-policy rules are
+    new emitters, and a policy finding is cited by line and judged against
+    the bytes at that line, so one case is held to its own expectations here
+    too: the console calls and the explicit ``any`` of ``flagged.ts`` are
+    found (counted rule by rule in the summary), nothing in ``near-miss.ts``
+    is, and the output passes ``validate_tool_output_evidence``. The case
+    sits under ``tools/aria-adapters/fixtures``, so the policy scope has to
+    take a path that is not rooted at ``apps/``.
+    """
+
+    CASE = "policy-pack.json"
+
+    def test_the_policy_pack_case_holds_its_expectations_through_the_real_validator(self) -> None:
+        manifest = json.loads((MANIFEST_DIR / "lint-rules-adapter.tool.json").read_text(encoding="utf-8"))
+        tmp = Path(tempfile.mkdtemp(prefix="aria-lint-policy-case-"))
+        self.addCleanup(shutil.rmtree, tmp, True)
+        tools = ensure_tools_dir(tmp / "aria-tools")
+        register_tool(manifest, base_dir=tools)
+        registered = get_tool(manifest["tool_id"], tools)
+        unavailable = _runner_unavailable(registered)
+        if unavailable is not None:
+            self.skipTest(f"{manifest['tool_id']}: {unavailable}")
+        saved = os.environ.get("ARIA_REPO_ROOT")
+        os.environ["ARIA_REPO_ROOT"] = str(REPO_ROOT)
+        self.addCleanup(
+            lambda: os.environ.__setitem__("ARIA_REPO_ROOT", saved) if saved is not None
+            else os.environ.pop("ARIA_REPO_ROOT", None),
+        )
+        fixture_dir = resolve_fixture_dir(registered, tools, workspace_root=REPO_ROOT)
+        case_path = fixture_dir / "cases" / self.CASE
+        case = json.loads(case_path.read_text(encoding="utf-8"))
+        result = run_fixture_case(registered, case, case_path, fixture_dir, REPO_ROOT, store=tools)
+        self.assertEqual(
+            result["status"], REQUIRED_EXPECTED_STATUS,
+            f"{result['status']} — {json.dumps(result['evidence_validation'].get('errors', []))[:400]} — "
+            f"stderr: {result['stderr_sample']}",
+        )
+        self.assertEqual(result["errors"], [])
+        self.assertTrue(result["passed"])
 
 
 class ManifestSyncRefusesUnbackedAdaptersTests(unittest.TestCase):

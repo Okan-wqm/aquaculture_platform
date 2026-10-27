@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient, type UseQueryResult } from '@tan
 import { useCallback } from 'react';
 
 import { useAuth } from './useAuth';
+import { useOfflineCacheScope } from './useOfflineCacheScope';
 
 import {
   GET_MY_LEAVE_REQUESTS,
@@ -10,11 +11,10 @@ import {
   SUBMIT_LEAVE_REQUEST,
   CANCEL_LEAVE_REQUEST,
 } from '@/graphql/operations';
-import { cacheData, getCachedData, cacheUserData, getCachedUserData } from '@/pwa/offline-queue';
+import { readThroughOfflineCache } from '@/pwa/offline-cache';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import type { LeaveRequest, LeaveRequestStatus, LeaveBalance, LeaveType } from '@/types';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
-import { userScopedCacheKey } from '@/utils/user-scoped-cache-key';
 
 // ---------------------------------------------------------------------------
 // IndexedDB cache TTLs — longer than React Query staleTime because these
@@ -82,33 +82,28 @@ export function useMyLeaveBalances(
   options?: LeaveQueryOptions,
 ): UseQueryResult<LeaveBalance[], Error> {
   const { accessToken, tenantId, user, isAuthenticated } = useAuth();
+  const cacheScope = useOfflineCacheScope();
 
   return useQuery<LeaveBalance[]>({
     // SECURITY (MT-CRITICAL-051): myLeaveBalances are the CURRENT user's private
-    // balances. user.id partitions BOTH the React Query key (in-memory) and the
-    // IndexedDB cache key (offline) so a shared-device second user never inherits
-    // the prior user's balances. year still triggers a refetch when it changes.
+    // balances. user.id partitions the React Query key (in-memory), and the
+    // offline cache scope partitions IndexedDB by user (MOB-MEDIUM-031), so a
+    // shared-device second user never inherits the prior user's balances. year
+    // still triggers a refetch when it changes.
     queryKey: createTenantQueryKey(tenantId, 'leaveBalances', user?.id, year),
     queryFn: async () => {
       if (!accessToken || !tenantId || !user?.id) {
         throw new Error('Not authenticated');
       }
 
-      const cacheKey = userScopedCacheKey(user.id, 'leaveBalances', year);
-      try {
-        const balances = await fetchLeaveBalances(year);
-        // Write to IndexedDB as offline fallback only — React Query's own
-        // gcTime handles in-memory caching for the online path.
-        await cacheUserData(tenantId, cacheKey, balances, CACHE_TTL_LEAVE_BALANCES);
-        return balances;
-      } catch (error) {
-        // Network failed — return IndexedDB cached data if available
-        const cached = await getCachedUserData<LeaveBalance[]>(tenantId, cacheKey);
-        if (cached) {
-          return cached;
-        }
-        throw error;
-      }
+      // The IndexedDB copy is an offline fallback only — React Query's own
+      // gcTime handles in-memory caching for the online path.
+      const read = await readThroughOfflineCache(
+        cacheScope,
+        { key: `leaveBalances:${year}`, ttlMs: CACHE_TTL_LEAVE_BALANCES },
+        () => fetchLeaveBalances(year),
+      );
+      return read.data;
     },
     enabled: isAuthenticated && !!tenantId && !!user?.id,
     // WHY 5 min staleTime: balances change infrequently (only when requests
@@ -139,11 +134,13 @@ export function useMyLeaveRequests(
   options?: LeaveQueryOptions,
 ): UseQueryResult<LeaveRequest[], Error> {
   const { accessToken, tenantId, user, isAuthenticated } = useAuth();
+  const cacheScope = useOfflineCacheScope();
 
   return useQuery<LeaveRequest[]>({
     // SECURITY (MT-CRITICAL-051): myLeaveRequests are the CURRENT user's private
-    // requests. user.id partitions both the React Query key and the IndexedDB
-    // cache key; status + limit still cache distinct filter result sets.
+    // requests. user.id partitions the React Query key and the offline cache
+    // scope the IndexedDB copy; status + limit still cache distinct filter
+    // result sets.
     queryKey: createTenantQueryKey(tenantId, 'leaveRequests', user?.id, status, limit),
     queryFn: async () => {
       if (!accessToken || !tenantId || !user?.id) {
@@ -152,18 +149,12 @@ export function useMyLeaveRequests(
 
       // WHY status + limit in cache key: different filter combos produce
       // different result sets that must be cached independently.
-      const cacheKey = userScopedCacheKey(user.id, 'leaveRequests', status ?? 'all', limit);
-      try {
-        const requests = await fetchLeaveRequests(status, limit);
-        await cacheUserData(tenantId, cacheKey, requests, CACHE_TTL_LEAVE_REQUESTS);
-        return requests;
-      } catch (error) {
-        const cached = await getCachedUserData<LeaveRequest[]>(tenantId, cacheKey);
-        if (cached) {
-          return cached;
-        }
-        throw error;
-      }
+      const read = await readThroughOfflineCache(
+        cacheScope,
+        { key: `leaveRequests:${status ?? 'all'}:${limit}`, ttlMs: CACHE_TTL_LEAVE_REQUESTS },
+        () => fetchLeaveRequests(status, limit),
+      );
+      return read.data;
     },
     enabled: isAuthenticated && !!tenantId && !!user?.id,
     // WHY 2 min staleTime: requests change more frequently than balances
@@ -182,8 +173,7 @@ export function useMyLeaveRequests(
  */
 export function useLeaveTypes(): UseQueryResult<LeaveType[], Error> {
   const { accessToken, tenantId, isAuthenticated } = useAuth();
-
-  const cacheKey = `leaveTypes-${tenantId}`;
+  const cacheScope = useOfflineCacheScope();
 
   return useQuery<LeaveType[]>({
     queryKey: createTenantQueryKey(tenantId, 'leaveTypes', tenantId),
@@ -192,18 +182,12 @@ export function useLeaveTypes(): UseQueryResult<LeaveType[], Error> {
         throw new Error('Not authenticated');
       }
 
-      try {
-        const types = await fetchLeaveTypes();
-        // SECURITY (FE-CRITICAL-002): tenantId required for tenant-isolated caching
-        await cacheData(tenantId, cacheKey, types, CACHE_TTL_LEAVE_TYPES);
-        return types;
-      } catch (error) {
-        const cached = await getCachedData<LeaveType[]>(tenantId, cacheKey);
-        if (cached) {
-          return cached;
-        }
-        throw error;
-      }
+      const read = await readThroughOfflineCache(
+        cacheScope,
+        { key: 'leaveTypes', ttlMs: CACHE_TTL_LEAVE_TYPES },
+        fetchLeaveTypes,
+      );
+      return read.data;
     },
     enabled: isAuthenticated && !!tenantId,
     // WHY 30 min staleTime: leave types are admin-configured reference data

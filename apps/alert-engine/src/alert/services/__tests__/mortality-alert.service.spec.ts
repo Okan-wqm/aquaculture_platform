@@ -19,7 +19,7 @@ import type { MortalityAlertRaisedEvent } from '@platform/event-contracts';
 
 import { AlertSeverity } from '../../../database/entities/alert-rule.entity';
 import { AlertHistory } from '../../entities/alert-history.entity';
-import { AlertModule } from '../../entities/alert-module.enum';
+import { OWNER_MODULE } from '@aquaculture/shared-contracts';
 import {
   FarmSignalIncidentService,
   FarmSignalIncidentSpec,
@@ -79,8 +79,8 @@ describe('MortalityAlertService', () => {
     await service.recordMortalityAlert(makeEvent());
 
     expect(historyRepo.create.mock.calls.map(([row]) => [row?.module, row?.siteId])).toEqual([
-      [AlertModule.FARM, siteId],
-      [AlertModule.FARM, null],
+      [OWNER_MODULE.FARM, siteId],
+      [OWNER_MODULE.FARM, null],
     ]);
   });
 

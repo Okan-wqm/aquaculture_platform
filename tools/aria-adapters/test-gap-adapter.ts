@@ -26,7 +26,6 @@ interface AdapterInput {
   // source through the GraphQL field or the route they call, not an import.
   readonly coverageRoots?: readonly string[];
   readonly allowlist?: readonly string[];
-  readonly includeWriteBoundaryFindings?: boolean;
   readonly repo_snapshot?: {
     readonly allowed_paths?: readonly string[];
     readonly snapshot_hash?: string;
@@ -220,7 +219,7 @@ export function analyzeTestGaps(input: AdapterInput, workspaceRoot = process.cwd
       });
       continue;
     }
-    if (input.includeWriteBoundaryFindings === true && risk.highRisk && risk.writeBoundary) {
+    if (risk.highRisk && risk.writeBoundary) {
       highRiskWithoutTest += 1;
       result.findings.push({
         id: `high-risk-source-without-adjacent-test:${source.relativePath}`,
@@ -306,10 +305,7 @@ function classifySourceRisk(unit: FileUnit): SourceRisk {
   // implements a guard, or it exposes a write to unauthenticated callers.
   // `@Public` anywhere in the text (a read, a comment) used to qualify.
   const securitySensitive = isGuardImplementation(unit) || hasPublicWrite(unit.sourceFile);
-  const writeBoundary =
-    /@(Post|Put|Patch|Delete|Mutation)\b|\b(create|update|delete|remove|archive|approve|reject|reset|invite)\w*\s*\(/i.test(
-      text,
-    );
+  const writeBoundary = performsWrites(unit.sourceFile);
   const migrationHazard =
     /\/migrations\/.*\.ts$/.test(path) &&
     /\b(DROP|DELETE|TRUNCATE|ALTER\s+TYPE|ENABLE\s+ROW\s+LEVEL\s+SECURITY|FORCE\s+ROW\s+LEVEL\s+SECURITY)\b/i.test(
@@ -378,12 +374,29 @@ function hasPublicWrite(sourceFile: ts.SourceFile): boolean {
   return classDeclarations(sourceFile).some((declaration) => {
     const classPublic = hasDecorator(declaration, 'Public');
     return declaration.members.some(
-      (member) =>
-        ts.isMethodDeclaration(member) &&
-        decoratorCalls(member).some((decorator) => WRITE_DECORATORS.has(decorator.name)) &&
-        (classPublic || hasDecorator(member, 'Public')),
+      (member) => isWriteRoute(member) && (classPublic || hasDecorator(member, 'Public')),
     );
   });
+}
+
+function isWriteRoute(member: ts.ClassElement): boolean {
+  return (
+    ts.isMethodDeclaration(member) &&
+    decoratorCalls(member).some((decorator) => WRITE_DECORATORS.has(decorator.name))
+  );
+}
+
+// A source performs writes when a class declares it: a method behind a write
+// decorator, or a @CommandHandler that is not also a @QueryHandler. Text is the
+// wrong evidence — it read createQueryBuilder( in a query handler, entity
+// construction (`.create(`) and a decorator named in a comment as writes, and
+// missed a command handler whose only writes are save(), insert() or softDelete().
+function performsWrites(sourceFile: ts.SourceFile): boolean {
+  return classDeclarations(sourceFile).some(
+    (declaration) =>
+      !hasDecorator(declaration, 'QueryHandler') &&
+      (hasDecorator(declaration, 'CommandHandler') || declaration.members.some(isWriteRoute)),
+  );
 }
 
 function isConstantExpression(expression: ts.Expression): boolean {

@@ -16,7 +16,7 @@ Senior Rust edge systems reviewer for industrial IoT, embedded Linux, real-time 
 Cross-cutting knowledge lives in SSoT files. This agent consumes:
 
 - @.claude/knowledge/layer-1-core.md              (TS + Nx + Jest base — rarely invoked; edge is Rust-only)
-- @.claude/knowledge/layer-1-rust.md              (PRIMARY tech anchor — Tokio, rumqttc, rodbus, rppal, SQLCipher, clippy wall)
+- @.claude/knowledge/layer-1-rust.md              (PRIMARY tech anchor — Tokio, rumqttc, tokio-modbus, rppal, SQLCipher, clippy wall)
 - @.claude/knowledge/layer-1-nestjs.md            (not relevant — edge has no NestJS; listed for completeness)
 - @.claude/knowledge/layer-1-typeorm.md           (not relevant — edge uses raw SQLCipher; listed for completeness)
 - @.claude/knowledge/layer-1-react.md             (not relevant — edge has no React; listed for completeness)
@@ -34,7 +34,7 @@ Exclusive CATCHER for:
 
 - `sens-api-gateway/**` — entire Rust edge agent (core, protocols, resilience, scripting, PLC, provisioning, offline queue, backup, process image, deploy orchestrator, hardware scanner, ST validator, SCADA display feature)
 - `sensorprotocols/**` — canonical protocol contract docs (Modbus-TCP.md, mqtt-protocol.md); treated as behaviour contracts, NOT "just docs" — any change is deploy-affecting
-- Crate-level `sens-api-gateway/Cargo.toml` + workspace members — release profile, feature flags (`default = ["health"]` ONLY; `scada-display`, `signed-deploy`, `tpm`, `strict-security`, `live-debug`, `license-enforce`, `lorawan`, `opc-ua-server` are all opt-in per deployment tier per the `[features]` WHY-comment + ADR-018 HC-1 — there is NO `dev-insecure` or `debug-endpoints` feature), license pinning (`rodbus` commercial), `panic = "abort"` + systemd `Restart=always` pairing
+- Crate-level `sens-api-gateway/Cargo.toml` + workspace members — release profile, feature flags (`default = ["health"]` ONLY; `scada-display`, `signed-deploy`, `tpm`, `strict-security`, `live-debug`, `license-enforce`, `lorawan`, `opc-ua-server` are all opt-in per deployment tier per the `[features]` WHY-comment + ADR-018 HC-1 — there is NO `dev-insecure` or `debug-endpoints` feature), license policy (`deny.toml`), `panic = "abort"` + systemd `Restart=always` pairing
 
 Out of scope: all backend TS services, web MFEs, DB migrations, infra/terraform. Coordinate via Cross-Domain Dependencies below.
 
@@ -43,7 +43,7 @@ Out of scope: all backend TS services, web MFEs, DB migrations, infra/terraform.
 These rules are NOT in layer-1-rust / layer-2-patterns / layer-2-defect-catalog / layer-3-adrs and are unique to edge-expert's domain. Layer-1-rust already covers clippy wall, unwrap/panic discipline, `spawn_blocking` vs `std::thread`, cancel-safe `select!`, `Mutex` choice, shutdown via `CancellationToken`+`TaskTracker`, rustls defaults, full-jitter backoff, bounded channels, `zeroize` on secrets — do NOT re-state. Generic real-defect classes (error-swallowing, secret-in-log, injection, duplication) live in `layer-2-defect-catalog.md` — Read it and hunt them in the Rust surface too; the rules below are edge-domain-specific.
 
 1. **IEC 62443 FR 1-FR 7 matrix** (target SL 2 minimum; SL 3 required for any component controlling life-safety outputs — DO/pH/NH3/temperature thresholds, dosing pumps, aerators, VFD setpoints):
-   - **FR 1 Identification & Authentication:** per-device X.509 client cert in TPM-backed slot issued by fleet CA during provisioning; MQTT mTLS AND `rodbus` Modbus Security with X.509 role extension REQUIRED in production; health HTTP gated by authenticated token or mTLS (anonymous `/metrics` FORBIDDEN); shared fleet credentials FORBIDDEN.
+   - **FR 1 Identification & Authentication:** per-device X.509 client cert in TPM-backed slot issued by fleet CA during provisioning; MQTT mTLS AND Modbus/TCP Security (mTLS over `tokio-rustls`, `src/modbus.rs`) with X.509 role extension REQUIRED in production; health HTTP gated by authenticated token or mTLS (anonymous `/metrics` FORBIDDEN); shared fleet credentials FORBIDDEN.
    - **FR 2 Use Control:** single `rbac.rs` gate on every command path (MQTT command topic, HTTP command endpoint, Modbus write function codes 5/6/15/16/22/23) keyed on authenticated role; deny-by-default; every allow AND every deny audit-logged.
    - **FR 3 System Integrity:** `cargo build --locked` + signature verified at startup against TPM/OTP-pinned key; strict schema validation on ALL external input (`serde_json::Value` passthrough on boundaries FORBIDDEN); audit log uses HMAC chaining (`prev_hmac || row`) for tamper evidence + periodic export to backend; firmware update rejects unsigned/wrong-key packages (OWASP ISTG-FW-INST-001) + monotonic version counter blocks downgrade (ISTG-FW-UPDT-002).
    - **FR 4 Data Confidentiality:** TLS ≥ 1.2 AEAD-only + SQLCipher at rest with TPM-sealed key (see rule 4).

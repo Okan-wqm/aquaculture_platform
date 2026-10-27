@@ -16,6 +16,8 @@
  *     FARM-LOW: the finding was a FALSE POSITIVE — farm IS protected by a
  *     ServiceIdentityGuard + RolesGuard + PermissionMatrixGuard APP_GUARD
  *     stack — but nothing failed CI if a refactor deleted those providers).
+ *     RolesGuard is registered by `accessGuardProviders('farm-service')`
+ *     (ADR-051 §3).
  *     This freezes the guard floor so unauthenticated execution can't silently
  *     become reachable.
  */
@@ -68,7 +70,14 @@ describe('farm-service security-hardening invariants', () => {
 
   it('RULE 2: app.module registers the global ServiceIdentity + Roles + PermissionMatrix guard stack', () => {
     const appModule = readFileSync(join(REPO_ROOT, FARM_BE_ROOT, 'app.module.ts'), 'utf8');
-    const required = ['APP_GUARD', 'ServiceIdentityGuard', 'RolesGuard', 'PermissionMatrixGuard'];
+    // RolesGuard is registered through the service's ADR-051 enrolment entry
+    // (`accessGuardProviders`); module-access-guard-adoption.spec.ts pins what that registers.
+    const required = [
+      'APP_GUARD',
+      'ServiceIdentityGuard',
+      "accessGuardProviders('farm-service')",
+      'PermissionMatrixGuard',
+    ];
     const missing = required.filter((token) => !appModule.includes(token));
     if (missing.length > 0) {
       throw new Error(

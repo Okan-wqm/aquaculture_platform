@@ -99,7 +99,7 @@ sequenceDiagram
 
 | # | From → To | Transport | Encoding | QoS / retry | Timeout budget | Notes |
 |---|---|---|---|---|---|---|
-| 1 | Field → ModbusActor | Modbus-TCP (rodbus 1.4) or Modbus-RTU (tokio-serial) | Binary Modbus frame | CircuitBreaker threshold 3, recovery 30 s; operation retry = 0 (handled at poll cycle) | 5 s per op, 10 s connect | `Cargo.toml:70` (rodbus pinned); `src/modbus.rs` |
+| 1 | Field → ModbusActor | Modbus-TCP (tokio-modbus; optional TLS via tokio-rustls) or Modbus-RTU (tokio-modbus + tokio-serial) | Binary Modbus frame | CircuitBreaker threshold 3, recovery 30 s; operation retry = 0 (handled at poll cycle); dropped transport re-opened with 2 s → 30 s doubling backoff | 5 s per op, 10 s connect | `Cargo.toml:88` (tokio-modbus pinned to 0.17); `src/modbus.rs` |
 | 2 | ModbusActor → ProcessImage | in-process | `TagValue { value, quality, source, ts }` | — | `RwLock` contention-bounded | `src/process_image.rs`; `update_tag` is async on `Arc<ProcessImage>` |
 | 3 | ProcessImage → ScriptEngine | in-process `tokio::sync::watch` | `TagUpdate` event | — | watch receiver is never-block (latest wins) | feature `multi-task-scheduler` enables scan-cycle subscription (`Cargo.toml:373`) |
 | 4 | ScriptEngine → AlarmManager | in-process | `TagValue` + rule id | — | rate-limited per script (`ScriptRateLimiter` default 60/min) | `docs/ARCHITECTURE.md:175-181` |

@@ -1,5 +1,6 @@
 import { Controller, Logger } from '@nestjs/common';
 import { withTenantContext } from '@aquaculture/backend-common/context';
+import { isModuleAccess } from '@aquaculture/shared-contracts';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import { randomUUID } from 'crypto';
 import {
@@ -38,6 +39,14 @@ export interface AiChatNatsRequest {
   userRoles?: string[];
   /** Faz 7c: the caller's tenant-RBAC grants — authorizes the persona tier. */
   resourcePermissions?: string[];
+  /**
+   * RBAC-HIGH-028 (ADR-051 §2 Transport): the caller's `moduleAccess` claim and site ids, from
+   * the verified token (the gateway socket) or the caller-capabilities reply (the messaging
+   * bridge, PKG-25). Typed `unknown` because this is a trust boundary: the responder validates
+   * both; a malformed value is BAD_REQUEST, an absent one means no grants and no sites.
+   */
+  moduleAccess?: unknown;
+  assignedSiteIds?: unknown;
   correlationId?: string;
   /**
    * FARM-AI Sprint 1.2: ephemeral run — no conversation is created or read;
@@ -69,6 +78,24 @@ export interface AiChatNatsRequest {
     createdAt: string;
     isAi: boolean;
   }>;
+}
+
+/**
+ * RBAC-HIGH-028: the caller's module grants and sites, validated at the trust boundary. Absent
+ * means none (a sender of the previous release, or the messaging bridge until PKG-25 forwards
+ * them); any other malformed value refuses the request (null).
+ */
+function memberScopeOf(
+  payload: AiChatNatsRequest,
+): Pick<ChatRequest, 'moduleAccess' | 'assignedSiteIds'> | null {
+  const moduleAccess = payload.moduleAccess === undefined ? {} : payload.moduleAccess;
+  const siteIds = payload.assignedSiteIds === undefined ? [] : payload.assignedSiteIds;
+  if (!isModuleAccess(moduleAccess)) return null;
+  if (!Array.isArray(siteIds) || !siteIds.every((id) => typeof id === 'string')) return null;
+  return {
+    moduleAccess: Object.freeze({ ...moduleAccess }),
+    assignedSiteIds: Object.freeze([...siteIds]),
+  };
 }
 
 /** Defensive caps on caller-supplied history (NATS is a trust boundary). */
@@ -146,6 +173,19 @@ export class AiChatResponder {
         },
       };
     }
+    const memberScope = memberScopeOf(payload);
+    if (memberScope === null) {
+      return {
+        content: 'The AI request was missing required information.',
+        conversationId: null,
+        metadata: { errorCode: 'BAD_REQUEST' },
+        error: {
+          code: 'BAD_REQUEST',
+          message:
+            'moduleAccess must map owner modules to module roles; assignedSiteIds must be string[]',
+        },
+      };
+    }
     if (!message) {
       // `content` carries a user-facing message so the messaging bridge (which
       // posts response.content as the AI reply and does not inspect `error`)
@@ -170,6 +210,7 @@ export class AiChatResponder {
       userId: payload.userId,
       userRoles: payload.userRoles ?? [],
       resourcePermissions: payload.resourcePermissions ?? [],
+      ...memberScope,
       schemaName: `tenant_${cleanId}`,
       correlationId: payload.correlationId ?? randomUUID(),
       // FARM-AI Sprint 1.2: service-path fields — identity for the grant map,

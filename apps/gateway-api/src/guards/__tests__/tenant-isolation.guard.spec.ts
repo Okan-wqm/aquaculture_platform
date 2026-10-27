@@ -128,6 +128,26 @@ describe('TenantIsolationGuard', () => {
       expect(result).toBe(true);
     });
 
+    // RBAC-HIGH-028: module grants travel in the HMAC-bound assertion only. The tenant context
+    // kept a copy of the legacy `modules` claim that nothing read, which looked like a grant check.
+    it('keeps no copy of the modules claim in the tenant context', () => {
+      const context = createMockExecutionContext({
+        sub: 'user-1',
+        tenantId: '00000000-0000-4000-8000-000000000003',
+        modules: ['farm', 'alert'],
+        moduleAccess: { farm: 'MODULE_USER' },
+      });
+
+      expect(guard.canActivate(context)).toBe(true);
+
+      const tenantContext: unknown = Reflect.get(getRequest(context), 'tenantContext');
+      expect(tenantContext).toEqual(
+        expect.objectContaining({ tenantId: '00000000-0000-4000-8000-000000000003' }),
+      );
+      expect(tenantContext).not.toHaveProperty('modules');
+      expect(tenantContext).not.toHaveProperty('moduleAccess');
+    });
+
     it('should extract tenant ID from subdomain', () => {
       const context = createMockExecutionContext(
         { sub: 'user-1', tenantId: '00000000-0000-4000-8000-000000000001' },

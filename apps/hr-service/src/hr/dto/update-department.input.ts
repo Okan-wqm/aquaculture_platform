@@ -9,7 +9,8 @@ import {
   MaxLength,
 } from 'class-validator';
 
-import { HrModuleCode } from '../../common/enums';
+import { OWNER_MODULE, type OwnerModuleCode } from '@aquaculture/shared-contracts';
+import { HR_MODULE_CODE_ENUM } from '../../common/enums';
 
 /**
  * Every property carries a class-validator decorator (see CreateDepartmentInput for why).
@@ -45,10 +46,10 @@ export class UpdateDepartmentInput {
   @IsUUID(undefined, { message: 'Site ID must be a valid UUID' })
   siteId?: string;
 
-  @Field(() => HrModuleCode, { nullable: true })
+  @Field(() => HR_MODULE_CODE_ENUM, { nullable: true })
   @IsOptional()
-  @IsEnum(HrModuleCode)
-  moduleCode?: HrModuleCode;
+  @IsEnum(OWNER_MODULE)
+  moduleCode?: OwnerModuleCode;
 
   @Field({ nullable: true })
   @IsOptional()

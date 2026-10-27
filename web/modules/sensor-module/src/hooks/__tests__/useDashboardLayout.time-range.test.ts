@@ -1,14 +1,14 @@
 import { renderHook, waitFor } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { DEFAULT_WIDGET_TIME_RANGE, parseWidgetTimeRange } from '../../components/dashboard/types';
 import { useDashboardLayout } from '../useDashboardLayout';
 
-vi.mock('@aquaculture/shared-ui', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@aquaculture/shared-ui')>()),
-  getAccessToken: () => 'token',
-  getTenantId: () => 'tenant-1',
+// The module's one GraphQL transport (config/api.ts) is the collaborator.
+const transport = vi.hoisted(() => ({
+  graphqlFetch: vi.fn<(query: string, variables?: Record<string, unknown>) => Promise<unknown>>(),
 }));
+vi.mock('../../config/api', () => ({ graphqlFetch: transport.graphqlFetch }));
 
 const STORED_LAYOUT = {
   id: 'layout-1',
@@ -21,23 +21,12 @@ const STORED_LAYOUT = {
   ],
 };
 
-function respond(data: unknown): Response {
-  return new Response(JSON.stringify({ data }), {
-    status: 200,
-    headers: { 'Content-Type': 'application/json' },
-  });
-}
-
 /**
  * A layout's widgets column is JSON that predates the save check
  * (SENSOR-MEDIUM-152): a range no chart resolves must be parsed where the
  * layout enters the page, not reach a chart that throws on it.
  */
 describe('dashboard layout widget ranges', () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
   it('parses a stored range to a preset, or the default when it is none', () => {
     expect(parseWidgetTimeRange('7d')).toBe('7d');
     expect(parseWidgetTimeRange('12h')).toBe(DEFAULT_WIDGET_TIME_RANGE);
@@ -45,12 +34,11 @@ describe('dashboard layout widget ranges', () => {
   });
 
   it('gives the page only widget ranges a chart can resolve', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (_url: string, init: RequestInit) =>
-        String(init.body).includes('myDefaultLayout')
-          ? respond({ myDefaultLayout: STORED_LAYOUT })
-          : respond({ dashboardLayouts: [STORED_LAYOUT] }),
+    transport.graphqlFetch.mockImplementation((query) =>
+      Promise.resolve(
+        query.includes('myDefaultLayout')
+          ? { myDefaultLayout: STORED_LAYOUT }
+          : { dashboardLayouts: [STORED_LAYOUT] },
       ),
     );
     const { result } = renderHook(() => useDashboardLayout());

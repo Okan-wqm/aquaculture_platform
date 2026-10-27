@@ -1,4 +1,4 @@
-import { AlertModule } from '../../entities/alert-module.enum';
+import { OWNER_MODULE } from '@aquaculture/shared-contracts';
 import { farmOrigin, sensorOrigin, siteOfScopeKey } from '../alert-origin';
 
 /**
@@ -10,19 +10,19 @@ describe('alert origin', () => {
   const SITE = '0a0a0a0a-0000-4000-8000-00000000000a';
 
   it('states the module of each signal family and keeps a UUID site', () => {
-    expect(sensorOrigin(SITE)).toEqual({ module: AlertModule.SENSOR, siteId: SITE });
-    expect(farmOrigin(SITE)).toEqual({ module: AlertModule.FARM, siteId: SITE });
+    expect(sensorOrigin(SITE)).toEqual({ module: OWNER_MODULE.SENSOR, siteId: SITE });
+    expect(farmOrigin(SITE)).toEqual({ module: OWNER_MODULE.FARM, siteId: SITE });
   });
 
   it('records an absent site as no site', () => {
-    expect(sensorOrigin(undefined)).toEqual({ module: AlertModule.SENSOR, siteId: null });
-    expect(farmOrigin(null)).toEqual({ module: AlertModule.FARM, siteId: null });
+    expect(sensorOrigin(undefined)).toEqual({ module: OWNER_MODULE.SENSOR, siteId: null });
+    expect(farmOrigin(null)).toEqual({ module: OWNER_MODULE.FARM, siteId: null });
   });
 
   it('records a site that is not a UUID as no site', () => {
     for (const label of ['', 'site-1', 'Hatchery North', `${SITE} `]) {
-      expect(sensorOrigin(label)).toEqual({ module: AlertModule.SENSOR, siteId: null });
-      expect(farmOrigin(label)).toEqual({ module: AlertModule.FARM, siteId: null });
+      expect(sensorOrigin(label)).toEqual({ module: OWNER_MODULE.SENSOR, siteId: null });
+      expect(farmOrigin(label)).toEqual({ module: OWNER_MODULE.FARM, siteId: null });
     }
   });
 

@@ -5,6 +5,7 @@
  * These types ensure type safety across the gateway API.
  */
 
+import type { ModuleAccess } from '@aquaculture/shared-contracts';
 import { Request, Response } from 'express';
 
 /**
@@ -30,6 +31,11 @@ export interface JwtPayload {
   assignedSiteIds?: string[];
   // SEC-HIGH-052: enabled mobile feature keys the user is entitled to.
   mobileFeatures?: string[];
+  // RBAC-HIGH-028: the per-module grants minted by auth-service (ADR-051 §2). Every assertion
+  // builder forwards it inside the HMAC-bound assertion; absent (a token minted before release
+  // R1) means no grants. It is a signed claim, so the gateway trusts its shape like `roles`, and
+  // the subgraph middleware still answers a malformed one with 400.
+  moduleAccess?: ModuleAccess;
   // MT-HIGH-054: tenant-RBAC capability strings (`resource:action`) minted by
   // auth-service TokenService. Carried through the gateway so the verified
   // assertion can fold it in for subgraph @RequireTenantPermission checks.
@@ -51,7 +57,6 @@ export interface AuthenticatedUser extends JwtPayload {
   role?: string;
   tenantName?: string;
   plan?: string;
-  modules?: string[];
   tenantActive?: boolean;
   accessibleTenants?: string[];
   managedTenants?: string[];
@@ -64,7 +69,6 @@ export interface TenantContext {
   tenantId: string;
   tenantName?: string;
   plan?: string;
-  modules?: string[];
   isActive: boolean;
 }
 

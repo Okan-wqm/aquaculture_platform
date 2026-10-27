@@ -1,0 +1,117 @@
+/**
+ * Why a read failed decides what the offline cache may do (MOB-MEDIUM-031, PKG-42).
+ *
+ * The cache was a fallback for outages, but every hook served it from one catch-all, so the
+ * server's own refusal — FORBIDDEN, UNAUTHENTICATED — put the cached copy on screen exactly as
+ * an outage did. The classifier separates four verdicts:
+ *   - unreachable: no answer reached the device (the network, or an edge reporting the gateway
+ *     down with a 5xx): the cached copy may stand in;
+ *   - session-refused: the server refused the session (UNAUTHENTICATED, HTTP 401): nothing
+ *     cached for the caller may stay;
+ *   - read-refused: the server refused this read to a live session (FORBIDDEN, HTTP 403): what
+ *     the read cached must go, and only that — a FORBIDDEN is answered per resolver (ADR-051 §4);
+ *   - failed: anything else (bad input, a bug, a 4xx): the error surfaces, the cache stays put.
+ */
+import { describe, expect, it } from 'vitest';
+
+import {
+  GraphQLError,
+  HttpStatusError,
+  NetworkUnreachableError,
+  classifyRequestFailure,
+  isRefusal,
+} from '../request-failure';
+
+function graphqlError(...codes: (string | undefined)[]): GraphQLError {
+  return new GraphQLError(
+    codes.map((code) => ({
+      message: `error ${code ?? 'without a code'}`,
+      extensions: code === undefined ? undefined : { code },
+    })),
+  );
+}
+
+describe('classifyRequestFailure', () => {
+  it('reads a request that never reached the server as unreachable', () => {
+    expect(classifyRequestFailure(new NetworkUnreachableError('Failed to fetch'))).toBe(
+      'unreachable',
+    );
+  });
+
+  it.each([500, 502, 503, 504])('reads an HTTP %i from the edge as unreachable', (status) => {
+    expect(classifyRequestFailure(new HttpStatusError(status))).toBe('unreachable');
+  });
+
+  it('reads an HTTP 401 as the server refusing the session', () => {
+    expect(classifyRequestFailure(new HttpStatusError(401))).toBe('session-refused');
+  });
+
+  it('reads an HTTP 403 as the server refusing this read', () => {
+    expect(classifyRequestFailure(new HttpStatusError(403))).toBe('read-refused');
+  });
+
+  it.each([400, 404, 409, 429])(
+    'reads an HTTP %i as a failure the cache must not cover',
+    (status) => {
+      expect(classifyRequestFailure(new HttpStatusError(status))).toBe('failed');
+    },
+  );
+
+  it('reads a GraphQL UNAUTHENTICATED as the server refusing the session', () => {
+    expect(classifyRequestFailure(graphqlError('UNAUTHENTICATED'))).toBe('session-refused');
+  });
+
+  it('reads a GraphQL FORBIDDEN as the server refusing this read', () => {
+    expect(classifyRequestFailure(graphqlError('FORBIDDEN'))).toBe('read-refused');
+  });
+
+  it('reads a refusal anywhere in the errors array as a refusal', () => {
+    expect(classifyRequestFailure(graphqlError('BAD_USER_INPUT', 'FORBIDDEN'))).toBe(
+      'read-refused',
+    );
+    expect(classifyRequestFailure(graphqlError('BAD_USER_INPUT', 'UNAUTHENTICATED'))).toBe(
+      'session-refused',
+    );
+  });
+
+  it('reads a refused session over a refused read when the errors array carries both', () => {
+    expect(classifyRequestFailure(graphqlError('FORBIDDEN', 'UNAUTHENTICATED'))).toBe(
+      'session-refused',
+    );
+  });
+
+  it('counts both refusals, and nothing else, as the server refusing the caller', () => {
+    expect(isRefusal('session-refused')).toBe(true);
+    expect(isRefusal('read-refused')).toBe(true);
+    expect(isRefusal('unreachable')).toBe(false);
+    expect(isRefusal('failed')).toBe(false);
+  });
+
+  it.each([
+    ['BAD_USER_INPUT'],
+    ['GRAPHQL_VALIDATION_FAILED'],
+    ['INTERNAL_SERVER_ERROR'],
+    [undefined],
+  ])('reads a GraphQL error coded %s as a failure, not an outage', (code) => {
+    expect(classifyRequestFailure(graphqlError(code))).toBe('failed');
+  });
+
+  it('reads a programming error (a TypeError thrown by a mapper) as a failure, not an outage', () => {
+    expect(
+      classifyRequestFailure(
+        new TypeError("Cannot read properties of undefined (reading 'items')"),
+      ),
+    ).toBe('failed');
+  });
+
+  it('reads an unknown throw as a failure', () => {
+    expect(classifyRequestFailure('boom')).toBe('failed');
+    expect(classifyRequestFailure(new Error('Failed to fetch'))).toBe('failed');
+  });
+
+  it('keeps the status on the HTTP error for the retry policy and the message for display', () => {
+    const error = new HttpStatusError(503);
+    expect(error.status).toBe(503);
+    expect(error.message).toBe('HTTP error: 503');
+  });
+});

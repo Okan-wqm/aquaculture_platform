@@ -6651,7 +6651,7 @@ export interface components {
             /** Format: date-time */
             suspendedAt?: string | null;
             suspendedReason?: string | null;
-            availableActions: ("activate" | "suspend" | "deactivate" | "archive" | "retryProvisioning")[];
+            availableActions: ("activate" | "deactivate" | "suspend" | "archive" | "retryProvisioning")[];
             primaryContact?: {
                 name: string;
                 email: string;
@@ -7740,7 +7740,7 @@ export interface components {
             monthlyTotal: string;
             currency: string;
             /** @enum {string} */
-            status: "draft" | "pending_approval" | "approved" | "expired" | "active" | "rejected";
+            status: "active" | "draft" | "pending_approval" | "approved" | "expired" | "rejected";
             validFrom: string;
             validTo?: string;
             approvedBy?: string;
@@ -8033,7 +8033,7 @@ export interface components {
             /** @enum {string} */
             defaultFormat: "json" | "csv" | "pdf";
             /** @enum {string} */
-            status: "draft" | "inactive" | "active";
+            status: "active" | "draft" | "inactive";
             /** @enum {string} */
             schedule: "monthly" | "manual" | "daily" | "weekly";
             defaultFilters?: {
@@ -8188,7 +8188,7 @@ export interface components {
             senderName?: string;
             content: string;
             /** @enum {string} */
-            status: "failed" | "sent" | "read" | "delivered";
+            status: "failed" | "read" | "sent" | "delivered";
             isInternal: boolean;
             attachments?: Record<string, never>[];
             /** Format: date-time */
@@ -8470,7 +8470,7 @@ export interface components {
             subject: string;
             description: string;
             /** @enum {string} */
-            category: "general" | "billing" | "technical" | "feature_request" | "bug_report" | "account";
+            category: "account" | "general" | "billing" | "technical" | "feature_request" | "bug_report";
             /** @enum {string} */
             priority: "critical" | "high" | "medium" | "low";
             /** @enum {string} */
@@ -8509,7 +8509,7 @@ export interface components {
             subject: string;
             description: string;
             /** @enum {string} */
-            category?: "general" | "billing" | "technical" | "feature_request" | "bug_report" | "account";
+            category?: "account" | "general" | "billing" | "technical" | "feature_request" | "bug_report";
             /** @enum {string} */
             priority?: "critical" | "high" | "medium" | "low";
             tags?: string[];
@@ -8518,7 +8518,7 @@ export interface components {
             subject?: string;
             description?: string;
             /** @enum {string} */
-            category?: "general" | "billing" | "technical" | "feature_request" | "bug_report" | "account";
+            category?: "account" | "general" | "billing" | "technical" | "feature_request" | "bug_report";
             /** @enum {string} */
             priority?: "critical" | "high" | "medium" | "low";
             /** @enum {string} */
@@ -13315,7 +13315,7 @@ export interface operations {
             query?: {
                 tenantId?: string;
                 role?: "SUPER_ADMIN" | "TENANT_ADMIN" | "MODULE_MANAGER" | "MODULE_USER";
-                status?: "all" | "inactive" | "active";
+                status?: "all" | "active" | "inactive";
                 search?: string;
                 page?: number;
                 limit?: number;

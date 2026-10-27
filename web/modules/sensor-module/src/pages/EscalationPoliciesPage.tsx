@@ -963,9 +963,7 @@ const PolicyCard: React.FC<{
                 {policy.onCallSchedule.length} nobetci kaydi
               </span>
             )}
-            {policy.priority > 0 && (
-              <span className="font-mono text-xs">Oncelik: {policy.priority}</span>
-            )}
+            {policy.priority > 0 && <span className="text-xs">Oncelik: {policy.priority}</span>}
           </div>
         </div>
 

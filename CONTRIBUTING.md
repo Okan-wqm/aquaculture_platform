@@ -104,7 +104,7 @@ Avoid `git commit -a` and `git add -A` when working alongside parallel sessions.
 - Every `@Entity()` declares `schema:` (ADR-011)
 - Never add tables to `public` (the `shared` schema holds 4 canonical cross-tenant tables; expanding requires an ADR per ADR-011)
 - Use `getScopedRepository()`, never `getRepository()`
-- Migration: blue-green safe (nullable column → backfill → NOT NULL constraint); never hand-edit; generate a new migration
+- Migration: blue-green safe (a NOT NULL column add follows the Blue-green safety item of `docs/runbooks/migration-authoring.md`, ADR-053); never hand-edit; generate a new migration
 
 ## Events
 

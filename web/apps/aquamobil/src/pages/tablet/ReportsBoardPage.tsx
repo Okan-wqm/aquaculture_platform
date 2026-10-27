@@ -248,7 +248,7 @@ function DensestSection({ summary }: { summary: FarmSummary }): ReactElement | n
             // fact from "at 0.0 kg/m³". A fabricated zero in the farm's voice is
             // the same defect class as an all-clear from a failed fetch.
             subtitle={`${fixedOrNone(metrics?.density, 1)} kg/m³`}
-            trailing={<span className="font-mono">{fixedOrNone(percent, 0)}%</span>}
+            trailing={<span className="tabular-nums">{fixedOrNone(percent, 0)}%</span>}
             onClick={() => navigate(`/tank/${tank.id}`)}
           />
         );
@@ -317,7 +317,7 @@ function DeadlineRow({ row, onOpen }: { row: ReportDeadline; onOpen: () => void 
       tone={due.tone}
       title={reportTypeLabel(row)}
       subtitle={`${periodLabel(row)} · ${row.status}`}
-      trailing={<span className="font-mono">{due.text}</span>}
+      trailing={<span className="tabular-nums">{due.text}</span>}
       // The review screen is FeatureRoute-guarded on the same `reports` feature
       // that gated this whole column, so the board opens nothing the handheld
       // would refuse.

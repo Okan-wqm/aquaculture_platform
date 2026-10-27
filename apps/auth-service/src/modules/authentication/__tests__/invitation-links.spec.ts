@@ -161,7 +161,11 @@ describe('invitation links resolve through ActionTokenResolver (SEC-HIGH-158)', 
   const eventBus = { publish: jest.fn().mockResolvedValue(undefined) };
   const tokenService = {
     generateTokens: jest.fn(async (u: User) => ({ accessToken: 'a', refreshToken: 'r', user: u })),
-    getUserModules: jest.fn().mockResolvedValue([]),
+    readModuleAccess: jest.fn().mockResolvedValue({
+      moduleAccess: {},
+      modules: [],
+      dropped: { not_owner_module: 0, unknown_code: 0, role_missing: 0 },
+    }),
   };
   let service: AuthenticationService;
 

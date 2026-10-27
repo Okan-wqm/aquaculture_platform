@@ -1,4 +1,4 @@
-/* v4 design tokens + self-hosted Geist. MUST precede the Tailwind layers so the
+/* v4 design tokens + self-hosted Inter. MUST precede the Tailwind layers so the
    custom properties exist before any utility resolves `var(--…)`.
    WHY not a Google Fonts @import (which this replaces): AquaMobil is an
    offline-first PWA — a CDN font drops out exactly when the worker is in the
@@ -64,7 +64,7 @@ body {
   background-attachment: fixed;
   color: var(--ink1);
   font-family:
-    'Geist',
+    'Inter',
     -apple-system,
     BlinkMacSystemFont,
     'SF Pro Display',
@@ -257,7 +257,7 @@ body {
     radial-gradient(ellipse 80% 50% at 50% -10%, rgb(127 214 224 / 0.18), transparent 60%),
     radial-gradient(ellipse 60% 40% at 50% 5%, rgb(200 240 238 / 0.1), transparent 70%),
     linear-gradient(180deg, #0b324a 0%, #0a2b40 18%, #061b2c 40%, #04111c 70%, #020a12 100%);
-  font-family: 'Geist', 'Inter', ui-sans-serif, system-ui, sans-serif;
+  font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
 }
 .am-auth-card {
   border: 1px solid rgb(255 255 255 / 0.55);

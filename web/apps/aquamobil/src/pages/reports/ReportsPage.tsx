@@ -161,7 +161,7 @@ export function ReportsPage(): JSX.Element {
                   }
                   title={tank.name}
                   subtitle={`${(tank.batchMetrics?.density ?? 0).toFixed(1)} kg/m³`}
-                  trailing={<span className="font-mono">{pct.toFixed(0)}%</span>}
+                  trailing={<span className="tabular-nums">{pct.toFixed(0)}%</span>}
                   onClick={() => navigate(`/tank/${tank.id}`)}
                 />
               );
@@ -218,7 +218,7 @@ export function ReportsPage(): JSX.Element {
                   tone={due.tone === 'neutral' ? 'neutral' : due.tone}
                   title={reportTypeLabel(row)}
                   subtitle={`${periodLabel(row)} · ${row.status}`}
-                  trailing={<span className="font-mono">{due.text}</span>}
+                  trailing={<span className="tabular-nums">{due.text}</span>}
                   onClick={() => navigate(`/reports/${row.id}`)}
                 />
               );

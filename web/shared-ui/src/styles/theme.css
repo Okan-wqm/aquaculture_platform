@@ -174,18 +174,19 @@
   --color-info-900: #1e3a8a;
 
   /* ============================ Fonts ============================ */
-  /* The five families web/shell/index.html loads, and no others (FE-MEDIUM-090):
-     one sans for the product, one mono for code and readings, one display serif
-     for the auth pages' title, and the tenant console's Industry pair — Barlow
-     for its body, Barlow Condensed 600 for its headings. A family named here
-     must be in that loader. The console pair does not replace the globals:
-     suderra.css points `--font-sans` / `--font-display` at them inside the
-     console scope only, so the auth pages keep Instrument Serif. */
+  /* Two families, both served by shared-ui/src/styles/fonts.css and no others
+     (FE-MEDIUM-090): Inter for every piece of text — body, headings, figures —
+     and Geist Mono for code and IDs only. The text tokens keep separate names so
+     a surface can be re-pointed (suderra.css sets `--font-sans` / `--font-display`
+     from the Industry pair inside the console scope), but they all name Inter:
+     the product moved from Barlow, Barlow Condensed and Instrument Serif to one
+     face that stays legible at every size and carries Turkish. A family named
+     here must be declared in fonts.css. */
   --font-sans: Inter, system-ui, -apple-system, sans-serif;
   --font-mono: 'Geist Mono', ui-monospace, Consolas, monospace;
-  --font-display: 'Instrument Serif', ui-serif, Georgia, serif;
-  --font-body-sd: 'Barlow', system-ui, -apple-system, sans-serif;
-  --font-display-sd: 'Barlow Condensed', system-ui, -apple-system, sans-serif;
+  --font-display: Inter, system-ui, -apple-system, sans-serif;
+  --font-body-sd: Inter, system-ui, -apple-system, sans-serif;
+  --font-display-sd: Inter, system-ui, -apple-system, sans-serif;
 
   /* ===================== Type scale (size + line-height) ===================== */
   --text-xs: 0.75rem;
@@ -250,7 +251,7 @@
      WHAT: the tenant console's visual language (design handoff "Tenant
      Console — Industrial", README §6): graphite neutrals, a steel-blue
      accent, red and amber as the only alarm colours, square corners and
-     Barlow type. The values below are the light theme ("Drawing"); the
+     Inter type. The values below are the light theme ("Drawing"); the
      `[data-theme='dark']` block further down re-assigns the theme-flipping
      ones to "Control room".
 

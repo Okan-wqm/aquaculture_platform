@@ -37,7 +37,7 @@ export const typography = {
   fontFamily: {
     sans: 'Inter, system-ui, -apple-system, sans-serif',
     mono: "'Geist Mono', ui-monospace, Consolas, monospace",
-    display: "'Instrument Serif', ui-serif, Georgia, serif",
+    display: 'Inter, system-ui, -apple-system, sans-serif',
   },
 
   fontSize: {

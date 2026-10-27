@@ -1,11 +1,11 @@
 import type { SelectQueryBuilder } from 'typeorm';
 
-import { HrModuleCode } from './enums';
+import { OWNER_MODULE } from '@aquaculture/shared-contracts';
 import { applyEmployeeModuleScope, employeeModuleWhere, isModuleScoped } from './module-scope';
 
 describe('module scope', () => {
   describe('isModuleScoped', () => {
-    it.each([HrModuleCode.FARM, HrModuleCode.HYDROPONICS, HrModuleCode.SENSOR])(
+    it.each([OWNER_MODULE.FARM, OWNER_MODULE.HYDROPONICS, OWNER_MODULE.SENSOR])(
       'is in force for %s',
       (moduleCode) => {
         expect(isModuleScoped(moduleCode)).toBe(true);
@@ -19,8 +19,8 @@ describe('module scope', () => {
 
   describe('employeeModuleWhere', () => {
     it('matches only live departments of the module', () => {
-      expect(employeeModuleWhere(HrModuleCode.SENSOR)).toEqual({
-        moduleCode: HrModuleCode.SENSOR,
+      expect(employeeModuleWhere(OWNER_MODULE.SENSOR)).toEqual({
+        moduleCode: OWNER_MODULE.SENSOR,
         isDeleted: false,
       });
     });
@@ -42,13 +42,13 @@ describe('module scope', () => {
     it('joins the employee department under a scope alias and filters on module and liveness', () => {
       const { queryBuilder, innerJoin } = buildQueryBuilder();
 
-      const result = applyEmployeeModuleScope(queryBuilder, 'employee', HrModuleCode.FARM);
+      const result = applyEmployeeModuleScope(queryBuilder, 'employee', OWNER_MODULE.FARM);
 
       expect(innerJoin).toHaveBeenCalledWith(
         'employee.departmentHr',
         'employee_scope_department',
         'employee_scope_department.moduleCode = :scopeModuleCode AND employee_scope_department.isDeleted = false',
-        { scopeModuleCode: HrModuleCode.FARM },
+        { scopeModuleCode: OWNER_MODULE.FARM },
       );
       expect(result).toBe(queryBuilder);
     });

@@ -26,6 +26,6 @@ export const SD_CARD_LABEL =
 export const SD_STAT_TITLE =
   'text-xs font-semibold uppercase tracking-[0.07em] text-gray-600 dark:text-gray-300';
 
-/** A stat card's figure: the display face (Barlow Condensed 600 in the console), tabular */
+/** A stat card's figure: the display face (Inter 600 in the console), tabular */
 export const SD_STAT_VALUE =
   'font-display text-[34px] font-semibold leading-none tabular-nums text-gray-900 dark:text-gray-100';

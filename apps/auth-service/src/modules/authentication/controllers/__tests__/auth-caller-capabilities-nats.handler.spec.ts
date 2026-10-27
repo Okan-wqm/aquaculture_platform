@@ -2,6 +2,7 @@ import { Test } from '@nestjs/testing';
 import {
   AUTH_USER_QUERY_SUBJECTS,
   type ResolveCallerCapabilitiesQuery,
+  validateResolveCallerCapabilitiesResultSchema,
 } from '@platform/event-contracts';
 
 import { TokenService } from '../../services/token.service';
@@ -113,5 +114,45 @@ describe('AuthCallerCapabilitiesNatsHandler (MSGFIX-FAZ2)', () => {
     expect(result.errorCode).toBe('INTERNAL_ERROR');
     expect(result.roles).toEqual([]);
     expect(result.resourcePermissions).toEqual([]);
+    // RBAC-HIGH-028: a failure grants no module and no site.
+    expect(result.moduleAccess).toEqual({});
+    expect(result.assignedSiteIds).toEqual([]);
+  });
+
+  // RBAC-HIGH-028: the messaging AI bridge has no JWT; this reply is where it reads the sender's
+  // module grants and sites, the same ones a fresh token would carry.
+  it('answers the module grants and the sites the token mint would carry', async () => {
+    resolveCallerCapabilities.mockResolvedValue({
+      found: true,
+      active: true,
+      roles: ['MODULE_USER'],
+      resourcePermissions: ['ai_assistant:use'],
+      moduleAccess: { farm: 'MODULE_USER' },
+      assignedSiteIds: ['33333333-3333-4333-8333-333333333333'],
+    });
+
+    const result = await handler.resolveCallerCapabilities(validPayload);
+
+    expect(result).toEqual({
+      success: true,
+      found: true,
+      active: true,
+      roles: ['MODULE_USER'],
+      resourcePermissions: ['ai_assistant:use'],
+      moduleAccess: { farm: 'MODULE_USER' },
+      assignedSiteIds: ['33333333-3333-4333-8333-333333333333'],
+    });
+    expect(validateResolveCallerCapabilitiesResultSchema(result)).toBe(true);
+  });
+
+  it('answers a schema-valid reply with no grant on a validation failure', async () => {
+    const result = await handler.resolveCallerCapabilities({
+      tenantId: 'not-a-uuid',
+      userId: USER_ID,
+    });
+
+    expect(result.moduleAccess).toEqual({});
+    expect(result.assignedSiteIds).toEqual([]);
+    expect(validateResolveCallerCapabilitiesResultSchema(result)).toBe(true);
   });
 });

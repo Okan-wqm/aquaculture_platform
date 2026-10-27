@@ -107,31 +107,29 @@ export function MyLeavesPage(): JSX.Element {
                     {leaveTypeById.get(balance.leaveTypeId)?.name || 'Leave'}
                   </h3>
                 </div>
-                <span className="text-body font-mono text-ink-3">{balance.year}</span>
+                <span className="text-body text-ink-3 tabular-nums">{balance.year}</span>
               </div>
 
               <div className="grid grid-cols-4 gap-2 text-center">
                 <div>
                   <p className="text-meta text-ink-3">Total</p>
-                  <p className="text-title font-mono font-bold text-ink-1 tabular-nums">
+                  <p className="text-title font-bold text-ink-1 tabular-nums">
                     {balance.totalEntitlement}
                   </p>
                 </div>
                 <div>
                   <p className="text-meta text-ink-3">Used</p>
-                  <p className="text-title font-mono font-bold text-ink-2 tabular-nums">
-                    {balance.usedDays}
-                  </p>
+                  <p className="text-title font-bold text-ink-2 tabular-nums">{balance.usedDays}</p>
                 </div>
                 <div>
                   <p className="text-meta text-ink-3">Pending</p>
-                  <p className="text-title font-mono font-bold text-warn tabular-nums">
+                  <p className="text-title font-bold text-warn tabular-nums">
                     {balance.pendingDays}
                   </p>
                 </div>
                 <div>
                   <p className="text-meta text-ink-3">Left</p>
-                  <p className="text-title font-mono font-bold text-ok tabular-nums">
+                  <p className="text-title font-bold text-ok tabular-nums">
                     {balance.remainingDays}
                   </p>
                 </div>

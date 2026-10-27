@@ -159,7 +159,7 @@ export function AttentionPane({ onSelectUnit }: AttentionPaneProps): ReactElemen
                     leading={<AlertTriangle size={18} />}
                     title={alert.ruleName}
                     subtitle={unit ? `${unit.name} · ${alert.message}` : alert.message}
-                    trailing={<span className="font-mono">{clockOf(alert.triggeredAt)}</span>}
+                    trailing={<span className="tabular-nums">{clockOf(alert.triggeredAt)}</span>}
                     onClick={unit && onSelectUnit ? () => onSelectUnit(unit.id) : undefined}
                   />
                 );
@@ -201,7 +201,9 @@ export function AttentionPane({ onSelectUnit }: AttentionPaneProps): ReactElemen
                     title={task.title}
                     subtitle={task.location ?? task.category}
                     trailing={
-                      task.dueTime ? <span className="font-mono">{task.dueTime}</span> : undefined
+                      task.dueTime ? (
+                        <span className="tabular-nums">{task.dueTime}</span>
+                      ) : undefined
                     }
                   />
                 ))}
@@ -224,7 +226,9 @@ export function AttentionPane({ onSelectUnit }: AttentionPaneProps): ReactElemen
  */
 function openCountMeta(view: Loadable<readonly unknown[]>, t: I18nContextValue['t']): ReactNode {
   if (view.status !== 'ready' || view.data.length === 0) return undefined;
-  return <span className="font-mono">{t('m.board.openCount', { count: view.data.length })}</span>;
+  return (
+    <span className="tabular-nums">{t('m.board.openCount', { count: view.data.length })}</span>
+  );
 }
 
 /**

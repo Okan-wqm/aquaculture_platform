@@ -5,7 +5,8 @@ import { AlertRule, AlertSeverity } from '../../database/entities/alert-rule.ent
 import { AlertHistory } from '../entities/alert-history.entity';
 import { ActiveAlertCount, ActiveAlertCountDimension } from '../dto/active-alert-count.type';
 import { AlertHistoryOrder } from '../dto/alert-history-order.enum';
-import { AlertModule } from '../entities/alert-module.enum';
+import type { OwnerModuleCode } from '@aquaculture/shared-contracts';
+import { ALERT_MODULE_ENUM } from '../entities/alert-module.enum';
 import { AlertRuleService } from '../services/alert-rule.service';
 import {
   CreateAlertRuleInput,
@@ -100,7 +101,8 @@ export class AlertResolver {
     @Args('endDate', { type: () => Date, nullable: true }) endDate?: Date | null,
     @Args('siteId', { type: () => ID, nullable: true }, new ParseUUIDPipe({ optional: true }))
     siteId?: string | null,
-    @Args('module', { type: () => AlertModule, nullable: true }) module?: AlertModule | null,
+    @Args('module', { type: () => ALERT_MODULE_ENUM, nullable: true })
+    module?: OwnerModuleCode | null,
     @Args('orderBy', { type: () => AlertHistoryOrder, nullable: true })
     orderBy?: AlertHistoryOrder | null,
   ): Promise<AlertHistory[]> {
@@ -139,7 +141,8 @@ export class AlertResolver {
     @Tenant() tenantId: string,
     @Args('siteId', { type: () => ID, nullable: true }, new ParseUUIDPipe({ optional: true }))
     siteId?: string | null,
-    @Args('module', { type: () => AlertModule, nullable: true }) module?: AlertModule | null,
+    @Args('module', { type: () => ALERT_MODULE_ENUM, nullable: true })
+    module?: OwnerModuleCode | null,
     @Args('groupBy', { type: () => [ActiveAlertCountDimension], nullable: true })
     groupBy?: ActiveAlertCountDimension[] | null,
   ): Promise<ActiveAlertCount[]> {

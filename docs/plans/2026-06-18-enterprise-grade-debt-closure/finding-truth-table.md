@@ -254,6 +254,15 @@ Allowed truth buckets:
 | `INFRA-CRITICAL-100`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
 | `ADMIN-CRITICAL-087`  | OPEN           | 2026-09-04   | admin-expert               | real-open                 |
 | `DEPLOY-CRITICAL-017` | OPEN           | 2026-09-05   | infra-expert               | real-open                 |
+| `HR-CRITICAL-065`     | OPEN           | 2026-11-30   | hr-expert                  | real-open                 |
+| `FARM-CRITICAL-466`   | OPEN           | 2026-11-30   | farm-expert                | real-open                 |
+| `SEC-CRITICAL-206`    | OPEN           | 2026-11-30   | auth-security-expert       | real-open                 |
+| `SEC-CRITICAL-207`    | OPEN           | 2026-11-30   | auth-security-expert       | real-open                 |
+
+Updated 2026-10-26 (module-boundaries program, PKG-00): four active CRITICALs added.
+`HR-CRITICAL-065` (payroll and HR finance behind the global role), `FARM-CRITICAL-466`
+(farm-service authorizes by the global role alone) and `SEC-CRITICAL-206` / `SEC-CRITICAL-207`
+(the tenant-wide sockets). Their fixes are PKG-07, PKG-08 and PKG-10, release R4.
 
 Updated 2026-09-10 (W9t, the SUPER_ADMIN audit's last unmigrated page): one active CRITICAL added.
 Updated 2026-10-10 (farm E2E campaign, PR #1951): seven CRITICALs registered
@@ -313,7 +322,6 @@ deadline 2026-11-17.
 | `ALERT-CRITICAL-009` | OPEN | 2026-09-29 | alert-engine-expert | real-open |
 | `SENSOR-CRITICAL-173` | OPEN | 2026-10-08 | claude | real-open |
 | `PLAT-CRITICAL-925` | OPEN | 2026-10-18 | claude | real-open |
-| `FARM-CRITICAL-479` | OPEN | 2026-10-27 | farm-expert | real-open |
 
 Updated 2026-10-17 (lost-work re-land, PR #2007): one active CRITICAL added.
 `INFRA-CRITICAL-233` — an ordinary leaf renewal (`droplet-up.sh` passing `--force` once the redis

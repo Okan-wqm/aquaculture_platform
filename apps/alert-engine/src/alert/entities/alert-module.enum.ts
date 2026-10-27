@@ -1,7 +1,7 @@
-import { registerEnumType } from '@nestjs/graphql';
+import { registerOwnerModuleEnum } from '@aquaculture/backend-common/graphql';
 
 /**
- * AlertModule — the platform module an alarm originates in.
+ * The GraphQL enum of the platform module an alarm originates in (`AlertModule`).
  *
  * WHY: the tenant console groups its work into module workspaces (Production
  * on the farm module, Greenhouse on hydroponics, Control & sensors on the
@@ -12,19 +12,17 @@ import { registerEnumType } from '@nestjs/graphql';
  * WHAT: the module whose service produced the signal the alarm was raised
  * from — set by alert-engine's consumer of that signal, never guessed from its
  * text: rule evaluation over SensorReading and the pre-meal oxygen guard
- * (FeedingWindowReadiness) come from sensor-service → SENSOR; water quality,
+ * (FeedingWindowReadiness) come from sensor-service → sensor; water quality,
  * mortality, FCR, feeding execution, feed coverage and low stock come from
- * farm-service → FARM. HYDROPONICS is the greenhouse workspace's module; no
- * hydroponics-service signal reaches alert-engine yet, so a filter on it is
- * valid and answers with no alarms rather than an error.
+ * farm-service → farm. Its values are the module dictionary's owner modules
+ * (`OWNER_MODULE`, shared-contracts; RBAC-MEDIUM-023): hydroponics is the
+ * greenhouse workspace's module and hr's alarms come from CertificationExpired,
+ * but no hydroponics-service or hr-service signal reaches alert-engine yet, so
+ * a filter on either is valid and answers with no alarms rather than an error.
+ * Code that holds a value types it `OwnerModuleCode`; this reference only names
+ * the GraphQL type.
  */
-export enum AlertModule {
-  FARM = 'farm',
-  SENSOR = 'sensor',
-  HYDROPONICS = 'hydroponics',
-}
-
-registerEnumType(AlertModule, {
-  name: 'AlertModule',
-  description: 'The platform module an alarm originates in',
-});
+export const ALERT_MODULE_ENUM = registerOwnerModuleEnum(
+  'AlertModule',
+  'The platform module an alarm originates in',
+);

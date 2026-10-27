@@ -18,7 +18,7 @@ import {
 } from '@nestjs/websockets';
 import { firstValueFrom, timeout } from 'rxjs';
 import { Server, Socket } from 'socket.io';
-import { isAiPersonaId } from '@aquaculture/shared-contracts';
+import { isAiPersonaId, isModuleAccess, type ModuleAccess } from '@aquaculture/shared-contracts';
 import { TenantConnectionLimiter, WsTokenRevalidator } from '@aquaculture/backend-common/websocket';
 
 /** JWT claims we consume — the full claim set (incl. resourcePermissions) rides along. */
@@ -39,6 +39,29 @@ interface AiClient {
   tenantId: string;
   roles: string[];
   resourcePermissions: string[];
+  /** RBAC-HIGH-028: the token's module grants (`{}` for a token without the claim). */
+  moduleAccess: ModuleAccess;
+  /** RBAC-HIGH-028: the token's site ids (`[]` for none). */
+  assignedSiteIds: string[];
+}
+
+/**
+ * The module grants and sites a verified handshake token carries (ADR-051 §2 Transport): an
+ * absent claim means none; a claim of any other shape refuses the handshake, exactly as the
+ * subgraph middleware answers it with 400.
+ */
+function memberScopeOf(
+  payload: TokenPayload,
+): Pick<AiClient, 'moduleAccess' | 'assignedSiteIds'> | null {
+  const moduleAccess: unknown =
+    payload['moduleAccess'] === undefined ? {} : payload['moduleAccess'];
+  const assignedSiteIds: unknown =
+    payload['assignedSiteIds'] === undefined ? [] : payload['assignedSiteIds'];
+  if (!isModuleAccess(moduleAccess)) return null;
+  if (!Array.isArray(assignedSiteIds) || !assignedSiteIds.every((id) => typeof id === 'string')) {
+    return null;
+  }
+  return { moduleAccess, assignedSiteIds: [...assignedSiteIds] };
 }
 
 interface AiChatMessagePayload {
@@ -112,6 +135,12 @@ export class AiChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         client.disconnect();
         return;
       }
+      const memberScope = memberScopeOf(payload);
+      if (memberScope === null) {
+        client.emit('ai:error', { code: 'AUTH_INVALID', message: 'Invalid token' });
+        client.disconnect();
+        return;
+      }
       // SEC-MEDIUM-073 (№26): per-tenant ceiling.
       if (!this.connectionLimiter.register(payload.tenantId, client.id)) {
         this.logger.warn(`Tenant ${payload.tenantId} exceeded its WS connection ceiling`);
@@ -142,6 +171,7 @@ export class AiChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         resourcePermissions: Array.isArray(payload.resourcePermissions)
           ? payload.resourcePermissions
           : [],
+        ...memberScope,
       });
       client.emit('ai:connected', { userId: payload.sub, tenantId: payload.tenantId });
     } catch (error) {
@@ -224,6 +254,9 @@ export class AiChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
             serviceId: 'gateway_api',
             userRoles: identity.roles,
             resourcePermissions: identity.resourcePermissions,
+            // RBAC-HIGH-028: the member's module grants and sites reach the AI chat path.
+            moduleAccess: identity.moduleAccess,
+            assignedSiteIds: identity.assignedSiteIds,
           })
           .pipe(timeout(NATS_REQUEST_TIMEOUT_MS)),
       );

@@ -133,6 +133,11 @@ function makeManager(calls: string[], storedProof?: Record<string, unknown>): En
     if (norm.includes('"tenant_erasure_target_proofs"')) {
       return Promise.resolve(storedProof ? [storedProof] : []);
     }
+    if (norm.includes('"idempotencyKey" = $2')) {
+      // hasOutboxRow: the stored proof exists but its outbox row does not, so a
+      // replay must re-enqueue the stored proof event.
+      return Promise.resolve([{ count: '0' }]);
+    }
     if (norm.startsWith('SELECT COUNT(*)::text AS count')) {
       return Promise.resolve([{ count: '2' }]);
     }
@@ -333,6 +338,29 @@ describe('TenantErasureTargetExecutor post-erasure hooks', () => {
       'stored proof mode mismatch',
     );
     expect(calls.some((entry) => entry.startsWith('table-delete:'))).toBe(false);
+  });
+
+  it('fails closed on a stored proof whose event id is not a UUID instead of re-emitting it', async () => {
+    // storedProofToEvent must restore the persisted id through restoreEventId
+    // (validated); an inline `as ...['eventId']` cast would enqueue the garbage.
+    const calls: string[] = [];
+    const storedProof = {
+      operationId: OPERATION,
+      tenantId: TENANT,
+      targetService: 'event-store-service',
+      eventId: 'not-a-uuid',
+      proofHash: 'sha256:stored-dry-run',
+      erasedAt: '2026-07-12T00:00:02.000Z',
+      dryRun: true,
+      matchedRecordCount: 2,
+      erasedRecordCount: 0,
+    };
+    const { executor } = makeHarness(calls, undefined, OPTIONS, storedProof);
+
+    await expect(executor.eraseFromRequest(makeRequest({ dryRun: true }))).rejects.toThrow(
+      /restoreEventId/,
+    );
+    expect(calls.some((entry) => entry.startsWith('enqueue:'))).toBe(false);
   });
 
   it('keeps the pre-hook behavior when no hooks are registered', async () => {

@@ -31,7 +31,7 @@ The 4-tier hierarchy (impossible → automatic → detectable → documented), t
 ## Primary Ownership
 
 - `tools/gates/tier-claim-lint.ts` output (Phase 2 deliverable) — the auditor consumes the linter's AST-derived claim set and re-classifies each claim independently.
-- `docs/reviews/_registry/findings.jsonl` (Phase 6 deliverable) — source of prior-cycle arbiter rulings this agent verifies against the current diff.
+- The finding registry (Phase 6 deliverable), read with `finding-registry project` — source of prior-cycle arbiter rulings this agent verifies against the current diff. `docs/reviews/_registry/findings.jsonl` is only its frozen genesis segment; findings registered since live in the per-finding event logs the projection folds in.
 - The set of every PR commit body, every inline tier-claim comment, and every boundary-allowlist entry (`​.claude/allowlists/boundary-files.yaml`) referenced by the current review cycle.
 
 Out of scope: the agent does not review domain correctness — that's the respective domain expert's job. It reviews *meta-correctness*: the claim-vs-evidence coherence and the ruling-vs-implementation completeness.
@@ -57,7 +57,7 @@ For every `// tier-N:` inline claim AND every `tier-N-begin/-end` block claim in
 
 Every architectural-arbiter ruling landing in cycle N−1 carries a finding ID and an expected-implementing-diff description.
 
-- Auditor fetches open arbiter rulings from `docs/reviews/_registry/findings.jsonl` (state: `IN-PROGRESS`).
+- Auditor fetches open arbiter rulings with `finding-registry project` (state: `IN-PROGRESS`); the frozen genesis segment `docs/reviews/_registry/findings.jsonl` alone would miss every ruling registered since the freeze.
 - For each ruling whose deadline is in the current cycle window: diff-inspect the cycle N changeset for the expected implementation.
 - Ruling implemented as specified → transition ruling state to `RESOLVED` and emit no new finding.
 - Ruling implemented partially or differently → `AUDIT-HIGH-NNN (RULING_PARTIAL_APPLICATION)`.
@@ -68,7 +68,7 @@ Every architectural-arbiter ruling landing in cycle N−1 carries a finding ID a
 
 Every inline `// auditor-override: AUDIT-{NNN} | owner:@{user} | deadline:{YYYY-MM-DD} | tracked:{path}` in the current diff must:
 
-- Reference a finding ID that exists in `docs/reviews/_registry/findings.jsonl` (if registry absent, emit `AUDIT-CRITICAL-NNN` — the override is unsupportable).
+- Reference a finding ID that exists in the registry (`finding-registry project --ids <ID>`; an ID registered after the freeze is not in the frozen genesis segment `docs/reviews/_registry/findings.jsonl`) (if registry absent, emit `AUDIT-CRITICAL-NNN` — the override is unsupportable).
 - Match an entry whose `state` is `BLOCKED` — BLOCKED means the override is the sanctioned resolution pending a larger fix.
 - Carry a CODEOWNERS-signed commit for the line adding the override (commit-msg-validator provides this signal; if absent, `AUDIT-HIGH-NNN`).
 - Not exceed the per-author rate limit (max 3 active overrides per author per week, keyed by registry-entry creator to defeat squash-rebase bypass; if exceeded, `AUDIT-HIGH-NNN`).
@@ -117,7 +117,7 @@ Sub-kind tags (part of the finding title, not the ID) so downstream tooling can 
 - Same-cycle architectural-arbiter rulings → handled in next cycle (section 2 rule).
 - Context-manager Phase 3.5 compaction → auditor findings are preserved verbatim; compaction rules in `.claude/shared/output-format.md` apply.
 - Gates pipeline (`tools/gates/tier-claim-lint.ts` + `commit-msg-validator.ts` — Phase 2 deliverables) → auditor is the human-judgment layer on top; lint catches grammar errors, auditor catches semantic over-claims.
-- Finding registry (`docs/reviews/_registry/findings.jsonl` — Phase 6) → single source of state for auditor-issued findings; state transitions driven by this agent.
+- Finding registry (read with `finding-registry project`, filed with `finding-registry add`; its `docs/reviews/_registry/findings.jsonl` is the frozen genesis segment — Phase 6) → single source of state for auditor-issued findings; state transitions driven by this agent.
 - CODEOWNERS gate on `.claude/allowlists/**` → auditor cannot itself alter the allowlist; all entry changes route through @okan review.
 
 ## References

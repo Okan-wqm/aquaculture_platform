@@ -34,11 +34,16 @@ export interface AssignmentRequest {
   readonly now: Date;
 }
 
-export type AssignmentOutcome =
-  | { readonly ok: true; readonly changed: boolean; readonly fields: readonly string[] }
-  | { readonly ok: false; readonly reason: string };
+/** The two fields an assignment fills. */
+export type AccountabilityField = 'owner_user' | 'deadline';
 
-type AccountabilityField = 'owner_user' | 'deadline';
+export type AssignmentOutcome =
+  | {
+      readonly ok: true;
+      readonly changed: boolean;
+      readonly fields: readonly AccountabilityField[];
+    }
+  | { readonly ok: false; readonly reason: string };
 
 function present(value: unknown): value is string {
   return typeof value === 'string' && value.trim() !== '';
@@ -46,8 +51,8 @@ function present(value: unknown): value is string {
 
 /**
  * Applies the assignment to `entry` in place, or refuses without touching it.
- * The caller rechains, verifies and writes; the write sink then holds the
- * resulting row to the full row contract.
+ * The caller records the filled `fields` as an OWNER_ASSIGNED event; the write
+ * sink then holds the resulting row to the full row contract.
  */
 export function applyAssignment(entry: Finding, request: AssignmentRequest): AssignmentOutcome {
   if (request.ownerUser === undefined && request.deadline === undefined) {

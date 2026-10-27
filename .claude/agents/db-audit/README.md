@@ -33,7 +33,7 @@ docs/reviews/db-audit/
 
 - Each agent reads its own file plus the methodology shard and the shared contracts it cites, then audits ONLY its partition scope — except the incidental-findings mandate, which is deliberately partition-unbounded.
 - Reports are written incrementally (re-Write after each domain) so late context loss cannot erase completed work; the final agent message is a receipt (path + counts + top findings), never the full report.
-- Findings use `DB-<AREA>-{SEVERITY}-{NNN}` IDs per `.claude/shared/output-format.md`. Registry entries in `docs/reviews/_registry/findings.jsonl` are minted at remediation time by the closing workstream, not during the audit run.
+- Findings use `DB-<AREA>-{SEVERITY}-{NNN}` IDs per `.claude/shared/output-format.md`. Registry entries (`npm run findings:add`, an event log under `docs/reviews/_registry/findings/`) are minted at remediation time by the closing workstream, not during the audit run.
 - Lane-D never edits source, tests, migrations, or other agents' documents. Fixes belong to Lane-A owners via the remediation plan.
 
 ## Non-goals

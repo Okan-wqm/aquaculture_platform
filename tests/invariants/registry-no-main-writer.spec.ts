@@ -28,7 +28,7 @@
  *     an inline third copy of the hash algebra, and rule-health counts come
  *     from `project --format=csv` instead of the stored state.
  *
- * The merge-driver half of T8 (.gitattributes) belongs to MF-2.
+ * The merge-driver half of T8 (.gitattributes) is the MF-2 block at the end of this file.
  */
 import { spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
@@ -220,5 +220,157 @@ describe('MF-1 — no lane moves main to record a closure', () => {
         /tools\/gates\/finding-registry\.ts\s+project\b[^\n]*--format=csv/.test(run),
       ),
     ).toBe(true);
+  });
+});
+
+/**
+ * MF-2 (MF-DESIGN §5 MF-2, §7 T8 for MF-2) — with findings.jsonl frozen and
+ * every change an event in its finding's own file, nothing is left for a merge
+ * driver to heal and nothing may write the frozen file:
+ *
+ *   - .gitattributes binds no merge attribute under docs/reviews/_registry/
+ *     (GitHub honours none, and git's own text merge is the correct one for
+ *     per-finding files: a same-finding race must conflict), and no merge
+ *     attribute anywhere names a driver git does not ship: with the
+ *     registration manifest gone nothing registers a custom driver, and
+ *     GitHub would not run one;
+ *   - the driver, its merge function, its installer, its registration file,
+ *     its `prepare` step and its spec are gone, and the kernel's branch-update
+ *     modules no longer reason about it;
+ *   - the one-off seed/patch scripts that wrote findings.jsonl are gone, and
+ *     the CLI has no `writeRegistry` for it;
+ *   - the sweep lane publishes the event files it writes, and its kernel
+ *     write contract admits exactly those paths.
+ */
+describe('MF-2 — no merge driver and no writer of the frozen findings.jsonl', () => {
+  const DRIVER_FILES = [
+    'tools/gates/finding-registry-merge.ts',
+    'tools/gates/finding-registry-merge-driver.ts',
+    'tools/gates/install-git-merge-drivers.mjs',
+    'tools/gates/git-merge-drivers.json',
+    'tests/invariants/finding-registry-merge-driver.spec.ts',
+  ];
+  const ONE_OFF_WRITERS = [
+    'tools/scripts/seed-finding-registry.ts',
+    'tools/scripts/seed-claude-audit-findings.ts',
+    'tools/scripts/patch-registry-phase2b.ts',
+    'tools/audit/seed-audit-findings.ts',
+    'tools/audit/migrate-schema-violations.ts',
+    'tools/audit/registry-rechain-after-squash.ts',
+  ];
+  const EVENT_PATH_CONTRACT = String.raw`^docs/reviews/_registry/findings/[A-Z0-9]+/[A-Z0-9-]+\.jsonl$`;
+
+  /** The attribute lines of a .gitattributes text: comments and blanks dropped, each split into its pattern and attributes. */
+  const attributeLines = (text: string): { pattern: string; attributes: string[] }[] =>
+    text
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line !== '' && !line.startsWith('#'))
+      .map((line) => {
+        const [pattern = '', ...attributes] = line.split(/\s+/);
+        return { pattern, attributes };
+      });
+
+  /** The merge drivers git ships; `-merge` (binary) and a bare `merge` (text) name none. */
+  const GIT_BUILT_IN_MERGE_DRIVERS = ['text', 'binary', 'union'];
+
+  /** Every `<pattern> merge=<name>` of `text` whose driver is not one git ships. */
+  const customMergeDrivers = (text: string): string[] =>
+    attributeLines(text).flatMap(({ pattern, attributes }) =>
+      attributes.flatMap((attribute) => {
+        const name = /^merge=(.+)$/.exec(attribute)?.[1];
+        return name === undefined || GIT_BUILT_IN_MERGE_DRIVERS.includes(name)
+          ? []
+          : [`${pattern} merge=${name}`];
+      }),
+    );
+
+  it('.gitattributes binds no merge attribute under docs/reviews/_registry/', () => {
+    const bound = attributeLines(readFileSync(join(REPO_ROOT, '.gitattributes'), 'utf8')).filter(
+      ({ pattern, attributes }) =>
+        pattern.startsWith('docs/reviews/_registry') &&
+        attributes.some((attribute) => /^-?merge(?:=|$)/.test(attribute)),
+    );
+    expect(bound).toEqual([]);
+  });
+
+  it('every merge= attribute of .gitattributes is text, binary or union: GitHub runs no custom merge driver', () => {
+    // The classifier first: it must name a dead driver and pass the built-in
+    // ones, or the scan of the real file below proves nothing.
+    expect(
+      customMergeDrivers(
+        [
+          '# docs/commented.md merge=ours',
+          'docs/ours.md merge=ours',
+          'docs/union.md merge=union',
+          'docs/text.md merge=text eol=lf',
+          'docs/binary.bin merge=binary',
+          'docs/unset.bin -merge',
+          'docs/set.md merge',
+          'docs/registry.jsonl merge=findings-registry',
+          '',
+        ].join('\n'),
+      ),
+    ).toEqual(['docs/ours.md merge=ours', 'docs/registry.jsonl merge=findings-registry']);
+    // A declared custom driver is dead on every PR merge (GitHub reads no merge
+    // driver configuration, and nothing in this repository registers one): git
+    // falls back to its text merge and the pin never takes effect.
+    // `docs/aria/CURRENT_STATE.md merge=ours` was exactly that.
+    expect(customMergeDrivers(readFileSync(join(REPO_ROOT, '.gitattributes'), 'utf8'))).toEqual([]);
+  });
+
+  it('the driver, its installer, its registration, its prepare step and its spec are gone', () => {
+    expect(DRIVER_FILES.filter((rel) => existsSync(join(REPO_ROOT, rel)))).toEqual([]);
+    const scripts = (
+      JSON.parse(readFileSync(join(REPO_ROOT, 'package.json'), 'utf8')) as {
+        scripts: Record<string, string>;
+      }
+    ).scripts;
+    expect(scripts.prepare ?? '').not.toContain('install-git-merge-drivers');
+    const mentioning = [
+      ...trackedFilesMentioning('merge=findings-registry'),
+      ...trackedFilesMentioning('finding-registry-merge'),
+      ...trackedFilesMentioning('install-git-merge-drivers'),
+    ].filter(
+      (rel) =>
+        !isHistoricalRecord(rel) && rel !== 'tests/invariants/registry-no-main-writer.spec.ts',
+    );
+    expect([...new Set(mentioning)].sort()).toEqual([]);
+    // The kernel's branch-update lane reasoned about the driver it did not need;
+    // with no driver left, neither module names it.
+    const kernelModules = [
+      'aria-kernel/aria_kernel/pr_branch_update.py',
+      'aria-kernel/aria_kernel/branch_update_lineage.py',
+    ];
+    expect(
+      kernelModules.filter((rel) =>
+        readFileSync(join(REPO_ROOT, rel), 'utf8').includes('findings-registry'),
+      ),
+    ).toEqual([]);
+  });
+
+  it('the one-off writers of findings.jsonl are gone, and the CLI keeps no writeRegistry for it', () => {
+    expect(ONE_OFF_WRITERS.filter((rel) => existsSync(join(REPO_ROOT, rel)))).toEqual([]);
+    expect(readFileSync(join(REPO_ROOT, 'tools/gates/finding-registry.ts'), 'utf8')).not.toMatch(
+      /\bfunction\s+writeRegistry\b/,
+    );
+  });
+
+  it('the sweep lane publishes the event files it writes, under a kernel contract for exactly those paths', () => {
+    const frozenFileLines = readFileSync(join(WORKFLOW_DIR, 'finding-state-sweep.yml'), 'utf8')
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.includes('docs/reviews/_registry/findings.jsonl'));
+    expect(frozenFileLines).toEqual([]);
+    const contracts = readFileSync(
+      join(REPO_ROOT, 'aria-kernel/aria_kernel/workflow_contract_registry.py'),
+      'utf8',
+    );
+    const sweepContract = contracts.slice(
+      contracts.indexOf('"finding-state-sweep": WorkflowContract('),
+    );
+    const allowed = /allowed_write_path_patterns=\(([^)]*)\)/.exec(sweepContract)?.[1] ?? '';
+    expect(allowed).toContain(`r"${EVENT_PATH_CONTRACT}"`);
+    expect(allowed).not.toContain('findings\\.jsonl');
   });
 });

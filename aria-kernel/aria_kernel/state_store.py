@@ -68,7 +68,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any
 
-from .git_object_id import ANY_OBJECT_FORMAT, is_object_id
+from .git_object_id import ANY_OBJECT_FORMAT, ObjectFormat, blob_object_id, is_object_id
 from .ledger import (
     StateTransaction,
     _lock_requirements_for_path,
@@ -2242,7 +2242,7 @@ def _write_cold_blobs(
     """``hash-object -w`` every candidate; its pointer rows by cycle dir. Each
     blob id is recomputed from the bytes the sha256 covers: a file that changed
     under git refuses the staging rather than point a sha256 at other bytes."""
-    fmt = _git(store.root, "rev-parse", "--show-object-format").strip()
+    fmt = ObjectFormat[_git(store.root, "rev-parse", "--show-object-format").strip().upper()]
     flat = [(cycle_dir, surface, path) for cycle_dir, files in candidates.items() for surface, path in files]
     blobs = _git(store.root, "hash-object", "-w", "--no-filters", "--", *(str(path) for _d, _s, path in flat)).split()
     if len(blobs) != len(flat):
@@ -2250,7 +2250,7 @@ def _write_cold_blobs(
     cycles: dict[str, list[dict[str, Any]]] = {}
     for (cycle_dir, surface, path), blob in zip(flat, blobs):
         data = path.read_bytes()
-        if hashlib.new(fmt, b"blob %d\0" % len(data) + data).hexdigest() != blob:
+        if blob_object_id(data, fmt) != blob:
             raise StateStoreError(f"state_cold_source_changed: {path.relative_to(root).as_posix()}")
         digest = hashlib.sha256(data).hexdigest()
         cycles.setdefault(cycle_dir, []).append({

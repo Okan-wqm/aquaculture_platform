@@ -30,6 +30,7 @@ rule instead of calling this one.
 """
 from __future__ import annotations
 
+import hashlib
 import re
 from enum import Enum
 from typing import Final
@@ -86,6 +87,11 @@ def is_object_id_prefix(
     return _LOWER_HEX.fullmatch(text) is not None
 
 
+def blob_object_id(content: bytes, object_format: ObjectFormat) -> str:
+    """The id git names ``content`` with as a blob (``git hash-object --no-filters``), computed without git."""
+    return hashlib.new(object_format.name.lower(), b"blob %d\0" % len(content) + content).hexdigest()
+
+
 def object_id_pattern(formats: frozenset[ObjectFormat]) -> str:
     """The full-id rule as an unanchored, non-capturing regex fragment, for embedding in a larger pattern."""
     alternatives = "|".join(f"[0-9a-f]{{{length}}}" for length in sorted(_lengths(formats), reverse=True))
@@ -97,6 +103,7 @@ __all__ = [
     "MIN_ABBREVIATED_HEX_DIGITS",
     "ObjectFormat",
     "SHA1_OBJECT_FORMAT",
+    "blob_object_id",
     "is_object_id",
     "is_object_id_prefix",
     "object_id_pattern",

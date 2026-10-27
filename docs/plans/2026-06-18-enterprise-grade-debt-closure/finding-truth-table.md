@@ -257,7 +257,7 @@ Allowed truth buckets:
 | `HR-CRITICAL-065`     | OPEN           | 2026-11-30   | hr-expert                  | real-open                 |
 | `FARM-CRITICAL-466`   | OPEN           | 2026-11-30   | farm-expert                | real-open                 |
 | `SEC-CRITICAL-206`    | OPEN           | 2026-11-30   | auth-security-expert       | already-fixed-needs-close |
-| `SEC-CRITICAL-207`    | OPEN           | 2026-11-30   | auth-security-expert       | real-open                 |
+| `SEC-CRITICAL-207`    | OPEN           | 2026-11-30   | auth-security-expert       | already-fixed-needs-close |
 
 Updated 2026-10-26 (module-boundaries program, PKG-00): four active CRITICALs added.
 `HR-CRITICAL-065` (payroll and HR finance behind the global role), `FARM-CRITICAL-466`
@@ -574,6 +574,17 @@ main-reachable closer after merge and moves this row to `Resolved Evidence`.
   (`apps/gateway-api/src/websocket/farm-ws-event-access.ts`); no builder makes a tenant-wide room.
   Proof: `farm.gateway.rooms.spec.ts`, `farm-ws-event-access.spec.ts`,
   `libs/backend-common/src/websocket/__tests__/module-socket-rooms.spec.ts` and
+  `tests/invariants/ws-module-scoped-rooms.spec.ts`. The row stays OPEN until the post-merge close
+  ceremony records the main-reachable closing commit; the branch merges behind the R4 entry gate.
+
+- `SEC-CRITICAL-207` (2026-10-27, module-boundaries PKG-10, release R4): the /sensors and
+  /st-language handshakes require a sensor grant (`decideAccess` module('sensor') from the token's
+  `moduleAccess`); sensor rooms carry the tenant prefix (`t:{tenant}:m:sensor[:site:{id}]:…`); a
+  reading reaches the site room its `siteId` names, so a site-bound sensor operator receives only
+  its sites; `request.sensor.verifyDeviceOwnership` answers the device's site, so edge I/O admits a
+  site-bound operator only to devices of its sites; ST automation pushes reach the sensor module
+  room. Proof: `sensor-readings.gateway.rooms.spec.ts`, `st-language.gateway.rooms.spec.ts`,
+  `device-ownership.service.spec.ts`, `edge-device-nats.controller.spec.ts` and
   `tests/invariants/ws-module-scoped-rooms.spec.ts`. The row stays OPEN until the post-merge close
   ceremony records the main-reachable closing commit; the branch merges behind the R4 entry gate.
 

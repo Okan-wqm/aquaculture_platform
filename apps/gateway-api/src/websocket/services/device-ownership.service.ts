@@ -24,16 +24,19 @@ import { ClientProxy } from '@nestjs/microservices';
 import { firstValueFrom, timeout } from 'rxjs';
 
 import { NATS_PATTERNS } from '@aquaculture/backend-common/constants';
+import { devicePlacementOf, type DevicePlacement } from '@platform/event-contracts';
 
-/** Shape of a single cache entry. */
+/** Shape of a single cache entry: the device's placement, or null when the tenant owns none. */
 interface CacheEntry {
-  owned: boolean;
+  placement: DevicePlacement | null;
   expiresAt: number;
 }
 
 /**
- * Injectable service that verifies edge-device ownership for a given tenant
- * and caches results in a bounded LRU map.
+ * Injectable service that verifies edge-device ownership for a given tenant,
+ * answers with the device's site (SEC-CRITICAL-207: a site-bound sensor
+ * operator streams the devices of its own sites only) and caches results in a
+ * bounded LRU map.
  */
 @Injectable()
 export class DeviceOwnershipService implements OnModuleDestroy {
@@ -113,26 +116,27 @@ export class DeviceOwnershipService implements OnModuleDestroy {
   }
 
   /**
-   * Verify that an edge device belongs to a specific tenant.
+   * Where an edge device of a specific tenant stands.
    *
    * Checks the LRU cache first. On a miss, sends a NATS request-reply to
    * sensor-service. The result is cached with a TTL that depends on whether
    * the device was found (positive) or not (negative).
    *
    * Safe defaults:
-   * - If SKIP_DEVICE_AUTH is true: allow (for development/testing)
-   * - If NATS client is not available and SKIP_DEVICE_AUTH is false: deny
-   * - If sensor-service is unreachable or times out: deny
+   * - If SKIP_DEVICE_AUTH is true and NATS is not wired: owned, on no site
+   *   (development only; a site-bound caller is still refused)
+   * - If NATS client is not available and SKIP_DEVICE_AUTH is false: none
+   * - If sensor-service is unreachable, times out or replies malformed: none
    * - If cache entry exists and has not expired: use cached result
    *
    * @param deviceCode - The edge device code to verify
    * @param tenantId - The tenant ID from the authenticated JWT
-   * @returns true if the device belongs to the tenant, false otherwise
+   * @returns the device's placement when the tenant owns it, null otherwise
    */
-  async verifyOwnership(
+  async devicePlacement(
     deviceCode: string,
     tenantId: string,
-  ): Promise<boolean> {
+  ): Promise<DevicePlacement | null> {
     // Check cache first (with LRU promotion)
     const cacheKey = `${tenantId}:${deviceCode}`;
     const cached = this.cache.get(cacheKey);
@@ -142,7 +146,7 @@ export class DeviceOwnershipService implements OnModuleDestroy {
         // Promote to most-recently-used position
         this.cache.delete(cacheKey);
         this.cache.set(cacheKey, cached);
-        return cached.owned;
+        return cached.placement;
       }
       // Evict expired entry
       this.cache.delete(cacheKey);
@@ -152,32 +156,32 @@ export class DeviceOwnershipService implements OnModuleDestroy {
       this.logger.warn(
         'SEC-M18: NATS client not available for device ownership verification',
       );
-      return this.skipDeviceAuth;
+      return this.skipDeviceAuth ? { siteId: null } : null;
     }
 
     try {
-      const result = await firstValueFrom(
+      const reply = await firstValueFrom(
         this.natsClient
-          .send<{ owned: boolean }>(
+          .send<unknown>(
             NATS_PATTERNS.SENSOR.VERIFY_DEVICE_OWNERSHIP,
             { deviceCode, tenantId },
           )
           .pipe(timeout(this.verifyTimeoutMs)),
       );
 
-      const owned = !!result?.owned;
-      const ttl = owned ? this.positiveTtlMs : this.negativeTtlMs;
+      const placement = devicePlacementOf(reply);
+      const ttl = placement !== null ? this.positiveTtlMs : this.negativeTtlMs;
 
-      this.setCacheEntry(cacheKey, { owned, expiresAt: Date.now() + ttl });
+      this.setCacheEntry(cacheKey, { placement, expiresAt: Date.now() + ttl });
 
-      return owned;
+      return placement;
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       this.logger.warn(
         `SEC-M18: Device ownership verification failed (denying access): ${message}`,
       );
       // Safe default: deny access when sensor-service is unreachable
-      return false;
+      return null;
     }
   }
 

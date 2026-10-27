@@ -15,7 +15,9 @@ import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject } from '@nest
 import { ConfigService } from '@nestjs/config';
 import * as fs from 'fs';
 
-import { STLanguageGateway } from './st-language.gateway';
+import { TENANT_ID_REGEX } from '@aquaculture/backend-common/constants';
+
+import { STLanguageGateway, type StAutomationPush } from './st-language.gateway';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -197,7 +199,7 @@ export class STLanguageBridgeService implements OnModuleInit, OnModuleDestroy {
     );
   }
 
-  private subscribeToEvent(subject: string, pushType: string): void {
+  private subscribeToEvent(subject: string, pushType: StAutomationPush['type']): void {
     if (!this.connection) return;
 
     const sub = this.connection.subscribe(subject);
@@ -209,13 +211,14 @@ export class STLanguageBridgeService implements OnModuleInit, OnModuleDestroy {
         try {
           const data = JSON.parse(msg.string()) as AutomationEvent;
 
-          if (!data.tenantId) {
-            this.logger.warn(`${subject} event missing tenantId, dropping`);
+          // A tenant that is no tenant id cannot name a room (SEC-CRITICAL-207).
+          if (typeof data.tenantId !== 'string' || !TENANT_ID_REGEX.test(data.tenantId)) {
+            this.logger.warn(`${subject} event without a valid tenantId, dropping`);
             continue;
           }
 
-          // Push to all WS clients of this tenant
-          this.stGateway.pushToTenant(data.tenantId, 'st:push', {
+          // Push to the tenant's ST editors that hold a sensor grant
+          this.stGateway.pushAutomationEvent(data.tenantId, {
             type: pushType,
             data,
             timestamp: data.timestamp ?? new Date().toISOString(),

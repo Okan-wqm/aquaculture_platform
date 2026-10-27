@@ -67,14 +67,20 @@ function harness(): Harness {
   const emitTo = jest.fn().mockReturnValue(true);
   gateway.server = collaborator<Server>(
     {
-      to: jest.fn((rooms: string[]) => ({ emit: (...args: unknown[]) => emitTo(rooms, ...args) })),
+      to: jest.fn().mockImplementation((rooms: string[]) => ({
+        emit: (...args: unknown[]) => emitTo(rooms, ...args),
+      })),
     },
     'Server',
   );
   return { gateway, revalidator, verifyAsync, devicePlacement, emitTo };
 }
 
-async function connect(h: Harness, claims: Record<string, unknown>): Promise<Connected> {
+async function connect(
+  h: Harness,
+  claims: Record<string, unknown>,
+  socketId = 'sock-1',
+): Promise<Connected> {
   const joined: string[] = [];
   const left: string[] = [];
   const emit = jest.fn();
@@ -89,7 +95,7 @@ async function connect(h: Harness, claims: Record<string, unknown>): Promise<Con
   });
   const client = collaborator<Socket>(
     {
-      id: 'sock-1',
+      id: socketId,
       emit,
       disconnect,
       join: jest.fn(async (rooms: string[]) => {
@@ -185,8 +191,8 @@ describe('SensorReadingsGateway rooms (SEC-CRITICAL-207)', () => {
 
   it('delivers a reading to the S9 operator only from S9, and never across tenants', async () => {
     const h = harness();
-    const manager = await connect(h, SENSOR_MANAGER_S9);
-    const operator = await connect(h, SENSOR_OPERATOR_S9);
+    const manager = await connect(h, SENSOR_MANAGER_S9, 'manager');
+    const operator = await connect(h, SENSOR_OPERATOR_S9, 'operator');
     await h.gateway.handleSubscribe(manager.client, { sensorIds: [SENSOR] });
     await h.gateway.handleSubscribe(operator.client, { sensorIds: [SENSOR] });
 

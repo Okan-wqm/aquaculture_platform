@@ -40,6 +40,8 @@ interface NatsEvent {
   sensorName?: string;
   farmId?: string;
   pondId?: string;
+  /** The sensor's site when the reading was taken (SensorReading v3); absent for no site. */
+  siteId?: string;
   version?: number;
   // v2 flat reading fields
   readingTemperature?: number;
@@ -308,16 +310,25 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
     const timestamp =
       event.timestamp instanceof Date ? event.timestamp.toISOString() : String(event.timestamp);
 
-    this.sensorGateway.broadcastSensorReading({
-      // Task 1.5: forward the deterministic identity so the client can
-      // deduplicate its reconnect window instead of double-rendering.
-      eventId: event.eventId,
-      sensorId: event.sensorId ?? '',
-      sensorName: event.sensorName ?? '',
-      tenantId: event.tenantId,
-      readings,
-      timestamp,
-    });
+    // SEC-CRITICAL-207: the reading's site routes it to that site's room too,
+    // so a site-bound sensor operator receives only readings of its sites. A
+    // site that is no id routes the reading to tenant-wide sensor members only.
+    const siteId =
+      typeof event.siteId === 'string' && uuidRegex.test(event.siteId) ? event.siteId : null;
+
+    this.sensorGateway.broadcastSensorReading(
+      {
+        // Task 1.5: forward the deterministic identity so the client can
+        // deduplicate its reconnect window instead of double-rendering.
+        eventId: event.eventId,
+        sensorId: event.sensorId ?? '',
+        sensorName: event.sensorName ?? '',
+        tenantId: event.tenantId,
+        readings,
+        timestamp,
+      },
+      siteId,
+    );
   }
 
   private handleConnectionEvents(): void {

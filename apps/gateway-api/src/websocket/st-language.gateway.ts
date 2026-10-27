@@ -11,29 +11,19 @@ import {
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { enforceAccessTokenType, getJwtVerifyOptions } from '@aquaculture/backend-common/auth';
-import { buildWsCorsConfig } from '@aquaculture/backend-common/websocket';
-import { WsTokenRevalidator } from '@aquaculture/backend-common/websocket';
+import {
+  WsTokenRevalidator,
+  buildWsCorsConfig,
+  emitToModuleRooms,
+  eventModuleRooms,
+  joinModuleRooms,
+  memberModuleRooms,
+  socketMemberOf,
+} from '@aquaculture/backend-common/websocket';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-
-/**
- * Decoded JWT payload for ST language clients.
- *
- * `type` and `jti` are required for `enforceAccessTokenType` — refresh
- * and MFA-challenge tokens carry `type !== 'access'` and must be
- * rejected at handshake (H-1 fix).
- */
-interface TokenPayload {
-  sub: string;
-  tenantId?: string;
-  userId?: string;
-  roles?: string[];
-  type?: string;
-  jti?: string;
-  [key: string]: unknown;
-}
 
 interface STRequest {
   type: 'analyze' | 'hover' | 'complete' | 'format' | 'outline' | 'definition' | 'references';
@@ -70,6 +60,16 @@ type STErrorCode =
   | 'RATE_LIMITED'
   | 'INTERNAL_ERROR';
 
+/**
+ * An automation change pushed to ST editors (STLanguageBridgeService). The
+ * events name no site, so they reach members tenant-wide in sensor only.
+ */
+export interface StAutomationPush {
+  type: 'diagnostics_update' | 'program_deployed' | 'tags_changed' | 'fb_definitions_changed';
+  data: unknown;
+  timestamp: string;
+}
+
 interface NatsLanguageReply {
   success?: boolean;
   data?: unknown;
@@ -104,6 +104,14 @@ const MAX_CONNECTIONS_PER_TENANT = 10;
 // Gateway
 // ---------------------------------------------------------------------------
 
+/**
+ * The ST language socket (/st-language). SEC-CRITICAL-207: it serves PLC/SCADA
+ * program sources, which are sensor-private (D2), so the handshake requires a
+ * sensor grant — `decideAccess` module('sensor') through the token's
+ * `moduleAccess` — and joins the sensor module room, or the room of each
+ * assigned site for a site-bound sensor operator. Automation pushes reach the
+ * sensor module room; no tenant-wide room exists.
+ */
 @WebSocketGateway({
   cors: buildWsCorsConfig('STLanguageGateway'),
   namespace: '/st-language',
@@ -157,16 +165,27 @@ export class STLanguageGateway implements OnGatewayInit, OnGatewayConnection, On
         return;
       }
 
-      const payload = await this.validateToken(token);
-      if (!payload?.tenantId) {
+      const claims = await this.validateToken(token);
+      const member = claims === null ? null : socketMemberOf(claims);
+      if (claims === null || member === null) {
         this.logger.warn(`Client ${client.id} has invalid token`);
         client.emit('error', { message: 'Invalid token' });
         client.disconnect();
         return;
       }
 
-      const tenantId = payload.tenantId;
-      const userId = payload.userId ?? payload.sub ?? 'unknown';
+      // SEC-CRITICAL-207: the ST language service needs a sensor grant (and, for
+      // a MODULE_USER, an assigned site).
+      const rooms = memberModuleRooms(member, 'sensor');
+      if (rooms.length === 0) {
+        this.logger.warn(`Client ${client.id} refused: no sensor grant`);
+        client.emit('error', { message: 'Forbidden' });
+        client.disconnect();
+        return;
+      }
+
+      const { tenantId } = member;
+      const userId = member.caller.userId;
 
       // Enforce max connections per tenant
       const tenantConnectionCount = this.getConnectionCountForTenant(tenantId);
@@ -183,8 +202,8 @@ export class STLanguageGateway implements OnGatewayInit, OnGatewayConnection, On
       this.tokenRevalidator.register(client.id, {
         tenantId,
         userId,
-        jti: typeof payload.jti === 'string' ? payload.jti : '',
-        issuedAt: typeof payload.iat === 'number' ? payload.iat : undefined,
+        jti: typeof claims['jti'] === 'string' ? claims['jti'] : '',
+        issuedAt: typeof claims['iat'] === 'number' ? claims['iat'] : undefined,
         disconnect: (reason) => {
           this.logger.warn(`ST socket ${client.id} disconnected: ${reason}`);
           client.disconnect(true);
@@ -198,8 +217,7 @@ export class STLanguageGateway implements OnGatewayInit, OnGatewayConnection, On
         messageTimes: [],
       });
 
-      // Join tenant-specific room for push events
-      void client.join(`tenant:${tenantId}`);
+      await joinModuleRooms(client, rooms);
 
       // Start idle timer
       this.resetIdleTimer(client.id);
@@ -330,18 +348,12 @@ export class STLanguageGateway implements OnGatewayInit, OnGatewayConnection, On
   // -----------------------------------------------------------------------
 
   /**
-   * Push a server event to all clients of a specific tenant.
-   * Used by STLanguageBridgeService when NATS events arrive.
+   * Push an automation change to the ST editors of a tenant (used by
+   * STLanguageBridgeService when NATS events arrive). The change names no
+   * site, so it reaches members tenant-wide in sensor.
    */
-  pushToTenant(tenantId: string, event: string, data: unknown): void {
-    this.server.to(`tenant:${tenantId}`).emit(event, data);
-  }
-
-  /**
-   * Get the internal server instance (used by bridge service).
-   */
-  getServer(): Server {
-    return this.server;
+  pushAutomationEvent(tenantId: string, push: StAutomationPush): void {
+    emitToModuleRooms(this.server, eventModuleRooms(tenantId, 'sensor', null), 'st:push', push);
   }
 
   /**
@@ -503,7 +515,7 @@ export class STLanguageGateway implements OnGatewayInit, OnGatewayConnection, On
    * `algorithms: ['HS256']` — no iss, no aud, no type check. All four
    * gaps are closed by this refactor.
    */
-  private async validateToken(token: string): Promise<TokenPayload | null> {
+  private async validateToken(token: string): Promise<Record<string, unknown> | null> {
     try {
       const result = await this.jwtService.verifyAsync<Record<string, unknown>>(
         token,
@@ -525,7 +537,7 @@ export class STLanguageGateway implements OnGatewayInit, OnGatewayConnection, On
         this.isProduction,
       );
 
-      return result as TokenPayload;
+      return result;
     } catch (error) {
       this.logger.debug(`Token validation failed: ${(error as Error).message}`);
       return null;

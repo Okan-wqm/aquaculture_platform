@@ -56,7 +56,9 @@ function harness(): Harness {
   const emitTo = jest.fn().mockReturnValue(true);
   gateway.server = collaborator<Server>(
     {
-      to: jest.fn((rooms: string[]) => ({ emit: (...args: unknown[]) => emitTo(rooms, ...args) })),
+      to: jest.fn().mockImplementation((rooms: string[]) => ({
+        emit: (...args: unknown[]) => emitTo(rooms, ...args),
+      })),
     },
     'Server',
   );

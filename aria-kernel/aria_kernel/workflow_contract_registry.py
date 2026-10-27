@@ -859,7 +859,12 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 job_id="sweep",
                 preflight_step="Persist enterprise workflow preflight",
                 first_governed_mutation_step="Apply sweep",
-                allowed_write_path_patterns=(r"^docs/reviews/_registry/findings\.jsonl$",),
+                # MF-2: a transition is a STATE_TRANSITIONED line appended to the
+                # finding's own event log; findings.jsonl is frozen and no lane
+                # writes it.
+                allowed_write_path_patterns=(
+                    r"^docs/reviews/_registry/findings/[A-Z0-9]+/[A-Z0-9-]+\.jsonl$",
+                ),
                 preflight_artifact_path_pattern=rf"^{_RUNNER_TEMP}/finding-state-sweep-preflight\.json$",
                 upload_artifact_name_pattern=rf"^finding-state-sweep-proof-{_RUN_ID_ATTEMPT}$",
                 upload_artifact_path_patterns=(rf"^{_RUNNER_TEMP}/finding-state-sweep-preflight\.json$",),

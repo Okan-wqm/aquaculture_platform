@@ -24,12 +24,13 @@
  *   and re-pollute via `index.ts → security → gdpr → entities`).
  *
  * - Concrete entity-bearing modules (`AuditLogModule`, `GdprModule`) are
- *   reachable via deep import paths only. The finding-registry deep import is
- *   a pure replay contract; its persistence module belongs exclusively to
- *   `event-store-service`:
+ *   reachable via deep import paths only:
  *     - `@aquaculture/backend-common/audit`
  *     - `@aquaculture/backend-common/gdpr`
- *     - `@aquaculture/backend-common/finding-registry` (pure contract only)
+ *   The finding-registry module that was a third deep import is gone (MF-2):
+ *   the git event log is the authority and the Postgres ledger that mirrors it
+ *   belongs to `event-store-service`. The `./finding-registry` patterns below
+ *   stay, so a barrel for it cannot come back through the main index.
  *
  * # What this invariant detects
  *

@@ -43,6 +43,8 @@ SINGLE_OWNER = {
     "dispatch_failure_classification": "tools/aria-poc/dispatch_failure.py",
     # The one Python-source parse the import graph and the atlas share (PLAN-v2 F0.9: no fourth engine).
     "python_source_facts": f"{_KERNEL}source_facts.py",
+    # F1.1 — the learning journal: memory.record_learning_event, no other writer (goldset and pr_tracking routed).
+    "learning_log": f"{_KERNEL}memory.py",
 }
 
 # One planted second owner per family: a second writer of the family's ledger
@@ -66,6 +68,13 @@ _PLANTED = {
     "python_source_facts": (
         "def module_name(path):\n    return path.removesuffix('.py').replace('/', '.')\n",
         "def chain_runs(operands):\n    return []\n",
+    ),
+    # The two direct appends F1.1 routes through the owner, in the shapes goldset.py and pr_tracking.py had, and the
+    # surface-named append that needs no path literal.
+    "learning_log": (
+        "append_declared_jsonl(root / 'memory' / 'learning-events.jsonl', row, expected_surface='memory_learning_events')\n",
+        "append_jsonl(root / 'memory' / 'learning-events.jsonl', row)\n",
+        "append_declared_jsonl(path, row, expected_surface='memory_learning_events')\n",
     ),
 }
 

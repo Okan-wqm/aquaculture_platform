@@ -37,9 +37,6 @@ services' roots, and the twin slice (``twin.twin_slice_files``).
 from __future__ import annotations
 
 import argparse
-import base64
-import binascii
-import html
 import json
 import re
 import shutil
@@ -47,7 +44,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 from aria_kernel import pr_tracking
 from aria_kernel.agent_invocations import list_agent_invocation_requests, render_invocation_prompt
@@ -59,6 +56,7 @@ from aria_kernel.pr_tracking import CHANGE_INTELLIGENCE_ROLE, dispatch_change_in
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
 from aria_kernel.twin import TWIN_MAP_RELPATH, twin_context_for_files
 from tests._helpers.service_facts import NO_CONTRACT_FACTS, facts_without_contract_edges
+from tests._helpers.untrusted_blocks import _DATA_BLOCKS, _UNTRUSTED, _inside, _outside, _readings
 
 CHANGED = "libs/zz-core/src/i.ts"
 # Dependency order differs from name order on purpose: zz-core <- mm-mid <- aa-edge.
@@ -92,33 +90,11 @@ TWIN = {
 }
 TWIN_SLICE = ["libs/zz-core/src/i.spec.ts", "libs/zz-core/src/i.ts", "tools/legacy/z.ts"]
 
-_UNTRUSTED = re.compile(r"<(untrusted_[a-z_]+)\b[^>]*(?<!/)>(.*?)</\1>", re.S)
 _DATA = re.compile(r"<(untrusted_[a-z_]+|derived_context)\b[^>]*(?<!/)>(.*?)</\1>", re.S)
-# Every block the prompt declares as data, read the way an agent reads it: it opens where the
-# kernel opens one (a tag at the start of a line; the data notice only NAMES the tags, mid-line)
-# and ends at the FIRST closing tag of its name, wherever that sits.
-_DATA_BLOCKS = re.compile(r"(?m)^<(untrusted_[a-z_]+|derived_context|evidence_payload)\b[^>]*(?<!/)>(.*?)</\1>", re.S)
 
 
 def _git(repo: Path, *args: str) -> str:
     return subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True, text=True).stdout.strip()
-
-
-def _readings(body: str) -> Iterator[str]:
-    yield body
-    yield html.unescape(body)
-    try:
-        yield base64.b64decode("".join(body.split()), validate=True).decode("utf-8")
-    except (binascii.Error, UnicodeDecodeError, ValueError):
-        return
-
-
-def _inside(prompt: str, needle: str) -> bool:
-    return any(needle in text for _, body in _UNTRUSTED.findall(prompt) for text in _readings(body))
-
-
-def _outside(prompt: str) -> str:
-    return _UNTRUSTED.sub("", prompt)
 
 
 def _outside_data(prompt: str) -> str:

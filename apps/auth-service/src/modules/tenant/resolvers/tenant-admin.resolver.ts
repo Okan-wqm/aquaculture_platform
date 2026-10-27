@@ -9,9 +9,7 @@ import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
 
 import { User } from '../../authentication/entities/user.entity';
 import {
-  AssignUserToModuleInput,
   AssignUserToSiteInput,
-  AssignmentResult,
   SiteAssignmentResult,
   UserModuleInfo,
   TenantTableInfo,
@@ -108,41 +106,11 @@ export class TenantAdminResolver {
   // =========================================================
 
   /**
-   * Assign a user to a module
-   * Creates new user if email doesn't exist in tenant
-   */
-  @Mutation(() => AssignmentResult)
-  @TenantAdminOrHigher()
-  async assignUserToModule(
-    @CurrentUser('sub') userId: string,
-    @Args('input') input: AssignUserToModuleInput,
-  ): Promise<AssignmentResult> {
-    return this.tenantAdminService.assignUserToModule(userId, input);
-  }
-
-  /**
-   * Remove a user from a module
-   */
-  @Mutation(() => Boolean)
-  @TenantAdminOrHigher()
-  async removeUserFromModule(
-    @CurrentUser('sub') userId: string,
-    @Args('userId', { type: () => ID }) targetUserId: string,
-    @Args('moduleId', { type: () => ID }) moduleId: string,
-  ): Promise<boolean> {
-    return this.tenantAdminService.removeUserFromModule(
-      userId,
-      targetUserId,
-      moduleId,
-    );
-  }
-
-  /**
    * Assign a user to a farm-service Site (SEC-HIGH-051).
    *
    * The management write-path for auth.user_site_assignments — the object-level
-   * site-authz SSoT. Gated with the SAME @TenantAdminOrHigher() as the module
-   * assignment precedent (TENANT_ADMIN + SUPER_ADMIN). Idempotent upsert.
+   * site-authz SSoT. Gated with @TenantAdminOrHigher() (TENANT_ADMIN +
+   * SUPER_ADMIN), as every tenant-admin write. Idempotent upsert.
    */
   @Mutation(() => SiteAssignmentResult)
   @TenantAdminOrHigher()

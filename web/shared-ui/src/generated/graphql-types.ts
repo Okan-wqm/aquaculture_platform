@@ -696,14 +696,6 @@ export type AssignUserRoleInput = {
   roleId: Scalars['ID']['input'];
 };
 
-export type AssignUserToModuleInput = {
-  email: Scalars['String']['input'];
-  firstName: Scalars['String']['input'];
-  lastName: Scalars['String']['input'];
-  moduleId: Scalars['String']['input'];
-  role?: Scalars['String']['input'];
-};
-
 export type AssignUserToSiteInput = {
   siteId: Scalars['ID']['input'];
   userId: Scalars['ID']['input'];
@@ -714,13 +706,6 @@ export type AssignmentOverridesInput = {
   mealTimeOffsetMinutes?: InputMaybe<Scalars['Int']['input']>;
   mealsPerDayOverride?: InputMaybe<Scalars['Int']['input']>;
   rateAdjustmentPercent?: InputMaybe<Scalars['Float']['input']>;
-};
-
-export type AssignmentResult = {
-  isNewUser: Scalars['Boolean']['output'];
-  message: Scalars['String']['output'];
-  success: Scalars['Boolean']['output'];
-  userId?: Maybe<Scalars['String']['output']>;
 };
 
 export type AssignmentSuspensionInput = {
@@ -9664,7 +9649,6 @@ export type Mutation = {
   assignTemperatureSensor: FeedingProgramTank;
   assignTicket: SupportTicket;
   assignUserRole: UserRoleAssignment;
-  assignUserToModule: AssignmentResult;
   assignUserToSite: SiteAssignmentResult;
   autoBindTags: TagDiscoveryResultType;
   backfillScadaPackageDocs: ScadaBackfillResultType;
@@ -10044,7 +10028,6 @@ export type Mutation = {
   removeSuppressionWindow: EscalationPolicy;
   /** Programdan tank cikar */
   removeTankFromProgram: FeedingProgramTank;
-  removeUserFromModule: Scalars['Boolean']['output'];
   removeVfdChangeSetItem: VfdChangeSet;
   /** Remove a biometric credential */
   removeWebAuthnCredential: WebAuthnRemoveResponse;
@@ -10709,11 +10692,6 @@ export type MutationAssignTicketArgs = {
 export type MutationAssignUserRoleArgs = {
   input: AssignUserRoleInput;
   userId: Scalars['ID']['input'];
-};
-
-
-export type MutationAssignUserToModuleArgs = {
-  input: AssignUserToModuleInput;
 };
 
 
@@ -12379,12 +12357,6 @@ export type MutationRemoveTankFromProgramArgs = {
   feedingProgramTankId?: InputMaybe<Scalars['ID']['input']>;
   input?: InputMaybe<RemoveTankFromProgramInput>;
   reason?: InputMaybe<Scalars['String']['input']>;
-};
-
-
-export type MutationRemoveUserFromModuleArgs = {
-  moduleId: Scalars['ID']['input'];
-  userId: Scalars['ID']['input'];
 };
 
 

@@ -6,12 +6,8 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { getTenantSchemaName, tenantManagerRepo } from '@aquaculture/backend-common/database';
+import { getTenantSchemaName } from '@aquaculture/backend-common/database';
 import { Role } from '@aquaculture/backend-common/decorators';
-// User stays raw because User.tenantId is nullable (platform-admin
-// users). UserModuleAssignment.tenantId is required, so it uses the
-// scoped wrapper.
-import * as crypto from 'crypto';
 import { Repository, DataSource, EntityManager } from 'typeorm';
 
 import { AuditLogService } from '../../../audit/audit-log.service';
@@ -31,9 +27,7 @@ import {
 } from '../../authentication/services/durable-user-token-invalidation.service';
 import { Module } from '../../system-module/entities/module.entity';
 import {
-  AssignUserToModuleInput,
   AssignUserToSiteInput,
-  AssignmentResult,
   SiteAssignmentResult,
   UserModuleInfo,
   MyTenantInfo,
@@ -43,9 +37,8 @@ import {
 } from '../dto/tenant-admin.dto';
 import { TenantSecurityPolicy, UpdateTenantSecurityPolicyInput } from '../dto/tenant-policy.dto';
 import { TenantModule } from '../entities/tenant-module.entity';
-import { Tenant, TenantStatus } from '../entities/tenant.entity';
+import { Tenant } from '../entities/tenant.entity';
 import { FarmSiteAssignmentValidator } from './farm-site-assignment-validator.service';
-import { memberModuleGrant } from './module-assignment-grants';
 import {
   createCredentialInvalidationIntent,
   lockUserForCredentialMutation,
@@ -73,8 +66,7 @@ interface DataRow {
  *
  * Service for tenant admin operations:
  * - View own tenant info
- * - View assigned modules
- * - Assign module managers/users
+ * - View assigned modules (module grants are written by ModuleAccessService)
  * - View tenant database (read-only)
  */
 @Injectable()
@@ -226,192 +218,6 @@ export class TenantAdminService {
     return assignments.map((a) => a.user);
   }
 
-  /**
-   * Assign a user to a module (create or update)
-   */
-  async assignUserToModule(
-    tenantAdminId: string,
-    input: AssignUserToModuleInput,
-  ): Promise<AssignmentResult> {
-    const admin = await this.userRepository.findOne({
-      where: { id: tenantAdminId },
-    });
-
-    if (!admin || !admin.tenantId) {
-      throw new NotFoundException('Admin not found');
-    }
-
-    const tenantModule = await this.tenantModuleRepository.findOne({
-      where: { tenantId: admin.tenantId, moduleId: input.moduleId },
-      relations: ['module'],
-    });
-
-    if (!tenantModule) {
-      throw new ForbiddenException('Module not assigned to tenant');
-    }
-
-    const tenant = await this.tenantRepository.findOne({
-      where: { id: admin.tenantId },
-    });
-
-    if (!tenant) {
-      throw new NotFoundException('Tenant not found');
-    }
-
-    if (tenant.status !== TenantStatus.ACTIVE) {
-      throw new ForbiddenException('Tenant is not active');
-    }
-
-    let user = await this.userRepository.findOne({
-      where: { email: input.email.toLowerCase(), tenantId: admin.tenantId },
-    });
-
-    let isNewUser = false;
-
-    // SECURITY: Wrap user creation + assignment in a transaction to prevent
-    // orphaned users on assignment failure or partial state
-    return this.dataSource.transaction(async (manager) => {
-      // User.tenantId is nullable in the schema (platform-admin users
-      // belong to no tenant). tenantManagerRepo requires a non-null
-      // tenantId type constraint, so the User repo stays raw here.
-      // The code below sets tenantId explicitly on each create().
-      // eslint-disable-next-line no-restricted-syntax -- User.tenantId is nullable for platform admins
-      const userRepo = manager.getRepository(User);
-      const assignmentRepo = tenantManagerRepo(manager, UserModuleAssignment, admin.tenantId!);
-
-      if (!user) {
-        const currentUserCount = await userRepo.count({
-          where: { tenantId: admin.tenantId!, isActive: true },
-        });
-
-        if (currentUserCount >= tenant.maxUsers) {
-          throw new BadRequestException(
-            `User limit reached (${tenant.maxUsers}). Please upgrade your plan.`,
-          );
-        }
-
-        // Create new user via invitation flow (SEC-AUTH-004)
-        // SECURITY: Do NOT accept admin-supplied passwords — require the user to set
-        // their own password via the invitation link to prevent account impersonation.
-        const role = input.role === 'manager' ? Role.MODULE_MANAGER : Role.MODULE_USER;
-
-        // Generate invitation token for the new user
-        const plainInvitationToken = crypto.randomBytes(32).toString('hex');
-        // SECURITY: Hash invitation token with SHA-256 before storage (SEC-005)
-        const invitationTokenHash = crypto
-          .createHash('sha256')
-          .update(plainInvitationToken)
-          .digest('hex');
-        const invitationExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
-
-        user = userRepo.create({
-          email: input.email.toLowerCase(),
-          firstName: input.firstName,
-          lastName: input.lastName,
-          password: undefined, // No password — user must set via invitation flow
-          tenantId: admin.tenantId!,
-          role,
-          isActive: true,
-          isEmailVerified: false,
-          invitationToken: invitationTokenHash, // Store hash, not plain token
-          invitationExpiresAt: invitationExpiry,
-          invitedBy: tenantAdminId,
-        });
-
-        user = await userRepo.save(user);
-        isNewUser = true;
-
-        this.logger.log(
-          `Created new user ${user.email} for tenant ${tenant.name} (invitation pending)`,
-        );
-      }
-
-      // RBAC-HIGH-027: the grant's role, by the backfill's rule (assignment-module-role.ts).
-      const grant = memberModuleGrant(tenantModule, user, input.role === 'manager');
-      const existingAssignment = await assignmentRepo.findOne({
-        where: { userId: user.id, moduleId: input.moduleId },
-      });
-
-      if (existingAssignment) {
-        if (!existingAssignment.isActive) {
-          existingAssignment.isActive = true;
-          Object.assign(existingAssignment, grant);
-          await assignmentRepo.save(existingAssignment);
-
-          return {
-            success: true,
-            message: 'User assignment reactivated',
-            userId: user.id,
-            isNewUser: false,
-          };
-        }
-
-        return {
-          success: true,
-          message: 'User already assigned to module',
-          userId: user.id,
-          isNewUser: false,
-        };
-      }
-
-      const assignment = assignmentRepo.create({
-        userId: user.id,
-        moduleId: input.moduleId,
-        tenantId: admin.tenantId!,
-        ...grant,
-        isActive: true,
-        assignedBy: tenantAdminId,
-      });
-
-      await assignmentRepo.save(assignment);
-
-      this.logger.log(`Assigned user ${user.email} to module ${tenantModule.module.name}`);
-
-      return {
-        success: true,
-        message: isNewUser ? 'New user created and assigned to module' : 'User assigned to module',
-        userId: user.id,
-        isNewUser,
-      };
-    });
-  }
-
-  /**
-   * Remove user from module
-   */
-  async removeUserFromModule(
-    tenantAdminId: string,
-    userId: string,
-    moduleId: string,
-  ): Promise<boolean> {
-    // SECURITY: Prevent self-removal from module (SEC-008)
-    if (tenantAdminId === userId) {
-      throw new BadRequestException('Cannot remove your own module access');
-    }
-
-    const admin = await this.userRepository.findOne({
-      where: { id: tenantAdminId },
-    });
-
-    if (!admin || !admin.tenantId) {
-      throw new NotFoundException('Admin not found');
-    }
-
-    const assignment = await this.userModuleAssignmentRepository.findOne({
-      where: { userId, moduleId, tenantId: admin.tenantId },
-    });
-
-    if (!assignment) {
-      throw new NotFoundException('Assignment not found');
-    }
-
-    assignment.isActive = false;
-    await this.userModuleAssignmentRepository.save(assignment);
-
-    this.logger.log(`Removed user ${userId} from module ${moduleId}`);
-    return true;
-  }
-
   // =========================================================
   // Site assignment management (SEC-HIGH-051)
   // =========================================================
@@ -503,8 +309,8 @@ export class TenantAdminService {
    * Assign a tenant user to a farm-service Site (idempotent upsert).
    *
    * SEC-HIGH-051: this is the write-path the object-level site-authz SSoT was
-   * missing. Mirrors {@link assignUserToModule}: TENANT_ADMIN-gated at the
-   * resolver, scoped to the caller's tenant, records `assignedBy`, idempotent
+   * missing. TENANT_ADMIN-gated at the resolver, scoped to the caller's
+   * tenant, records `assignedBy`, idempotent
    * (re-assigning an active row is a no-op success; a soft-deactivated row is
    * reactivated). The fail-closed deny posture is NOT softened — an assignment
    * here is what GRANTS a MODULE_USER access to a site on the next token mint.
@@ -605,8 +411,8 @@ export class TenantAdminService {
   /**
    * Unassign (deactivate) a user's site assignment (SEC-HIGH-051).
    *
-   * Mirrors {@link removeUserFromModule}: TENANT_ADMIN-gated, scoped to the
-   * caller's tenant, soft-deactivates the row (preserving the audit trail). The
+   * TENANT_ADMIN-gated, scoped to the caller's tenant, soft-deactivates the
+   * row (preserving the audit trail). The
    * revoked site stops being minted into assignedSiteIds on the next token
    * refresh; the user is then fail-closed denied on that site.
    */

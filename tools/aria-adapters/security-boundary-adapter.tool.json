@@ -71,6 +71,25 @@
         "No guard registered for the whole service (APP_GUARD, middleware or the gateway) protects the route."
       ]
     },
+    "authz_boundary_missing_among_peers": {
+      "claim_type": "wrong_code",
+      "severity_cap": "HIGH",
+      "defect_claim": "A write route lost the role, permission, capability or guard its class peers carry, so callers those peers exclude can run it.",
+      "premises": [
+        "The cited route is a non-public write route of a class with at least three such routes, at least 75% of which carry a method-level role, permission, capability or guard decorator; the cited route carries none.",
+        "The class has no class-level role, permission or capability decorator covering the cited route; a class-level guard or a service-wide guard authenticates the caller and does not enforce a role.",
+        "Nothing in the code or its comments documents the cited route as open to every authenticated caller."
+      ]
+    },
+    "capability_differs_from_class_majority": {
+      "claim_type": "wrong_code",
+      "severity_cap": "HIGH",
+      "defect_claim": "A route requires a different platform capability than the one its class peers require, so it admits operators of the wrong capability and refuses the right ones.",
+      "premises": [
+        "The cited route names a capability other than the one that at least 75% of the capability-gated routes of its class name, in a class with at least four such routes.",
+        "Nothing in the code or its comments documents the cited route as the one route of the class that needs a different capability."
+      ]
+    },
     "dangerous_html_without_sanitizer": {
       "claim_type": "wrong_code",
       "severity_cap": "HIGH",

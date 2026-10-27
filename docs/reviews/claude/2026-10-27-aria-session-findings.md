@@ -1044,8 +1044,8 @@ same id
 - Verified at head a47dc4d57c of open pull request #2134; the cited code is not on main until that
   pull request merges.
 - Evidence:
-  - `tools/aria-adapters/event-contracts-adapter.ts:473` (id event-contracts:<contract
-    path>:schema-field-drift:<eventType>, no schema file or variable)
+  - `tools/aria-adapters/event-contracts-adapter.ts:473` (id event-contracts:\<contract
+    path\>:schema-field-drift:\<eventType\>, no schema file or variable)
   - `tools/aria-adapters/event-contracts-adapter.ts:485` (the required-drift id has the same shape)
   - `tools/aria-adapters/event-contracts-adapter.ts:430-444` (contracts are keyed by event type, so
     each schema entry for that type reaches the same single contract site)
@@ -1113,7 +1113,7 @@ two roots is scanned twice and emits two findings and two observations with iden
   - `tools/aria-adapters/doc-staleness-adapter.ts:396-399` (each entry of docs is read and scanned
     again)
   - `tools/aria-adapters/doc-staleness-adapter.ts:409-421` (one finding per stale reference per
-    entry, id doc-staleness:missing:<doc>:<line>:<ref>)
+    entry, id doc-staleness:missing:\<doc\>:\<line\>:\<ref\>)
   - `tools/aria-adapters/doc-staleness-adapter.ts:423-428` (one observation per entry)
   - `tools/aria-adapters/doc-staleness-adapter.ts:431-441` (read_paths is de-duplicated with a Set
     but findings and docCount are not)
@@ -1177,7 +1177,7 @@ infrastructure that the manifest premises exclude.
   only a .spec.ts path is pinned.
 - Close condition: Build the config's ignores from the same predicate the adapter uses (export one
   test-path matcher from lint-rules-adapter.ts), extend it to **tests** directories, test
-  directories, _.e2e-spec.ts, _.integration.ts and libs/testing, and add an adapter test where a
+  directories, `*.e2e-spec.ts`, `*.integration.ts` and libs/testing, and add an adapter test where a
   **tests** helper and an e2e-spec file carrying each construct draw no policy finding.
 
 ### ARIA-MEDIUM-1038
@@ -1362,7 +1362,7 @@ nothing pinning them together.
   visible to the adapter and invisible to the kernel. The agreement on the 8 real remotes is not
   pinned, so a change to the federation plugin option moves only one reader.
 - Close condition: Compute the remote set once (one reader whose result the other consumes) or add
-  an invariant that evaluates both readers over every web/modules/_/vite.config._ and asserts the
+  an invariant that evaluates both readers over every `web/modules/*/vite.config.*` and asserts the
   same remote set, with fixtures for an empty exposes object and a non-literal value.
 
 ### ARIA-LOW-1043
@@ -1392,7 +1392,7 @@ would turn the whole run into a scope_violation.
 - Failure scenario: Adding web/modules/x/vite.config.mts (no config of that name exists at this
   revision) puts that path into read_paths, find_scope_violations reports it, and the whole
   bundle-budget run is recorded as scope_violation instead of emitting findings for every module.
-- Close condition: Either remove vite.config.mts from the probe list or add web/\*_/_.mts to
+- Close condition: Either remove vite.config.mts from the probe list or add `web/**/*.mts` to
   allowed_read_globs and declared_scope; add a kernel or adapter test that every config file name
   the adapter probes matches an allowed glob.
 
@@ -1646,7 +1646,7 @@ values.
 
 In the EntityManager form the adapter names the entity by the argument's identifier text, so an
 aliased import (import { Subscription as Sub }) is looked up as 'Sub', matches no tenant entity, is
-recorded with entityName Sub and crossTenant null and yields no finding, whereas the Repository<X>
+recorded with entityName Sub and crossTenant null and yields no finding, whereas the Repository\<X\>
 form resolves the entity through the type checker.
 
 - Severity: LOW; owner: Okan-wqm; deadline: 2026-12-22.
@@ -1768,7 +1768,9 @@ opens.
   unknown as cross-tenant for the read gate, key the map by path plus class name, and add near-miss
   rows for spread options, constant options and a same-named class in a second service.
 
-## Source A7: PR #2151, DET landing batch 2b (typeorm-2, scope-1, crossfile-1, crossfile-7, crossfile-3, scope-2, scope-3)
+## Source A7: PR #2151, DET landing batch 2b
+
+Packages: typeorm-2, scope-1, crossfile-1, crossfile-7, crossfile-3, scope-2, scope-3.
 
 PR #2151 (open, replacing #2139) lands seven detector and hardening packages: typeorm-2, scope-1,
 crossfile-1, crossfile-7, crossfile-3, scope-2 and scope-3. 19 findings (0 HIGH, 9 MEDIUM, 10 LOW).
@@ -1792,8 +1794,8 @@ route regexes never read
     than two unrouted verbs share its dest)
   - `tools/aria-adapters/kernel-dead-wire-adapter.ts:296-307` (every reported verb gets the message
     that no branch dispatches it)
-  - `tools/aria-adapters/kernel-dead-wire-adapter.ts:105-107` (a route is read only as args.<dest>
-    == literal or args.<dest> in a tuple or set literal)
+  - `tools/aria-adapters/kernel-dead-wire-adapter.ts:105-107` (a route is read only as args.\<dest\>
+    == literal or args.\<dest\> in a tuple or set literal)
   - `aria-kernel/aria_kernel/cli.py:3876-3877` (cycle run is dispatched by getattr(args,
     "cycle_command", None) == "run", a form no route regex reads)
   - `aria-kernel/aria_kernel/cli.py:7538-7547` (security zap validate runs with no reference to
@@ -1811,7 +1813,7 @@ route regexes never read
   and security regression list are single-verb groups the handler never tests, so three different
   causes sit behind one silence rule. Adding a second unrouted verb to the cycle group would also
   report cycle run, the verb the nightly cycle invokes.
-- Close condition: Model dispatch instead of counting: read the getattr(args, "<dest>", ...) ==
+- Close condition: Model dispatch instead of counting: read the getattr(args, "\<dest\>", ...) ==
   form, treat a group's handler-less single verb through an explicit declaration, and word the
   finding so it does not claim 'dead' for a possible fall-through; closed when
   kernel-dead-wire-adapter.test.ts has synthetic cases for a lone dead verb, a live fall-through
@@ -1941,7 +1943,7 @@ reader's stated contract is a named error instead of a smaller corpus
 ### ARIA-MEDIUM-1058
 
 The guard that keeps nestFactoryOptions from replacing the PII-masking kernel logger is a type-only
-excess-property check: a non-literal options value or a spread of Partial<NestApplicationOptions>
+excess-property check: a non-literal options value or a spread of Partial\<NestApplicationOptions\>
 compiles, and NestFactory.create still spreads nestFactoryOptions after the logger with no pin on
 that order
 
@@ -1954,7 +1956,7 @@ that order
   pull request merges.
 - Evidence:
   - `libs/backend-common/src/bootstrap/create-service-app.ts:128` (nestFactoryOptions is
-    Omit<Partial<NestApplicationOptions>, 'logger'>, an all-optional type that rejects a logger key
+    Omit<Partial\<NestApplicationOptions\>, 'logger'>, an all-optional type that rejects a logger key
     only on a fresh object literal)
   - `libs/backend-common/src/bootstrap/create-service-app.ts:747-751` (NestFactory.create lists
     logger: new StructuredLoggerService first and spreads ...nestFactoryOptions after it, so a
@@ -1962,7 +1964,7 @@ that order
   - `tests/invariants/structured-logger-single-authority.spec.ts:103-109` (the only text pin is
     toContain of the logger expression; it does not constrain its position against the spread)
   - `tests/invariants/structured-logger-single-authority.spec.ts:112-129` (the type pin compiles
-    fresh literals only; no variable, no spread, no Partial<NestApplicationOptions> value is tried)
+    fresh literals only; no variable, no spread, no Partial\<NestApplicationOptions\> value is tried)
   - `apps/billing-service/src/main.ts:16` (a real caller passes a fresh literal with rawBody and
     bodyParser)
   - `apps/event-store-service/src/main.ts:16` (fresh literal { rawBody: true })
@@ -2004,7 +2006,7 @@ satisfies it and gets a HIGH-cap controller_skips_command_query_bus finding
   - `tools/aria-poc/cqrs_adapter.py:50` (\_BUS_CALL_RE is case-sensitive and anchored on the class
     name, it cannot match an injected bus property)
   - `tools/aria-poc/cqrs_adapter.py:128-130` (rule 1 fires on a Repository/DataSource/EntityManager
-    mention plus any this.<x>.update/find/save call and no bus match; the last term is always true
+    mention plus any this.\<x\>.update/find/save call and no bus match; the last term is always true
     for injected-bus code)
   - `tools/aria-adapters/cqrs-adapter.tool.json:33` (the manifest premise says the controller does
     not route the operation through CommandBus or QueryBus, which the regex cannot decide)
@@ -2034,8 +2036,8 @@ satisfies it and gets a HIGH-cap controller_skips_command_query_bus finding
 
 ### ARIA-MEDIUM-1060
 
-The cqrs adapter reads only controllers/\*_ and _.controller.ts, so the 26 production GraphQL
-resolver files that match its own rule-2 pattern (@InjectRepository or Repository<T> injected into
+The cqrs adapter reads only `controllers/**` and `*.controller.ts`, so the 26 production GraphQL
+resolver files that match its own rule-2 pattern (@InjectRepository or Repository\<T\> injected into
 the request layer) are never read and never reported
 
 - Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-12-08.
@@ -2049,12 +2051,12 @@ the request layer) are never read and never reported
   - `tools/aria-poc/cqrs_adapter.py:39` (SCANNED\*GLOBS name controllers/\*\* and \_.controller.ts only)
   - `tools/aria-adapters/cqrs-adapter.tool.json:22` (allowed_read_globs repeat the same two globs,
     so the kernel snapshot never hands over a resolver)
-  - `tools/aria-poc/cqrs_adapter.py:47-49` (rule 2 pattern is @InjectRepository( or Repository<T>)
+  - `tools/aria-poc/cqrs_adapter.py:47-49` (rule 2 pattern is @InjectRepository( or Repository\<T\>)
   - `apps/hr-service/src/leave/leave.resolver.ts:105` (resolver injects @InjectRepository(Employee)
     beside the buses)
-  - `apps/farm-service/src/site/site.resolver.ts:44-45` (resolver injects Repository<Site>)
+  - `apps/farm-service/src/site/site.resolver.ts:44-45` (resolver injects Repository\<Site\>)
   - `apps/sensor-service/src/sensor/resolvers/sensor.resolver.ts:25-26` (resolver injects
-    Repository<Sensor>)
+    Repository\<Sensor\>)
   - `apps/farm-service/src/tank/resolvers/tank.resolver.ts:186-189` (two repositories injected into
     the resolver)
 - Rule: CLAUDE.md layer rule 1 (no layer skipping between the request layer and the repository); the
@@ -2095,7 +2097,7 @@ nats, k8s, helm or override file is dropped by the kernel snapshot with no obser
   - `aria-kernel/aria_kernel/tool_runner.py:380-389` (the kernel narrows allowed_paths to the
     manifest's allowed_read_globs before the adapter runs)
   - `tools/aria-adapters/infrastructure-policy-adapter.tool.json:92-112` (each new root grants only
-    Dockerfile*, *.{Dockerfile,dockerfile} and {docker-,}compose\*.{yml,yaml})
+    `Dockerfile*`, `*.{Dockerfile,dockerfile}` and `{docker-,}compose*.{yml,yaml}`)
   - `tools/gates/lib/infra/classify.ts:51-86` (the classifier also owns .tf/.tfvars, .tpl, nginx and
     nats .conf, k8s and helm yaml, kustomization and \*.override.yml)
   - `tools/aria-adapters/infrastructure-policy-adapter.ts:39-47` (the header promises no silent
@@ -2137,8 +2139,8 @@ invariant that would fail on it
   pull request merges.
 - Evidence:
   - `tools/aria-adapters/project.json:20-37` (the test target's input list)
-  - `tools/aria-adapters/project.json:32-34` (the only root-agnostic globs: **/Dockerfile\*,
-    **/_.{Dockerfile,dockerfile}, \*\*/{docker-,}compose_.{yml,yaml})
+  - `tools/aria-adapters/project.json:32-34` (the only root-agnostic globs: `**/Dockerfile*`,
+    `**/*.{Dockerfile,dockerfile}`, `**/{docker-,}compose*.{yml,yaml}`)
   - `tools/aria-adapters/infrastructure-policy-adapter.test.ts:1418-1433` (the invariant reads git
     ls-files at run time, which nx does not track as an input)
   - `tools/gates/lib/infra/classify.ts:14-24` (the nine formats: dockerfile, compose, k8s,
@@ -2288,8 +2290,8 @@ adapter-ts.ts
 
 ### ARIA-LOW-1066
 
-aria-kernel/pyproject.toml package-data still lists the non-recursive data/_.json and
-data/sandbox_etc/_ while the dead-wire adapter and its manifest now treat every `data/**/*.json` as
+aria-kernel/pyproject.toml package-data still lists the non-recursive `data/*.json` and
+`data/sandbox_etc/*` while the dead-wire adapter and its manifest now treat every `data/**/*.json` as
 kernel policy, so a nested policy file would be read by the adapter but absent from a packaged
 kernel
 
@@ -2301,7 +2303,7 @@ kernel
 - Verified at head b2259fe03f of open pull request #2151; the cited code is not on main until that
   pull request merges.
 - Evidence:
-  - `aria-kernel/pyproject.toml:39-40` (package-data matches data/_.json and data/sandbox_etc/_
+  - `aria-kernel/pyproject.toml:39-40` (package-data matches `data/*.json` and `data/sandbox_etc/*`
     only)
   - `tools/aria-adapters/kernel-dead-wire-adapter.tool.json:7` (declared_scope grants
     `data/**/*.json`)
@@ -2315,9 +2317,9 @@ kernel
     aria_kernel.data, which exists only if it is packaged)
 - Rule: Single owner of the policy-file surface (CLAUDE.md Architectural Approach tier 2/3): one
   definition, or a test that fails when the statements diverge
-- Failure scenario: The package now states that data/<sub>/x.json is legitimate kernel policy
-  (manifest scope and adapter walk), but setuptools packages only data/_.json and
-  data/sandbox_etc/_. A loader that opens such a file works from a checkout and fails on a built or
+- Failure scenario: The package now states that data/\<sub\>/x.json is legitimate kernel policy
+  (manifest scope and adapter walk), but setuptools packages only `data/*.json` and
+  `data/sandbox_etc/*`. A loader that opens such a file works from a checkout and fails on a built or
   installed kernel. The tree tracks no nested policy JSON today (only sandbox_etc/hosts and
   nsswitch.conf), so the gap is latent.
 - Close condition: Set package-data to the same surface (`data/**/*.json` plus the sandbox_etc
@@ -2342,7 +2344,7 @@ four services
 - Evidence:
   - `tools/aria-poc/poc.py:969-979` (a path reaches the guard only after fullmatching a registry
     glob; the comment still presents the guard as the filter)
-  - `tools/aria-poc/poc.py:927-943` (\_glob*pattern turns * into [^/]\_ and the glob needs a digit
+  - `tools/aria-poc/poc.py:927-943` (`_glob_pattern` turns `*` into `[^/]*` and the glob needs a digit
     first, so a path under .archive/ cannot match)
   - `tools/shared/excluded_paths.py:76-77` (the predicate needs /database/migrations/ and
     /.archive/, so src/migrations/.archive/ is not recognised)
@@ -2358,8 +2360,8 @@ four services
   22, auth 13, event-store 3, messaging 17), where the predicate returns False, and 105 under
   database/migrations/.archive/, where it would return True but the glob never lets them reach it.
   The archive exclusion therefore rests only on the reader's glob grammar (\* never crosses a slash,
-  ** is refused). A reader change that supports ** or deeper globs would let archived enums into the
-  drift corpus while the documented guard looks present but is blind for four of the registered
+  `**` is refused). A reader change that supports `**` or deeper globs would let archived enums
+  into the drift corpus while the documented guard looks present but is blind for four of the registered
   services. The enum corpus is identical with the guard replaced by lambda p: False (reviewer
   probe).
 - Close condition: Delete the call and import in poc.py (and the predicate and its test if nothing
@@ -2458,7 +2460,7 @@ production source
   - `apps/gateway-api/tsconfig.app.json:11` (the build excludes src/test-utils/\*\* for this service)
   - `apps/admin-api-service/tsconfig.build.json:63-66` (every service build excludes **tests**,
     test-utils, test-helpers and \*.e2e-spec.ts)
-  - `tools/aria-poc/outbox_adapter.py:123-124` (an apps/<svc>/src/\*_/_.ts path is in scope unless
+  - `tools/aria-poc/outbox_adapter.py:123-124` (an `apps/<svc>/src/**/*.ts` path is in scope unless
     is_excluded_source says otherwise)
   - `tools/aria-poc/dual_alias_adapter.py:50` (a private ('node_modules/', 'dist/') tuple, a copy of
     two shared fragments)
@@ -2474,7 +2476,7 @@ production source
   outbox adapter therefore reads the two tracked gateway-api test-utils files as production source
   (0 findings today); a mock publisher or e2e helper placed under apps/\*/src would be judged as
   domain code for domain_event_published_outside_outbox. Repository e2e specs live under
-  apps/<svc>/test, outside the scope, which is why none is read today.
+  apps/\<svc\>/test, outside the scope, which is why none is read today.
 - Close condition: Add `.e2e-spec.ts`, `/test-utils/` and `/test-helpers/` to adapter_scope, make
   dual_alias_adapter use the predicate, and add a test that every test-source exclusion listed in
   the service tsconfig.build.json files is excluded by is_excluded_source.
@@ -2498,7 +2500,7 @@ test that claims to cover this runs only the production roots, where no overlap 
   - `tools/aria-adapters/infrastructure-policy-adapter.ts:571-581` (every collected entry is
     classified, counted and read, so a repeated path is processed twice)
   - `tools/aria-adapters/infrastructure-policy-adapter.ts:1046-1060` (one observation id
-    infrastructure-policy-adapter:file:<path> is pushed per collected entry)
+    infrastructure-policy-adapter:file:\<path\> is pushed per collected entry)
   - `aria-kernel/aria_kernel/tool_runner.py:131` (caller-supplied roots override default_input, so a
     tool run can pass overlapping roots)
   - `tools/aria-adapters/infrastructure-policy-adapter.test.ts:1546-1553` (the 'file under two roots
@@ -2825,8 +2827,8 @@ open whenever any later FE commit has merged.
     paths filter)
   - `tools/aria-poc/seed_drift_findings.py:480-484` (exact requires merged_schema equal to HEAD's
     schema commit, otherwise no supergraph reaches the scan)
-  - `.github/workflows/apollo-supergraph-validate.yml:30-37` (the push paths include web/**/\*.ts,
-    web/**/_.tsx, mcp/\*\*/_.ts and the owner's files)
+  - `.github/workflows/apollo-supergraph-validate.yml:30-37` (the push paths include `web/**/*.ts`,
+    `web/**/*.tsx`, `mcp/**/*.ts` and the owner's files)
   - `tools/aria-poc/fetch_supergraph.py:55-59` (schema_commit runs git log over all push paths)
   - `aria-kernel/aria_kernel/finding_closure.py:275-291` (unverifiable five times for one reason
     ends as closure_unverifiable_exhausted with the finding left open)
@@ -2969,7 +2971,7 @@ cert-identity (mtls-cert) connection can carry CONNECT-frame credentials that AD
   fails when it becomes live, and the DET crossfile-2 READ rule reports both bridges as true
   positives on clean main.
 - Close condition: Both bridges build their ConnectionOptions only from buildNatsConnectionOptions
-  (no read of NATS*AUTH*_ or NATS*TLS*_ under apps/gateway-api/src/websocket), the DET crossfile-2
+  (no read of `NATS_AUTH_*` or `NATS_TLS_*` under apps/gateway-api/src/websocket), the DET crossfile-2
   baseline pin that lists these two bridge findings (security-boundary-adapter.nats.test.ts, open PR
   #2134) becomes [], and a test or invariant fails when any non-test module outside the factory
   reads NATS_AUTH_USER, NATS_AUTH_PASS or NATS_AUTH_TOKEN.
@@ -3139,7 +3141,8 @@ funnel
   observe-only setup, with the drain lane disabled, is a state in which a judge_request->consensus
   stall is expected and stays silent.
 - Close condition: Have run_pressure resolve the workspace head and mint a pipeline_stalled pressure
-  for each learning_funnel_stalled:<up>-><down> blocker, owner_paths naming the stage owner, and add
+  for each learning_funnel_stalled:\<up\>->\<down\> blocker, owner_paths naming the stage owner,
+  and add
   the judgment_pipeline counts and blocked step names to the metrics phase_digests. Test: counts
   raw=40 and judge_request=0 produce one pipeline_stalled pressure with those owner paths (red
   today); a blocked[] entry from the phase appears in the cycle's phase_digests.
@@ -3429,7 +3432,7 @@ delivered fix PR with no test or fixture in its diff passes every in-lane gate
 
 ### ARIA-MEDIUM-1094
 
-The post-implementation Gate B review runs against cycle:<id> with an empty artifact hash, so its
+The post-implementation Gate B review runs against cycle:\<id\> with an empty artifact hash, so its
 verdict is about the plan and not the delivered PR, yet it decides whether the nightly auto-merge
 evaluation over open ARIA PRs runs
 
@@ -3439,7 +3442,7 @@ evaluation over open ARIA PRs runs
 - Verified at origin/main d716541239.
 - Evidence:
   - `aria-kernel/aria_kernel/autonomy_orchestrator.py:2883-2905` (review_runner is called with
-    impl_artifacts_ref defaulting to cycle:<id> and worker_artifact_hash defaulting to empty)
+    impl_artifacts_ref defaulting to cycle:\<id\> and worker_artifact_hash defaulting to empty)
   - `aria-kernel/aria_kernel/autonomy_orchestrator.py:2929-2937` (a no_gaps verdict is what lets
     auto_merge_runner run)
   - `aria-kernel/aria_kernel/review_runner.py:281-287` (the artifact-hash check runs only when both
@@ -3453,7 +3456,7 @@ evaluation over open ARIA PRs runs
   the implementation; a verdict about an artifact that does not exist yet cannot guard anything that
   exists.
 - Failure scenario: In a converging cycle the worker lane has produced nothing, so review_runner is
-  asked to judge 'cycle:<id>' with no hash: the artifact check is skipped and the judges re-review
+  asked to judge 'cycle:\<id\>' with no hash: the artifact check is skipped and the judges re-review
   the plan, at up to 1800 s per judge and max_iterations_per_phase rounds. The implementation is
   minted for the executor only after this point, so the verdict is about no PR; it nevertheless
   gates whether the nightly evaluates the open ARIA PRs, and a reader of the cycle summary sees a
@@ -3461,7 +3464,7 @@ evaluation over open ARIA PRs runs
 - Close condition: Either bind Gate B to the delivered artifact (mint it from the executor's
   recorded PR head sha) or remove it from the converged-cycle path so the auto-merge evaluation is
   not gated by a verdict about the cycle. Test: with an empty worker_result review_runner is not
-  invoked with impl_artifacts_ref 'cycle:<id>' and the evaluation is not skipped by a review verdict
+  invoked with impl_artifacts_ref 'cycle:\<id\>' and the evaluation is not skipped by a review verdict
   (red today).
 
 ### ARIA-LOW-1095
@@ -3593,7 +3596,7 @@ status
 - Verified at origin/main d716541239.
 - Evidence:
   - `aria-kernel/aria_kernel/judgment_bridge.py:609-620` (the accepted answer's impact_map is
-    written to judgment-pipeline/<role>/<request_id>.json)
+    written to judgment-pipeline/\<role\>/<request_id>.json)
   - `aria-kernel/aria_kernel/judgment_bridge.py:632-635` (after the write only the sibling
     defect_claims key of the same answer is consumed; impact_map goes no further)
   - `aria-kernel/aria_kernel/pr_tracking.py:389-392` (the minted prompt tells the agent to return
@@ -3706,7 +3709,7 @@ every source's multiplier is exactly 1.0 and the branch reports nothing wrong
 - Verified at origin/main d716541239.
 - Evidence:
   - `aria-kernel/aria_kernel/calibration_dials.py:45-55` (feedback_dial reads
-    row['metadata']['pressure_source'] to build the pressure-source dial)
+    `row['metadata']['pressure_source']` to build the pressure-source dial)
   - `aria-kernel/aria_kernel/calibration_dials.py:4-8` (the module records that no producer writes
     metadata.pressure_source: 0 of 245 labelled rows when measured)
   - `aria-kernel/aria_kernel/feedback_store.py:806-853` (record_operator_feedback accepts no
@@ -3770,7 +3773,7 @@ never reorder missions and the test that proves the draw seeds a key no producti
 ### ARIA-MEDIUM-1103
 
 record_human_required uses the request id as the record's file name with no check, two producers
-mint ids containing a colon (self-change:<digest> and tool-degraded:<tool>:<cycle>), and both lanes'
+mint ids containing a colon (self-change:\<digest\> and tool-degraded:\<tool\>:\<cycle\>), and both lanes'
 forensic uploads exclude only human-required/genesis:\*, so the first such record turns the Cache
 ARIA state tree step red in every sealed run while the record exists (latent)
 
@@ -3798,15 +3801,15 @@ ARIA state tree step red in every sealed run while the record exists (latent)
   downstream uploader cannot carry; ORPHAN-714 fixed one producer by hand and left the writer open.
 - Failure scenario: The repo's own ORPHAN-714 note records that the first live colon-named record
   (genesis) turned the sealed cycle's forensic upload red (run 32090429275) and that GitHub's
-  uploader rejects ':' in paths. self_improvement.propose_self_change mints self-change:<digest> and
-  tool_degradation mints tool-degraded:<tool>:<cycle> into the same human-required directory, and
+  uploader rejects ':' in paths. self_improvement.propose_self_change mints self-change:\<digest\> and
+  tool_degradation mints tool-degraded:\<tool\>:\<cycle\> into the same human-required directory, and
   the upload globs exclude only genesis:\*. On the first live self_change adjudication, or the first
   tool degraded for three cycles, the Cache ARIA state tree step fails in both lanes and stays red
   every later night while the record exists (not verified on the live store; the publish step runs
   before it, so only forensics and job status are hit).
 - Close condition: record_human_required raises GovernanceError for any request id outside the
-  artifact-safe alphabet, the two producers mint dash ids (self-change-<digest>,
-  tool-degraded-<tool>-<cycle>), and tests pin both producers' record file names without ':' and
+  artifact-safe alphabet, the two producers mint dash ids (self-change-\<digest\>,
+  tool-degraded-\<tool\>-\<cycle\>), and tests pin both producers' record file names without ':' and
   that record_human_required('a:b') raises (red today); the four legacy genesis:\* exclusions stay.
 
 ### ARIA-MEDIUM-1104
@@ -3934,7 +3937,7 @@ a lock or IO fault between the two writes)
 - Evidence:
   - `aria-kernel/aria_kernel/self_improvement.py:1124-1130` (record_proposal runs first,
     record_human_required second, no shared transaction)
-  - `aria-kernel/aria_kernel/proposal.py:68-70` (every call mints a new proposal-<uuid4> id, so a
+  - `aria-kernel/aria_kernel/proposal.py:68-70` (every call mints a new proposal-\<uuid4\> id, so a
     retry cannot reuse the orphan)
   - `aria-kernel/aria_kernel/self_improvement.py:298-306` (open_self_change_adjudication reads only
     HUMAN_REQUIRED records, so an orphan proposal is invisible to the duplicate guard)
@@ -3945,7 +3948,7 @@ a lock or IO fault between the two writes)
 - Failure scenario: If record_human_required raises after record_proposal succeeded (a state lock
   timeout, an IO error), the exception leaves an open self_change row in proposals.jsonl, no
   adjudication and a mission still waiting for its self-change answer. The next cycle mints another
-  request and another proposal-<uuid>; the duplicate guard looks only at HUMAN_REQUIRED records, so
+  request and another proposal-\<uuid\>; the duplicate guard looks only at HUMAN_REQUIRED records, so
   open proposals accumulate with no question to a person. Narrow: the profile gates of both surfaces
   refuse together under frozen and observe, so only a lock or IO fault splits them.
 - Close condition: propose_self_change writes the adjudication first or both writes share one

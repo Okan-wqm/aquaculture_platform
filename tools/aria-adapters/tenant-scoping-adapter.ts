@@ -93,8 +93,20 @@ interface AnalysisContext {
 interface TenantEntityRecord {
   readonly className: string;
   readonly tableName: string;
+  /** The table is shared across tenants: its `@Entity` options declare a `schema`. */
+  readonly crossTenant: boolean;
   readonly path: string;
   readonly line: number;
+}
+
+interface TenantBoundary {
+  readonly isBoundary: boolean;
+  readonly tenantOwned: boolean;
+  /** The bound entity's table is shared across tenants; null when no tenant-owned entity is bound. */
+  readonly crossTenant: boolean | null;
+  readonly kind: 'repository' | 'raw_query' | 'query_builder' | 'unknown';
+  readonly entityName?: string;
+  readonly typeEvidence: string;
 }
 
 interface AnalysisResult {
@@ -103,16 +115,8 @@ interface AnalysisResult {
   readonly readPaths: string[];
 }
 
-const REPOSITORY_METHODS = new Set([
-  'find',
-  'findOne',
-  'findOneBy',
-  'findBy',
-  'count',
-  'update',
-  'delete',
-  'softDelete',
-]);
+const REPOSITORY_READ_METHODS = new Set(['find', 'findOne', 'findOneBy', 'findBy', 'count']);
+const REPOSITORY_METHODS = new Set([...REPOSITORY_READ_METHODS, 'update', 'delete', 'softDelete']);
 const RAW_QUERY_METHODS = new Set(['query']);
 const TENANT_GUARD_NAMES = new Set(['TenantGuard', 'GqlTenantGuard']);
 
@@ -294,6 +298,7 @@ function analyzeTenantUnit(
         allowlisted,
         boundaryKind: boundary.kind,
         entityName: boundary.entityName ?? null,
+        crossTenant: boundary.crossTenant,
         typeEvidence: boundary.typeEvidence,
       },
     });
@@ -335,7 +340,7 @@ function analyzeTenantUnit(
       });
       return;
     }
-    if (!inputAllowsRepositoryReadFinding(context, method)) {
+    if (REPOSITORY_READ_METHODS.has(method) && !readFindingsApply(context, boundary)) {
       return;
     }
     result.findings.push({
@@ -377,26 +382,23 @@ function isSeedOrBootstrapContext(path: string, text: string): boolean {
   );
 }
 
-function inputAllowsRepositoryReadFinding(context: AnalysisContext, method: string): boolean {
-  return (
-    context.includeRepositoryReadFindings ||
-    !['find', 'findOne', 'findOneBy', 'findBy', 'count'].includes(method)
-  );
+/**
+ * A read is a finding only when the input opens the read gate and the entity's
+ * table is shared across tenants: a per-tenant table is routed into the
+ * tenant's own schema by search_path, so reading it unscoped leaks nothing.
+ * Writes and raw queries do not come through here.
+ */
+function readFindingsApply(context: AnalysisContext, boundary: TenantBoundary): boolean {
+  return context.includeRepositoryReadFindings && boundary.crossTenant === true;
 }
 
 function classifyTenantBoundaryCall(
   node: ts.CallExpression,
   unit: SourceUnit,
   context: AnalysisContext,
-): {
-  readonly isBoundary: boolean;
-  readonly tenantOwned: boolean;
-  readonly kind: 'repository' | 'raw_query' | 'query_builder' | 'unknown';
-  readonly entityName?: string;
-  readonly typeEvidence: string;
-} {
+): TenantBoundary {
   if (!ts.isPropertyAccessExpression(node.expression)) {
-    return { isBoundary: false, tenantOwned: false, kind: 'unknown', typeEvidence: '' };
+    return notBoundary('');
   }
   const method = node.expression.name.text;
   const receiver = node.expression.expression;
@@ -404,48 +406,63 @@ function classifyTenantBoundaryCall(
   const callText = node.getText(unit.sourceFile);
   const entityName = repositoryEntityName(receiverType);
   if (entityName) {
-    return {
-      isBoundary: true,
-      tenantOwned: context.tenantEntities.has(entityName),
-      kind: 'repository',
-      entityName,
-      typeEvidence: receiverType,
-    };
+    return entityBoundary(entityName, 'repository', receiverType, context);
   }
   if (method === 'query' && /\b(DataSource|EntityManager|QueryRunner)\b/.test(receiverType)) {
     return {
       isBoundary: true,
       tenantOwned: queryReferencesTenantTable(callText, context.tenantTables),
+      crossTenant: null,
       kind: 'raw_query',
       typeEvidence: receiverType,
     };
   }
+  // The EntityManager form names the entity as argument 0 instead of in the
+  // receiver's type: `manager.findOne(Subscription, options)`. A repository
+  // fetched through `getRepository` is seen as the `Repository<X>` it returns,
+  // never as the call that returned it.
+  const target = node.arguments[0];
   if (
-    method === 'getRepository' &&
-    /\b(DataSource|EntityManager|QueryRunner)\b/.test(receiverType)
+    REPOSITORY_METHODS.has(method) &&
+    /\bEntityManager\b/.test(receiverType) &&
+    target &&
+    ts.isIdentifier(target)
   ) {
-    const firstArg = node.arguments[0]?.getText(unit.sourceFile);
-    const normalized = firstArg?.split('.').pop();
-    return {
-      isBoundary: true,
-      tenantOwned: Boolean(normalized && context.tenantEntities.has(normalized)),
-      kind: 'repository',
-      entityName: normalized,
-      typeEvidence: receiverType,
-    };
+    return entityBoundary(target.text, 'repository', receiverType, context);
   }
   if (/SelectQueryBuilder<([^>]+)>/.test(receiverType)) {
     const match = receiverType.match(/SelectQueryBuilder<([^>]+)>/);
-    const normalized = match?.[1]?.split('.').pop();
-    return {
-      isBoundary: true,
-      tenantOwned: Boolean(normalized && context.tenantEntities.has(normalized)),
-      kind: 'query_builder',
-      entityName: normalized,
-      typeEvidence: receiverType,
-    };
+    return entityBoundary(match?.[1]?.split('.').pop(), 'query_builder', receiverType, context);
   }
-  return { isBoundary: false, tenantOwned: false, kind: 'unknown', typeEvidence: receiverType };
+  return notBoundary(receiverType);
+}
+
+function notBoundary(typeEvidence: string): TenantBoundary {
+  return {
+    isBoundary: false,
+    tenantOwned: false,
+    crossTenant: null,
+    kind: 'unknown',
+    typeEvidence,
+  };
+}
+
+/** A call bound to an entity: tenant-owned and where its table lives, when the entity is tenant-owned. */
+function entityBoundary(
+  entityName: string | undefined,
+  kind: 'repository' | 'query_builder',
+  typeEvidence: string,
+  context: AnalysisContext,
+): TenantBoundary {
+  const entity = entityName ? context.tenantEntities.get(entityName) : undefined;
+  return {
+    isBoundary: true,
+    tenantOwned: entity !== undefined,
+    crossTenant: entity ? entity.crossTenant : null,
+    kind,
+    entityName,
+    typeEvidence,
+  };
 }
 
 function repositoryEntityName(typeText: string): string | undefined {
@@ -477,10 +494,11 @@ function collectTenantEntities(
       if (!hasTenantField && !/implements\s+TenantEntity/.test(node.getText(unit.sourceFile))) {
         return;
       }
-      const tableName = readEntityTableName(node, unit) ?? camelToSnake(node.name.text);
+      const decorator = readEntityDecorator(node, unit);
       entities.set(node.name.text, {
         className: node.name.text,
-        tableName,
+        tableName: decorator.tableName ?? camelToSnake(node.name.text),
+        crossTenant: decorator.crossTenant,
         path: unit.relativePath,
         line: lineOf(unit.sourceFile, node),
       });
@@ -489,7 +507,17 @@ function collectTenantEntities(
   return entities;
 }
 
-function readEntityTableName(node: ts.ClassDeclaration, unit: SourceUnit): string | undefined {
+/**
+ * What the class's `@Entity(...)` decorator says: the table name when it is the
+ * first argument, and whether its options object (`@Entity({ name, schema })`
+ * or `@Entity('name', { schema })`) declares a `schema`. The repo declares one
+ * exactly on a table shared across tenants; a per-tenant table omits it so
+ * search_path routes it into the tenant's own schema.
+ */
+function readEntityDecorator(
+  node: ts.ClassDeclaration,
+  unit: SourceUnit,
+): { readonly tableName?: string; readonly crossTenant: boolean } {
   const decorators = ts.canHaveDecorators(node) ? (ts.getDecorators(node) ?? []) : [];
   for (const decorator of decorators) {
     const expression = decorator.expression;
@@ -499,12 +527,14 @@ function readEntityTableName(node: ts.ClassDeclaration, unit: SourceUnit): strin
     ) {
       continue;
     }
-    const firstArg = expression.arguments[0];
-    if (firstArg && ts.isStringLiteralLike(firstArg)) {
-      return firstArg.text;
-    }
+    const [firstArg] = expression.arguments;
+    const options = expression.arguments.find(ts.isObjectLiteralExpression);
+    return {
+      tableName: firstArg && ts.isStringLiteralLike(firstArg) ? firstArg.text : undefined,
+      crossTenant: options !== undefined && objectLiteralMember(options, 'schema') !== undefined,
+    };
   }
-  return undefined;
+  return { crossTenant: false };
 }
 
 function camelToSnake(value: string): string {
@@ -574,27 +604,31 @@ function registersTenantGuard(sourceFile: ts.SourceFile): boolean {
 }
 
 function isTenantGuardAppGuard(provider: ts.ObjectLiteralExpression): boolean {
-  const provide = providerMember(provider, 'provide');
+  const provide = objectLiteralMember(provider, 'provide');
   if (!provide || !ts.isIdentifier(provide) || provide.text !== 'APP_GUARD') {
     return false;
   }
-  const aliased = providerMember(provider, 'useClass') ?? providerMember(provider, 'useExisting');
+  const aliased =
+    objectLiteralMember(provider, 'useClass') ?? objectLiteralMember(provider, 'useExisting');
   if (aliased && isTenantGuardName(aliased)) {
     return true;
   }
-  const factory = providerMember(provider, 'useFactory');
+  const factory = objectLiteralMember(provider, 'useFactory');
   const returnType = factory && ts.isFunctionLike(factory) ? factory.type : undefined;
   if (returnType && ts.isTypeReferenceNode(returnType) && isTenantGuardName(returnType.typeName)) {
     return true;
   }
-  return [factory, providerMember(provider, 'useValue')].some(
+  return [factory, objectLiteralMember(provider, 'useValue')].some(
     (built) => built !== undefined && constructsTenantGuard(built),
   );
 }
 
-/** The value of a provider's `name: value` property, or the function of a `name() {}` method. */
-function providerMember(provider: ts.ObjectLiteralExpression, name: string): ts.Node | undefined {
-  for (const member of provider.properties) {
+/** The value of an object literal's `name: value` property, the function of a `name() {}` method, or the shorthand `name` itself. */
+function objectLiteralMember(
+  object: ts.ObjectLiteralExpression,
+  name: string,
+): ts.Node | undefined {
+  for (const member of object.properties) {
     if (member.name && (ts.isIdentifier(member.name) || ts.isStringLiteralLike(member.name))) {
       if (member.name.text === name) {
         return ts.isPropertyAssignment(member) ? member.initializer : member;

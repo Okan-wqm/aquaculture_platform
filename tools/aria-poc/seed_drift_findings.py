@@ -21,6 +21,12 @@ repo-state root (``aria_kernel.workspace.repo_state_root``: the durable
 writes no finding file of its own, so the producer and the consumer cannot
 point at different directories.
 
+The third class, ``graphql_operation_drift`` (DET crossfile-5, Z38), is not scanned here: its owner
+is ``scripts/ci/validate-graphql-operations.mjs`` (``graphql.validate`` of every FE operation against
+the composed supergraph, CI's zero-new-drift ratchet). ``run_graphql_operations`` runs that script
+with ``--json`` and the class is what it prints; a run that did not reach a verdict is a NAMED
+observation (``wire_unverifiable``), never an empty list.
+
 Determinism: ``select_candidates`` orders drifts stably (severity desc,
 cross_service first, gate-free first, similarity desc, concept asc).
 Identity and dedupe are ``emit_finding``'s: a drift's subject key, or its
@@ -39,10 +45,25 @@ from typing import Any
 
 CANDIDATE_TOOL_SQL = "typeorm-entity-schema-adapter"
 CANDIDATE_TOOL_UI = "event-contracts-adapter"
+CANDIDATE_TOOL_GRAPHQL = "fe-dto-parity-adapter"
 # The scanner classifies every drift it emits and names its severity
 # (ui_value_not_on_wire / ts_value_not_in_db HIGH, own-service subsets LOW).
 # The seeder mints that severity; it does not re-derive one from blast radius.
 MINTABLE_SEVERITIES = {"HIGH": 3, "MEDIUM": 2, "LOW": 1}
+
+GRAPHQL_DRIFT_CLASS = "graphql_operation_drift"
+GRAPHQL_OPERATIONS_OWNER = "scripts/ci/validate-graphql-operations.mjs"
+# The scan document's section for the owner's run: {status, reason, drifts}.
+GRAPHQL_SECTION = "graphql_operations"
+# Every category the owner names is an operation the gateway's own graphql.validate rejects (an HTTP
+# 400 at request time), so the class has one severity; the category is the classification.
+GRAPHQL_DRIFT_SEVERITY = "HIGH"
+# The one fatal the owner has: the supergraph file is absent (exit 0 and 1 are verdicts).
+OWNER_EXIT_SCHEMA_ABSENT = 2
+GRAPHQL_OWNER_TIMEOUT_SECONDS = 120
+# The contract side of the class's two evidence sides: the supergraph is a CI artifact outside the
+# repository, so the only repo-verifiable place the drift is seen is the operation's own file.
+GRAPHQL_CONTRACT_SIDE = "supergraph"
 
 
 # ARIA-HIGH-363 (review M1) — the scanner is the one that ships with THIS
@@ -53,8 +74,76 @@ MINTABLE_SEVERITIES = {"HIGH": 3, "MEDIUM": 2, "LOW": 1}
 SCANNER = Path(__file__).resolve().parent / "poc.py"
 
 
+def _graphql_section(status: str, reason: str = "", drifts: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    return {"status": status, "reason": reason, "drifts": drifts or []}
+
+
+def _owner_drifts(stdout: str) -> list[dict[str, Any]] | None:
+    """The owner's ``--json`` array when it is the shape this seeder reads, else None."""
+    try:
+        parsed = json.loads(stdout)
+    except ValueError:
+        return None
+    if not isinstance(parsed, list):
+        return None
+    for entry in parsed:
+        if not isinstance(entry, dict) or not isinstance(entry.get("messages"), list):
+            return None
+        if not all(isinstance(entry.get(key), str) for key in ("key", "file", "op", "category")):
+            return None
+    return parsed
+
+
+def run_graphql_operations(repo_root: Path, supergraph: str | None = None) -> dict[str, Any]:
+    """The owner's verdict on ``repo_root``'s FE GraphQL operations: ``{status, reason, drifts}``.
+
+    ``ok`` only when the owner ran to a verdict (exit 0 or 1) and printed its JSON array. Every other
+    outcome says why it did not: "no drift listed" must never be read from a check that did not run
+    (a node that crashed on a missing dependency exits 1 with nothing on stdout, and a missing
+    supergraph is the owner's own fatal). The owner is the tree's own copy: it finds the FE sources of
+    the tree it sits in, so a recheck at a merge commit runs that commit's check.
+
+    Only a supergraph the caller GIVES is judged against. The owner's own default is
+    ``dist/graphql/supergraph.graphql``, an artifact of unknown age that any earlier compose left in
+    the tree: reading it could mint HIGH findings for a schema the gateway no longer serves, so without
+    a given path the owner is not run at all (the same named result as a path that is not a file).
+    """
+    if not supergraph:
+        return _graphql_section("unavailable", "supergraph_not_given")
+    owner = repo_root / GRAPHQL_OPERATIONS_OWNER
+    if not owner.is_file():
+        return _graphql_section("unavailable", "owner_not_found")
+    command = ["node", str(owner), "--json", "--schema", supergraph]
+    try:
+        run = subprocess.run(command, cwd=repo_root, capture_output=True, text=True,
+                             timeout=GRAPHQL_OWNER_TIMEOUT_SECONDS)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return _graphql_section("unavailable", f"owner_unrunnable:{type(exc).__name__}")
+    if run.returncode == OWNER_EXIT_SCHEMA_ABSENT:
+        return _graphql_section("unavailable", "supergraph_not_found")
+    drifts = _owner_drifts(run.stdout) if run.returncode in (0, 1) else None
+    if drifts is None:
+        return _graphql_section("unavailable", f"owner_exit_{run.returncode}")
+    return _graphql_section("ok", drifts=drifts)
+
+
+def graphql_section(drifts_doc: dict[str, Any]) -> dict[str, Any]:
+    """The owner's run as a scan document records it; a document without one was not judged."""
+    return drifts_doc.get(GRAPHQL_SECTION) or _graphql_section("unavailable", "no_section")
+
+
+def graphql_drifts(drifts_doc: dict[str, Any]) -> list[dict[str, Any]]:
+    """The owner's drifts of a scan document; none unless the owner reached a verdict."""
+    section = graphql_section(drifts_doc)
+    return section["drifts"] if section["status"] == "ok" else []
+
+
 def run_fresh_scan(repo_root: Path, supergraph: str | None = None) -> dict[str, Any]:
-    """Run this seeder's PoC mechanical scanner over ``repo_root`` and return its drift doc."""
+    """Run this seeder's PoC mechanical scanner over ``repo_root`` and return its drift doc.
+
+    The doc also carries the owner's run of the FE GraphQL operation check (``GRAPHQL_SECTION``), so a
+    recheck, which scans through here, judges that class by the same run that minted it.
+    """
     with tempfile.TemporaryDirectory(dir=repo_root) as tmp:
         out_rel = Path(tmp).name
         cmd = [
@@ -69,7 +158,9 @@ def run_fresh_scan(repo_root: Path, supergraph: str | None = None) -> dict[str, 
             *(["--supergraph", supergraph] if supergraph else []),
         ]
         subprocess.run(cmd, check=True, cwd=repo_root, capture_output=True, text=True)
-        return json.loads((repo_root / out_rel / "MECHANICAL_DRIFTS.json").read_text(encoding="utf-8"))
+        doc = json.loads((repo_root / out_rel / "MECHANICAL_DRIFTS.json").read_text(encoding="utf-8"))
+    doc[GRAPHQL_SECTION] = run_graphql_operations(repo_root, supergraph)
+    return doc
 
 
 def _sort_key(drift: dict[str, Any]) -> tuple[Any, ...]:
@@ -82,10 +173,21 @@ def _sort_key(drift: dict[str, Any]) -> tuple[Any, ...]:
     )
 
 
+def _graphql_candidate(entry: dict[str, Any]) -> dict[str, Any]:
+    """One owner drift as a seed candidate: the operation (``ui``) against the contract it breaks (``source``)."""
+    return {
+        "drift_class": GRAPHQL_DRIFT_CLASS, "candidate_tool": CANDIDATE_TOOL_GRAPHQL,
+        "concept": entry["op"], "classification": entry["category"], "severity": GRAPHQL_DRIFT_SEVERITY,
+        "cross_service": False, "transport": "graphql", "messages": entry["messages"],
+        "ui": {"ref": entry["file"], "name": entry["op"], "values": entry["messages"]},
+        "source": {"ref": entry["file"], "name": GRAPHQL_CONTRACT_SIDE, "values": [entry["category"]]},
+    }
+
+
 def select_candidates(drifts_doc: dict[str, Any], *, limit: int) -> list[dict[str, Any]]:
     """Stable-ordered seed candidates: TS<->SQL drifts first, then
     promoted frontend dropdown drifts (already confidence-gated by the
-    scanner)."""
+    scanner), then the owner's FE GraphQL operation drifts."""
     sql_drifts = [
         {"drift_class": "enum_drift", "candidate_tool": CANDIDATE_TOOL_SQL, **d}
         for d in (drifts_doc.get("drifts_above_threshold") or [])
@@ -94,7 +196,8 @@ def select_candidates(drifts_doc: dict[str, Any], *, limit: int) -> list[dict[st
         {"drift_class": "ui_option_drift", "candidate_tool": CANDIDATE_TOOL_UI, **d}
         for d in (drifts_doc.get("frontend_dropdown_drifts") or [])
     ]
-    ranked = sorted(sql_drifts, key=_sort_key) + sorted(ui_drifts, key=_sort_key)
+    graphql_candidates = [_graphql_candidate(entry) for entry in graphql_drifts(drifts_doc)]
+    ranked = sorted(sql_drifts, key=_sort_key) + sorted(ui_drifts, key=_sort_key) + sorted(graphql_candidates, key=_sort_key)
     return ranked[:limit]
 
 
@@ -128,6 +231,18 @@ def drift_evidences(drift: dict[str, Any]) -> list[dict[str, str]]:
     return [
         {"ref": side["reference"], "summary": f"{side.get('declared_name') or 'side'} values: {str(side.get('declared_values'))[:80]}"}
         for side in sides if side is not None
+    ]
+
+
+def drift_facts(drift: dict[str, Any]) -> list[str]:
+    """The facts a drift is minted with: the classification, then what differs."""
+    facts = [f"classification: {drift['classification']} over {drift.get('transport') or 'db'}"]
+    if drift["drift_class"] == GRAPHQL_DRIFT_CLASS:
+        # The first three messages, as many as the owner's own report prints per operation.
+        return facts + [f"owner message: {message}" for message in drift["messages"][:3]]
+    return facts + [
+        f"missing in ts/ui: {sorted(drift.get('missing_in_ts') or drift.get('missing_in_ui') or [])[:8]}",
+        f"missing in sql/source: {sorted(drift.get('missing_in_sql') or drift.get('missing_in_source') or [])[:8]}",
     ]
 
 
@@ -215,11 +330,7 @@ def mint_candidates(
             f"{drift['drift_class']}: '{concept}' {drift['classification']} across "
             f"{len(evidences)} surfaces (cross_service={bool(drift.get('cross_service'))})"
         )
-        facts = [
-            f"classification: {drift['classification']} over {drift.get('transport') or 'db'}",
-            f"missing in ts/ui: {sorted(drift.get('missing_in_ts') or drift.get('missing_in_ui') or [])[:8]}",
-            f"missing in sql/source: {sorted(drift.get('missing_in_sql') or drift.get('missing_in_source') or [])[:8]}",
-        ]
+        facts = drift_facts(drift)
         try:
             record = emit_finding(
                 repo_root=repo_root,
@@ -294,7 +405,8 @@ def judge_subject(drifts_doc: dict[str, Any], *, subject_key: str, drift_class: 
     if fault is not None:
         return {"verdict": VERDICT_UNVERIFIABLE, "reason": fault, "matches": [], "wire": None}
     ranked = select_candidates(drifts_doc, limit=len(drifts_doc.get("drifts_above_threshold") or [])
-                               + len(drifts_doc.get("frontend_dropdown_drifts") or []))
+                               + len(drifts_doc.get("frontend_dropdown_drifts") or [])
+                               + len(graphql_drifts(drifts_doc)))
     matches: list[str] = []
     for drift in ranked:
         evidences = drift_evidences(drift)
@@ -308,6 +420,11 @@ def judge_subject(drifts_doc: dict[str, Any], *, subject_key: str, drift_class: 
         return {"verdict": VERDICT_UNVERIFIABLE,
                 "reason": f"wire_unavailable:{wire.get('reason') or 'no_wire_section'}",
                 "matches": [], "wire": wire.get("status")}
+    graphql = graphql_section(drifts_doc)
+    if drift_class == GRAPHQL_DRIFT_CLASS and graphql["status"] != "ok":
+        # The owner did not reach a verdict (no supergraph, no dependency, a crash): not found is not judged.
+        return {"verdict": VERDICT_UNVERIFIABLE, "reason": f"graphql_operations_unavailable:{graphql['reason']}",
+                "matches": [], "wire": wire.get("status")}
     return {"verdict": VERDICT_ABSENT, "reason": "subject_not_in_scan", "matches": [],
             "wire": wire.get("status")}
 
@@ -320,6 +437,19 @@ def _schema_commit(repo: Path) -> str | None:
     if not workflow.is_file():
         return None
     return fetch_supergraph.schema_commit(repo, fetch_supergraph.push_paths(workflow.read_text(encoding="utf-8")))
+
+
+def _share_dependencies(repo_root: Path, tree: Path) -> bool:
+    """Let the owner's ``import 'graphql'`` resolve in a detached worktree, which has no node_modules.
+
+    The dependency install belongs to the checkout the cycle runs in; the worktree links to it for the
+    scan and the caller removes the link. True when this call made the link.
+    """
+    installed, link = repo_root / "node_modules", tree / "node_modules"
+    if not installed.is_dir() or link.exists():
+        return False
+    link.symlink_to(installed)
+    return True
 
 
 def recheck_subject(
@@ -345,6 +475,7 @@ def recheck_subject(
         if added.returncode != 0:
             return {**base, "verdict": VERDICT_UNVERIFIABLE, "reason": "revision_unavailable",
                     "matches": [], "wire": None}
+        linked = _share_dependencies(repo_root, tree)
         try:
             # No schema commit on either side means no evidence the artifact
             # matches this tree, not a match.
@@ -352,6 +483,9 @@ def recheck_subject(
             exact = supergraph is not None and merged_schema is not None and merged_schema == _schema_commit(repo_root)
             doc = run_fresh_scan(tree, supergraph if exact else None)
         finally:
+            if linked:
+                # Unlink first: removing the worktree must never reach the checkout's own install.
+                (tree / "node_modules").unlink()
             subprocess.run(["git", "-C", str(repo_root), "worktree", "remove", "--force", str(tree)],
                            capture_output=True, text=True)
     return {**base, **judge_subject(doc, subject_key=subject_key, drift_class=drift_class)}
@@ -363,7 +497,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--limit", type=int, default=20, help="Max findings to seed")
     parser.add_argument(
         "--supergraph", default=None,
-        help="Composed supergraph SDL passed to poc.py (default: its dist/graphql path).",
+        help=("Composed supergraph SDL passed to poc.py (default: its dist/graphql path). The FE GraphQL "
+              "operation check runs only with a path given here, never on a default."),
     )
     parser.add_argument(
         "--recheck-subject", default=None,
@@ -396,8 +531,13 @@ def main(argv: list[str] | None = None) -> int:
         # UI drifts need the wire; without it they are unverifiable, not absent.
         print(f"[seed] WIRE UNAVAILABLE: {wire.get('reason') or 'no_wire_section'} "
               f"({wire.get('supergraph')}) — UI option drifts were not judged")
+    graphql = graphql_section(drifts_doc)
+    if graphql["status"] != "ok":
+        # The owner reached no verdict, so FE operations are unverifiable, not clean.
+        print(f"[seed] {GRAPHQL_DRIFT_CLASS} wire_unverifiable:{graphql['reason']} — FE GraphQL operations were not validated")
     total_sql = len(drifts_doc.get("drifts_above_threshold") or [])
     total_ui = len(drifts_doc.get("frontend_dropdown_drifts") or [])
+    total_graphql = len(graphql_drifts(drifts_doc))
     candidates = select_candidates(drifts_doc, limit=args.limit)
 
     # ORPHAN-702 — the seeder graduates to the ONE mint path. It used to
@@ -410,7 +550,7 @@ def main(argv: list[str] | None = None) -> int:
     # index refresh keeps cycle_guard's OPEN count working unchanged.
     minted, already, unmintable = mint_candidates(repo_root, candidates)
 
-    print(f"[seed] scan: {total_sql} sql-drifts + {total_ui} ui-drifts above threshold")
+    print(f"[seed] scan: {total_sql} sql-drifts + {total_ui} ui-drifts above threshold + {total_graphql} graphql-operation drifts")
     print(f"[seed] minted {len(minted)} findings via emit_finding; {len(already)} already recorded; {len(unmintable)} unmintable (limit {args.limit})")
     for record in minted:
         print(f"[seed]   {record['finding_id']}: {record['claim_summary'][:100]}")

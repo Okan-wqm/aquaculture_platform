@@ -45,6 +45,8 @@ SINGLE_OWNER = {
     "python_source_facts": f"{_KERNEL}source_facts.py",
     # F1.1 — the learning journal: memory.record_learning_event, no other writer (goldset and pr_tracking routed).
     "learning_log": f"{_KERNEL}memory.py",
+    # F1.8(a) — the paired gain decision: compare_eval_windows' paired mode, its e-process and the one McNemar tail.
+    "paired_gain_decision": f"{_KERNEL}agent_eval.py",
 }
 
 # One planted second owner per family: a second writer of the family's ledger
@@ -75,6 +77,13 @@ _PLANTED = {
         "append_declared_jsonl(root / 'memory' / 'learning-events.jsonl', row, expected_surface='memory_learning_events')\n",
         "append_jsonl(root / 'memory' / 'learning-events.jsonl', row)\n",
         "append_declared_jsonl(path, row, expected_surface='memory_learning_events')\n",
+    ),
+    # A second e-value, a second sequential verdict or a second McNemar tail under the owner's names (F1.8(a)).
+    "paired_gain_decision": (
+        "def paired_e_value(candidate_only, incumbent_only):\n    return 1\n",
+        "def sequential_paired_verdict(candidate_only, incumbent_only, *, alpha, min_discordant_pairs):\n"
+        "    return ('flat', 1, 1)\n",
+        "def _upper_tail(successes, trials):\n    return 0.5\n",
     ),
 }
 

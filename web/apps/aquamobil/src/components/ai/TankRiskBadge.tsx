@@ -85,7 +85,7 @@ export function TankRiskBadge({ tankId }: TankRiskBadgeProps): ReactElement | nu
             <StatusDot tone={tone.dot} />
             <span className={clsx('text-title font-semibold', tone.text)}>{risk.riskLevel}</span>
           </div>
-          <span className={clsx('text-display font-mono font-bold tabular-nums', tone.text)}>
+          <span className={clsx('text-display font-bold tabular-nums', tone.text)}>
             {/* ORPHAN-MEDIUM-589: a model's score, not a reading. The tilde
                 travels with the number so it survives being screenshotted or
                 read aloud away from the card's Advisory chip. */}

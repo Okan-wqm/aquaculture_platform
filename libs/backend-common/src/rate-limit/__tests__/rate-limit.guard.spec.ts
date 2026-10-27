@@ -1,6 +1,7 @@
 import { ExecutionContext, HttpException, ServiceUnavailableException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { ExecutionContextHost } from '@nestjs/core/helpers/execution-context-host';
+import { GraphQLError } from 'graphql';
 
 import { InMemoryRateLimitStore } from '../in-memory-rate-limit.store';
 import { RateLimitGuard } from '../rate-limit.guard';
@@ -108,6 +109,42 @@ describe('RateLimitGuard', () => {
     expect(setHeader).toHaveBeenCalledWith('X-RateLimit-Limit', '3');
   });
 
+  describe('over the limit on a GraphQL operation (refresh, login, MFA, reset)', () => {
+    const overLimit = async (): Promise<unknown> => {
+      const guard = guardWith({ name: 'refresh', limit: 2, windowMs: 300_000 });
+      const context = buildGqlContext({ ip: '198.51.100.40' });
+      await guard.canActivate(context);
+      await guard.canActivate(context);
+      return guard.canActivate(context).catch((error: unknown) => error);
+    };
+
+    it('answers a GraphQL error coded TOO_MANY_REQUESTS with the wait, never a bare HTTP exception', async () => {
+      // An HttpException thrown from a GraphQL resolver reaches the client as
+      // INTERNAL_SERVER_ERROR: "the server broke", and — to a web client that
+      // treats any failed refresh as a dead session — "you are logged out".
+      const error = await overLimit();
+
+      expect(error).toBeInstanceOf(GraphQLError);
+      expect(error).not.toBeInstanceOf(HttpException);
+      const extensions = (error as GraphQLError).extensions;
+      expect(extensions['code']).toBe('TOO_MANY_REQUESTS');
+      expect(extensions['retryAfter']).toEqual(expect.any(Number));
+      expect(extensions['retryAfter']).toBeGreaterThanOrEqual(1);
+      expect((error as GraphQLError).message).toMatch(/Maximum 2 per 300s/);
+    });
+
+    it('REST keeps its HTTP 429', async () => {
+      const guard = guardWith({ name: 'upload', limit: 1, windowMs: 60_000 });
+      const { context } = buildHttpContext({ ip: '198.51.100.42' });
+
+      await guard.canActivate(context);
+      const error = await guard.canActivate(context).catch((caught: unknown) => caught);
+
+      expect(error).toBeInstanceOf(HttpException);
+      expect((error as HttpException).getStatus()).toBe(429);
+    });
+  });
+
   it('keys buckets per IP — a second IP has its own window', async () => {
     const guard = guardWith({ name: 'login', limit: 1, windowMs: 60_000 });
 
@@ -145,7 +182,7 @@ describe('RateLimitGuard', () => {
       guard.canActivate(
         buildGqlContext({ ip: '198.51.100.21', args: { input: { email: 'a@x.com' } } }),
       ),
-    ).rejects.toThrow(HttpException);
+    ).rejects.toThrow(GraphQLError);
   });
 
   it('keys authenticated callers per user id', async () => {

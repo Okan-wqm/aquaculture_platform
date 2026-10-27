@@ -201,9 +201,7 @@ export function DailyOpsHubPage(): JSX.Element {
                   <span className="text-body font-semibold text-ink-1">
                     {completedTasks}/{totalTasks} completed
                   </span>
-                  <span className="text-meta text-ink-3 font-mono tabular-nums">
-                    {progressPercent}%
-                  </span>
+                  <span className="text-meta text-ink-3 tabular-nums">{progressPercent}%</span>
                 </div>
                 <div
                   className="h-2 bg-surface-2 rounded-full overflow-hidden mb-3"

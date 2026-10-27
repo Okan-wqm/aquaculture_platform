@@ -78,7 +78,7 @@ const PumpBar: React.FC<{
           style={{ width: `${percent}%` }}
         />
       </div>
-      <span className="text-xs font-mono text-gray-500 dark:text-gray-400 w-[36px] text-right">
+      <span className="text-xs tabular-nums text-gray-500 dark:text-gray-400 w-[36px] text-right">
         {reading}
       </span>
     </div>

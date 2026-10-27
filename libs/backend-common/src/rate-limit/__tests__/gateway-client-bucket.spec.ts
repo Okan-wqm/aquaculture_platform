@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
 import { ExecutionContextHost } from '@nestjs/core/helpers/execution-context-host';
 import express from 'express';
+import { GraphQLError } from 'graphql';
 import request from 'supertest';
 
 import { buildSignedInternalHeaders } from '../../http/signed-http-client';
@@ -112,7 +113,13 @@ function buildSubgraph(store: InMemoryRateLimitStore): express.Express {
         res.status(200).json({ verifiedAs });
       },
       (error: unknown) => {
-        res.status(error instanceof HttpException ? error.getStatus() : 500).json({ verifiedAs });
+        // A GraphQL operation over its limit is a coded GraphQLError, not an
+        // HttpException (which a GraphQL client would see as INTERNAL_SERVER_ERROR).
+        const rateLimited =
+          error instanceof GraphQLError && error.extensions['code'] === 'TOO_MANY_REQUESTS';
+        res
+          .status(rateLimited ? 429 : error instanceof HttpException ? error.getStatus() : 500)
+          .json({ verifiedAs });
       },
     );
   });

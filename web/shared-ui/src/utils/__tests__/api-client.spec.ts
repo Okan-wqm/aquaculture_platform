@@ -53,6 +53,15 @@ function mockResponse(status: number, body: unknown, ok?: boolean): Response {
   } as Response;
 }
 
+/** A structurally real JWT (unsigned): the client only reads its claims. */
+function jwt(claims: { iat?: number; exp?: number }): string {
+  const encode = (value: unknown): string =>
+    btoa(JSON.stringify(value)).replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_');
+  return `${encode({ alg: 'RS256', typ: 'JWT' })}.${encode(claims)}.signature`;
+}
+
+const nowSeconds = (): number => Math.floor(Date.now() / 1000);
+
 function rejectBodyWhenAborted(signal: AbortSignal | null | undefined): Promise<never> {
   return new Promise((_resolve, reject) => {
     const rejectAbort = (): void => reject(new DOMException('Aborted', 'AbortError'));
@@ -748,15 +757,29 @@ describe('api-client', () => {
         expect(mockFetch).toHaveBeenCalledTimes(3);
       });
 
-      it('should throw when refresh fails', async () => {
+      it('ends the session when the server REFUSES the refresh', async () => {
         apiClient.setTokens('expired-rest-token');
 
         // 1st call: 401
         mockFetch.mockResolvedValueOnce(mockResponse(401, {}));
-        // Refresh: fails
-        mockFetch.mockResolvedValueOnce(mockResponse(500, {}));
+        // Refresh: refused
+        mockFetch.mockResolvedValueOnce(mockResponse(401, {}));
 
         await expect(apiClient.restClient.get('/items')).rejects.toThrow('Session expired');
+        expect(apiClient.getAccessToken()).toBeNull();
+      });
+
+      it('keeps the session when the refresh fails with a server fault (it says nothing about the session)', async () => {
+        apiClient.setTokens('expired-rest-token');
+
+        mockFetch.mockResolvedValueOnce(mockResponse(401, {}));
+        mockFetch.mockResolvedValueOnce(mockResponse(500, {}));
+
+        await expect(apiClient.restClient.get('/items')).rejects.toMatchObject({
+          statusCode: 503,
+          message: 'Token refresh is temporarily unavailable',
+        });
+        expect(apiClient.getAccessToken()).toBe('expired-rest-token');
       });
     });
 
@@ -997,6 +1020,222 @@ describe('api-client', () => {
   // ============================================================================
   // GraphQLClientError
   // ============================================================================
+
+  // ============================================================================
+  // A throttled or failed refresh is not a dead session
+  // ============================================================================
+
+  describe('refresh that fails for a reason other than the session being over', () => {
+    const rateLimited = (retryAfter = 40): Response =>
+      mockResponse(200, {
+        errors: [
+          {
+            message: `Rate limit exceeded. Maximum 10 per 300s. Retry after ${retryAfter} seconds.`,
+            extensions: { code: 'TOO_MANY_REQUESTS', retryAfter },
+          },
+        ],
+      });
+    const unauthenticated = (): Response =>
+      mockResponse(200, {
+        errors: [{ message: 'Token expired', extensions: { code: 'UNAUTHENTICATED' } }],
+      });
+
+    it('keeps the session when the refresh is throttled (TOO_MANY_REQUESTS): the user stays signed in', async () => {
+      apiClient.setTokens('expired-token');
+      mockFetch.mockResolvedValueOnce(unauthenticated()); // the operation: token expired
+      mockFetch.mockResolvedValueOnce(rateLimited()); // the refresh: throttled
+
+      await expect(apiClient.graphqlClient.request('{ me { id } }')).rejects.toMatchObject({
+        code: 'REFRESH_UNAVAILABLE',
+      });
+
+      // The throttle says nothing about the session: it is kept, not cleared.
+      expect(apiClient.getAccessToken()).toBe('expired-token');
+    });
+
+    it('keeps the session when the refresh hits a server fault (the 500 a throttled refresh used to surface as)', async () => {
+      apiClient.setTokens('expired-token');
+      mockFetch.mockResolvedValueOnce(unauthenticated());
+      mockFetch.mockResolvedValueOnce(
+        mockResponse(200, { errors: [{ message: 'x', extensions: { code: 'INTERNAL_SERVER_ERROR' } }] }),
+      );
+
+      await expect(apiClient.graphqlClient.request('{ me { id } }')).rejects.toMatchObject({
+        code: 'REFRESH_UNAVAILABLE',
+      });
+      expect(apiClient.getAccessToken()).toBe('expired-token');
+    });
+
+    it('keeps the session when the refresh cannot reach the server', async () => {
+      apiClient.setTokens('expired-token');
+      mockFetch.mockResolvedValueOnce(unauthenticated());
+      mockFetch.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+
+      await expect(apiClient.graphqlClient.request('{ me { id } }')).rejects.toMatchObject({
+        code: 'REFRESH_UNAVAILABLE',
+      });
+      expect(apiClient.getAccessToken()).toBe('expired-token');
+    });
+
+    it('still ends the session when the server REFUSES the refresh (revoked, expired, reused)', async () => {
+      apiClient.setTokens('expired-token');
+      mockFetch.mockResolvedValueOnce(unauthenticated());
+      mockFetch.mockResolvedValueOnce(unauthenticated()); // the refresh itself: UNAUTHENTICATED
+
+      await expect(apiClient.graphqlClient.request('{ me { id } }')).rejects.toThrow();
+
+      expect(apiClient.getAccessToken()).toBeNull();
+    });
+
+    it('does not hit the server again while it is throttling: the wait it asked for is honoured', async () => {
+      apiClient.setTokens('expired-token');
+      mockFetch.mockResolvedValueOnce(unauthenticated());
+      mockFetch.mockResolvedValueOnce(rateLimited(40));
+      await expect(apiClient.graphqlClient.request('{ me { id } }')).rejects.toMatchObject({
+        code: 'REFRESH_UNAVAILABLE',
+      });
+      const callsAfterFirst = mockFetch.mock.calls.length;
+
+      // A second operation, same expired token: its refresh must NOT go to the
+      // server (every throttled attempt counts against the limit and prolongs it).
+      mockFetch.mockResolvedValueOnce(unauthenticated());
+      await expect(apiClient.graphqlClient.request('{ me { id } }')).rejects.toMatchObject({
+        code: 'REFRESH_UNAVAILABLE',
+      });
+
+      const refreshCalls = mockFetch.mock.calls
+        .slice(callsAfterFirst)
+        .filter(([, init]) => String(init?.body).includes('refreshToken'));
+      expect(refreshCalls).toHaveLength(0);
+    });
+
+    it('refreshes again once the requested wait has passed', async () => {
+      vi.useFakeTimers();
+      apiClient.setTokens('expired-token');
+      mockFetch.mockResolvedValueOnce(unauthenticated());
+      mockFetch.mockResolvedValueOnce(rateLimited(40));
+      await expect(apiClient.graphqlClient.request('{ me { id } }')).rejects.toMatchObject({
+        code: 'REFRESH_UNAVAILABLE',
+      });
+
+      vi.advanceTimersByTime(41_000);
+      mockFetch.mockResolvedValueOnce(unauthenticated());
+      mockFetch.mockResolvedValueOnce(
+        mockResponse(200, { data: { refreshToken: { accessToken: 'new-token' } } }),
+      );
+      mockFetch.mockResolvedValueOnce(mockResponse(200, { data: { me: { id: '1' } } }));
+
+      await expect(apiClient.graphqlClient.request('{ me { id } }')).resolves.toEqual({
+        me: { id: '1' },
+      });
+      expect(apiClient.getAccessToken()).toBe('new-token');
+    });
+
+    it('the REST client keeps the session on a throttled refresh too', async () => {
+      apiClient.setTokens('expired-token');
+      mockFetch.mockResolvedValueOnce(mockResponse(401, {}));
+      mockFetch.mockResolvedValueOnce(rateLimited());
+
+      await expect(apiClient.restClient.get('/api/things')).rejects.toBeInstanceOf(
+        apiClient.RestClientError,
+      );
+
+      expect(apiClient.getAccessToken()).toBe('expired-token');
+    });
+  });
+
+  describe('silentRefresh on a throttled page load', () => {
+    const throttled = (retryAfter: number): Response =>
+      mockResponse(200, {
+        errors: [
+          {
+            message: `Rate limit exceeded. Retry after ${retryAfter} seconds.`,
+            extensions: { code: 'TOO_MANY_REQUESTS', retryAfter },
+          },
+        ],
+      });
+
+    it('waits out a SHORT throttle once and restores the session instead of sending it to /login', async () => {
+      vi.useFakeTimers();
+      mockFetch.mockResolvedValueOnce(throttled(5));
+      mockFetch.mockResolvedValueOnce(
+        mockResponse(200, { data: { refreshToken: { accessToken: 'restored-token' } } }),
+      );
+
+      const restored = apiClient.silentRefresh();
+      await vi.advanceTimersByTimeAsync(5_100);
+
+      await expect(restored).resolves.toBe(true);
+      expect(apiClient.getAccessToken()).toBe('restored-token');
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not wait out a LONG throttle: one attempt, then it reports no session restored', async () => {
+      mockFetch.mockResolvedValueOnce(throttled(240));
+
+      await expect(apiClient.silentRefresh()).resolves.toBe(false);
+
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not retry a server fault', async () => {
+      mockFetch.mockResolvedValueOnce(mockResponse(500, {}));
+
+      await expect(apiClient.silentRefresh()).resolves.toBe(false);
+
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('UNAUTHENTICATED on a token that cannot have expired', () => {
+    const unauthenticated = (): Response =>
+      mockResponse(200, {
+        errors: [{ message: 'Authentication context is required', extensions: { code: 'UNAUTHENTICATED' } }],
+      });
+
+    it('does NOT spend a refresh on a token minted seconds ago: the refresh cannot change the answer', async () => {
+      // A subgraph that answers UNAUTHENTICATED for a valid session (the
+      // notification service did, for every user) used to cost one refresh
+      // per page load — the call that, at 10 per 5 minutes per IP, logged an
+      // office out. A token issued moments ago has not expired.
+      apiClient.setTokens(jwt({ iat: nowSeconds() - 2, exp: nowSeconds() + 3600 }));
+      mockFetch.mockResolvedValueOnce(unauthenticated());
+
+      await expect(apiClient.graphqlClient.request('{ unreadNotificationCount }')).rejects.toMatchObject({
+        code: 'UNAUTHENTICATED',
+      });
+
+      expect(mockFetch).toHaveBeenCalledTimes(1); // no refresh
+      expect(apiClient.getAccessToken()).not.toBeNull(); // the session is untouched
+    });
+
+    it('still refreshes a token that has aged (it may be expired or revoked)', async () => {
+      apiClient.setTokens(jwt({ iat: nowSeconds() - 600, exp: nowSeconds() + 3000 }));
+      mockFetch.mockResolvedValueOnce(unauthenticated());
+      mockFetch.mockResolvedValueOnce(
+        mockResponse(200, { data: { refreshToken: { accessToken: 'new-token' } } }),
+      );
+      mockFetch.mockResolvedValueOnce(mockResponse(200, { data: { me: { id: '1' } } }));
+
+      await expect(apiClient.graphqlClient.request('{ me { id } }')).resolves.toEqual({
+        me: { id: '1' },
+      });
+      expect(mockFetch).toHaveBeenCalledTimes(3);
+    });
+
+    it('refreshes when the token carries no readable issue time (unknown is not fresh)', async () => {
+      apiClient.setTokens('opaque-token');
+      mockFetch.mockResolvedValueOnce(unauthenticated());
+      mockFetch.mockResolvedValueOnce(
+        mockResponse(200, { data: { refreshToken: { accessToken: 'new-token' } } }),
+      );
+      mockFetch.mockResolvedValueOnce(mockResponse(200, { data: { me: { id: '1' } } }));
+
+      await apiClient.graphqlClient.request('{ me { id } }');
+
+      expect(mockFetch).toHaveBeenCalledTimes(3);
+    });
+  });
 
   describe('GraphQLClientError', () => {
     it('should have correct name, code, and message', () => {

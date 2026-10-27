@@ -17,6 +17,7 @@ import { hostname, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { after, test } from 'node:test';
 
+import { parseFindingId } from './finding-id-grammar';
 import {
   appendAllocatedFinding,
   appendExplicitFinding,
@@ -69,6 +70,13 @@ function emptyRegistry(dir: string): RegistryLayout {
   copyFileSync(join(REGISTRY_SOURCE_DIR, 'findings.jsonl.schema.json'), layout.rowSchemaPath);
   copyFileSync(join(REGISTRY_SOURCE_DIR, 'finding-event.schema.json'), layout.eventSchemaPath);
   return layout;
+}
+
+/** The sequence of a finding id of the grammar. */
+function sequenceOf(id: string): number {
+  const parsed = parseFindingId(id);
+  assert.ok(parsed, `${id} is a finding id`);
+  return parsed.sequence;
 }
 
 /** The rows a registry directory records: its genesis segment and events folded. */
@@ -133,7 +141,9 @@ if (childMode === '--worktree-allocator-child') {
 
   void test('nextFindingId rejects malformed domains and exhausted sequences', () => {
     assert.throws(() => nextFindingId('farm', 'LOW', []), /uppercase alphanumeric/);
-    assert.throws(() => nextFindingId('INFRA', 'CRITICAL', ['INFRA-LOW-999']), /space exhausted/);
+    assert.throws(() => nextFindingId('INFRA', 'CRITICAL', ['INFRA-LOW-9999']), /space exhausted/);
+    // 999 is no longer the last id: the sequence is the grammar's (finding-id-grammar.ts).
+    assert.equal(nextFindingId('INFRA', 'CRITICAL', ['INFRA-LOW-999']), 'INFRA-CRITICAL-1000');
   });
 
   void test('readOrphanMarkdownStore sees every heading form the file uses', () => {
@@ -534,7 +544,7 @@ if (childMode === '--worktree-allocator-child') {
 
     const worktreeEntries = [layoutA, layoutB].flatMap(recordedRows);
     assert.deepEqual(
-      worktreeEntries.map((entry) => Number.parseInt(entry.id.slice(-3), 10)).sort((a, b) => a - b),
+      worktreeEntries.map((entry) => sequenceOf(entry.id)).sort((a, b) => a - b),
       [1, 2],
     );
     const reservations = JSON.parse(readFileSync(authorityA.reservationPath, 'utf8')) as {

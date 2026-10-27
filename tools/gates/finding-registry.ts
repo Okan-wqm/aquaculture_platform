@@ -57,6 +57,14 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 import { findingIdAliasesBeside } from './finding-id-aliases';
+import {
+  FINDING_DOMAIN_REGEX,
+  FINDING_SEQUENCE_MAX,
+  formatFindingSequence,
+  isAllocatableSequence,
+  parseFindingId,
+  parseFindingIdShape,
+} from './finding-id-grammar';
 import { applyAssignment, type AssignmentRequest } from './finding-registry-assign';
 import {
   chainTip,
@@ -112,6 +120,7 @@ import {
   orphanMarkdownReservedIds,
   RegistryLockError,
   type RegistryLockLease,
+  reservedFindingId,
   withRegistryFileLock,
 } from './finding-registry-store';
 import { repoPinnedEnv } from './git-reachability';
@@ -217,6 +226,12 @@ function registryIds(dir: string): string[] {
   return [...store.genesis.map((row) => row.id), ...store.logs.keys()];
 }
 
+/** Whether `findingId` is an id of `domain` holding `sequence`, whatever its classifier. */
+function reservesSequence(findingId: string, domain: string, sequence: number): boolean {
+  const held = parseFindingIdShape(findingId);
+  return held?.domain === domain && held.sequence === sequence;
+}
+
 function loadReservationLedger(reservationPath: string): FindingIdReservationLedger {
   if (!existsSync(reservationPath)) return { version: 1, domains: {} };
   const value = JSON.parse(readFileSync(reservationPath, 'utf8')) as unknown;
@@ -235,16 +250,12 @@ function loadReservationLedger(reservationPath: string): FindingIdReservationLed
 
   for (const [domain, reservation] of Object.entries(candidate.domains)) {
     if (
-      !/^[A-Z][A-Z0-9]*$/.test(domain) ||
+      !FINDING_DOMAIN_REGEX.test(domain) ||
       reservation === null ||
       typeof reservation !== 'object' ||
-      !Number.isSafeInteger(reservation.sequence) ||
-      reservation.sequence < 1 ||
-      reservation.sequence > 999 ||
+      !isAllocatableSequence(reservation.sequence) ||
       typeof reservation.finding_id !== 'string' ||
-      !new RegExp(`^${domain}-[A-Z0-9]+-${String(reservation.sequence).padStart(3, '0')}$`).test(
-        reservation.finding_id,
-      ) ||
+      !reservesSequence(reservation.finding_id, domain, reservation.sequence) ||
       typeof reservation.reserved_at !== 'string' ||
       !Number.isFinite(Date.parse(reservation.reserved_at)) ||
       typeof reservation.registry_path !== 'string' ||
@@ -298,8 +309,8 @@ function reserveFindingId(
   registryPath: string,
   lease: RegistryLockLease,
 ): void {
-  const sequence = Number.parseInt(findingId.slice(-3), 10);
-  if (!Number.isSafeInteger(sequence) || sequence < 1 || sequence > 999) {
+  const sequence = parseFindingIdShape(findingId)?.sequence;
+  if (sequence === undefined || !isAllocatableSequence(sequence)) {
     throw new RangeError(`Finding reservation sequence is out of range: ${findingId}`);
   }
   const current = ledger.domains[domain];
@@ -790,7 +801,7 @@ export function appendAllocatedFinding(
   );
   const reserved = reservationLedger?.domains[domain];
   if (reserved) {
-    existingIds.push(`${domain}-RESERVED-${String(reserved.sequence).padStart(3, '0')}`);
+    existingIds.push(reservedFindingId(domain, reserved.sequence));
   }
   let id: string;
   try {
@@ -829,8 +840,8 @@ export function appendExplicitFinding(
     process.stderr.write('Explicit-id stub missing required field: id\n');
     return 2;
   }
-  const idParts = /^([A-Z][A-Z0-9]*)-([A-Z0-9]+)-([0-9]{3})$/.exec(stub.id);
-  if (!idParts?.[1] || !idParts[2] || !idParts[3]) {
+  const explicitId = parseFindingIdShape(stub.id);
+  if (explicitId === null) {
     process.stderr.write(`Explicit finding id has an invalid allocation shape: ${stub.id}\n\n`);
     return 2;
   }
@@ -843,34 +854,36 @@ export function appendExplicitFinding(
   // `ORPHAN-MEDIUM-416` never string-matched the live `416` heading. The
   // sequence is the identity.
   const claimed = claimedSequences(
-    idParts[1],
+    explicitId.domain,
     claimedIdsForDomain(
-      idParts[1],
+      explicitId.domain,
       registryIds(layout.dir).map((id) => ({ id })),
       authority,
       FILE_REGISTRY_READER,
       findingIdAliasesBeside(layout.genesisPath).map((alias) => alias.alias),
     ),
   );
-  if (claimed.has(Number.parseInt(idParts[3], 10))) {
+  if (claimed.has(explicitId.sequence)) {
     process.stderr.write(
-      `Duplicate id: ${stub.id} — sequence ${idParts[3]} is already claimed in ` +
-        `domain ${idParts[1]} by the registry, a sibling worktree registry, or ` +
+      `Duplicate id: ${stub.id} — sequence ${formatFindingSequence(explicitId.sequence)} is already claimed in ` +
+        `domain ${explicitId.domain} by the registry, a sibling worktree registry, or ` +
         `docs/reviews/orphan-findings.md.\n`,
     );
     return 1;
   }
-  if (Number.parseInt(idParts[3], 10) < 1) {
-    process.stderr.write(`Explicit finding id suffix must be between 001 and 999: ${stub.id}\n\n`);
+  if (!isAllocatableSequence(explicitId.sequence)) {
+    process.stderr.write(
+      `Explicit finding id suffix must be between ${formatFindingSequence(1)} and ${FINDING_SEQUENCE_MAX}: ${stub.id}\n\n`,
+    );
     return 2;
   }
   if (
-    ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'].includes(idParts[2]) &&
+    parseFindingId(stub.id) !== null &&
     stub.severity !== undefined &&
-    idParts[2] !== stub.severity
+    explicitId.classifier !== stub.severity
   ) {
     process.stderr.write(
-      `Explicit finding id classifier ${idParts[2]} does not match severity ${stub.severity}: ${stub.id}\n`,
+      `Explicit finding id classifier ${explicitId.classifier} does not match severity ${stub.severity}: ${stub.id}\n`,
     );
     return 2;
   }
@@ -882,8 +895,8 @@ export function appendExplicitFinding(
       reserveFindingId(
         authority,
         reservationLedger,
-        idParts[1] as string,
-        stub.id as string,
+        explicitId.domain,
+        explicitId.id,
         layout.dir,
         lease,
       );
@@ -915,23 +928,23 @@ export function appendNarrativeFinding(
     return 2;
   }
 
-  const idParts = /^ORPHAN-(CRITICAL|HIGH|MEDIUM|LOW)-([0-9]{3})$/.exec(stub.id);
-  if (!idParts?.[1] || !idParts[2]) {
+  const narrativeId = parseFindingId(stub.id);
+  if (narrativeId?.domain !== 'ORPHAN') {
     process.stderr.write(`Narrative import requires an ORPHAN severity-qualified id: ${stub.id}\n`);
     return 2;
   }
-  if (stub.severity !== idParts[1]) {
+  if (stub.severity !== narrativeId.classifier) {
     process.stderr.write(
-      `Narrative finding id classifier ${idParts[1]} does not match severity ${String(stub.severity)}: ${stub.id}\n`,
+      `Narrative finding id classifier ${narrativeId.classifier} does not match severity ${String(stub.severity)}: ${stub.id}\n`,
     );
     return 2;
   }
 
   const structuredIds = registryIds(layout.dir);
   if (authority) appendAll(structuredIds, idsFromActiveRegistries(authority));
-  if (claimedSequences('ORPHAN', structuredIds).has(Number.parseInt(idParts[2], 10))) {
+  if (claimedSequences('ORPHAN', structuredIds).has(narrativeId.sequence)) {
     process.stderr.write(
-      `Duplicate id: ${stub.id} — sequence ${idParts[2]} is already claimed by the registry or a sibling worktree registry.\n`,
+      `Duplicate id: ${stub.id} — sequence ${formatFindingSequence(narrativeId.sequence)} is already claimed by the registry or a sibling worktree registry.\n`,
     );
     return 1;
   }
@@ -944,7 +957,7 @@ export function appendNarrativeFinding(
   const sequenceHeadings: string[] = [];
   for (const line of readFileSync(paths.narrativePath, 'utf8').split('\n')) {
     const heading = ORPHAN_MD_HEADING_REGEX.exec(line);
-    if (!heading?.[1] || heading[2] !== idParts[2]) continue;
+    if (!heading?.[1] || Number.parseInt(heading[2] ?? '', 10) !== narrativeId.sequence) continue;
     sequenceHeadings.push(line);
     if (heading[1] === stub.id) matchingHeadings.push(line);
   }
@@ -953,7 +966,7 @@ export function appendNarrativeFinding(
       matchingHeadings.length > 1
         ? `${stub.id} occurs ${matchingHeadings.length} times`
         : sequenceHeadings.length > 0
-          ? `sequence ${idParts[2]} belongs to ${sequenceHeadings.join(', ')}`
+          ? `sequence ${formatFindingSequence(narrativeId.sequence)} belongs to ${sequenceHeadings.join(', ')}`
           : `${stub.id} has no heading`;
     process.stderr.write(`Narrative import refused: ${reason} in ${paths.narrativePath}.\n`);
     return 1;

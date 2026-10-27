@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterator
 
 from .agent_priors import reviewer_names
+from .finding_id_grammar import parse_finding_id
 from .implementation_rejections import VALID_IMPLEMENTATION_REJECTION_CLASSES, ImplementationSettlement
 from .independence_check import CROSS_REVIEW_SELF_AGREEMENT_REASON
 from .ledger import (
@@ -32,7 +33,6 @@ if TYPE_CHECKING:
     from .provider_clock import ProviderClock
 
 
-FINDING_ID_RE = re.compile(r"^[A-Z][A-Z0-9]*(-[A-Z0-9]+)*-(CRITICAL|HIGH|MEDIUM|LOW)-[0-9]{3,}$")
 EVENT_TYPES = {
     "plan_started",
     "challenger_plan_drafted",
@@ -4117,7 +4117,7 @@ def _valid_evidence_ref(value: Any) -> bool:
     if not isinstance(value, str) or not value.strip():
         return False
     ref = value.strip()
-    return bool(FINDING_ID_RE.match(ref)) or _valid_repo_path(ref)
+    return parse_finding_id(ref) is not None or _valid_repo_path(ref)
 
 
 def _parse_iso_datetime(value: str) -> datetime | None:

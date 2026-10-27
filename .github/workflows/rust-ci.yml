@@ -26,6 +26,8 @@ on:
       - "sens-api-gateway/Cargo.toml"
       - "sens-api-gateway/Cargo.lock"
       - "scripts/ci/check-advisory-ignore-sync.ts"
+      # The gate reads a finding id through the registry's grammar owner.
+      - "tools/gates/finding-id-grammar.ts"
       - "tools/gates/local-rumqttc-fork-hygiene.spec.ts"
       - ".github/workflows/dependency-review.yml"
       - ".github/workflows/sens-api-gateway-ci.yml"
@@ -54,6 +56,8 @@ on:
       - "sens-api-gateway/Cargo.toml"
       - "sens-api-gateway/Cargo.lock"
       - "scripts/ci/check-advisory-ignore-sync.ts"
+      # The gate reads a finding id through the registry's grammar owner.
+      - "tools/gates/finding-id-grammar.ts"
       - "tools/gates/local-rumqttc-fork-hygiene.spec.ts"
       - ".github/workflows/dependency-review.yml"
       - ".github/workflows/sens-api-gateway-ci.yml"

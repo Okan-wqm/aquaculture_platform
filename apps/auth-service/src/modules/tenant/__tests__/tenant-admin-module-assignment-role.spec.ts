@@ -29,6 +29,7 @@ function makeFixture(options: {
   moduleCode: string;
   userRole: Role;
   existing?: UserModuleAssignment | null;
+  managerId?: string | null;
 }): Fixture {
   const saved: Array<Partial<UserModuleAssignment>> = [];
   const admin = Object.assign(new User(), {
@@ -79,6 +80,7 @@ function makeFixture(options: {
       findOne: jest.fn().mockResolvedValue({
         tenantId: TENANT_ID,
         moduleId: MODULE_ID,
+        managerId: options.managerId ?? null,
         module: { code: options.moduleCode, name: options.moduleCode },
       }),
     }),
@@ -147,6 +149,25 @@ describe('TenantAdminService.assignUserToModule writes the module role (RBAC-HIG
 
     expect(fixture.saved).toEqual([
       expect.objectContaining({ isPrimaryManager: false, role: 'MODULE_MANAGER' }),
+    ]);
+  });
+
+  it("gives the module's designated manager (Assign Manager) a manager grant, never in hr (D6)", async () => {
+    const farm = makeFixture({
+      moduleCode: 'farm',
+      userRole: Role.MODULE_USER,
+      managerId: USER_ID,
+    });
+    const hr = makeFixture({ moduleCode: 'hr', userRole: Role.MODULE_USER, managerId: USER_ID });
+
+    await farm.service.assignUserToModule(ADMIN_ID, input('operator'));
+    await hr.service.assignUserToModule(ADMIN_ID, input('operator'));
+
+    expect(farm.saved).toEqual([
+      expect.objectContaining({ isPrimaryManager: false, role: 'MODULE_MANAGER' }),
+    ]);
+    expect(hr.saved).toEqual([
+      expect.objectContaining({ isPrimaryManager: false, role: 'MODULE_USER' }),
     ]);
   });
 

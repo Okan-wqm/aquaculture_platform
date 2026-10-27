@@ -101,9 +101,14 @@ function countOf(rows: unknown, column: string): number {
  *      manager grant, for the operator's grant review (PKG-06).
  *
  * auth.user_module_assignments holds one row per member and module, so one bounded transaction
- * (lock_timeout 5s, statement_timeout 60s) suffices. auth tables carry no row-level security
- * (auth is cross-tenant by design, D14). Idempotent: step 1 inserts on conflict nothing, step 2
- * touches only rows without a role, so a replay writes nothing.
+ * (lock_timeout 5s, statement_timeout 60s) suffices. Both tables it reads and writes carry a
+ * tenantId and therefore the forced tenant-isolation policy (only auth_outbox, users and tenants
+ * are excluded, AUTH_RLS_EXCLUDE_TABLES). The runner binds no tenant, so without bypass every
+ * statement would see no row and the post-condition would pass on an untouched table; the
+ * migration sets `app.bypass_rls` transaction-locally first, as
+ * 1801300000000-BackfillAlertHistorySiteAndModule (alert-engine) does. Idempotent: step 1
+ * inserts on conflict nothing, step 2 touches only rows without a role, so a replay writes
+ * nothing.
  *
  * `down` is a no-op: the roles are indistinguishable from the ones the live writers write, and
  * 1819300000000's `down` drops the column. The inserted rows carry MANAGER_ID_ROW_NOTE.
@@ -116,6 +121,7 @@ export class BackfillUserModuleAssignmentRole1819400000000 implements MigrationI
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`SET LOCAL lock_timeout = '5s'`);
     await queryRunner.query(`SET LOCAL statement_timeout = '60s'`);
+    await queryRunner.query(`SELECT pg_catalog.set_config('app.bypass_rls', 'on', true)`);
 
     const inserted = countOf(
       await queryRunner.query(INSERT_DESIGNATED_MANAGERS_SQL, [MANAGER_ID_ROW_NOTE]),

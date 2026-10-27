@@ -38,9 +38,10 @@ interface RoleRow {
 }
 
 /**
- * RBAC-HIGH-027 on a real Postgres: the R1 role column and its counted backfill. auth tables
- * carry no row-level security (auth is cross-tenant by design, D14), so the migration runs as
- * the runner does, without a tenant binding. Pinned here: the ADR-051 rule row by row, the
+ * RBAC-HIGH-027 on a real Postgres: the R1 role column and its counted backfill. The migration
+ * runs as the runner does, without a tenant binding; the fixture installs no row-level security,
+ * so the transaction-local `app.bypass_rls` the migration sets against the forced policy of the
+ * live auth tables is pinned by the unit spec beside this one, not here. Pinned here: the ADR-051 rule row by row, the
  * managerId insert (hr and other tenants excluded), the CHECK, a row an old container inserts
  * after the migration (role NULL) and filled by a re-run, a replay that changes nothing, and the
  * post-condition failure path.

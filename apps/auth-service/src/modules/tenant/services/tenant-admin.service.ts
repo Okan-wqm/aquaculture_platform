@@ -25,7 +25,6 @@ import {
   isEffectiveUserSiteAssignmentAt,
   readEffectiveUserSiteAssignments,
 } from '../../authentication/services/user-site-assignment-reader';
-import { moduleAssignmentGrant } from '../../authentication/services/assignment-module-role';
 import {
   DurableUserTokenInvalidationService,
   type UserTokenInvalidationIntent,
@@ -46,6 +45,7 @@ import { TenantSecurityPolicy, UpdateTenantSecurityPolicyInput } from '../dto/te
 import { TenantModule } from '../entities/tenant-module.entity';
 import { Tenant, TenantStatus } from '../entities/tenant.entity';
 import { FarmSiteAssignmentValidator } from './farm-site-assignment-validator.service';
+import { memberModuleGrant } from './module-assignment-grants';
 import {
   createCredentialInvalidationIntent,
   lockUserForCredentialMutation,
@@ -327,11 +327,7 @@ export class TenantAdminService {
       }
 
       // RBAC-HIGH-027: the grant's role, by the backfill's rule (assignment-module-role.ts).
-      const grant = moduleAssignmentGrant({
-        isPrimaryManager: input.role === 'manager',
-        userRole: user.role,
-        moduleCode: tenantModule.module.code,
-      });
+      const grant = memberModuleGrant(tenantModule, user, input.role === 'manager');
       const existingAssignment = await assignmentRepo.findOne({
         where: { userId: user.id, moduleId: input.moduleId },
       });

@@ -39,6 +39,7 @@ import { Tenant } from '../entities/tenant.entity';
 
 import { CapabilityAuthorityService, ValidatedOverrideSet } from './capability-authority';
 import { moduleGrantRows } from './module-assignment-grants';
+import { rederiveModuleGrantRoles } from './module-grant-rederivation';
 import { TenantRoleService, TenantRoleWithDetails } from './tenant-role.service';
 import {
   createCredentialInvalidationIntent,
@@ -705,6 +706,12 @@ export class UserLifecycleService {
           'logout_all_devices',
         );
         await this.durableUserTokenInvalidation.enqueue(manager, intent);
+        // RBAC-HIGH-027: users.role is an input of the module grant roles. Last, because the
+        // re-derivation binds the rest of the transaction to the user's tenant (RLS).
+        const tenantId = saved.tenantId;
+        if (tenantId && (requestedRole !== undefined || patch.tenantId !== undefined)) {
+          await rederiveModuleGrantRoles(manager, { tenantId, userId, role: saved.role });
+        }
         return { saved, intent };
       });
 

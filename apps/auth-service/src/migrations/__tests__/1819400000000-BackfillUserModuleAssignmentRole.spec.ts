@@ -57,7 +57,7 @@ describe('BackfillUserModuleAssignmentRole1819400000000', () => {
     jest.restoreAllMocks();
   });
 
-  it('bounds its waits, then inserts the designated managers, sets the roles and checks none is left', async () => {
+  it('bounds its waits, lifts the forced RLS, then inserts the designated managers, sets the roles and checks none is left', async () => {
     jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
     const { runner, queries } = makeRunner();
 
@@ -66,11 +66,16 @@ describe('BackfillUserModuleAssignmentRole1819400000000', () => {
     expect(queries.map((query) => query.sql.slice(0, 40))).toEqual([
       `SET LOCAL lock_timeout = '5s'`,
       `SET LOCAL statement_timeout = '60s'`,
+      // The runner binds no tenant: without the transaction-local bypass the forced
+      // tenant-isolation policy on both auth tables would hide every row.
+      `SELECT pg_catalog.set_config('app.bypass`,
       'WITH inserted AS ( INSERT INTO "auth"."u',
       'WITH updated AS ( UPDATE "auth"."user_mo',
       'SELECT count(*)::int AS "remaining" FROM',
       'SELECT count(*)::int AS "hrDesignatedWit',
     ]);
+    // Transaction-local (third argument true): the bypass ends with the migration's transaction.
+    expect(queries[2]?.sql).toBe(`SELECT pg_catalog.set_config('app.bypass_rls', 'on', true)`);
   });
 
   it('inserts a MODULE_MANAGER row for each same-tenant managerId of farm, sensor or hydroponics, never hr', async () => {
@@ -79,7 +84,7 @@ describe('BackfillUserModuleAssignmentRole1819400000000', () => {
 
     await new BackfillUserModuleAssignmentRole1819400000000().up(runner);
 
-    const insert = queries[2];
+    const insert = queries[3];
     expect(insert?.sql).toContain(
       'SELECT tm."managerId", tm."moduleId", tm."tenantId", false, true, tm."managerId", $1, \'MODULE_MANAGER\'',
     );
@@ -99,7 +104,7 @@ describe('BackfillUserModuleAssignmentRole1819400000000', () => {
 
     await new BackfillUserModuleAssignmentRole1819400000000().up(runner);
 
-    const update = queries[3]?.sql ?? '';
+    const update = queries[4]?.sql ?? '';
     expect(update).toContain(`WHEN uma."isPrimaryManager" THEN 'MODULE_MANAGER'`);
     expect(update).toContain(
       `WHEN m."code" <> 'hr' AND (u."role" = 'MODULE_MANAGER' OR EXISTS ( SELECT 1 FROM "auth"."tenant_modules" tm WHERE tm."tenantId" = uma."tenantId" AND tm."moduleId" = uma."moduleId" AND tm."managerId" = uma."userId")) THEN 'MODULE_MANAGER'`,

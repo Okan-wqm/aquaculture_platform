@@ -23,6 +23,11 @@ import { fieldExtensionsEstimator, getComplexity, simpleEstimator } from 'graphq
  * Apollo operational codes (validation, bad input) keep their message —
  * they are safe and actionable; everything else collapses to a generic
  * message so DB/driver text never leaks.
+ *
+ * `TOO_MANY_REQUESTS` is operational too, and keeps its extensions: the
+ * rate-limit guard puts only `retryAfter` (seconds) there. The client has to
+ * tell "wait 40 s" from "the server broke" — read as the second, a throttled
+ * token refresh was taken for a dead session and logged the user out.
  */
 export function subgraphFormatError(
   isProduction: boolean,
@@ -30,7 +35,10 @@ export function subgraphFormatError(
   if (!isProduction) return undefined;
   return (formattedError: GraphQLFormattedError): GraphQLFormattedError => {
     const code = formattedError.extensions?.['code'];
-    const keepMessage = code === 'BAD_USER_INPUT' || code === 'GRAPHQL_VALIDATION_FAILED';
+    const keepMessage =
+      code === 'BAD_USER_INPUT' ||
+      code === 'GRAPHQL_VALIDATION_FAILED' ||
+      code === 'TOO_MANY_REQUESTS';
     if (keepMessage) return formattedError;
     return {
       message: 'An error occurred while processing your request',

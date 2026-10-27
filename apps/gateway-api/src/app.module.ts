@@ -70,6 +70,7 @@ import { MarineRoutesModule } from './routes/marine.routes';
 import { TenantLookupService } from './services/tenant-lookup.service';
 import { UploadModule } from './upload/upload.module';
 import { WebSocketModule } from './websocket/websocket.module';
+import { formatGatewayError } from './federation/gateway-format-error';
 
 // Module-level logger to avoid re-instantiation per GraphQL operation
 const queryComplexityLogger = new Logger('QueryComplexity');
@@ -321,14 +322,7 @@ function positiveIntConfig(configService: ConfigService, key: string, fallback: 
           includeStacktraceInErrorResponses: configService.get('NODE_ENV') !== 'production',
           // SECURITY: Strip internal details from error responses in production
           formatError:
-            configService.get('NODE_ENV') === 'production'
-              ? (formattedError: { message: string; extensions?: Record<string, unknown> }) => ({
-                  message: formattedError.message,
-                  extensions: {
-                    code: formattedError.extensions?.code ?? 'INTERNAL_SERVER_ERROR',
-                  },
-                })
-              : undefined,
+            configService.get('NODE_ENV') === 'production' ? formatGatewayError : undefined,
           // SECURITY: Query complexity limiting to prevent expensive query DoS attacks
           plugins: [
             createGraphqlOperationLimitPlugin({

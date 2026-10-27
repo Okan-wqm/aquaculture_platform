@@ -23,6 +23,11 @@ import {
   type IDeadLetterSink,
 } from '../interfaces/dead-letter-sink';
 import type { IEvent, IEventHandler } from '../interfaces/event-bus.interface';
+import {
+  EVENT_HANDLER_SCOPE,
+  PassThroughEventHandlerScope,
+  type IEventHandlerScope,
+} from '../interfaces/event-handler-scope';
 import type { HandlerOutcome } from '../interfaces/handler-outcome';
 
 import { NatsEventBus } from './nats-event-bus';
@@ -91,6 +96,29 @@ function deadLetterSinkProvider(binding?: DeadLetterSinkBinding): Provider {
 }
 
 /**
+ * Binding for the handler scope (PLAT-HIGH-936). Same shape and reason as the
+ * dead-letter sink: the factory runs inside the global EventBusModule, so a
+ * tenant-scoped service hands the bus the scope that binds its session context
+ * without importing a feature module into the bus. Absent, work runs as is.
+ */
+export interface EventHandlerScopeBinding {
+  imports?: ModuleMetadata['imports'];
+  inject?: FactoryProvider['inject'];
+  useFactory: (...args: never[]) => IEventHandlerScope | Promise<IEventHandlerScope>;
+}
+
+function handlerScopeProvider(binding?: EventHandlerScopeBinding): Provider {
+  if (binding) {
+    return {
+      provide: EVENT_HANDLER_SCOPE,
+      useFactory: binding.useFactory,
+      inject: binding.inject ?? [],
+    };
+  }
+  return { provide: EVENT_HANDLER_SCOPE, useClass: PassThroughEventHandlerScope };
+}
+
+/**
  * Event Bus Module - Provides NATS JetStream event bus
  * Enterprise-grade event-driven architecture for microservices
  */
@@ -103,6 +131,7 @@ export class EventBusModule {
   static forRoot(
     options?: EventBusModuleOptions,
     deadLetterSink?: DeadLetterSinkBinding,
+    handlerScope?: EventHandlerScopeBinding,
   ): DynamicModule {
     const providers: Provider[] = [
       {
@@ -114,6 +143,7 @@ export class EventBusModule {
         useFactory: () => createDefaultRegistry(),
       },
       deadLetterSinkProvider(deadLetterSink),
+      handlerScopeProvider(handlerScope),
       NatsEventBus,
       {
         provide: 'EVENT_BUS',
@@ -126,12 +156,18 @@ export class EventBusModule {
 
     return {
       module: EventBusModule,
-      imports: [ConfigModule, DiscoveryModule, ...(deadLetterSink?.imports ?? [])],
+      imports: [
+        ConfigModule,
+        DiscoveryModule,
+        ...(deadLetterSink?.imports ?? []),
+        ...(handlerScope?.imports ?? []),
+      ],
       providers,
       exports: [
         'EVENT_BUS',
         'EVENT_UPCASTER_REGISTRY',
         EVENT_DEAD_LETTER_SINK,
+        EVENT_HANDLER_SCOPE,
         NatsEventBus,
         NatsRequestReply,
       ],
@@ -147,6 +183,8 @@ export class EventBusModule {
     inject?: any[];
     /** PLAT-HIGH-902: service-owned durable dead-letter store; logs when absent. */
     deadLetterSink?: DeadLetterSinkBinding;
+    /** PLAT-HIGH-936: scope every handler and dead-letter record runs in; none when absent. */
+    handlerScope?: EventHandlerScopeBinding;
   }): DynamicModule {
     const providers: Provider[] = [
       {
@@ -159,6 +197,7 @@ export class EventBusModule {
         useFactory: () => createDefaultRegistry(),
       },
       deadLetterSinkProvider(options.deadLetterSink),
+      handlerScopeProvider(options.handlerScope),
       NatsEventBus,
       {
         provide: 'EVENT_BUS',
@@ -175,12 +214,14 @@ export class EventBusModule {
         DiscoveryModule,
         ...(options.imports ?? []),
         ...(options.deadLetterSink?.imports ?? []),
+        ...(options.handlerScope?.imports ?? []),
       ],
       providers,
       exports: [
         'EVENT_BUS',
         'EVENT_UPCASTER_REGISTRY',
         EVENT_DEAD_LETTER_SINK,
+        EVENT_HANDLER_SCOPE,
         NatsEventBus,
         NatsRequestReply,
       ],

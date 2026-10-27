@@ -2,22 +2,22 @@
  * FarmGateway
  *
  * Real-time WebSocket gateway for farm domain events. Receives domain events
- * from FarmNatsBridgeService (which subscribes to NATS) and pushes them to
- * connected Socket.IO clients filtered by tenant.
+ * from FarmNatsBridgeService (which subscribes to NATS) and pushes them to the
+ * Socket.IO rooms their access entry derives (SEC-CRITICAL-206).
  *
- * Pattern mirrors `SensorReadingsGateway`:
  *   - JWT auth on connect (RS256, issuer + audience claim verification)
- *   - Per-client tenant isolation via `tenant:{tenantId}` Socket.IO room
  *   - Production CORS origin allow-list (WS_CORS_ORIGINS env var)
  *   - Query-parameter tokens rejected in production
  *
- * Subscription model (Phase B — coarse-grained):
- *   - Every authenticated client auto-joins its tenant room on connect
- *   - All farm domain events for a tenant are broadcast to that tenant's room
- *   - Per-farm / per-batch room granularity is reserved for Phase E once
- *     FarmOwnershipService can verify resource ownership against farm-service
- *
- * @see Phase B of farm domain real-time visibility plan.
+ * Rooms (ADR-051 §3 step 1): a socket joins only the rooms `decideAccess`
+ * allows from the token's `moduleAccess` and assigned sites — the farm module
+ * room when the member is tenant-wide in farm, the room of each assigned site
+ * when it holds a farm MODULE_USER grant, and the registry room of each module
+ * of its common-registry scope. A socket allowed no room is refused. Every
+ * event is emitted only through `broadcastFarmEvent`, whose rooms derive from
+ * FARM_WS_EVENT_ACCESS (farm-ws-event-access.ts); no tenant-wide room exists.
+ * A socket whose token is revoked — PKG-06 revokes it when a grant changes — is
+ * dropped by WsTokenRevalidator within one 60 s cycle.
  */
 
 import { Logger, OnModuleDestroy } from '@nestjs/common';
@@ -33,32 +33,30 @@ import {
 import { Server, Socket } from 'socket.io';
 import * as promClient from 'prom-client';
 import { enforceAccessTokenType, getJwtVerifyOptions } from '@aquaculture/backend-common/auth';
-import { buildWsCorsConfig } from '@aquaculture/backend-common/websocket';
-import { TenantConnectionLimiter, WsTokenRevalidator } from '@aquaculture/backend-common/websocket';
+import {
+  TenantConnectionLimiter,
+  WsTokenRevalidator,
+  buildWsCorsConfig,
+  emitToModuleRooms,
+  joinModuleRooms,
+  socketMemberOf,
+} from '@aquaculture/backend-common/websocket';
+
+import {
+  farmEventRooms,
+  farmSocketEventName,
+  farmSocketRooms,
+  type FarmWsEvent,
+  type FarmWsEventType,
+} from './farm-ws-event-access';
 
 /** Per-client state tracked by the gateway. */
 interface FarmClient {
   socket: Socket;
   tenantId: string;
-  userId?: string;
+  userId: string;
 }
 
-/**
- * Decoded JWT payload with tenant claim.
- *
- * `type` and `jti` are required by `enforceAccessTokenType` from
- * backend-common — refresh and MFA-challenge tokens carry `type !==
- * 'access'` and must be rejected at handshake (H-1 fix).
- */
-interface TokenPayload {
-  sub: string;
-  tenantId?: string;
-  type?: string;
-  jti?: string;
-  iss?: string;
-  aud?: string | string[];
-  [key: string]: unknown;
-}
 /**
  * Prometheus gauges for farm WebSocket operational health. Registered as
  * singletons on the default prom-client registry so multiple replicas and
@@ -80,7 +78,7 @@ const farmWsBroadcasts =
   ) as promClient.Counter<string>) ??
   new promClient.Counter({
     name: 'farm_ws_events_broadcast_total',
-    help: 'Total number of farm domain events broadcast to tenant rooms',
+    help: 'Total number of farm domain events broadcast to module and registry rooms',
     labelNames: ['tenant', 'event_type'] as const,
     registers: [promClient.register],
   });
@@ -134,53 +132,56 @@ export class FarmGateway
     try {
       const token = this.extractToken(client);
       if (!token) {
-        this.logger.warn(`Client ${client.id} connected without token`);
-        client.emit('error', { message: 'Authentication required' });
-        client.disconnect();
+        this.refuse(client, 'Authentication required', 'connected without token');
         return;
       }
 
-      const payload = await this.validateToken(token);
-      if (!payload?.tenantId) {
-        this.logger.warn(`Client ${client.id} has invalid token`);
-        client.emit('error', { message: 'Invalid token' });
-        client.disconnect();
+      const claims = await this.validateToken(token);
+      if (claims === null) {
+        this.refuse(client, 'Invalid token', 'has invalid token');
+        return;
+      }
+      const member = socketMemberOf(claims);
+      if (member === null) {
+        this.refuse(client, 'Invalid token', 'has malformed access claims');
         return;
       }
 
-      const tenantId = payload.tenantId;
-      const userId = typeof payload.sub === 'string' ? payload.sub : undefined;
+      const { tenantId } = member;
+      const userId = member.caller.userId;
+
+      // SEC-CRITICAL-206: the rooms decideAccess allows; none means no farm event is the
+      // member's to receive, so the socket is refused rather than held open.
+      const rooms = farmSocketRooms(member);
+      if (rooms.length === 0) {
+        this.refuse(client, 'Forbidden', 'holds no farm or registry grant');
+        return;
+      }
 
       // SEC-MEDIUM-073 (№26): per-tenant connection ceiling — a single valid
       // token previously held unlimited sockets (FD exhaustion).
       if (!this.connectionLimiter.register(tenantId, client.id)) {
-        this.logger.warn(`Tenant ${tenantId} exceeded its WS connection ceiling`);
-        client.emit('error', { message: 'Too many connections for this tenant' });
-        client.disconnect();
+        this.refuse(client, 'Too many connections for this tenant', 'exceeded the tenant ceiling');
         return;
       }
 
-      this.clients.set(client.id, {
-        socket: client,
-        tenantId,
-        userId,
-      });
+      this.clients.set(client.id, { socket: client, tenantId, userId });
 
       // SEC-MEDIUM-082 (№18): re-check the handshake credential every cycle —
-      // logout/suspension now bounds a live socket to one revalidation interval.
+      // logout, suspension and a grant change now bound a live socket to one
+      // revalidation interval.
       this.tokenRevalidator.register(client.id, {
         tenantId,
-        userId: userId ?? 'unknown',
-        jti: typeof payload.jti === 'string' ? payload.jti : '',
-        issuedAt: typeof payload.iat === 'number' ? payload.iat : undefined,
+        userId,
+        jti: typeof claims['jti'] === 'string' ? claims['jti'] : '',
+        issuedAt: typeof claims['iat'] === 'number' ? claims['iat'] : undefined,
         disconnect: (reason) => {
           this.logger.warn(`Farm socket ${client.id} disconnected: ${reason}`);
           client.disconnect(true);
         },
       });
 
-      // Auto-join tenant room — all farm events for this tenant land here.
-      void client.join(`tenant:${tenantId}`);
+      await joinModuleRooms(client, rooms);
 
       // Observability: bump the per-tenant connection gauge. Labelled by
       // tenant so the Grafana dashboard can show connection distribution
@@ -204,8 +205,6 @@ export class FarmGateway
     this.tokenRevalidator.unregister(client.id);
     if (clientData) {
       this.connectionLimiter.release(clientData.tenantId, client.id);
-    }
-    if (clientData) {
       // Decrement the per-tenant gauge. Skipping the gauge update when
       // clientData is missing prevents double-decrement if the same socket
       // somehow disconnects twice.
@@ -214,235 +213,17 @@ export class FarmGateway
     this.logger.log(`Farm client ${client.id} disconnected`);
   }
 
-  // ── Broadcast methods (called by FarmNatsBridgeService) ──────────────
-  // Each method emits to the tenant-scoped room. The bridge has already
-  // validated event.tenantId before invoking these — gateway just routes.
-
   /**
-   * Shared helper for all broadcast methods: emit to the tenant-scoped
-   * Socket.IO room and bump the Prometheus counter. Keeping the
-   * increment in a single place ensures no event type is silently
-   * missed in the metric.
+   * Emit one bridged farm event (called by FarmNatsBridgeService, which has
+   * validated the event and taken the tenant from the NATS subject). The rooms
+   * derive from the event's FARM_WS_EVENT_ACCESS entry, so a farm-private
+   * event reaches only the farm module room and its site room.
    */
-  private emitFarmEvent(
-    tenantId: string,
-    eventName: string,
-    payload: Record<string, unknown>,
-  ): void {
-    this.server.to(`tenant:${tenantId}`).emit(eventName, payload);
+  broadcastFarmEvent(tenantId: string, eventType: FarmWsEventType, event: FarmWsEvent): void {
+    const eventName = farmSocketEventName(eventType);
+    emitToModuleRooms(this.server, farmEventRooms(tenantId, eventType, event), eventName, event);
     farmWsBroadcasts.inc({ tenant: tenantId, event_type: eventName }, 1);
     this.logger.debug(`broadcast ${eventName} → tenant ${tenantId}`);
-  }
-
-  /** Broadcast a BatchCreated event to all connected clients of the tenant. */
-  broadcastBatchCreated(tenantId: string, payload: Record<string, unknown>): void {
-    this.emitFarmEvent(tenantId, 'batchCreated', payload);
-  }
-
-  /** Broadcast a BatchHarvested event. */
-  broadcastBatchHarvested(tenantId: string, payload: Record<string, unknown>): void {
-    this.emitFarmEvent(tenantId, 'batchHarvested', payload);
-  }
-
-  /** Broadcast a BatchTransferred event. */
-  broadcastBatchTransferred(tenantId: string, payload: Record<string, unknown>): void {
-    this.emitFarmEvent(tenantId, 'batchTransferred', payload);
-  }
-
-  /** Broadcast a BatchStatusChanged event. */
-  broadcastBatchStatusChanged(tenantId: string, payload: Record<string, unknown>): void {
-    this.emitFarmEvent(tenantId, 'batchStatusChanged', payload);
-  }
-
-  /** Broadcast a BatchClosed event. */
-  broadcastBatchClosed(tenantId: string, payload: Record<string, unknown>): void {
-    this.emitFarmEvent(tenantId, 'batchClosed', payload);
-  }
-
-  /** Broadcast a BatchAllocatedToTank event. */
-  broadcastBatchAllocatedToTank(tenantId: string, payload: Record<string, unknown>): void {
-    this.emitFarmEvent(tenantId, 'batchAllocatedToTank', payload);
-  }
-
-  /** Broadcast a MortalityRecorded event. */
-  broadcastMortalityRecorded(tenantId: string, payload: Record<string, unknown>): void {
-    this.emitFarmEvent(tenantId, 'mortalityRecorded', payload);
-  }
-
-  /** Broadcast a CullRecorded event. */
-  broadcastCullRecorded(tenantId: string, payload: Record<string, unknown>): void {
-    this.emitFarmEvent(tenantId, 'cullRecorded', payload);
-  }
-
-  /** Broadcast a FeedingRecorded event. */
-  broadcastFeedingRecorded(tenantId: string, payload: Record<string, unknown>): void {
-    this.emitFarmEvent(tenantId, 'feedingRecorded', payload);
-  }
-
-  /** Broadcast a FeedInventoryLow alert. */
-  broadcastFeedInventoryLow(tenantId: string, payload: Record<string, unknown>): void {
-    this.emitFarmEvent(tenantId, 'feedInventoryLow', payload);
-  }
-
-  /**
-   * Broadcast a LowStockDetected alert (storage-ledger low-stock sink —
-   * successor of FeedInventoryLow; both are bridged during the stock SSoT
-   * migration window).
-   */
-  broadcastLowStockDetected(tenantId: string, payload: Record<string, unknown>): void {
-    this.emitFarmEvent(tenantId, 'lowStockDetected', payload);
-  }
-
-  // ── Meal-based feeding engine v2 (C-2 — MealBoard + mobil canlı güncelleme) ──
-
-  /** Broadcast a MealFed pour event. */
-  broadcastMealFed(tenantId: string, payload: Record<string, unknown>): void {
-    this.emitFarmEvent(tenantId, 'mealFed', payload);
-  }
-
-  /** Broadcast a MealSkipped event. */
-  broadcastMealSkipped(tenantId: string, payload: Record<string, unknown>): void {
-    this.emitFarmEvent(tenantId, 'mealSkipped', payload);
-  }
-
-  /** Broadcast a MealMissed event (05:30 sweep). */
-  broadcastMealMissed(tenantId: string, payload: Record<string, unknown>): void {
-    this.emitFarmEvent(tenantId, 'mealMissed', payload);
-  }
-
-  /** Broadcast a MealUnderfed event (meal- or day-scope). */
-  broadcastMealUnderfed(tenantId: string, payload: Record<string, unknown>): void {
-    this.emitFarmEvent(tenantId, 'mealUnderfed', payload);
-  }
-
-  /** Broadcast a FeedTypeTransitioned event (auto or manual). */
-  broadcastFeedTypeTransitioned(tenantId: string, payload: Record<string, unknown>): void {
-    this.emitFarmEvent(tenantId, 'feedTypeTransitioned', payload);
-  }
-
-  /** Broadcast an UnfedUnitDetected event (D-5 sweep). */
-  broadcastUnfedUnitDetected(tenantId: string, payload: Record<string, unknown>): void {
-    this.emitFarmEvent(tenantId, 'unfedUnitDetected', payload);
-  }
-
-  /** Broadcast a SiteCreated setup event. */
-  broadcastSiteCreated(tenantId: string, payload: Record<string, unknown>): void {
-    this.emitFarmEvent(tenantId, 'siteCreated', payload);
-  }
-
-  /** Broadcast a SiteUpdated setup event. */
-  broadcastSiteUpdated(tenantId: string, payload: Record<string, unknown>): void {
-    this.emitFarmEvent(tenantId, 'siteUpdated', payload);
-  }
-
-  /** Broadcast a SiteDeleted setup event. */
-  broadcastSiteDeleted(tenantId: string, payload: Record<string, unknown>): void {
-    this.emitFarmEvent(tenantId, 'siteDeleted', payload);
-  }
-
-  /** Broadcast a DepartmentCreated setup event. */
-  broadcastDepartmentCreated(tenantId: string, payload: Record<string, unknown>): void {
-    this.emitFarmEvent(tenantId, 'departmentCreated', payload);
-  }
-
-  /** Broadcast a DepartmentUpdated setup event. */
-  broadcastDepartmentUpdated(tenantId: string, payload: Record<string, unknown>): void {
-    this.emitFarmEvent(tenantId, 'departmentUpdated', payload);
-  }
-
-  /** Broadcast a DepartmentDeleted setup event. */
-  broadcastDepartmentDeleted(tenantId: string, payload: Record<string, unknown>): void {
-    this.emitFarmEvent(tenantId, 'departmentDeleted', payload);
-  }
-
-  /** Broadcast a SystemCreated setup event. */
-  broadcastSystemCreated(tenantId: string, payload: Record<string, unknown>): void {
-    this.emitFarmEvent(tenantId, 'systemCreated', payload);
-  }
-
-  /** Broadcast a SystemUpdated setup event. */
-  broadcastSystemUpdated(tenantId: string, payload: Record<string, unknown>): void {
-    this.emitFarmEvent(tenantId, 'systemUpdated', payload);
-  }
-
-  /** Broadcast a SystemDeleted setup event. */
-  broadcastSystemDeleted(tenantId: string, payload: Record<string, unknown>): void {
-    this.emitFarmEvent(tenantId, 'systemDeleted', payload);
-  }
-
-  /** Broadcast a SiteContactsChanged setup event. */
-  broadcastSiteContactsChanged(tenantId: string, payload: Record<string, unknown>): void {
-    this.emitFarmEvent(tenantId, 'siteContactsChanged', payload);
-  }
-
-  /** Broadcast a TankCreated setup event. */
-  broadcastTankCreated(tenantId: string, payload: Record<string, unknown>): void {
-    this.emitFarmEvent(tenantId, 'tankCreated', payload);
-  }
-
-  /** Broadcast a TankUpdated setup event. */
-  broadcastTankUpdated(tenantId: string, payload: Record<string, unknown>): void {
-    this.emitFarmEvent(tenantId, 'tankUpdated', payload);
-  }
-
-  /** Broadcast a TankStatusChanged setup event. */
-  broadcastTankStatusChanged(tenantId: string, payload: Record<string, unknown>): void {
-    this.emitFarmEvent(tenantId, 'tankStatusChanged', payload);
-  }
-
-  /** Broadcast a TankDeleted setup event. */
-  broadcastTankDeleted(tenantId: string, payload: Record<string, unknown>): void {
-    this.emitFarmEvent(tenantId, 'tankDeleted', payload);
-  }
-
-  /** Broadcast an EquipmentCreated setup event. */
-  broadcastEquipmentCreated(tenantId: string, payload: Record<string, unknown>): void {
-    this.emitFarmEvent(tenantId, 'equipmentCreated', payload);
-  }
-
-  /** Broadcast an EquipmentUpdated setup event. */
-  broadcastEquipmentUpdated(tenantId: string, payload: Record<string, unknown>): void {
-    this.emitFarmEvent(tenantId, 'equipmentUpdated', payload);
-  }
-
-  /** Broadcast an EquipmentDeleted setup event. */
-  broadcastEquipmentDeleted(tenantId: string, payload: Record<string, unknown>): void {
-    this.emitFarmEvent(tenantId, 'equipmentDeleted', payload);
-  }
-
-  /** Broadcast a SubEquipmentCreated setup event. */
-  broadcastSubEquipmentCreated(tenantId: string, payload: Record<string, unknown>): void {
-    this.emitFarmEvent(tenantId, 'subEquipmentCreated', payload);
-  }
-
-  /** Broadcast a SubEquipmentUpdated setup event. */
-  broadcastSubEquipmentUpdated(tenantId: string, payload: Record<string, unknown>): void {
-    this.emitFarmEvent(tenantId, 'subEquipmentUpdated', payload);
-  }
-
-  /** Broadcast a SubEquipmentDeleted setup event. */
-  broadcastSubEquipmentDeleted(tenantId: string, payload: Record<string, unknown>): void {
-    this.emitFarmEvent(tenantId, 'subEquipmentDeleted', payload);
-  }
-
-  /** Broadcast a SupplierApprovedSitesChanged setup event. */
-  broadcastSupplierApprovedSitesChanged(tenantId: string, payload: Record<string, unknown>): void {
-    this.emitFarmEvent(tenantId, 'supplierApprovedSitesChanged', payload);
-  }
-
-  /** Broadcast a FeederCalibrationsSaved setup event. */
-  broadcastFeederCalibrationsSaved(tenantId: string, payload: Record<string, unknown>): void {
-    this.emitFarmEvent(tenantId, 'feederCalibrationsSaved', payload);
-  }
-
-  /** Broadcast a TankCleared lifecycle event (tank freed after final harvest). */
-  broadcastTankCleared(tenantId: string, payload: Record<string, unknown>): void {
-    this.emitFarmEvent(tenantId, 'tankCleared', payload);
-  }
-
-  /** Broadcast a BatchProductionCompleted lifecycle event (batch cycle finished). */
-  broadcastBatchProductionCompleted(tenantId: string, payload: Record<string, unknown>): void {
-    this.emitFarmEvent(tenantId, 'batchProductionCompleted', payload);
   }
 
   /** Get connected client count (used by health probes / metrics). */
@@ -451,6 +232,13 @@ export class FarmGateway
   }
 
   // ── Private auth helpers ────────────────────────────────────────────
+
+  /** Tell the client why, then drop it. */
+  private refuse(client: Socket, message: string, reason: string): void {
+    this.logger.warn(`Farm client ${client.id} refused: ${reason}`);
+    client.emit('error', { message });
+    client.disconnect();
+  }
 
   /**
    * Extract JWT token from the client handshake. Priority order:
@@ -504,7 +292,7 @@ export class FarmGateway
    * in production — returns `null` so the caller can cleanly
    * disconnect the client with a generic error.
    */
-  private async validateToken(token: string): Promise<TokenPayload | null> {
+  private async validateToken(token: string): Promise<Record<string, unknown> | null> {
     try {
       const result = await this.jwtService.verifyAsync<Record<string, unknown>>(
         token,
@@ -532,7 +320,7 @@ export class FarmGateway
         this.isProduction,
       );
 
-      return result as TokenPayload;
+      return result;
     } catch (error) {
       this.logger.debug(`Farm token validation failed: ${(error as Error).message}`);
       return null;

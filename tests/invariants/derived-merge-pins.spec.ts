@@ -57,6 +57,7 @@ import {
 import { mergeRegistryText } from '../../tools/gates/finding-registry-merge';
 import {
   projectRegistry,
+  readRegistryRows,
   REGISTRY_RELATIVE_PATH,
 } from '../../tools/gates/finding-registry-projection';
 import { hermeticGitEnv } from '../../tools/gates/hermetic-git';
@@ -172,10 +173,18 @@ function commitAll(fixture: string, message: string): void {
   git(fixture, ['commit', '-q', '-m', message]);
 }
 
+/**
+ * The registry as readers see it (MF-1): the fixture's rows, closed by the history the seeded
+ * files come from. The fixture replays the real registry and truth table but not the real
+ * history, and since MF-1 a closure lives only in history: a CRITICAL closed by a `Closes:`
+ * trailer stays OPEN as stored and leaves the truth table in the closing PR, so projecting the
+ * fixture against its own one-commit history would count it active and ask for the row that PR
+ * removed. The fixture's own commits close nothing, so the real repository's history is the
+ * whole closure set.
+ */
 function debtPlanVerdict(fixture: string): ReturnType<typeof checkDebtPlanTruth> {
   return checkDebtPlanTruth(
-    // The registry as readers see it (MF-1): the fixture's history closes nothing.
-    deriveRegistrySnapshot(projectRegistry(fixture)),
+    deriveRegistrySnapshot(projectRegistry(REPO_ROOT, { rows: readRegistryRows(fixture) })),
     truthTableActiveRows(readFileSync(join(fixture, TRUTH_TABLE_PATH), 'utf8')),
   );
 }

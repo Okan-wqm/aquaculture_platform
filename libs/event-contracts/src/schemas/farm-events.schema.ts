@@ -1878,11 +1878,13 @@ export const feederCalibrationsSavedSchema: JSONSchemaType<WireFeederCalibration
  *   1. Defining the wire interface above.
  *   2. Adding the schema below.
  *   3. Adding the type here.
- *   4. Adding the NATS subject to `FARM_SUBJECTS` in the bridge.
+ *   4. Giving the event its access entry in `FARM_WS_EVENT_ACCESS`
+ *      (apps/gateway-api/src/websocket/farm-ws-event-access.ts), which the
+ *      bridge subscribes from and the gateway's rooms derive from.
  *
- * The contract drift from skipping any step is caught by the bridge
- * at runtime: it falls through to the "unknown event type" branch
- * and drops the event with a warn log.
+ * An event without an access entry is not subscribed, so it is never pushed
+ * to a socket (SEC-CRITICAL-206); the entry's key must be a type of this
+ * union, which the compiler holds.
  */
 export type FarmEventType =
   | 'BatchCreated'

@@ -256,13 +256,24 @@ Allowed truth buckets:
 | `DEPLOY-CRITICAL-017` | OPEN           | 2026-09-05   | infra-expert               | real-open                 |
 | `HR-CRITICAL-065`     | OPEN           | 2026-11-30   | hr-expert                  | real-open                 |
 | `FARM-CRITICAL-466`   | OPEN           | 2026-11-30   | farm-expert                | real-open                 |
-| `SEC-CRITICAL-206`    | OPEN           | 2026-11-30   | auth-security-expert       | real-open                 |
-| `SEC-CRITICAL-207`    | OPEN           | 2026-11-30   | auth-security-expert       | real-open                 |
 
 Updated 2026-10-26 (module-boundaries program, PKG-00): four active CRITICALs added.
 `HR-CRITICAL-065` (payroll and HR finance behind the global role), `FARM-CRITICAL-466`
 (farm-service authorizes by the global role alone) and `SEC-CRITICAL-206` / `SEC-CRITICAL-207`
 (the tenant-wide sockets). Their fixes are PKG-07, PKG-08 and PKG-10, release R4.
+
+Updated 2026-10-27 (module-boundaries program, PKG-10, release R4): `SEC-CRITICAL-206` and
+`SEC-CRITICAL-207` leave the active table in the branch whose `Closes:` trailers close them
+(`tools/gates/debt-plan-truth.ts` derives the active set at HEAD). `SEC-CRITICAL-206`: the /farms
+socket joins a member only to the rooms `decideAccess` allows from the token's `moduleAccess` and
+assigned sites (`t:{tenant}:m:farm[:site:{id}]`, `t:{tenant}:registry:{module}`), and every farm
+event is emitted through `FarmGateway.broadcastFarmEvent`, whose rooms derive from
+`FARM_WS_EVENT_ACCESS` (`apps/gateway-api/src/websocket/farm-ws-event-access.ts`).
+`SEC-CRITICAL-207`: the /sensors and /st-language handshakes require a sensor grant, sensor rooms
+carry the tenant prefix, a reading reaches the site room its `siteId` names, and
+`request.sensor.verifyDeviceOwnership` answers the device's site. Proof: the room specs under
+`apps/gateway-api/src/websocket/__tests__/`, `module-socket-rooms.spec.ts` in backend-common and
+`tests/invariants/ws-module-scoped-rooms.spec.ts`. The branch merges behind the R4 entry gate.
 
 Updated 2026-09-10 (W9t, the SUPER_ADMIN audit's last unmigrated page): one active CRITICAL added.
 Updated 2026-10-10 (farm E2E campaign, PR #1951): seven CRITICALs registered

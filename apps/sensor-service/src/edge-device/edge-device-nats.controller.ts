@@ -2,23 +2,13 @@ import { Controller, Logger } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 
 import { NATS_PATTERNS, DEVICE_CODE_REGEX, TENANT_ID_REGEX } from '@aquaculture/backend-common/constants';
+import {
+  verifyDeviceOwnershipReply,
+  type VerifyDeviceOwnershipRequest,
+  type VerifyDeviceOwnershipResponse,
+} from '@platform/event-contracts';
 
 import { EdgeDeviceService } from './edge-device.service';
-
-/**
- * Payload for device ownership verification NATS request.
- */
-interface VerifyDeviceOwnershipPayload {
-  deviceCode: string;
-  tenantId: string;
-}
-
-/**
- * Response for device ownership verification.
- */
-interface VerifyDeviceOwnershipResponse {
-  owned: boolean;
-}
 
 /**
  * NATS message handler for edge device cross-service queries.
@@ -40,22 +30,24 @@ export class EdgeDeviceNatsController {
    * Verify that a device with the given code belongs to the specified tenant.
    *
    * Called by gateway-api before subscribing a WebSocket client to an
-   * edge device I/O data stream. Returns `{ owned: true }` only if the
-   * device exists in the database AND its tenantId matches the request.
+   * edge device I/O data stream. Returns `{ owned: true, siteId }` only if the
+   * device exists in the database AND its tenantId matches the request; the
+   * site lets the gateway admit a site-bound sensor operator to the devices of
+   * its own sites only (SEC-CRITICAL-207).
    *
    * @param data - The verification payload containing deviceCode and tenantId
-   * @returns Ownership verification result
+   * @returns Ownership verification result with the device's site
    */
   @MessagePattern(NATS_PATTERNS.SENSOR.VERIFY_DEVICE_OWNERSHIP)
   async verifyDeviceOwnership(
-    @Payload() data: VerifyDeviceOwnershipPayload,
+    @Payload() data: VerifyDeviceOwnershipRequest,
   ): Promise<VerifyDeviceOwnershipResponse> {
     // SEC-M18: Validate tenantId format to prevent SQL injection via crafted NATS payloads
     if (!data.tenantId || !TENANT_ID_REGEX.test(data.tenantId)) {
       this.logger.warn(
         `SEC-M18: Invalid tenantId format in device ownership verification: ${String(data.tenantId).substring(0, 50)}`,
       );
-      return { owned: false };
+      return verifyDeviceOwnershipReply(null);
     }
 
     // SEC-M18: Validate deviceCode format
@@ -63,7 +55,7 @@ export class EdgeDeviceNatsController {
       this.logger.warn(
         `SEC-M18: Invalid deviceCode format in ownership verification: ${String(data.deviceCode).substring(0, 50)}`,
       );
-      return { owned: false };
+      return verifyDeviceOwnershipReply(null);
     }
 
     try {
@@ -71,22 +63,22 @@ export class EdgeDeviceNatsController {
         data.deviceCode,
         data.tenantId,
       );
-      const owned = device !== null;
-
-      if (!owned) {
+      if (device === null) {
         this.logger.debug(
           `SEC-M18: Device ownership denied — deviceCode=${data.deviceCode} tenantId=${data.tenantId}`,
         );
+        return verifyDeviceOwnershipReply(null);
       }
 
-      return { owned };
+      // `siteId` is a nullable column: a device placed on no site answers null.
+      return verifyDeviceOwnershipReply({ siteId: device.siteId ?? null });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       this.logger.error(
         `SEC-M18: Device ownership verification failed: ${message}`,
       );
       // Safe default: deny access when the database is unreachable
-      return { owned: false };
+      return verifyDeviceOwnershipReply(null);
     }
   }
 }

@@ -4,7 +4,8 @@
  * NATS → Socket.IO bridge for farm domain events. Subscribes to the
  * tenant-scoped JetStream subject pattern that NatsEventBus.deriveSubject()
  * publishes to (`events.{tenantId}.{eventType}`) and forwards each event
- * to FarmGateway, which broadcasts it to the matching tenant's room.
+ * to FarmGateway, which emits it to the module, site or registry rooms its
+ * FARM_WS_EVENT_ACCESS entry derives (SEC-CRITICAL-206).
  *
  * # Subject pattern
  *
@@ -43,8 +44,8 @@
  *
  * All subscriptions use queue group `gateway-farm` so that when multiple
  * gateway-api replicas run, each NATS message is delivered to exactly one
- * replica (load-balanced). The replica that receives the message broadcasts
- * to its locally connected Socket.IO clients via the gateway's `tenant:` room.
+ * replica (load-balanced). The replica that receives the message emits it to
+ * the gateway's module, site or registry rooms.
  * Multi-pod broadcast across replicas requires the Redis Socket.IO adapter
  * (configured in MessagingGateway / handled by Phase D for parity).
  *
@@ -72,6 +73,7 @@ import { ConfigService } from '@nestjs/config';
 import { validateFarmEvent } from '@platform/event-contracts';
 
 import { FarmGateway } from './farm.gateway';
+import { FARM_WS_EVENT_TYPES } from './farm-ws-event-access';
 
 // ============================================================================
 // Types
@@ -95,67 +97,6 @@ interface FarmDomainEvent {
   // Domain-specific fields are passed through unchanged
   [key: string]: unknown;
 }
-
-// ============================================================================
-// NATS subject configuration
-// ============================================================================
-
-/**
- * Farm domain NATS subjects to bridge. Wildcards (`*`) match the tenant
- * segment of `events.{tenantId}.{eventType}` so the bridge receives every
- * tenant's events for cross-tenant fan-out at the gateway layer. Tenant
- * isolation is enforced downstream via Socket.IO rooms keyed by `tenantId`.
- */
-const FARM_SUBJECTS = [
-  'events.*.BatchCreated',
-  'events.*.BatchHarvested',
-  'events.*.BatchTransferred',
-  'events.*.BatchStatusChanged',
-  'events.*.BatchClosed',
-  'events.*.BatchAllocatedToTank',
-  'events.*.MortalityRecorded',
-  'events.*.CullRecorded',
-  'events.*.FeedingRecorded',
-  'events.*.FeedInventoryLow',
-  'events.*.LowStockDetected',
-  'events.*.SiteCreated',
-  'events.*.SiteUpdated',
-  'events.*.SiteDeleted',
-  'events.*.DepartmentCreated',
-  'events.*.DepartmentUpdated',
-  'events.*.DepartmentDeleted',
-  'events.*.SystemCreated',
-  'events.*.SystemUpdated',
-  'events.*.SystemDeleted',
-  'events.*.SiteContactsChanged',
-  'events.*.TankCreated',
-  'events.*.TankUpdated',
-  'events.*.TankStatusChanged',
-  'events.*.TankDeleted',
-  'events.*.EquipmentCreated',
-  'events.*.EquipmentUpdated',
-  'events.*.EquipmentDeleted',
-  'events.*.SubEquipmentCreated',
-  'events.*.SubEquipmentUpdated',
-  'events.*.SubEquipmentDeleted',
-  'events.*.SupplierApprovedSitesChanged',
-  'events.*.FeederCalibrationsSaved',
-  // Harvest follow-up lifecycle signals (dead-listeners produce-side cure):
-  // a final harvest frees a tank and completes the batch production cycle —
-  // both are dashboard read-model events the frontend renders in real time.
-  'events.*.TankCleared',
-  'events.*.BatchProductionCompleted',
-  // Meal-based feeding engine v2 (C-2 — feeding-protocol cutover): the
-  // MealBoard + mobile meal surfaces render these live. The high-volume
-  // batched MealWindowUpcoming is an AUTOMATION hook (sensor-service), not a
-  // UI signal — deliberately NOT bridged.
-  'events.*.MealFed',
-  'events.*.MealSkipped',
-  'events.*.MealMissed',
-  'events.*.MealUnderfed',
-  'events.*.FeedTypeTransitioned',
-  'events.*.UnfedUnitDetected',
-] as const;
 
 /** Stable NATS queue group name — load-balances across gateway-api replicas. */
 const FARM_QUEUE_GROUP = 'gateway-farm';
@@ -212,24 +153,20 @@ export class FarmNatsBridgeService implements OnModuleInit, OnModuleDestroy {
   private subscribeToFarmEvents(): void {
     if (!this.connection) return;
 
-    for (const subject of FARM_SUBJECTS) {
+    for (const expectedEventType of FARM_WS_EVENT_TYPES) {
       // ── Subscription-time known event type ──────────────────────────
       // The subscription pattern is `events.*.{EventType}` — every message
       // delivered on this subscription has that exact event type as its
-      // third subject token. We capture it here and use it as the dispatch
-      // key, rather than reading `event.eventType` from the payload. This
-      // keeps the routing decision anchored to the NATS subject, so a
-      // publisher cannot misrepresent its event type to reach a different
-      // broadcast method.
-      const [, , expectedEventType] = subject.split('.');
-      if (!expectedEventType) {
-        // FARM_SUBJECTS is hard-coded above as `events.*.X` — this branch
-        // can only fire if someone edits the constant to a malformed
-        // entry, which the check catches at startup time.
-        this.logger.error(`Malformed FARM_SUBJECTS entry: ${subject} — expected three tokens`);
-        continue;
-      }
-
+      // third subject token. It is the dispatch key, rather than
+      // `event.eventType` from the payload, so a publisher cannot
+      // misrepresent its event type to reach a different access entry.
+      //
+      // The subject is `events.{tenantId}.{eventType}` with `*` for the
+      // tenant, so the bridge receives every tenant's events; the gateway's
+      // rooms keep tenants, modules and sites apart. The bridged events are
+      // exactly the keys of FARM_WS_EVENT_ACCESS: an event without an access
+      // entry is never subscribed, so it is never pushed.
+      const subject = `events.*.${expectedEventType}`;
       const sub = this.connection.subscribe(subject, {
         queue: FARM_QUEUE_GROUP,
       });
@@ -321,8 +258,9 @@ export class FarmNatsBridgeService implements OnModuleInit, OnModuleDestroy {
 
             // Dispatch with the subject-derived tenantId and eventType.
             // The event payload is forwarded verbatim to the gateway,
-            // but the routing key comes exclusively from the subject.
-            this.handleEvent(routingTenantId, expectedEventType, event);
+            // but the routing key comes exclusively from the subject, and
+            // the rooms from the event type's access entry.
+            this.farmGateway.broadcastFarmEvent(routingTenantId, expectedEventType, event);
           } catch (error) {
             this.logger.warn(`Failed to process ${subject}: ${(error as Error).message}`);
           }
@@ -330,160 +268,6 @@ export class FarmNatsBridgeService implements OnModuleInit, OnModuleDestroy {
       })().catch((error) => {
         this.logger.error(`NATS ${subject} subscription loop error: ${(error as Error).message}`);
       });
-    }
-  }
-
-  /**
-   * Route a validated farm event to the matching FarmGateway broadcast
-   * method. Both routing inputs come from the NATS subject, NOT the event
-   * payload — see class-level doc block for the architectural rationale.
-   *
-   * @param routingTenantId Tenant UUID extracted from `msg.subject` token 1,
-   *   already UUID-validated. This is the destination tenant room key.
-   * @param routingEventType Event type from `msg.subject` token 2, equal
-   *   to the subscription suffix. This is the dispatch key.
-   * @param event The decoded event payload, forwarded verbatim to the
-   *   broadcast method. The bridge does NOT read `event.tenantId` or
-   *   `event.eventType` for routing — those fields are informational only
-   *   and flow through to consumers unchanged.
-   *
-   * Unknown event types are logged and dropped — the bridge does not
-   * silently forward arbitrary events because that would let an attacker
-   * who can publish to NATS spoof arbitrary Socket.IO event names.
-   */
-  private handleEvent(
-    routingTenantId: string,
-    routingEventType: string,
-    event: FarmDomainEvent,
-  ): void {
-    switch (routingEventType) {
-      case 'BatchCreated':
-        this.farmGateway.broadcastBatchCreated(routingTenantId, event);
-        break;
-      case 'BatchHarvested':
-        this.farmGateway.broadcastBatchHarvested(routingTenantId, event);
-        break;
-      case 'BatchTransferred':
-        this.farmGateway.broadcastBatchTransferred(routingTenantId, event);
-        break;
-      case 'BatchStatusChanged':
-        this.farmGateway.broadcastBatchStatusChanged(routingTenantId, event);
-        break;
-      case 'BatchClosed':
-        this.farmGateway.broadcastBatchClosed(routingTenantId, event);
-        break;
-      case 'BatchAllocatedToTank':
-        this.farmGateway.broadcastBatchAllocatedToTank(routingTenantId, event);
-        break;
-      case 'MortalityRecorded':
-        this.farmGateway.broadcastMortalityRecorded(routingTenantId, event);
-        break;
-      case 'CullRecorded':
-        this.farmGateway.broadcastCullRecorded(routingTenantId, event);
-        break;
-      case 'FeedingRecorded':
-        this.farmGateway.broadcastFeedingRecorded(routingTenantId, event);
-        break;
-      case 'FeedInventoryLow':
-        this.farmGateway.broadcastFeedInventoryLow(routingTenantId, event);
-        break;
-      case 'LowStockDetected':
-        this.farmGateway.broadcastLowStockDetected(routingTenantId, event);
-        break;
-      case 'SiteCreated':
-        this.farmGateway.broadcastSiteCreated(routingTenantId, event);
-        break;
-      case 'SiteUpdated':
-        this.farmGateway.broadcastSiteUpdated(routingTenantId, event);
-        break;
-      case 'SiteDeleted':
-        this.farmGateway.broadcastSiteDeleted(routingTenantId, event);
-        break;
-      case 'DepartmentCreated':
-        this.farmGateway.broadcastDepartmentCreated(routingTenantId, event);
-        break;
-      case 'DepartmentUpdated':
-        this.farmGateway.broadcastDepartmentUpdated(routingTenantId, event);
-        break;
-      case 'DepartmentDeleted':
-        this.farmGateway.broadcastDepartmentDeleted(routingTenantId, event);
-        break;
-      case 'SystemCreated':
-        this.farmGateway.broadcastSystemCreated(routingTenantId, event);
-        break;
-      case 'SystemUpdated':
-        this.farmGateway.broadcastSystemUpdated(routingTenantId, event);
-        break;
-      case 'SystemDeleted':
-        this.farmGateway.broadcastSystemDeleted(routingTenantId, event);
-        break;
-      case 'SiteContactsChanged':
-        this.farmGateway.broadcastSiteContactsChanged(routingTenantId, event);
-        break;
-      case 'TankCreated':
-        this.farmGateway.broadcastTankCreated(routingTenantId, event);
-        break;
-      case 'TankUpdated':
-        this.farmGateway.broadcastTankUpdated(routingTenantId, event);
-        break;
-      case 'TankStatusChanged':
-        this.farmGateway.broadcastTankStatusChanged(routingTenantId, event);
-        break;
-      case 'TankDeleted':
-        this.farmGateway.broadcastTankDeleted(routingTenantId, event);
-        break;
-      case 'EquipmentCreated':
-        this.farmGateway.broadcastEquipmentCreated(routingTenantId, event);
-        break;
-      case 'EquipmentUpdated':
-        this.farmGateway.broadcastEquipmentUpdated(routingTenantId, event);
-        break;
-      case 'EquipmentDeleted':
-        this.farmGateway.broadcastEquipmentDeleted(routingTenantId, event);
-        break;
-      case 'SubEquipmentCreated':
-        this.farmGateway.broadcastSubEquipmentCreated(routingTenantId, event);
-        break;
-      case 'SubEquipmentUpdated':
-        this.farmGateway.broadcastSubEquipmentUpdated(routingTenantId, event);
-        break;
-      case 'SubEquipmentDeleted':
-        this.farmGateway.broadcastSubEquipmentDeleted(routingTenantId, event);
-        break;
-      case 'SupplierApprovedSitesChanged':
-        this.farmGateway.broadcastSupplierApprovedSitesChanged(routingTenantId, event);
-        break;
-      case 'FeederCalibrationsSaved':
-        this.farmGateway.broadcastFeederCalibrationsSaved(routingTenantId, event);
-        break;
-      case 'TankCleared':
-        this.farmGateway.broadcastTankCleared(routingTenantId, event);
-        break;
-      case 'BatchProductionCompleted':
-        this.farmGateway.broadcastBatchProductionCompleted(routingTenantId, event);
-        break;
-      case 'MealFed':
-        this.farmGateway.broadcastMealFed(routingTenantId, event);
-        break;
-      case 'MealSkipped':
-        this.farmGateway.broadcastMealSkipped(routingTenantId, event);
-        break;
-      case 'MealMissed':
-        this.farmGateway.broadcastMealMissed(routingTenantId, event);
-        break;
-      case 'MealUnderfed':
-        this.farmGateway.broadcastMealUnderfed(routingTenantId, event);
-        break;
-      case 'FeedTypeTransitioned':
-        this.farmGateway.broadcastFeedTypeTransitioned(routingTenantId, event);
-        break;
-      case 'UnfedUnitDetected':
-        this.farmGateway.broadcastUnfedUnitDetected(routingTenantId, event);
-        break;
-      default:
-        this.logger.debug(
-          `Unhandled farm event type: ${routingEventType} (eventId=${event.eventId})`,
-        );
     }
   }
 

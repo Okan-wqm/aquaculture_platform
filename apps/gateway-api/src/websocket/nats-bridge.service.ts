@@ -1,3 +1,4 @@
+import { UUID_REGEX } from '@aquaculture/backend-common/constants';
 import { buildNatsConnectionOptions } from '@aquaculture/backend-common/nats';
 // NATS v3 (@nats-io/* 3.x). The v2 monolithic `nats` package split into
 // transport-node (Node connect) and nats-core (connection + Msg primitives).
@@ -11,6 +12,7 @@ import { ConfigService } from '@nestjs/config';
 import { createDefaultRegistry, EventUpcasterRegistry } from '@platform/event-contracts';
 import * as fs from 'fs';
 
+import { SENSOR_READING_SUBJECT, sensorReadingSubjectTenant } from './sensor-reading-subject';
 import { SensorReadingsGateway } from './sensor-readings.gateway';
 
 /** ARCH-C01: Flat reading field → parameter name mapping */
@@ -40,6 +42,8 @@ interface NatsEvent {
   sensorName?: string;
   farmId?: string;
   pondId?: string;
+  /** The sensor's site when the reading was taken (SensorReading v3); absent for no site. */
+  siteId?: string;
   version?: number;
   // v2 flat reading fields
   readingTemperature?: number;
@@ -155,7 +159,7 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
     // 2-segment `events.SensorReading` subject matched NOTHING the sensor
     // subgraph publishes (3-segment events.{tenant}.SensorReading) — the
     // bridge was silently blind; the routed wildcard fixes both at once.
-    this.subscription = this.connection.subscribe('telemetry.*.SensorReading');
+    this.subscription = this.connection.subscribe(SENSOR_READING_SUBJECT);
 
     this.logger.log('Subscribed to sensor reading events');
 
@@ -170,6 +174,14 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
     (async () => {
       for await (const msg of subscription) {
         try {
+          // SEC-CRITICAL-207 (CR-1): the subject, stamped at publish time, names
+          // the tenant whose rooms the reading reaches; the payload never does.
+          const tenantId = sensorReadingSubjectTenant(msg.subject);
+          if (tenantId === null) {
+            this.logger.warn('SensorReading subject carries no tenant id, dropping');
+            continue;
+          }
+
           // v3: msg.string() replaces StringCodec.decode(msg.data) — same UTF-8 bytes.
           const data = msg.string();
           // ARCH-C01: Apply upcasters for v1→v2 migration (raw NATS, no NatsEventBus)
@@ -184,7 +196,17 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
             continue;
           }
 
-          this.handleSensorReadingEvent(event);
+          // A payload naming another tenant than its subject is not trusted
+          // with either tenant's rooms, as on the edge I/O and alarm subjects.
+          if (event.tenantId !== tenantId) {
+            // The payload value is publisher-controlled: it stays out of the log.
+            this.logger.warn(
+              `SECURITY: SensorReading payload tenantId differs from subject tenant ${tenantId}, dropping`,
+            );
+            continue;
+          }
+
+          this.handleSensorReadingEvent(tenantId, event);
         } catch (error) {
           this.logger.warn(`Failed to process NATS message: ${(error as Error).message}`);
         }
@@ -283,15 +305,9 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
-  private handleSensorReadingEvent(event: NatsEvent): void {
+  /** Forwards one reading to the rooms of `tenantId`, the tenant of its subject. */
+  private handleSensorReadingEvent(tenantId: string, event: NatsEvent): void {
     if (event.eventType !== 'SensorReading') {
-      return;
-    }
-
-    // SECURITY: Validate tenantId is a valid UUID format
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-    if (!event.tenantId || !uuidRegex.test(event.tenantId)) {
-      this.logger.warn('NATS event with invalid tenantId format, dropping');
       return;
     }
 
@@ -308,16 +324,25 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
     const timestamp =
       event.timestamp instanceof Date ? event.timestamp.toISOString() : String(event.timestamp);
 
-    this.sensorGateway.broadcastSensorReading({
-      // Task 1.5: forward the deterministic identity so the client can
-      // deduplicate its reconnect window instead of double-rendering.
-      eventId: event.eventId,
-      sensorId: event.sensorId ?? '',
-      sensorName: event.sensorName ?? '',
-      tenantId: event.tenantId,
-      readings,
-      timestamp,
-    });
+    // SEC-CRITICAL-207: the reading's site routes it to that site's room too,
+    // so a site-bound sensor operator receives only readings of its sites. A
+    // site that is no id routes the reading to tenant-wide sensor members only.
+    const siteId =
+      typeof event.siteId === 'string' && UUID_REGEX.test(event.siteId) ? event.siteId : null;
+
+    this.sensorGateway.broadcastSensorReading(
+      {
+        // Task 1.5: forward the deterministic identity so the client can
+        // deduplicate its reconnect window instead of double-rendering.
+        eventId: event.eventId,
+        sensorId: event.sensorId ?? '',
+        sensorName: event.sensorName ?? '',
+        tenantId,
+        readings,
+        timestamp,
+      },
+      siteId,
+    );
   }
 
   private handleConnectionEvents(): void {

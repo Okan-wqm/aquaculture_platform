@@ -1,13 +1,26 @@
 /**
- * WebSocket Gateway for real-time sensor readings.
+ * WebSocket Gateway for real-time sensor readings and edge device I/O.
  *
  * Receives events from NATS (via NatsBridgeService) and pushes them to
- * connected Socket.IO clients. Each client is authenticated via JWT and
- * scoped to a single tenant. Device ownership is verified via
- * DeviceOwnershipService (LRU-cached).
+ * connected Socket.IO clients (SEC-CRITICAL-207; ADR-051 §3 step 1):
+ *
+ *   - The handshake requires a sensor grant: `decideAccess` module('sensor')
+ *     through the token's `moduleAccess`. Roles without one are refused.
+ *   - Every room is built by the backend-common room vocabulary under the
+ *     tenant: `t:{tenant}:m:sensor[:site:{site}]:sensor:{id}` for readings,
+ *     `t:{tenant}:m:sensor:edge-io:{code}` for a device.
+ *   - A member tenant-wide in sensor joins the room of each sensor it asks
+ *     for; a site-bound sensor operator joins the site-qualified room of each
+ *     of its sites. A reading reaches the sensor room and the room of the site
+ *     the reading names (SensorReading.siteId), so the operator receives only
+ *     readings of its sites and never one of no site, without a lookup.
+ *   - Edge I/O events name no site, so a device's site comes from
+ *     DeviceOwnershipService (request.sensor.verifyDeviceOwnership) before a
+ *     site-bound operator may join its room.
+ *   - A revoked token drops the socket within one WsTokenRevalidator cycle.
  */
 
-import { Logger, Inject, Optional, OnModuleDestroy } from '@nestjs/common';
+import { Logger, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import {
@@ -22,10 +35,25 @@ import { Server, Socket } from 'socket.io';
 
 import { enforceAccessTokenType, getJwtVerifyOptions } from '@aquaculture/backend-common/auth';
 import { DEVICE_CODE_REGEX, UUID_REGEX } from '@aquaculture/backend-common/constants';
-import { buildWsCorsConfig } from '@aquaculture/backend-common/websocket';
+import {
+  TenantConnectionLimiter,
+  WsTokenRevalidator,
+  buildWsCorsConfig,
+  emitToModuleRooms,
+  eventModuleRooms,
+  joinModuleRooms,
+  leaveModuleRooms,
+  memberModuleRooms,
+  moduleRoom,
+  moduleSocketScope,
+  scopeAdmitsSite,
+  socketMemberOf,
+  type ModuleResource,
+  type ModuleSocketScope,
+  type SocketMember,
+} from '@aquaculture/backend-common/websocket';
 
 import { DeviceOwnershipService } from './services/device-ownership.service';
-import { TenantConnectionLimiter, WsTokenRevalidator } from '@aquaculture/backend-common/websocket';
 
 /** Inbound sensor reading event from the NATS bridge. */
 interface SensorReadingEvent {
@@ -41,27 +69,10 @@ interface SensorReadingEvent {
 /** Per-client state tracked by the gateway. */
 interface SubscribedClient {
   socket: Socket;
-  tenantId: string;
+  member: SocketMember;
+  /** The member's sensor scope, decided once at the handshake. */
+  scope: ModuleSocketScope;
   sensorIds: Set<string>;
-  authorizedSensorIds: Set<string>;
-}
-
-/**
- * Decoded JWT payload with tenant and sensor claims.
- *
- * `type` and `jti` are required for `enforceAccessTokenType` — refresh
- * and MFA-challenge tokens carry `type !== 'access'` and must be
- * rejected at handshake (H-1 fix).
- */
-interface TokenPayload {
-  sub: string;
-  tenantId?: string;
-  sensorIds?: string[];
-  type?: string;
-  jti?: string;
-  iss?: string;
-  aud?: string | string[];
-  [key: string]: unknown;
 }
 
 /** Structured representation of an edge device alarm event (ONEMLI-03). */
@@ -73,14 +84,15 @@ export interface EdgeDeviceAlarm {
   acknowledged?: boolean;
 }
 
-/** Sensor authorization service interface. */
-export interface ISensorAuthorizationService {
-  isSensorOwnedByTenant(sensorId: string, tenantId: string): Promise<boolean>;
-  getSensorsByTenant(tenantId: string): Promise<string[]>;
+const MAX_SUBSCRIPTIONS = 100;
+
+function sensorResource(sensorId: string): ModuleResource {
+  return { kind: 'sensor', id: sensorId };
 }
 
-/** Injection token for sensor authorization service. */
-export const SENSOR_AUTH_SERVICE = 'SENSOR_AUTH_SERVICE';
+function edgeIoResource(deviceCode: string): ModuleResource {
+  return { kind: 'edge-io', id: deviceCode };
+}
 
 @WebSocketGateway({
   cors: buildWsCorsConfig('SensorReadingsGateway'),
@@ -111,9 +123,6 @@ export class SensorReadingsGateway
     // hard revocation re-check (subscription caps alone didn't bound sockets).
     private readonly connectionLimiter: TenantConnectionLimiter,
     private readonly tokenRevalidator: WsTokenRevalidator,
-    @Optional()
-    @Inject(SENSOR_AUTH_SERVICE)
-    private readonly sensorAuthService?: ISensorAuthorizationService,
   ) {
     this.isProduction = this.configService.get<string>('NODE_ENV') === 'production';
     // CORS allowlist validity is enforced at module load by
@@ -134,63 +143,49 @@ export class SensorReadingsGateway
     try {
       const token = this.extractToken(client);
       if (!token) {
-        this.logger.warn(`Client ${client.id} connected without token`);
-        client.emit('error', { message: 'Authentication required' });
-        client.disconnect();
+        this.refuse(client, 'Authentication required', 'connected without token');
         return;
       }
 
-      const payload = await this.validateToken(token);
-      if (!payload?.tenantId) {
-        this.logger.warn(`Client ${client.id} has invalid token`);
-        client.emit('error', { message: 'Invalid token' });
-        client.disconnect();
+      const claims = await this.validateToken(token);
+      if (claims === null) {
+        this.refuse(client, 'Invalid token', 'has invalid token');
+        return;
+      }
+      const member = socketMemberOf(claims);
+      if (member === null) {
+        this.refuse(client, 'Invalid token', 'has malformed access claims');
         return;
       }
 
-      const tenantId = payload.tenantId;
-      let authorizedSensorIds = new Set<string>();
-
-      if (payload.sensorIds && Array.isArray(payload.sensorIds)) {
-        authorizedSensorIds = new Set(payload.sensorIds);
-      } else if (this.sensorAuthService) {
-        try {
-          const sensors = await this.sensorAuthService.getSensorsByTenant(tenantId);
-          authorizedSensorIds = new Set(sensors);
-        } catch (err) {
-          this.logger.warn(
-            `Failed to fetch authorized sensors for tenant ${tenantId}: ${(err as Error).message}`,
-          );
-        }
+      // SEC-CRITICAL-207: sensor data needs a sensor grant (and, for a
+      // MODULE_USER, an assigned site); decided once, here.
+      const scope = moduleSocketScope(member, 'sensor');
+      if (scope === null) {
+        this.refuse(client, 'Forbidden', 'holds no sensor grant');
+        return;
       }
 
+      const { tenantId } = member;
       // SEC-MEDIUM-073 (№26): per-tenant ceiling.
       if (!this.connectionLimiter.register(tenantId, client.id)) {
-        this.logger.warn(`Tenant ${tenantId} exceeded its WS connection ceiling`);
-        client.emit('error', { message: 'Too many connections for this tenant' });
-        client.disconnect();
+        this.refuse(client, 'Too many connections for this tenant', 'exceeded the tenant ceiling');
         return;
       }
 
       // SEC-MEDIUM-082 (№18): periodic revocation re-check.
       this.tokenRevalidator.register(client.id, {
         tenantId,
-        userId: typeof payload.sub === 'string' ? payload.sub : 'unknown',
-        jti: typeof payload.jti === 'string' ? payload.jti : '',
-        issuedAt: typeof payload.iat === 'number' ? payload.iat : undefined,
+        userId: member.caller.userId,
+        jti: typeof claims['jti'] === 'string' ? claims['jti'] : '',
+        issuedAt: typeof claims['iat'] === 'number' ? claims['iat'] : undefined,
         disconnect: (reason) => {
           this.logger.warn(`Sensor socket ${client.id} disconnected: ${reason}`);
           client.disconnect(true);
         },
       });
 
-      this.clients.set(client.id, {
-        socket: client,
-        tenantId,
-        sensorIds: new Set(),
-        authorizedSensorIds,
-      });
-      void client.join(`tenant:${tenantId}`);
+      this.clients.set(client.id, { socket: client, member, scope, sensorIds: new Set() });
       this.logger.log(`Client ${client.id} connected for tenant ${tenantId}`);
       client.emit('connected', { message: 'Connected to sensor readings stream', tenantId });
     } catch (error) {
@@ -203,18 +198,23 @@ export class SensorReadingsGateway
     const entry = this.clients.get(client.id);
     this.tokenRevalidator.unregister(client.id);
     if (entry) {
-      this.connectionLimiter.release(entry.tenantId, client.id);
+      this.connectionLimiter.release(entry.member.tenantId, client.id);
     }
     this.clients.delete(client.id);
     this.logger.log(`Client ${client.id} disconnected`);
   }
 
-  /** Client subscribes to specific sensors. Validates tenant ownership. */
+  /**
+   * Client subscribes to specific sensors. Each sensor's room is qualified by
+   * the tenant and, for a site-bound operator, by each of its sites, so a
+   * subscription to a sensor of another tenant or another site receives
+   * nothing.
+   */
   @SubscribeMessage('subscribe')
   async handleSubscribe(
     client: Socket,
     payload: { sensorIds: string[] },
-  ): Promise<{ success: boolean; subscribedTo: string[]; denied?: string[]; reason?: string }> {
+  ): Promise<{ success: boolean; subscribedTo: string[]; reason?: string }> {
     const clientData = this.clients.get(client.id);
     if (!clientData) {
       return { success: false, subscribedTo: [], reason: 'Client not authenticated' };
@@ -226,8 +226,6 @@ export class SensorReadingsGateway
         reason: 'Invalid sensorIds',
       };
     }
-
-    const MAX_SUBSCRIPTIONS = 100;
     if (payload.sensorIds.length > MAX_SUBSCRIPTIONS) {
       return {
         success: false,
@@ -243,72 +241,41 @@ export class SensorReadingsGateway
       this.logger.warn(`Client ${client.id} sent invalid sensor IDs`);
     }
 
-    const authorizedIds: string[] = [];
-    const deniedIds: string[] = [];
-    const isProduction = this.configService?.get<string>('NODE_ENV') === 'production';
-
     for (const sensorId of validSensorIds) {
-      if (clientData.authorizedSensorIds.has(sensorId)) {
-        authorizedIds.push(sensorId);
-      } else if (this.sensorAuthService) {
-        try {
-          const isAuthorized = await this.sensorAuthService.isSensorOwnedByTenant(
-            sensorId,
-            clientData.tenantId,
-          );
-          if (isAuthorized) {
-            clientData.authorizedSensorIds.add(sensorId);
-            authorizedIds.push(sensorId);
-          } else {
-            deniedIds.push(sensorId);
-          }
-        } catch {
-          deniedIds.push(sensorId);
-        }
-      } else if (isProduction) {
-        deniedIds.push(sensorId);
-      } else {
-        authorizedIds.push(sensorId);
-      }
-    }
-
-    if (deniedIds.length > 0) {
-      this.logger.warn(
-        `SECURITY: Client ${client.id} (tenant: ${clientData.tenantId}) denied access to sensors: ${deniedIds.join(', ')}`,
+      await joinModuleRooms(
+        client,
+        memberModuleRooms(clientData.member, 'sensor', sensorResource(sensorId)),
       );
-    }
-
-    for (const sensorId of authorizedIds) {
       clientData.sensorIds.add(sensorId);
-      void client.join(`sensor:${sensorId}`);
     }
 
-    this.logger.debug(`Client ${client.id} subscribed to sensors: ${authorizedIds.join(', ')}`);
-
-    return {
-      success: authorizedIds.length > 0,
-      subscribedTo: Array.from(clientData.sensorIds),
-      denied: deniedIds.length > 0 ? deniedIds : undefined,
-      reason: deniedIds.length > 0 ? 'Access denied to some sensors' : undefined,
-    };
+    this.logger.debug(`Client ${client.id} subscribed to sensors: ${validSensorIds.join(', ')}`);
+    return { success: validSensorIds.length > 0, subscribedTo: Array.from(clientData.sensorIds) };
   }
 
   /** Client unsubscribes from sensors. */
   @SubscribeMessage('unsubscribe')
-  handleUnsubscribe(client: Socket, payload: { sensorIds: string[] }): { success: boolean } {
+  async handleUnsubscribe(
+    client: Socket,
+    payload: { sensorIds: string[] },
+  ): Promise<{ success: boolean }> {
     const clientData = this.clients.get(client.id);
-    if (!clientData) return { success: false };
+    if (!clientData || !Array.isArray(payload.sensorIds)) return { success: false };
 
     for (const sensorId of payload.sensorIds) {
-      clientData.sensorIds.delete(sensorId);
-      void client.leave(`sensor:${sensorId}`);
+      if (!clientData.sensorIds.delete(sensorId)) continue;
+      await leaveModuleRooms(
+        client,
+        memberModuleRooms(clientData.member, 'sensor', sensorResource(sensorId)),
+      );
     }
     return { success: true };
   }
 
   /**
-   * SEC-M18: Subscribe to edge device I/O data stream.
-   * Validates device code format, verifies ownership, then joins tenant-scoped room.
+   * SEC-M18: Subscribe to edge device I/O data stream. Validates the device
+   * code, asks sensor-service where the tenant's device stands, and admits a
+   * site-bound operator only to a device on one of its sites.
    */
   @SubscribeMessage('subscribeEdgeIo')
   async handleSubscribeEdgeIo(
@@ -327,72 +294,92 @@ export class SensorReadingsGateway
       return { success: false, reason: 'Invalid device code format' };
     }
 
-    const owned = await this.deviceOwnershipService.verifyOwnership(
+    const { tenantId } = clientData.member;
+    const placement = await this.deviceOwnershipService.devicePlacement(
       payload.deviceCode,
-      clientData.tenantId,
+      tenantId,
     );
-    if (!owned) {
+    if (placement === null || !scopeAdmitsSite(clientData.scope, placement.siteId)) {
       this.logger.warn(
-        `SEC-M18: Client ${client.id} denied edge I/O — device ${payload.deviceCode} not owned by tenant ${clientData.tenantId}`,
+        `SEC-M18: Client ${client.id} denied edge I/O — device ${payload.deviceCode} is not in its scope (tenant ${tenantId})`,
       );
       return { success: false, reason: 'Device not found or access denied' };
     }
 
-    const room = `edgeIo:${clientData.tenantId}:${payload.deviceCode}`;
-    void client.join(room);
+    await joinModuleRooms(client, [
+      moduleRoom(tenantId, 'sensor', { resource: edgeIoResource(payload.deviceCode) }),
+    ]);
     this.logger.debug(
-      `Client ${client.id} subscribed to edge I/O: ${payload.deviceCode} (tenant: ${clientData.tenantId})`,
+      `Client ${client.id} subscribed to edge I/O: ${payload.deviceCode} (tenant: ${tenantId})`,
     );
     return { success: true };
   }
 
   /** Client unsubscribes from edge device I/O data stream. */
   @SubscribeMessage('unsubscribeEdgeIo')
-  handleUnsubscribeEdgeIo(client: Socket, payload: { deviceCode: string }): { success: boolean } {
+  async handleUnsubscribeEdgeIo(
+    client: Socket,
+    payload: { deviceCode: string },
+  ): Promise<{ success: boolean }> {
     const clientData = this.clients.get(client.id);
-    if (!clientData || !payload?.deviceCode) return { success: false };
+    if (!clientData || !payload?.deviceCode || !DEVICE_CODE_REGEX.test(payload.deviceCode)) {
+      return { success: false };
+    }
 
-    const room = `edgeIo:${clientData.tenantId}:${payload.deviceCode}`;
-    void client.leave(room);
+    await leaveModuleRooms(client, [
+      moduleRoom(clientData.member.tenantId, 'sensor', {
+        resource: edgeIoResource(payload.deviceCode),
+      }),
+    ]);
     this.logger.debug(`Client ${client.id} unsubscribed from edge I/O: ${payload.deviceCode}`);
     return { success: true };
   }
 
-  /** Broadcast edge device I/O data to subscribed clients. */
+  /** Broadcast edge device I/O data to the device's room. */
   broadcastEdgeIoData(event: {
     tenantId: string;
     deviceCode: string;
     tags: Record<string, unknown>;
     timestamp: string;
   }): void {
-    this.server.to(`edgeIo:${event.tenantId}:${event.deviceCode}`).emit('edgeIoData', {
-      deviceCode: event.deviceCode,
-      tags: event.tags,
-      timestamp: event.timestamp,
-    });
+    emitToModuleRooms(
+      this.server,
+      eventModuleRooms(event.tenantId, 'sensor', null, edgeIoResource(event.deviceCode)),
+      'edgeIoData',
+      { deviceCode: event.deviceCode, tags: event.tags, timestamp: event.timestamp },
+    );
   }
 
-  /** Broadcast edge device alarm events to subscribed clients. */
+  /** Broadcast edge device alarm events to the device's room. */
   broadcastEdgeAlarm(event: {
     tenantId: string;
     deviceCode: string;
     alarms: EdgeDeviceAlarm[];
     timestamp: string;
   }): void {
-    this.server.to(`edgeIo:${event.tenantId}:${event.deviceCode}`).emit('edgeAlarm', {
-      deviceCode: event.deviceCode,
-      alarms: event.alarms,
-      timestamp: event.timestamp,
-    });
+    emitToModuleRooms(
+      this.server,
+      eventModuleRooms(event.tenantId, 'sensor', null, edgeIoResource(event.deviceCode)),
+      'edgeAlarm',
+      { deviceCode: event.deviceCode, alarms: event.alarms, timestamp: event.timestamp },
+    );
   }
 
-  /** Broadcast sensor reading to subscribed clients (tenant-isolated via rooms). */
-  broadcastSensorReading(event: SensorReadingEvent): void {
+  /**
+   * Broadcast a sensor reading to the sensor's room and, when the reading
+   * names the sensor's site, to that site's room of the sensor.
+   */
+  broadcastSensorReading(event: SensorReadingEvent, siteId: string | null): void {
     if (!event.tenantId || !event.sensorId) {
       this.logger.warn('Received invalid sensor reading event: missing tenantId or sensorId');
       return;
     }
-    this.server.to(`sensor:${event.sensorId}`).emit('sensorReading', event);
+    emitToModuleRooms(
+      this.server,
+      eventModuleRooms(event.tenantId, 'sensor', siteId, sensorResource(event.sensorId)),
+      'sensorReading',
+      event,
+    );
     this.logger.debug(
       `Broadcasted reading for sensor ${event.sensorId} to tenant ${event.tenantId}`,
     );
@@ -401,6 +388,13 @@ export class SensorReadingsGateway
   /** Get connected client count. */
   getConnectedClientCount(): number {
     return this.clients.size;
+  }
+
+  /** Tell the client why, then drop it. */
+  private refuse(client: Socket, message: string, reason: string): void {
+    this.logger.warn(`Sensor client ${client.id} refused: ${reason}`);
+    client.emit('error', { message });
+    client.disconnect();
   }
 
   /** Extract JWT token from the client handshake. Priority: auth > header > query (dev only). */
@@ -413,8 +407,7 @@ export class SensorReadingsGateway
 
     const queryToken = client.handshake.query.token;
     if (typeof queryToken === 'string') {
-      const isProduction = this.configService?.get<string>('NODE_ENV') === 'production';
-      if (isProduction) {
+      if (this.isProduction) {
         this.logger.warn(
           `SECURITY: Client ${client.id} rejected - query parameter tokens not allowed in production.`,
         );
@@ -436,7 +429,7 @@ export class SensorReadingsGateway
    * subsequent `enforceAccessTokenType` rejects refresh and
    * MFA-challenge tokens at handshake (H-1).
    */
-  private async validateToken(token: string): Promise<TokenPayload | null> {
+  private async validateToken(token: string): Promise<Record<string, unknown> | null> {
     try {
       const result = await this.jwtService.verifyAsync<Record<string, unknown>>(
         token,
@@ -461,7 +454,7 @@ export class SensorReadingsGateway
         this.isProduction,
       );
 
-      return result as TokenPayload;
+      return result;
     } catch (error) {
       this.logger.debug(`Token validation failed: ${(error as Error).message}`);
       return null;

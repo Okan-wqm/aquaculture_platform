@@ -7,19 +7,36 @@
  * TENANT_ADMIN bypass was written twice, in backend-common's `hasAllResourcePermissions` and in
  * shared-ui's `hasResourcePermission`. Both now read this file.
  *
- * WHAT:
+ * WHAT it offers (PKG-03, RBAC-HIGH-025, RBAC-MEDIUM-026): only capabilities a check reads.
+ * It offered 100 keys and backend checks read 18 of them, so a tenant admin who withheld
+ * `batches:create` or `employees:view` from a role restricted nothing; meanwhile sensor-service
+ * enforced `edge:manage-io-config`, a key absent here that the grant authority therefore refused.
+ * Now it holds the 18 read keys, `edge_devices:manage_io_config` (the key sensor-service
+ * enforces), `company:view` (read by `decideAccess`'s `company` kind ahead of the Company
+ * projections, PKG-33) and `settings:view`, which only the web tenant-panel gate reads and which
+ * leaves with the PKG-03 web part (release R2). tests/invariants/tenant-capability-usage.spec.ts
+ * fails when a key has no reader or a check reads a key not offered here.
+ *
+ * WHAT it exports:
  *   - TENANT_CAPABILITY_CATALOGUE: every capability a tenant role or per-user override may hold,
  *     grouped for the role editor. The wire capability is `${resource}:${action}`; resource keys
  *     are unique across categories. auth-service builds its write-time whitelist, its plan
- *     entitlement and the role editor's `permissionCategories` from it. Moved unchanged: PKG-03
- *     (same release, R1) adds `company:view` and removes the keys no guard enforces.
+ *     entitlement and the role editor's `permissionCategories` from it. The AI persona tiers and
+ *     specialty modules come from the AI catalogue (ai/persona-catalogue.ts): the specialty list
+ *     is a runtime derivation, so the type admits `ai_specialties:` of every active owner module
+ *     while the catalogue offers those a published specialty requires.
  *   - TenantCapability / TENANT_CAPABILITIES / isTenantCapability: the flattened vocabulary.
- *   - COMPANY_VIEW_CAPABILITY: the Company read capability `decideAccess` checks (plan D1, D2).
+ *   - TenantCapabilityPanel: a role's panel (category → resource → action) typed by the catalogue.
+ *   - COMPANY_VIEW_CAPABILITY, EDGE_DEVICE_IO_CONFIG_CAPABILITY: the capabilities their readers
+ *     import (plan D1, D2; RBAC-MEDIUM-026).
  *   - holdsTenantCapabilities: the one capability check. An account role (TENANT_ADMIN,
  *     SUPER_ADMIN) holds every capability (ADR-051 §1); a member holds exactly its claim.
  *
  * Zero-dependency (see index.ts).
  */
+import { AI_SPECIALTY_MODULE_CODES } from '../ai/persona-catalogue';
+import { AI_PERSONA_TIERS } from '../ai/persona-id';
+
 import type { AccountRole } from './platform-roles';
 
 interface CatalogueResource {
@@ -33,52 +50,25 @@ interface CatalogueCategory {
 }
 
 const CATALOGUE = {
-  farm: {
-    name: 'Farm Management',
+  // The Company layer (plan D1, D2; ADR-051 §1): read-only, there is no company:manage.
+  company: {
+    name: 'Company',
     resources: {
-      sites: { name: 'Sites', actions: ['view', 'create', 'edit', 'delete'] },
-      departments: { name: 'Departments', actions: ['view', 'create', 'edit', 'delete'] },
-      systems: { name: 'Systems', actions: ['view', 'create', 'edit', 'delete'] },
-      tanks: { name: 'Tanks', actions: ['view', 'create', 'edit', 'delete', 'assign'] },
-      ponds: { name: 'Ponds', actions: ['view', 'create', 'edit', 'delete'] },
-      equipment: { name: 'Equipment', actions: ['view', 'create', 'edit', 'delete', 'assign'] },
+      company: { name: 'Company layer', actions: ['view'] },
     },
   },
-  batch: {
-    name: 'Batch & Production',
+  admin: {
+    name: 'Settings & User Management',
     resources: {
-      batches: {
-        name: 'Batches',
-        actions: ['view', 'create', 'edit', 'delete', 'transfer', 'split', 'merge'],
-      },
-      species: { name: 'Species', actions: ['view', 'create', 'edit', 'delete'] },
-      mortality: { name: 'Mortality Records', actions: ['view', 'record'] },
-      growth: { name: 'Growth Measurements', actions: ['view', 'record', 'analyze'] },
-      harvest: { name: 'Harvest', actions: ['view', 'plan', 'record'] },
-    },
-  },
-  operations: {
-    name: 'Operations',
-    resources: {
-      feeding: {
-        name: 'Feeding',
-        actions: ['view', 'record', 'manage_schedules', 'manage_inventory'],
-      },
-      sensors: { name: 'Sensors', actions: ['view', 'configure', 'calibrate', 'manage_alerts'] },
-      maintenance: {
-        name: 'Maintenance',
-        actions: ['view', 'create_work_orders', 'complete', 'manage_schedules'],
-      },
-      water_quality: { name: 'Water Quality', actions: ['view', 'record'] },
+      // Read by the web tenant-panel gate only; leaves with the PKG-03 web part (release R2).
+      settings: { name: 'Settings', actions: ['view'] },
+      users: { name: 'Users', actions: ['view', 'invite', 'edit_permissions', 'deactivate'] },
+      roles: { name: 'Roles', actions: ['view', 'create', 'edit', 'delete'] },
     },
   },
   hr: {
-    name: 'HR & Administration',
+    name: 'HR',
     resources: {
-      employees: { name: 'Employees', actions: ['view', 'create', 'edit', 'delete'] },
-      attendance: { name: 'Attendance', actions: ['view', 'manage'] },
-      leave: { name: 'Leave Management', actions: ['view', 'approve'] },
-      shifts: { name: 'Shifts', actions: ['view', 'create', 'edit', 'delete'] },
       // HR finance salary visibility (HR-MEDIUM-005). Headcount/expenses on the HR
       // finance tab stay MANAGER-visible; the salary/labour-cost/payroll-analytics
       // figures are gated by `hr_finance:view_salary`, which a TENANT_ADMIN grants
@@ -86,37 +76,21 @@ const CATALOGUE = {
       hr_finance: { name: 'HR Finance', actions: ['view_salary'] },
     },
   },
-  reports: {
-    name: 'Reports & Analytics',
+  sensor: {
+    name: 'Sensors',
     resources: {
-      dashboard: { name: 'Dashboard', actions: ['view', 'analytics'] },
-      reports: { name: 'Reports', actions: ['view', 'export', 'create_custom'] },
-    },
-  },
-  admin: {
-    name: 'Settings & User Management',
-    resources: {
-      settings: { name: 'Settings', actions: ['view', 'edit'] },
-      users: { name: 'Users', actions: ['view', 'invite', 'edit_permissions', 'deactivate'] },
-      roles: { name: 'Roles', actions: ['view', 'create', 'edit', 'delete'] },
+      // Configure an edge device's I/O map and drive its digital outputs (RBAC-MEDIUM-026).
+      edge_devices: { name: 'Edge Devices', actions: ['manage_io_config'] },
     },
   },
   // Messaging + AI capabilities (Faz 7). Resource keys are globally unique
   // (the wire permission is `${resourceKey}:${action}`, so keys must not collide
-  // with any above — e.g. AI settings is `ai_settings`, not `settings`). Adding
-  // them here is the SSoT change: the tenant-admin role editor (permissionCategories
-  // query, data-driven), token-mint resolution, and TenantPermissionGuard all
-  // pick them up automatically — no parallel catalogue.
+  // with any above — e.g. AI settings is `ai_settings`, not `settings`).
   messaging: {
     name: 'Messaging',
     resources: {
-      channels: {
-        name: 'Channels',
-        // create_group is the WhatsApp-like group-creation capability
-        // (MSG-MEDIUM-070); create_dm the 1:1; manage covers rename/members.
-        actions: ['view', 'create_group', 'create_dm', 'manage'],
-      },
-      messages: { name: 'Messages', actions: ['send'] },
+      // The WhatsApp-like group-creation capability (MSG-MEDIUM-070).
+      channels: { name: 'Channels', actions: ['create_group'] },
     },
   },
   ai: {
@@ -126,23 +100,20 @@ const CATALOGUE = {
       // AI settings = the tenant BYOK keys / provider / model (Faz 1).
       ai_settings: { name: 'AI Settings', actions: ['view', 'manage'] },
       // Persona tiers — which AI persona a member may drive (AISAFETY-MEDIUM-013).
-      ai_personas: {
-        name: 'AI Personas',
-        actions: ['operator', 'manager', 'expert', 'supervisor'],
-      },
+      ai_personas: { name: 'AI Personas', actions: AI_PERSONA_TIERS },
     },
   },
   // Module-scoped AI specialists (RBAC-MEDIUM-016). A specialist persona
   // (e.g. `expert-farm-production-v1`, see AI_PERSONA_CATALOGUE in this library)
   // needs the caller's tier capability above AND the specialty capability here;
-  // auth-service gates the category on BOTH the AI module and the specialty's own
-  // module (CATEGORY_MODULE_REQUIREMENTS), so a tenant lacking either never holds
-  // it and the role editor hides the category. Resource key `ai_specialties` is
-  // globally unique; the wire form is `ai_specialties:<module>`.
+  // auth-service gates each one on BOTH the AI module and the specialty's own
+  // module, so a tenant lacking either never holds it and the role editor hides
+  // it. Resource key `ai_specialties` is globally unique; the wire form is
+  // `ai_specialties:<module>`.
   ai_specialists: {
     name: 'AI Specialists',
     resources: {
-      ai_specialties: { name: 'Specialist modules', actions: ['farm'] },
+      ai_specialties: { name: 'Specialist modules', actions: AI_SPECIALTY_MODULE_CODES },
     },
   },
 } as const satisfies { readonly [category: string]: CatalogueCategory };
@@ -159,6 +130,20 @@ export type TenantCapability = {
 }[keyof Catalogue];
 
 export type TenantCapabilityCategoryKey = keyof Catalogue;
+
+type PanelOf<Resources extends CatalogueCategory['resources']> = {
+  readonly [R in keyof Resources & string]?: {
+    readonly [A in Resources[R]['actions'][number]]?: boolean;
+  };
+};
+
+/**
+ * A role's panel over the catalogue — category → resource → action → granted — as the role
+ * editor stores it. A key the catalogue does not declare is not part of the type.
+ */
+export type TenantCapabilityPanel = {
+  readonly [C in keyof Catalogue]?: PanelOf<Catalogue[C]['resources']>;
+};
 
 /**
  * The catalogue as consumers read it: every category and resource key exact, every action list a
@@ -210,7 +195,14 @@ export const TENANT_CAPABILITIES: readonly TenantCapability[] = Object.freeze(
  * Reads the Company layer (ADR-051 §1 `company`; plan D1, D2). There is no `company:manage`: a
  * Company write is always denied.
  */
-export const COMPANY_VIEW_CAPABILITY = 'company:view';
+export const COMPANY_VIEW_CAPABILITY = 'company:view' satisfies TenantCapability;
+
+/**
+ * Configures an edge device's I/O map and drives its digital outputs: the capability
+ * sensor-service's I/O mutations require (RBAC-MEDIUM-026).
+ */
+export const EDGE_DEVICE_IO_CONFIG_CAPABILITY =
+  'edge_devices:manage_io_config' satisfies TenantCapability;
 
 /** What the capability check reads of a caller: its account role and its capability claim. */
 export interface TenantCapabilityHolder {

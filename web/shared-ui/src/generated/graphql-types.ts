@@ -14685,6 +14685,7 @@ export type PermissionOverridesInput = {
 
 export type PermissionResource = {
   actions: Array<Scalars['String']['output']>;
+  key: Scalars['String']['output'];
   name: Scalars['String']['output'];
 };
 

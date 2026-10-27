@@ -121,6 +121,7 @@ export {
   TENANT_CAPABILITY_CATALOGUE,
   TENANT_CAPABILITIES,
   COMPANY_VIEW_CAPABILITY,
+  EDGE_DEVICE_IO_CONFIG_CAPABILITY,
   isTenantCapability,
   holdsTenantCapabilities,
 } from './access/tenant-capabilities';
@@ -129,6 +130,7 @@ export type {
   TenantCapabilityCatalogue,
   TenantCapabilityCategoryKey,
   TenantCapabilityHolder,
+  TenantCapabilityPanel,
 } from './access/tenant-capabilities';
 export {
   ALL_MODULES_SCOPE,
@@ -195,6 +197,7 @@ export {
   AI_TIER_PRESENTATION,
   AI_SPECIALTY_CATALOGUE,
   AI_PERSONA_CATALOGUE,
+  AI_SPECIALTY_MODULE_CODES,
   findAiPersona,
   DEFAULT_AI_PERSONA_ID,
   AI_GENERAL_ASSISTANT_PICKER_ENTRY,
@@ -204,6 +207,7 @@ export type {
   AiPersonaColor,
   AiSpecialtyDefinition,
   AiPersonaCatalogueEntry,
+  AiPersonaCapability,
 } from './ai/persona-catalogue';
 
 // ── Sensor-reading tier policy (SENSOR-MEDIUM-149) ──

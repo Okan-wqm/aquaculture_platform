@@ -628,7 +628,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
     it('binds user.id ($1) + tenantId ($2) and tenant-scopes via auth.tenant_roles', async () => {
       service = await createService({
         query: buildQueryRouter({
-          resourcePermissions: [{ resource_permissions: ['sites:view'] }],
+          resourcePermissions: [{ resource_permissions: ['users:view'] }],
         }),
       });
 
@@ -695,8 +695,8 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
 
     it('sees changed role permissions on the immediately following mint', async () => {
       const permissionReads: Array<Array<{ resource_permissions: string[] }>> = [
-        [{ resource_permissions: ['sites:view'] }],
-        [{ resource_permissions: ['sites:edit'] }],
+        [{ resource_permissions: ['users:view'] }],
+        [{ resource_permissions: ['roles:edit'] }],
       ];
       service = await createService({
         query: buildQueryRouter({
@@ -706,10 +706,10 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
       const user = buildUser({});
 
       await service.generateTokens(user);
-      expect(capturedPayload().resourcePermissions).toEqual(['sites:view']);
+      expect(capturedPayload().resourcePermissions).toEqual(['users:view']);
 
       await service.generateTokens(user);
-      expect(capturedPayload().resourcePermissions).toEqual(['sites:edit']);
+      expect(capturedPayload().resourcePermissions).toEqual(['roles:edit']);
       expect(permissionReads).toHaveLength(0);
     });
   });
@@ -731,19 +731,19 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
     it('includes resourcePermissions when the JOIN returns rows', async () => {
       service = await createService({
         query: buildQueryRouter({
-          resourcePermissions: [{ resource_permissions: ['sites:view', 'tanks:edit'] }],
+          resourcePermissions: [{ resource_permissions: ['users:view', 'roles:create'] }],
         }),
       });
 
       await service.generateTokens(buildUser({}));
 
       expect(capturedPayload().resourcePermissions).toEqual(
-        expect.arrayContaining(['sites:view', 'tanks:edit']),
+        expect.arrayContaining(['users:view', 'roles:create']),
       );
     });
 
     it('folds per-user permission_overrides (revoke then grant) into the resourcePermissions claim', async () => {
-      // Role base = {sites:view, sites:edit}; the assignment revokes sites:edit
+      // Role base = {users:view, roles:edit}; the assignment revokes roles:edit
       // and grants roles:view. Proves overrides reach the JWT end-to-end — before
       // this fold they were never selected here, so a per-user grant/revoke had
       // zero runtime effect (the guard enforced only the role's base set).
@@ -751,8 +751,8 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
         query: buildQueryRouter({
           resourcePermissions: [
             {
-              resource_permissions: ['sites:view', 'sites:edit'],
-              permission_overrides: { grants: ['roles:view'], revokes: ['sites:edit'] },
+              resource_permissions: ['users:view', 'roles:edit'],
+              permission_overrides: { grants: ['roles:view'], revokes: ['roles:edit'] },
             },
           ],
         }),
@@ -761,8 +761,8 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
       await service.generateTokens(buildUser({}));
 
       const claim = capturedPayload().resourcePermissions ?? [];
-      expect(claim).toEqual(expect.arrayContaining(['sites:view', 'roles:view']));
-      expect(claim).not.toContain('sites:edit');
+      expect(claim).toEqual(expect.arrayContaining(['users:view', 'roles:view']));
+      expect(claim).not.toContain('roles:edit');
     });
 
     // RBAC-HIGH-010: the mint intersects effective permissions with the tenant's
@@ -773,7 +773,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
       service = await createService({
         query: buildQueryRouter({
           // The role stores a core cap AND an AI cap...
-          resourcePermissions: [{ resource_permissions: ['sites:view', 'ai_settings:manage'] }],
+          resourcePermissions: [{ resource_permissions: ['users:view', 'ai_settings:manage'] }],
           // ...but the tenant only licenses the farm module.
           enabledModuleCodes: ['farm'],
         }),
@@ -782,14 +782,28 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
       await service.generateTokens(buildUser({}));
 
       const claim = capturedPayload().resourcePermissions ?? [];
-      expect(claim).toContain('sites:view'); // core survives
+      expect(claim).toContain('users:view'); // core survives
       expect(claim).not.toContain('ai_settings:manage'); // unlicensed dropped
+    });
+
+    it('drops a stored capability the catalogue no longer declares (RBAC-HIGH-025)', async () => {
+      service = await createService({
+        query: buildQueryRouter({
+          // A role stored before PKG-03 removed the keys no backend check read.
+          resourcePermissions: [{ resource_permissions: ['users:view', 'batches:create'] }],
+          enabledModuleCodes: ['farm'],
+        }),
+      });
+
+      await service.generateTokens(buildUser({}));
+
+      expect(capturedPayload().resourcePermissions).toEqual(['users:view']);
     });
 
     it('keeps the module-gated capability once the tenant licenses that module', async () => {
       service = await createService({
         query: buildQueryRouter({
-          resourcePermissions: [{ resource_permissions: ['sites:view', 'ai_settings:manage'] }],
+          resourcePermissions: [{ resource_permissions: ['users:view', 'ai_settings:manage'] }],
           enabledModuleCodes: ['farm', 'ai'],
         }),
       });
@@ -797,7 +811,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
       await service.generateTokens(buildUser({}));
 
       const claim = capturedPayload().resourcePermissions ?? [];
-      expect(claim).toEqual(expect.arrayContaining(['sites:view', 'ai_settings:manage']));
+      expect(claim).toEqual(expect.arrayContaining(['users:view', 'ai_settings:manage']));
     });
   });
 

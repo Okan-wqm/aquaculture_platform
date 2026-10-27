@@ -527,7 +527,7 @@ import { ScheduledJobModule } from '@aquaculture/backend-common/scheduling';
     // SENSOR-HIGH-022: fine-grained tenant permission guard. It is opt-in — a
     // handler with no @RequireTenantPermission passes through untouched — so a
     // global registration is safe and makes every @RequireTenantPermission
-    // (e.g. 'edge:manage-io-config') self-enforcing instead of dead metadata.
+    // (e.g. EDGE_DEVICE_IO_CONFIG_CAPABILITY) self-enforcing instead of dead metadata.
     {
       provide: APP_GUARD,
       useFactory: (reflector: Reflector): TenantPermissionGuard =>

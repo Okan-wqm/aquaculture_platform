@@ -1,5 +1,6 @@
 import type {
   ActiveOwnerModuleCode,
+  AiPersonaCapability,
   AiPersonaCatalogueEntry,
   AiPersonaTier,
   AiSpecialtyId,
@@ -38,8 +39,8 @@ export function promptContract(actuationCeiling: ActuationPolicy): string {
 export interface ComposedPersona extends AgentPersona {
   readonly tier: AiPersonaTier;
   readonly specialty: AiSpecialtyId;
-  /** RBAC strings the caller must ALL hold (from the shared catalogue). */
-  readonly requiredCapabilities: readonly string[];
+  /** Tenant capabilities the caller must ALL hold (from the shared catalogue). */
+  readonly requiredCapabilities: readonly AiPersonaCapability[];
   /** The specialty's module scope — the only module whose tools this persona may offer. */
   readonly requiresModule: ActiveOwnerModuleCode | null;
 }

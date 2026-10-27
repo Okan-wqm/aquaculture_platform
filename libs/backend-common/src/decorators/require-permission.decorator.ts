@@ -1,5 +1,9 @@
-import { accountRoleOf, holdsTenantCapabilities } from '@aquaculture/shared-contracts';
-import { SetMetadata } from '@nestjs/common';
+import {
+  accountRoleOf,
+  holdsTenantCapabilities,
+  type TenantCapability,
+} from '@aquaculture/shared-contracts';
+import { SetMetadata, type CustomDecorator } from '@nestjs/common';
 
 import { Role } from './roles.decorator';
 
@@ -14,7 +18,10 @@ export const REQUIRED_TENANT_PERMISSIONS_KEY = 'requiredTenantPermissions';
  * Marks a route handler as requiring specific tenant-level resource permissions.
  * Used together with TenantPermissionGuard to enforce fine-grained RBAC.
  *
- * Permission format: "resource:action" (e.g., "tanks:create", "sensors:configure")
+ * Permission format: "resource:action", a key of the one catalogue
+ * (`TENANT_CAPABILITY_CATALOGUE`, @aquaculture/shared-contracts). The argument type is
+ * `TenantCapability`, so a check cannot require a key the role editor cannot grant
+ * (RBAC-MEDIUM-026: sensor-service required `edge:manage-io-config`, which no role could hold).
  *
  * Behaviour:
  * - Opt-in: If the decorator is not present, the guard passes through.
@@ -24,17 +31,18 @@ export const REQUIRED_TENANT_PERMISSIONS_KEY = 'requiredTenantPermissions';
  *
  * @example
  * ```ts
- * @RequireTenantPermission('tanks:create')
- * @Post()
- * createTank() { ... }
+ * @RequireTenantPermission('roles:create')
+ * @Mutation(() => TenantRole)
+ * createTenantRole() { ... }
  *
- * @RequireTenantPermission('sensors:configure', 'sensors:calibrate')
- * @Patch(':id/calibrate')
- * calibrateSensor() { ... }
+ * @RequireTenantPermission(EDGE_DEVICE_IO_CONFIG_CAPABILITY)
+ * @Mutation(() => DeviceIoConfig)
+ * addDeviceIoConfig() { ... }
  * ```
  */
-export const RequireTenantPermission = (...permissions: string[]) =>
-  SetMetadata(REQUIRED_TENANT_PERMISSIONS_KEY, permissions);
+export const RequireTenantPermission = (
+  ...permissions: TenantCapability[]
+): CustomDecorator<string> => SetMetadata(REQUIRED_TENANT_PERMISSIONS_KEY, permissions);
 
 /**
  * Minimal user shape a capability check needs — a subset of CurrentUserPayload
@@ -82,7 +90,7 @@ function normalizeRoles(user: ResourcePermissionUser): Role[] {
  */
 export function hasAllResourcePermissions(
   user: ResourcePermissionUser | null | undefined,
-  requiredPermissions: readonly string[],
+  requiredPermissions: readonly TenantCapability[],
 ): boolean {
   if (!user) {
     return false;
@@ -99,7 +107,7 @@ export function hasAllResourcePermissions(
 /** Single-capability convenience over {@link hasAllResourcePermissions}. */
 export function hasResourcePermission(
   user: ResourcePermissionUser | null | undefined,
-  requiredPermission: string,
+  requiredPermission: TenantCapability,
 ): boolean {
   return hasAllResourcePermissions(user, [requiredPermission]);
 }

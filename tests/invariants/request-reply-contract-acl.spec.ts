@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 
 import {
   FARM_TIME_ZONE_QUERY_SUBJECTS,
+  MODULE_ACTIVITY_QUERY_SUBJECTS,
   SENSOR_CHANNEL_QUERY_SUBJECTS,
 } from '@platform/event-contracts';
 
@@ -43,6 +44,25 @@ const CONTRACTS: readonly RequestReplyContract[] = [
     subjects: SENSOR_CHANNEL_QUERY_SUBJECTS,
     owner: { service: 'sensor_service', sourceRoot: 'apps/sensor-service/src' },
     callers: ['farm_service'],
+  },
+  // PKG-06 readiness: one subject per owner module, each answered by its own module.
+  {
+    name: 'MODULE_ACTIVITY_QUERY_SUBJECTS',
+    subjects: { farm: MODULE_ACTIVITY_QUERY_SUBJECTS.farm },
+    owner: { service: 'farm_service', sourceRoot: 'apps/farm-service/src' },
+    callers: ['auth_service'],
+  },
+  {
+    name: 'MODULE_ACTIVITY_QUERY_SUBJECTS',
+    subjects: { hr: MODULE_ACTIVITY_QUERY_SUBJECTS.hr },
+    owner: { service: 'hr_service', sourceRoot: 'apps/hr-service/src' },
+    callers: ['auth_service'],
+  },
+  {
+    name: 'MODULE_ACTIVITY_QUERY_SUBJECTS',
+    subjects: { sensor: MODULE_ACTIVITY_QUERY_SUBJECTS.sensor },
+    owner: { service: 'sensor_service', sourceRoot: 'apps/sensor-service/src' },
+    callers: ['auth_service'],
   },
 ];
 

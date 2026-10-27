@@ -28,7 +28,9 @@ describe('Auth pre-auth surface rate-limit contract (SEC-CRITICAL-002)', () => {
 
   it.each([
     ['login', 5, 15 * 60_000],
-    ['refreshToken', 10, 5 * 60_000],
+    // SEC-MEDIUM-212: a pre-authentication bucket per END-CLIENT IP, sized for a shared
+    // office address (see utils/refresh-rate-limit.ts); 10 was five page loads per office.
+    ['refreshToken', 120, 5 * 60_000],
     ['forgotPassword', 3, 60 * 60_000],
     ['resetPassword', 3, 60 * 60_000],
     ['validateInvitation', 10, 5 * 60_000],

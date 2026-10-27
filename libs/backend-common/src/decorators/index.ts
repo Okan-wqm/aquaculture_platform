@@ -1,6 +1,9 @@
 export * from './tenant.decorator';
 export * from './current-user.decorator';
 export * from './roles.decorator';
+// ADR-051: the access spec of a handler and its per-handler decision
+export * from './access.decorator';
+export * from './access-caller.decorator';
 export * from './destructive.decorator';
 // ADR-0016: platform-capability requirement (paired with PlatformCapabilityGuard)
 export * from './requires-capability.decorator';

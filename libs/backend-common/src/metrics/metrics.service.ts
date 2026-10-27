@@ -1,6 +1,8 @@
 import { Injectable, OnModuleInit, OnModuleDestroy, Logger } from '@nestjs/common';
 import * as client from 'prom-client';
 
+import { MODULE_ACCESS_DENIED_REGISTRY } from './module-access-denied.metrics';
+
 /**
  * ServiceMetricsService
  *
@@ -65,6 +67,9 @@ export class ServiceMetricsService implements OnModuleInit, OnModuleDestroy {
     this.registry.clear();
     this.initializeMetrics();
     this.startDefaultMetrics();
+    // RBAC-HIGH-030: every service serves module_access_denied_total from the one scrape
+    // endpoint without wiring it (ADR-051 §3; the guards record into this registry).
+    this.registerContributor('module-access-denied', MODULE_ACCESS_DENIED_REGISTRY);
     this.logger.log('Service metrics initialized');
   }
 

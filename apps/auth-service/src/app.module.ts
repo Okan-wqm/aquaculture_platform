@@ -15,8 +15,8 @@ import {
   isSchemaDdlOwnedByDbMigrate,
 } from '@aquaculture/backend-common/database';
 import {
+  accessGuardProviders,
   TenantGuard,
-  RolesGuard,
   ServiceIdentityGuard,
   TenantPermissionGuard,
 } from '@aquaculture/backend-common/guards';
@@ -452,12 +452,9 @@ const authSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(process.env);
       ): TenantGuard => new TenantGuard(reflector, auditLogService, configService),
       inject: [Reflector, AUDIT_LOG_SERVICE, ConfigService],
     },
-    // SECURITY: Roles guard - enforces @Roles() decorator authorization
-    {
-      provide: APP_GUARD,
-      useFactory: (reflector: Reflector): RolesGuard => new RolesGuard(reflector),
-      inject: [Reflector],
-    },
+    // SECURITY: RolesGuard enforces @Roles(); once this service is enrolled in ADR-051 its
+    // MODULE_ACCESS_ENROLMENT entry adds the access-classification guard (RBAC-HIGH-030).
+    ...accessGuardProviders('auth-service'),
     // MT-HIGH-054: fine-grained tenant-RBAC guard enabling role/user-management
     // DELEGATION. Opt-in — a handler with no @RequireTenantPermission passes
     // through untouched (RolesGuard is likewise opt-in), so global registration

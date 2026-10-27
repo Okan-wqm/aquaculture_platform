@@ -11,6 +11,9 @@
  */
 
 export * from './roles.guard';
+// ADR-051: the enrolment-driven guard registration and the fail-closed classification guard
+export { accessGuardProviders, MODULE_ACCESS_SERVICE } from './access-guard-providers';
+export * from './access-classification.guard';
 export * from './tenant.guard';
 export * from './tenant-permission.guard';
 export * from './service-identity.guard';

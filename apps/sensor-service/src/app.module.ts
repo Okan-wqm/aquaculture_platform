@@ -23,7 +23,7 @@ import {
   getRlsExcludeTablesForService,
   SourceSchemaBootstrapService,
 } from '@aquaculture/backend-common/database';
-import { RolesGuard, ServiceIdentityGuard, TenantGuard, TenantPermissionGuard } from '@aquaculture/backend-common/guards';
+import { accessGuardProviders, ServiceIdentityGuard, TenantGuard, TenantPermissionGuard } from '@aquaculture/backend-common/guards';
 import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
 import { MetricsMiddleware } from '@aquaculture/backend-common/metrics';
 import {
@@ -517,13 +517,9 @@ import { ScheduledJobModule } from '@aquaculture/backend-common/scheduling';
         new TenantGuard(reflector, undefined, configService),
       inject: [Reflector, ConfigService],
     },
-    // SECURITY: Roles guard - enforces @Roles() decorator authorization
-    // Without this, @Roles decorators would have no effect!
-    {
-      provide: APP_GUARD,
-      useFactory: (reflector: Reflector): RolesGuard => new RolesGuard(reflector),
-      inject: [Reflector],
-    },
+    // SECURITY: RolesGuard enforces @Roles(); once this service is enrolled in ADR-051 its
+    // MODULE_ACCESS_ENROLMENT entry adds the access-classification guard (RBAC-HIGH-030).
+    ...accessGuardProviders('sensor-service'),
     // SENSOR-HIGH-022: fine-grained tenant permission guard. It is opt-in — a
     // handler with no @RequireTenantPermission passes through untouched — so a
     // global registration is safe and makes every @RequireTenantPermission

@@ -14,7 +14,11 @@ import { LegalHoldModule } from '@aquaculture/backend-common/compliance';
 import { SourceSchemaBootstrapService } from '@aquaculture/backend-common/database';
 import { ProductionPlanModule } from './production-plan/production-plan.module';
 import { DateTimeCustomScalar } from './graphql/datetime.custom-scalar';
-import { RolesGuard, ServiceIdentityGuard, TenantGuard } from '@aquaculture/backend-common/guards';
+import {
+  accessGuardProviders,
+  ServiceIdentityGuard,
+  TenantGuard,
+} from '@aquaculture/backend-common/guards';
 import {
   createGraphqlOperationLimitPlugin,
   ENVIRONMENT_READ_OPERATION_FIELD_LIMITS,
@@ -546,12 +550,9 @@ import { ScheduledJobModule } from '@aquaculture/backend-common/scheduling';
       ): TenantGuard => new TenantGuard(reflector, auditLogService, configService),
       inject: [Reflector, AUDIT_LOG_SERVICE, ConfigService],
     },
-    // SECURITY: Roles guard - enforces @Roles() decorator authorization
-    {
-      provide: APP_GUARD,
-      useFactory: (reflector: Reflector): RolesGuard => new RolesGuard(reflector),
-      inject: [Reflector],
-    },
+    // SECURITY: RolesGuard enforces @Roles(); once this service is enrolled in ADR-051 its
+    // MODULE_ACCESS_ENROLMENT entry adds the access-classification guard (RBAC-HIGH-030).
+    ...accessGuardProviders('farm-service'),
     // Direct-subgraph defense: gateway rate limits are not an authority
     // boundary when a deployment accidentally exposes farm-service. Reuse the
     // shared distributed sliding-window implementation so every direct GraphQL

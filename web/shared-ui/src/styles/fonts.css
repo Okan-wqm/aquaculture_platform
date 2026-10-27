@@ -1,0 +1,63 @@
+/**
+ * Self-hosted type faces — the shell's only font loader.
+ *
+ * WHAT: Inter is the product's one text face (body, headings, figures); Geist Mono is
+ * the code-and-ID face (--font-mono). Both are variable fonts, so one file per subset
+ * covers every weight the UI asks for.
+ *
+ * WHY self-hosted rather than a Google Fonts <link>: the production CSP is
+ * `font-src 'self'` (infrastructure/security/csp.policy.json) — a third-party font host
+ * is a second origin to allow, an IP leaked to a third party on every first paint, and a
+ * silent fallback to system faces wherever a stricter policy (the gateway's, a
+ * Kubernetes ingress) is in front. The faces below are served from web/shell/public/fonts
+ * with their OFL-1.1 notices beside them.
+ *
+ * latin-ext is required: Turkish (ı, İ, ş, ğ) lives there and it is a default locale.
+ * `unicode-range` makes the browser fetch a subset only when a glyph needs it.
+ *
+ * Tokens (theme.css) name the families; the invariant in
+ * tests/invariants/web-theme-token-parity.spec.ts keeps every family a token names
+ * declared here, with its file present.
+ */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('/fonts/inter-latin.woff2') format('woff2');
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('/fonts/inter-latin-ext.woff2') format('woff2');
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+    U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F,
+    U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Geist Mono';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('/fonts/geist-mono-latin.woff2') format('woff2');
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Geist Mono';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('/fonts/geist-mono-latin-ext.woff2') format('woff2');
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+    U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F,
+    U+A720-A7FF;
+}

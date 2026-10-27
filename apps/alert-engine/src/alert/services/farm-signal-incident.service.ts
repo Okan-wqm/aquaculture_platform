@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
+import { tenantManagerRepo } from '@aquaculture/backend-common/database';
+import { DataSource, DeepPartial, FindOneOptions, In, Repository } from 'typeorm';
 import { ALERT_SEVERITY_RANK, AlertSeverity } from '../../database/entities/alert-rule.entity';
 import {
   AlertIncident,
@@ -8,6 +9,7 @@ import {
   TimelineEventType,
 } from '../../database/entities/alert-incident.entity';
 import { EscalationManagerService } from '../../escalation/escalation-manager.service';
+import { AlertHistory } from '../entities/alert-history.entity';
 
 /**
  * Everything a farm-signal consumer must supply to open (or bump) an incident.
@@ -28,6 +30,47 @@ export interface FarmSignalIncidentSpec {
   /** Human label for log lines, e.g. 'mortality' / 'water-quality'. */
   signalLabel: string;
 }
+
+/**
+ * A farm signal to raise as ONE atomic unit: the alarm row and the incident it
+ * feeds commit together (or not at all), keyed by `dedupeKey`.
+ */
+export interface FarmSignalAlertSpec extends FarmSignalIncidentSpec {
+  /**
+   * The alarm row, minus the identity `raise` owns (`ruleId`, `tenantId`,
+   * `sourceEventId`). `historyId` is added to the incident breadcrumb for you.
+   */
+  history: Omit<DeepPartial<AlertHistory>, 'id' | 'ruleId' | 'tenantId' | 'sourceEventId'>;
+  /**
+   * Idempotency + frequency key (a deterministic uuid, e.g. `deriveEventId`).
+   * The alarm for the same `(ruleId, dedupeKey)` fires ONCE: a redelivery of the
+   * event, and any later event of the same period that derives the same key, is
+   * acknowledged without writing a second alarm or bumping the incident. The
+   * caller chooses the period by what it folds into the key (a day plan = a day).
+   */
+  dedupeKey: string;
+}
+
+/**
+ * What the incident lifecycle needs of a store. The injected repository (the
+ * legacy `ensureIncident` path) and the transaction's tenant-scoped repository
+ * (`raise`) both fit.
+ */
+interface IncidentStore {
+  findOne(options: FindOneOptions<AlertIncident>): Promise<AlertIncident | null>;
+  create(dto: DeepPartial<AlertIncident>): AlertIncident;
+  save(incident: AlertIncident): Promise<AlertIncident>;
+}
+
+/** What happened to an incident when a signal reached it. */
+interface OpenedIncident {
+  incident: AlertIncident;
+  /** `created`: a new incident; `escalated`: an open one promoted; `bumped`: only counted. */
+  outcome: 'created' | 'escalated' | 'bumped';
+}
+
+/** Postgres unique_violation: the (rule_id, source_event_id) key already holds this alarm. */
+const UNIQUE_VIOLATION = '23505';
 
 /**
  * True when `next` is strictly more severe than `current` — by
@@ -88,15 +131,78 @@ export class FarmSignalIncidentService {
     // tests pass a minimal double with no unsafe casts.
     @Inject(EscalationManagerService)
     private readonly escalationManager: Pick<EscalationManagerService, 'startEscalation'>,
+    @InjectDataSource() private readonly dataSource: DataSource,
   ) {}
 
   /**
    * Bump the open incident for this rule + tenant, or create a new one and start
    * escalation. Runs inside the caller's tenant context (the handler establishes
    * search_path before calling).
+   *
+   * The alarm row is the CALLER's to write, before this call, outside any shared
+   * transaction — so a failure here leaves that row behind and a redelivery
+   * writes it again. New signals use `raise`, which owns both writes atomically.
    */
   async ensureIncident(spec: FarmSignalIncidentSpec): Promise<void> {
-    const existing = await this.incidentRepository.findOne({
+    const opened = await this.openOrBump(this.incidentRepository, spec);
+    this.startEscalationFor(opened, spec);
+  }
+
+  /**
+   * Raise a farm signal: the alarm row and the incident it feeds in ONE
+   * transaction, idempotent on `(ruleId, dedupeKey)`, with escalation started
+   * only after the commit (it keeps Redis timers outside the transaction, so a
+   * rollback would orphan them).
+   *
+   * WHY: written as two separate saves, a failure between them left the alarm
+   * row behind, and the event handler's rethrow (NAK + redelivery) wrote it
+   * again on every attempt — one poison message produced ~20,000 alarm rows
+   * over its 7-day delivery budget. Here the failure rolls the alarm back, the
+   * redelivery starts clean, and a delivery that already landed is recognised
+   * by its key and acknowledged without a second alarm.
+   *
+   * Returns `duplicate` when the key already holds this alarm. Any other
+   * failure propagates: the handler decides between retry and dead-letter.
+   */
+  async raise(spec: FarmSignalAlertSpec): Promise<'raised' | 'duplicate'> {
+    let opened: OpenedIncident;
+    try {
+      opened = await this.dataSource.transaction(async (manager) => {
+        const history = await manager.save(
+          AlertHistory,
+          manager.create(AlertHistory, {
+            ...spec.history,
+            ruleId: spec.ruleId,
+            tenantId: spec.tenantId,
+            sourceEventId: spec.dedupeKey,
+          }),
+        );
+        return this.openOrBump(tenantManagerRepo(manager, AlertIncident, spec.tenantId), {
+          ...spec,
+          triggerData: { ...spec.triggerData, historyId: history.id },
+        });
+      });
+    } catch (error) {
+      if ((error as { code?: string }).code === UNIQUE_VIOLATION) {
+        this.logger.debug(
+          `${spec.signalLabel} alert for ${spec.ruleId} already raised for key ${spec.dedupeKey} ` +
+            '— duplicate suppressed',
+        );
+        return 'duplicate';
+      }
+      throw error;
+    }
+
+    this.startEscalationFor(opened, spec);
+    return 'raised';
+  }
+
+  /** The dedup + escalation-promotion lifecycle, over the repository it is given. */
+  private async openOrBump(
+    incidents: IncidentStore,
+    spec: FarmSignalIncidentSpec,
+  ): Promise<OpenedIncident> {
+    const existing = await incidents.findOne({
       where: {
         ruleId: spec.ruleId,
         tenantId: spec.tenantId,
@@ -126,35 +232,24 @@ export class FarmSignalIncidentService {
         });
       }
 
-      const saved = await this.incidentRepository.save(existing);
+      const saved = await incidents.save(existing);
 
       if (escalated) {
         this.logger.warn(
           `Escalated ${spec.signalLabel} incident ${saved.id} for ${spec.ruleId}: ` +
             `${previousSeverity} → ${spec.severity} (occurrences: ${saved.occurrenceCount})`,
         );
-        // Re-run the ladder so the policy matched for the NEW severity engages.
-        // Non-blocking for the same reason as on creation: the incident row has
-        // already landed and must not be rolled back by a notification fault.
-        this.escalationManager
-          .startEscalation(saved, spec.severity, spec.ruleId)
-          .catch((err: Error) => {
-            this.logger.error(
-              `Failed to re-start escalation for escalated ${spec.signalLabel} incident ` +
-                `${saved.id}: ${err.message}`,
-            );
-          });
-        return;
+        return { incident: saved, outcome: 'escalated' };
       }
 
       this.logger.debug(
         `Updated existing ${spec.signalLabel} incident ${existing.id} for ${spec.ruleId} ` +
           `(occurrences: ${existing.occurrenceCount})`,
       );
-      return;
+      return { incident: saved, outcome: 'bumped' };
     }
 
-    const incident = this.incidentRepository.create({
+    const incident = incidents.create({
       tenantId: spec.tenantId,
       ruleId: spec.ruleId,
       title: spec.title,
@@ -175,20 +270,30 @@ export class FarmSignalIncidentService {
       description: spec.description,
     });
 
-    const savedIncident = await this.incidentRepository.save(incident);
+    const savedIncident = await incidents.save(incident);
     this.logger.log(
       `Created ${spec.signalLabel} incident ${savedIncident.id} for ${spec.ruleId} ` +
         `(severity: ${spec.severity})`,
     );
+    return { incident: savedIncident, outcome: 'created' };
+  }
 
-    // Escalation is non-blocking for the alert flow — a failure here must not
-    // fail the AlertHistory/Incident write that already landed.
+  /**
+   * Re-run (or start) the notification ladder for what the signal did to the
+   * incident. Non-blocking for the alert flow: the incident row has already
+   * landed and must not be rolled back by a notification fault.
+   */
+  private startEscalationFor(opened: OpenedIncident, spec: FarmSignalIncidentSpec): void {
+    if (opened.outcome === 'bumped') return;
+    // A promoted incident re-runs the ladder so the policy matched for the NEW
+    // severity engages; a new one starts it.
     this.escalationManager
-      .startEscalation(savedIncident, spec.severity, spec.ruleId)
+      .startEscalation(opened.incident, spec.severity, spec.ruleId)
       .catch((err: Error) => {
         this.logger.error(
-          `Failed to start escalation for ${spec.signalLabel} incident ` +
-            `${savedIncident.id}: ${err.message}`,
+          `Failed to ${opened.outcome === 'created' ? 'start' : 're-start'} escalation for ` +
+            `${opened.outcome === 'escalated' ? 'escalated ' : ''}${spec.signalLabel} incident ` +
+            `${opened.incident.id}: ${err.message}`,
         );
       });
   }

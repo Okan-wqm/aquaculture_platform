@@ -1,3 +1,5 @@
+import type { PlatformModuleCode } from '@aquaculture/shared-contracts';
+
 import { BaseEvent } from './base-event';
 import { TenantStatus } from './enums/tenant-status.enum';
 import type {
@@ -285,8 +287,11 @@ export interface TenantModulesAssignedEvent extends BaseEvent {
   eventType: 'TenantModulesAssigned';
   /** Module IDs that were assigned */
   moduleIds: string[];
-  /** Module codes for consumers that need codes rather than IDs */
-  moduleCodes?: string[];
+  /**
+   * Module codes for consumers that need codes rather than IDs: codes of the module dictionary
+   * (`PLATFORM_MODULE`, shared-contracts; RBAC-MEDIUM-023), never a GraphQL enum spelling.
+   */
+  moduleCodes?: PlatformModuleCode[];
   /** Monthly pricing total (flat-object: promoted from nested pricing object) */
   pricingMonthlyTotal?: number;
   /** Annual pricing total */

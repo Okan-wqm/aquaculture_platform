@@ -239,7 +239,11 @@ const mockTokenService = {
       redirectUrl: '/dashboard',
     }),
   ),
-  getUserModules: jest.fn().mockResolvedValue([]),
+  readModuleAccess: jest.fn().mockResolvedValue({
+    moduleAccess: {},
+    modules: [],
+    dropped: { not_owner_module: 0, unknown_code: 0, role_missing: 0 },
+  }),
 };
 
 // WHAT: login() consults MfaService for the MFA branch
@@ -1208,6 +1212,34 @@ describe('AuthenticationService', () => {
       const result = await service.me('operator', tenantId);
       expect(mockTenantRepository.findOne).toHaveBeenCalledWith({ where: { id: tenantId } });
       expect(result.tenantName).toBe('Acme Fish');
+    });
+
+    // RBAC-HIGH-027 (C1): the R2 web reads the grants from `me`; R1 serves them beside the
+    // legacy modules list, from the same read the token mint makes.
+    it('reports the moduleAccess grants, one field per owner module, beside the legacy modules', async () => {
+      const tenantId = '11111111-1111-4111-8111-111111111111';
+      mockUserRepository.findOne.mockResolvedValue(
+        createMockUser({ id: 'operator', role: Role.MODULE_USER, tenantId }),
+      );
+      mockTokenService.readModuleAccess.mockResolvedValueOnce({
+        moduleAccess: { farm: 'MODULE_MANAGER', sensor: 'MODULE_USER' },
+        modules: [
+          { code: 'farm', name: 'Farm', defaultRoute: '/farm' },
+          { code: 'sensor', name: 'Sensor', defaultRoute: '/sensor' },
+        ],
+        dropped: { not_owner_module: 0, unknown_code: 0, role_missing: 0 },
+      });
+
+      const result = await service.me('operator', tenantId);
+
+      expect({ ...result.moduleAccess }).toEqual({
+        farm: 'MODULE_MANAGER',
+        hr: null,
+        sensor: 'MODULE_USER',
+        hydroponics: null,
+      });
+      expect(result.modules.map((module) => module.code)).toEqual(['farm', 'sensor']);
+      expect(result.redirectPath).toBe('/farm');
     });
 
     it('names no tenant for a platform SUPER_ADMIN, and reads no tenant row', async () => {

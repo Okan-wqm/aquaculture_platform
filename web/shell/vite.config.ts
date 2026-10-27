@@ -5,6 +5,7 @@ import { resolve } from 'path';
 import { getSharedConfigWithReactFlow } from '../shared-ui/src/federation/federationSharedConfig';
 import { sharedUiAlias } from '../shared-ui/src/federation/sharedUiAlias';
 import { unresolvedAssetUrlGate } from '../shared-ui/src/federation/unresolvedAssetUrlGate';
+import { buildManifestPlugin } from '../shared-ui/src/federation/buildManifestPlugin';
 
 /**
  * Vite Konfigürasyonu - Shell (Host) Uygulaması
@@ -25,9 +26,15 @@ export default defineConfig(({ command, mode }) => {
     plugins: [
       react(),
       unresolvedAssetUrlGate(),
+      // FE-MEDIUM-380: names this build in index.html and in a served build-manifest.json,
+      // so an open tab reloads onto a new deploy (src/shell/useBuildSkewReload.ts).
+      buildManifestPlugin({ kind: 'host' }),
       federation({
         dts: false,
         name: 'shell',
+        // FE-MEDIUM-380: records each remote entry the runtime loads, so the build-skew check
+        // also compares the build of every remote the tab runs (src/shell/buildSkew.ts).
+        runtimePlugins: [resolve(__dirname, 'src/shell/remoteBuildRuntimePlugin.ts')],
         remotes: {
           dashboard: {
             type: 'module',

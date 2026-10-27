@@ -57,8 +57,11 @@ vi.mock('@/hooks/useDensity', () => ({
 }));
 
 vi.mock('@/pwa/offline-queue', () => ({
-  clearCache: vi.fn(() => Promise.resolve()),
   clearAllOperations: vi.fn(() => Promise.resolve()),
+}));
+
+vi.mock('@/pwa/offline-cache', () => ({
+  clearCache: vi.fn(() => Promise.resolve()),
 }));
 
 describe('AccountPage role badge (FE-MEDIUM-051)', () => {

@@ -111,9 +111,7 @@ export class SchedulingErrorBoundary extends Component<
             {/* Error details in development */}
             {import.meta.env.DEV && error && (
               <div className="mb-6 p-4 bg-gray-100 dark:bg-gray-800 rounded-lg text-left overflow-auto max-h-48">
-                <p className="text-xs font-mono text-gray-500 dark:text-gray-400 mb-1">
-                  Hata Detayi:
-                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Hata Detayi:</p>
                 <p className="text-sm font-mono text-error-600 dark:text-error-400 break-all">
                   {error.message}
                 </p>

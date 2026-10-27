@@ -7,7 +7,8 @@ import { RolesGuard } from '@aquaculture/backend-common/guards';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { Employee, EmployeeStatus, ContactInfo, Address } from './entities/employee.entity';
 import { DepartmentHR } from './entities/department.entity';
-import { HrModuleCode } from '../common/enums';
+import type { OwnerModuleCode } from '@aquaculture/shared-contracts';
+import { HR_MODULE_CODE_ENUM } from '../common/enums';
 import { Payroll, PayrollStatus } from './entities/payroll.entity';
 import { CreateEmployeeInput } from './dto/create-employee.input';
 import { UpdateEmployeeInput } from './dto/update-employee.input';
@@ -278,7 +279,7 @@ export class HRResolver {
     @Context() context: GraphQLContext,
     @Args('siteId', { type: () => ID, nullable: true }) siteId?: string,
     @Args('isDeleted', { nullable: true, defaultValue: false }) isDeleted?: boolean,
-    @Args('moduleCode', { type: () => HrModuleCode, nullable: true }) moduleCode?: HrModuleCode,
+    @Args('moduleCode', { type: () => HR_MODULE_CODE_ENUM, nullable: true }) moduleCode?: OwnerModuleCode,
   ): Promise<DepartmentHR[]> {
     const tenantId = this.getTenantId(context);
     return this.queryBus.execute(new GetDepartmentsQuery(tenantId, siteId, isDeleted, moduleCode));

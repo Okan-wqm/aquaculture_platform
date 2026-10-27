@@ -13,9 +13,9 @@ RFC 2119 keywords apply.
 
 ## 2. Crate + feature flag
 
-- Application layer: `rodbus = "=1.4.0"` (`Cargo.toml:70`).
-- Serial transport: `tokio-serial = "5.4"` (`Cargo.toml:72`).
-- Feature flag: none (default build), but wrapped in `#[cfg(target_os = "linux")]` (`src/modbus.rs:714-758`). Non-Linux hosts surface `Err("Modbus RTU not supported on this platform")`.
+- Application layer: `tokio-modbus = "~0.17"` (feature `rtu`; RTU framing + CRC) (`Cargo.toml:88`).
+- Serial transport: `tokio-serial = "5.4"` (`Cargo.toml:91`).
+- Feature flag: none (default build), but wrapped in `#[cfg(target_os = "linux")]` (`open_rtu` in `src/modbus.rs`). Non-Linux hosts surface `Err("Modbus RTU not supported on this platform")`.
 
 ## 3. Supported operations
 
@@ -46,11 +46,11 @@ Function-code whitelist and write-range whitelist in `src/modbus.rs:421-489` app
 
 ### 4.2 Inter-frame gap
 
-Per the Modbus Serial spec § 2.5.1, frames are delimited by a silent interval of at least **3.5 character times** (`t3.5`) and a character gap of at most **1.5 character times** (`t1.5`). Enforcement is delegated to the `rodbus` + `tokio-serial` transport stack; this client does NOT re-implement it.
+Per the Modbus Serial spec § 2.5.1, frames are delimited by a silent interval of at least **3.5 character times** (`t3.5`) and a character gap of at most **1.5 character times** (`t1.5`). Enforcement is delegated to the `tokio-modbus` RTU codec + `tokio-serial` transport stack; this client does NOT re-implement it.
 
 ### 4.3 Serial line parameters
 
-Defaults hard-coded at `src/modbus.rs:731-737`:
+Defaults hard-coded in `open_rtu` (`src/modbus.rs`):
 
 | Field | Default | Configurable? |
 |-------|---------|---------------|
@@ -64,10 +64,10 @@ Operators who need `E, 8, 1` or `7-bit` framing MUST raise an ORPHAN finding and
 
 ## 5. Error handling
 
-- Connect retry: doubling backoff 2 s → 30 s (`src/modbus.rs:724-727`).
+- Reconnect: a failed or dropped serial transport is re-opened by the next request after a doubling backoff 2 s → 30 s (`ReconnectPolicy` / `Link` in `src/modbus.rs`). A request abandoned mid-flight also retires the transport, because RTU frames carry no transaction id to reject a late reply.
 - Per-operation timeout: 5 s (`MODBUS_TIMEOUT`).
 - Circuit breaker: identical to TCP (3 failures / 30 s recovery).
-- CRC validation: performed by the rodbus serial channel; a CRC mismatch surfaces as a rodbus `FrameParse` error mapped to `anyhow::Error`.
+- CRC validation: performed by the `tokio-modbus` RTU codec; a frame that fails CRC is discarded while the codec re-synchronises, so the request ends as a timeout or transport error (mapped to `anyhow::Error`), which retires the transport for re-open.
 - Losing an intermediate frame (the master times out before the slave completes): treated as a per-operation failure; the circuit breaker records it and the next poll cycle retries.
 
 ## 6. Authentication + encryption

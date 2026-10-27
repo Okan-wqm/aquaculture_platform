@@ -20,7 +20,7 @@ const files = [
   'web/apps/aquamobil/src/hooks/useSendMessage.ts',
   'web/apps/aquamobil/src/hooks/useAiConsent.ts',
   'web/apps/aquamobil/src/utils/offline-sync-invalidation.ts',
-  'web/apps/aquamobil/src/pwa/offline-queue.ts',
+  'web/apps/aquamobil/src/pwa/offline-cache.ts',
 ];
 
 for (const file of files) {
@@ -43,19 +43,18 @@ if (/\[['"]messaging['"]/.test(aiConsentSource)) {
   fail('useAiConsent.ts contains raw messaging query keys');
 }
 
-const offlineQueueSource = read('web/apps/aquamobil/src/pwa/offline-queue.ts');
-for (const required of [
-  'cacheData: tenantId is required',
-  'getCachedData: tenantId is required',
-]) {
-  if (!offlineQueueSource.includes(required)) {
-    fail(`offline-queue.ts missing tenant requirement guard: ${required}`);
-  }
+// MOB-MEDIUM-031: the offline read cache is keyed by an OfflineCacheScope (tenant +
+// user + moduleAccess, built only from the signed token), not by a bare tenant id.
+const offlineCacheSource = read('web/apps/aquamobil/src/pwa/offline-cache.ts');
+if (
+  !/export async function readThroughOfflineCache<T>\(\s*scope: OfflineCacheScope \| null,/.test(
+    offlineCacheSource,
+  )
+) {
+  fail('offline-cache.ts must key every cached read by an OfflineCacheScope');
 }
 
-const invalidationSource = read(
-  'web/apps/aquamobil/src/utils/offline-sync-invalidation.ts',
-);
+const invalidationSource = read('web/apps/aquamobil/src/utils/offline-sync-invalidation.ts');
 if (!invalidationSource.includes('createTenantQueryKey(tenantId')) {
   fail('offline sync invalidation must build tenant-prefixed query keys');
 }

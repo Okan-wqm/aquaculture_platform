@@ -161,7 +161,9 @@ export function ChildSensorsStep({
                         </code>
                         <span className="text-xs text-gray-500 dark:text-gray-400">
                           Sample:{' '}
-                          <span className="font-mono">{formatSampleValue(sensor.sampleValue)}</span>
+                          <span className="tabular-nums">
+                            {formatSampleValue(sensor.sampleValue)}
+                          </span>
                           {sensor.unit && ` ${sensor.unit}`}
                         </span>
                       </div>

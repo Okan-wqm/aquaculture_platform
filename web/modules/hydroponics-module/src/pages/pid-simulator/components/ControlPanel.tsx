@@ -30,7 +30,7 @@ const Slider: React.FC<{
   <div className="mb-2">
     <div className="flex justify-between text-xs text-gray-600 dark:text-gray-400">
       <span>{label}</span>
-      <span className="font-mono">
+      <span className="tabular-nums">
         {value.toFixed(step < 1 ? (step < 0.1 ? 2 : 1) : 0)}
         {unit || ''}
       </span>
@@ -87,8 +87,8 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
             className={`rounded p-2 text-center ${phInRange ? 'bg-success-50 dark:bg-success-900/20' : 'bg-error-50 dark:bg-error-900/20'}`}
           >
             <div className="text-xs text-gray-500 dark:text-gray-400">pH</div>
-            <div className={`text-xl font-bold font-mono ${phColor}`}>{state.pH.toFixed(2)}</div>
-            <div className="text-xs font-mono text-gray-400 dark:text-gray-500">
+            <div className={`text-xl font-bold tabular-nums ${phColor}`}>{state.pH.toFixed(2)}</div>
+            <div className="text-xs tabular-nums text-gray-400 dark:text-gray-500">
               eq:{' '}
               <span
                 className={
@@ -105,23 +105,23 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
             className={`rounded p-2 text-center ${ecInRange ? 'bg-success-50 dark:bg-success-900/20' : 'bg-error-50 dark:bg-error-900/20'}`}
           >
             <div className="text-xs text-gray-500 dark:text-gray-400">EC (mS/cm)</div>
-            <div className={`text-xl font-bold font-mono ${ecColor}`}>{state.EC.toFixed(2)}</div>
+            <div className={`text-xl font-bold tabular-nums ${ecColor}`}>{state.EC.toFixed(2)}</div>
           </div>
           <div className="bg-gray-50 dark:bg-gray-800 rounded p-2 text-center">
             <div className="text-xs text-gray-500 dark:text-gray-400">DIC (mmol/L)</div>
-            <div className="text-sm font-mono text-gray-700 dark:text-gray-300">
+            <div className="text-sm tabular-nums text-gray-700 dark:text-gray-300">
               {state.DIC.toFixed(3)}
             </div>
           </div>
           <div className="bg-gray-50 dark:bg-gray-800 rounded p-2 text-center">
             <div className="text-xs text-gray-500 dark:text-gray-400">ALK (meq/L)</div>
-            <div className="text-sm font-mono text-gray-700 dark:text-gray-300">
+            <div className="text-sm tabular-nums text-gray-700 dark:text-gray-300">
               {state.ALK.toFixed(3)}
             </div>
           </div>
           <div className="bg-gray-50 dark:bg-gray-800 rounded p-2 text-center">
             <div className="text-xs text-gray-500 dark:text-gray-400">CO₂ (mg/L)</div>
-            <div className="text-sm font-mono text-gray-700 dark:text-gray-300">
+            <div className="text-sm tabular-nums text-gray-700 dark:text-gray-300">
               {state.co2.toFixed(1)}
               <span className="text-xs text-gray-400 dark:text-gray-500">
                 {' '}
@@ -307,7 +307,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
         <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
           Usage
         </h4>
-        <div className="space-y-1.5 text-xs font-mono">
+        <div className="space-y-1.5 text-xs tabular-nums">
           <div className="flex justify-between items-center bg-error-50 dark:bg-error-900/20 rounded px-2 py-1.5">
             <span className="text-error-700 dark:text-error-300 font-semibold">
               {acidInfo?.formula || 'Acid'}
@@ -414,7 +414,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
         </button>
       </div>
 
-      <div className="mt-2 text-center text-xs text-gray-400 dark:text-gray-500 font-mono">
+      <div className="mt-2 text-center text-xs text-gray-400 dark:text-gray-500 tabular-nums">
         Tick: {state.tick} | t = {(state.tick * config.dt).toFixed(1)}s
       </div>
     </div>

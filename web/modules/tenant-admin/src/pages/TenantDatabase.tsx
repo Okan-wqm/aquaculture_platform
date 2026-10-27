@@ -20,6 +20,10 @@ import {
 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
+  ACTIVE_OWNER_MODULE_CODES,
+  type ActiveOwnerModuleCode,
+} from '@aquaculture/shared-contracts';
+import {
   useTenantDatabase,
   useTableSchema,
   useTableData,
@@ -44,9 +48,19 @@ import { getTableSchema } from '../lib/api';
 import { SD_CARD } from '../components/ui/suderra';
 
 /**
- * Module table mappings - matches MODULE_SCHEMAS from schema-manager.service.ts
+ * A table group: a module whose features ship (the module dictionary's active owner modules,
+ * shared-contracts), or the tables no module claims.
  */
-const MODULE_TABLES: Record<string, string[]> = {
+type TableGroup = ActiveOwnerModuleCode | 'other';
+
+/** The groups in display order: the dictionary's modules in its order, then the rest. */
+const TABLE_GROUPS: readonly TableGroup[] = [...ACTIVE_OWNER_MODULE_CODES, 'other'];
+
+/**
+ * Module table mappings - matches MODULE_SCHEMAS from schema-manager.service.ts. Keyed by every
+ * active module, so a module the dictionary adds does not compile until its tables are listed.
+ */
+const MODULE_TABLES: Readonly<Record<ActiveOwnerModuleCode, readonly string[]>> = {
   sensor: [
     'sensors',
     'sensor_readings',
@@ -148,9 +162,8 @@ const MODULE_TABLES: Record<string, string[]> = {
 /**
  * Module configuration with display info
  */
-const MODULE_CONFIG: Record<
-  string,
-  { label: string; icon: React.ReactNode; color: string; bgColor: string }
+const MODULE_CONFIG: Readonly<
+  Record<TableGroup, { label: string; icon: React.ReactNode; color: string; bgColor: string }>
 > = {
   farm: {
     label: 'Farm Module',
@@ -200,13 +213,13 @@ const parseSize = (s: string): number => {
 /**
  * Get module name from table name
  */
-const getModuleFromTableName = (fullTableName: string): string => {
+const getModuleFromTableName = (fullTableName: string): TableGroup => {
   // Extract just the table name from "schema.table_name" format
   const parts = fullTableName.split('.');
   const tableName = parts[parts.length - 1];
 
-  for (const [module, tables] of Object.entries(MODULE_TABLES)) {
-    if (tables.includes(tableName)) {
+  for (const module of ACTIVE_OWNER_MODULE_CODES) {
+    if (MODULE_TABLES[module].includes(tableName)) {
       return module;
     }
   }
@@ -286,12 +299,9 @@ const TenantDatabase: React.FC = () => {
   const [sortBy, setSortBy] = useState<'name' | 'rows' | 'size'>('name');
 
   // Module grouping state - all modules expanded by default
-  const [expandedModules, setExpandedModules] = useState<Record<string, boolean>>({
-    farm: true,
-    sensor: true,
-    hr: true,
-    other: true,
-  });
+  const [expandedModules, setExpandedModules] = useState<Record<string, boolean>>(() =>
+    Object.fromEntries(TABLE_GROUPS.map((group): [TableGroup, boolean] => [group, true])),
+  );
 
   // Schema modal state
   const [selectedTable, setSelectedTable] = useState<string | null>(null);
@@ -443,12 +453,9 @@ const TenantDatabase: React.FC = () => {
 
   // Group tables by module — preserve the order from filteredTables (BUG-020)
   const groupedTables = useMemo(() => {
-    const groups: Record<string, typeof filteredTables> = {
-      farm: [],
-      sensor: [],
-      hr: [],
-      other: [],
-    };
+    const groups: Record<string, typeof filteredTables> = Object.fromEntries(
+      TABLE_GROUPS.map((group): [TableGroup, typeof filteredTables] => [group, []]),
+    );
 
     filteredTables.forEach((table) => {
       const module = getModuleFromTableName(table.name);
@@ -522,7 +529,7 @@ const TenantDatabase: React.FC = () => {
 
   type TenantTableRow = NonNullable<(typeof groupedTables)[string]>[number];
   const tableColumnsFor = (
-    config: (typeof MODULE_CONFIG)[string],
+    config: (typeof MODULE_CONFIG)[TableGroup],
   ): DataTableColumn<TenantTableRow>[] => [
     {
       key: 'tableName',
@@ -750,7 +757,7 @@ const TenantDatabase: React.FC = () => {
 
         {/* Module Groups */}
         <div className="divide-y divide-gray-100 dark:divide-gray-700">
-          {['farm', 'sensor', 'hr', 'other'].map((module) => {
+          {TABLE_GROUPS.map((module) => {
             const config = MODULE_CONFIG[module];
             const moduleTables = groupedTables[module] || [];
             const stats = getModuleStats(module);

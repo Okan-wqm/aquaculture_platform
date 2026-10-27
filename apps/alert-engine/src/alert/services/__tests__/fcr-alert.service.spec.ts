@@ -1,6 +1,6 @@
 import { FcrAlertService } from '../fcr-alert.service';
 import { AlertSeverity } from '../../../database/entities/alert-rule.entity';
-import { AlertModule } from '../../entities/alert-module.enum';
+import { OWNER_MODULE } from '@aquaculture/shared-contracts';
 import type { FCRAlertEvent } from '@platform/event-contracts';
 
 /**
@@ -100,6 +100,6 @@ describe('FcrAlertService', () => {
     await service.recordFcrAlert(makeEvent());
 
     const row = historyRepository.create.mock.calls[0][0];
-    expect([row.module, row.siteId]).toEqual([AlertModule.FARM, null]);
+    expect([row.module, row.siteId]).toEqual([OWNER_MODULE.FARM, null]);
   });
 });

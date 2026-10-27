@@ -25,6 +25,7 @@ import { execSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
+import { DEFAULT_POSTGRES_IMAGE } from '../../libs/migration-harness/src/setup';
 import {
   expectedPostgresImageFor,
   parsePostgresImageManifest,
@@ -171,6 +172,18 @@ describe('INVARIANT: Postgres images are manifest-governed and immutable', () =>
           `which requires pgvector. The non-HA timescaledb image does not include pgvector.`,
       );
     }
+  });
+
+  // ADR-053: the migration harness proves engine behaviour that the runbook
+  // relies on (a constant-default ADD COLUMN is catalog-only on PG16). That
+  // proof says nothing about production unless the harness boots the image
+  // production is built FROM. The `image:` scan above reads workflows and
+  // compose files only, so the harness constant is bound here; a Postgres bump
+  // must edit setup.ts, which re-runs the harness proof on the new image.
+  it('boots the migration harness on the manifest image', () => {
+    const manifest = readPostgresImageManifest();
+
+    expect(DEFAULT_POSTGRES_IMAGE).toBe(manifest.image);
   });
 
   it('checksum-pins the official WAL-G asset in the exact Timescale derivative', () => {

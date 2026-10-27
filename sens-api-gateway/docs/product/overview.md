@@ -71,4 +71,4 @@ A Siemens procurement lead evaluating this product against an AWS Greengrass / A
 - `sens-api-gateway/docs/SCENARIOS_BEYOND_SCADA.md` — 7 scenario catalogue
 - `docs/adr/017-st-bytecode-runtime.md`, `018-edge-rbac-abac-model.md`, `019-edge-firmware-signing-ab-partition.md`, `020-audit-log-hmac-chain.md`, `021-platform-key-ceremony-lifecycle.md`, `022-edge-schema-placement.md`, `023-sl3-upgrade-path.md`
 - `docs/reviews/edge-expert/2026-04-05-s2-high-findings.md:141-198` — Modbus defense-in-depth type-only status
-- `docs/reviews/orphan-findings.md#ORPHAN-002` — rodbus 1.4 empty-Path pin; `#ORPHAN-018` — OTA documentation gap; `#ORPHAN-008`/`#ORPHAN-009` — Modbus write routing + truncation
+- `docs/reviews/orphan-findings.md#ORPHAN-018` — OTA documentation gap; `#ORPHAN-008`/`#ORPHAN-009` — Modbus write routing + truncation

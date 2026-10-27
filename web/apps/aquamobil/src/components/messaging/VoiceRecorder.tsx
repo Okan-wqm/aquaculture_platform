@@ -204,7 +204,7 @@ export function VoiceRecorder({
           className={clsx(
             // The near-limit state now differs by WEIGHT only, because coral is
             // already the recording colour — a second red would say nothing.
-            'text-body font-mono tabular-nums shrink-0 min-w-[48px] text-center',
+            'text-body tabular-nums shrink-0 min-w-[48px] text-center',
             isRecording ? (isNearLimit ? 'text-crit font-bold' : 'text-crit') : 'text-ink-2',
           )}
         >

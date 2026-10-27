@@ -7,10 +7,9 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { parseWidgetTimeRange, WidgetConfig } from '../components/dashboard/types';
-import { getAccessToken, getTenantId } from '@aquaculture/shared-ui';
-
-// API base URL
-const API_URL = '/graphql';
+// FE-MEDIUM-380: the module's one GraphQL transport — the shared client, which also reports a
+// GRAPHQL_VALIDATION_FAILED to the shell's build-skew check (config/api.ts).
+import { graphqlFetch } from '../config/api';
 
 // ============================================================================
 // Types
@@ -183,38 +182,6 @@ function withParsedTimeRanges(layout: DashboardLayout): DashboardLayout {
       timeRange: parseWidgetTimeRange(widget.timeRange),
     })),
   };
-}
-
-// ============================================================================
-// GraphQL Fetch Helper
-// ============================================================================
-
-async function graphqlFetch<T>(
-  query: string,
-  variables?: Record<string, unknown>
-): Promise<T> {
-  const token = getAccessToken();
-  const tenantId = getTenantId();
-
-  const response = await fetch(API_URL, {
-    method: 'POST',
-    mode: 'cors',
-    credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(tenantId ? { 'X-Tenant-Id': tenantId } : {}),
-    },
-    body: JSON.stringify({ query, variables }),
-  });
-
-  const result = await response.json();
-
-  if (result.errors) {
-    throw new Error(result.errors[0]?.message || 'GraphQL Error');
-  }
-
-  return result.data;
 }
 
 // ============================================================================

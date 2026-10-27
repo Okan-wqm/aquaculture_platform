@@ -5591,8 +5591,8 @@
               "type": "string",
               "enum": [
                 "all",
-                "inactive",
-                "active"
+                "active",
+                "inactive"
               ]
             }
           },
@@ -16849,8 +16849,8 @@
               "type": "string",
               "enum": [
                 "activate",
-                "suspend",
                 "deactivate",
+                "suspend",
                 "archive",
                 "retryProvisioning"
               ]
@@ -20934,11 +20934,11 @@
           },
           "status": {
             "enum": [
+              "active",
               "draft",
               "pending_approval",
               "approved",
               "expired",
-              "active",
               "rejected"
             ],
             "type": "string"
@@ -21943,9 +21943,9 @@
           },
           "status": {
             "enum": [
+              "active",
               "draft",
-              "inactive",
-              "active"
+              "inactive"
             ],
             "type": "string"
           },
@@ -22461,8 +22461,8 @@
           "status": {
             "enum": [
               "failed",
-              "sent",
               "read",
+              "sent",
               "delivered"
             ],
             "type": "string"
@@ -23336,12 +23336,12 @@
           },
           "category": {
             "enum": [
+              "account",
               "general",
               "billing",
               "technical",
               "feature_request",
-              "bug_report",
-              "account"
+              "bug_report"
             ],
             "type": "string"
           },
@@ -23457,12 +23457,12 @@
           "category": {
             "type": "string",
             "enum": [
+              "account",
               "general",
               "billing",
               "technical",
               "feature_request",
-              "bug_report",
-              "account"
+              "bug_report"
             ]
           },
           "priority": {
@@ -23498,12 +23498,12 @@
           "category": {
             "type": "string",
             "enum": [
+              "account",
               "general",
               "billing",
               "technical",
               "feature_request",
-              "bug_report",
-              "account"
+              "bug_report"
             ]
           },
           "priority": {

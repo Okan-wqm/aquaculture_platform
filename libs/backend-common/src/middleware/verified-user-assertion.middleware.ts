@@ -1,3 +1,4 @@
+import { isModuleAccess } from '@aquaculture/shared-contracts';
 import { BadRequestException, Injectable, Logger, NestMiddleware } from '@nestjs/common';
 import type { NextFunction, Request, Response } from 'express';
 
@@ -104,6 +105,9 @@ export class VerifiedUserAssertionMiddleware implements NestMiddleware {
           roles: assertion.roles,
           email: assertion.email ?? undefined,
           mfaVerified: assertion.mfaVerified,
+          // RBAC-HIGH-028: the per-module grants reach every resolver on the production path;
+          // the member caller (userCaller) is built from them. Absent means no grants.
+          ...(assertion.moduleAccess !== undefined ? { moduleAccess: assertion.moduleAccess } : {}),
           // SEC-HIGH-051 / SEC-HIGH-052: expose the object-level authorization
           // claims on the PRODUCTION gateway path (where req.user is rebuilt
           // from the assertion, NOT the raw JWT). Without this the claims would
@@ -224,6 +228,13 @@ export class VerifiedUserAssertionMiddleware implements NestMiddleware {
     if (candidate.assertionId !== undefined && typeof candidate.assertionId !== 'string') {
       throw new BadRequestException('Verified user assertion has invalid assertionId');
     }
+    // RBAC-HIGH-028 (ADR-051 §2): moduleAccess is absent only from a gateway of the previous
+    // release (no grants); when present it must be the claim's exact shape — owner modules of
+    // the dictionary mapped to module roles. alert, ai, unknown codes, account roles and any
+    // other shape are a malformed claim, answered with 400 like every claim below.
+    if (candidate.moduleAccess !== undefined && !isModuleAccess(candidate.moduleAccess)) {
+      throw new BadRequestException('Verified user assertion has invalid moduleAccess');
+    }
     // SEC-HIGH-051 / SEC-HIGH-052: the object-level authorization claims are
     // optional, but when present each must be a string[] whose members are all
     // strings — reject a malformed claim fail-closed (mirrors the roles check).
@@ -267,6 +278,7 @@ export class VerifiedUserAssertionMiddleware implements NestMiddleware {
       mfaVerified: candidate.mfaVerified ?? false,
       issuedAt: candidate.issuedAt,
       assertionId: candidate.assertionId,
+      moduleAccess: candidate.moduleAccess,
       assignedSiteIds: candidate.assignedSiteIds,
       mobileFeatures: candidate.mobileFeatures,
       resourcePermissions: candidate.resourcePermissions,

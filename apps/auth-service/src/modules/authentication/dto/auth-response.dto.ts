@@ -3,6 +3,8 @@ import { Role } from '@aquaculture/backend-common/decorators';
 
 import { User } from '../entities/user.entity';
 
+import { ModuleAccessGrants } from './module-access.dto';
+
 @ObjectType()
 export class AuthPayload {
   @Field()
@@ -100,8 +102,16 @@ export class MePayload {
   @Field(() => User)
   user!: User;
 
+  /** Legacy module list; the release-R1 web reads it (C1). */
   @Field(() => [UserModule])
   modules!: UserModule[];
+
+  /**
+   * RBAC-HIGH-027: the session's per-module grants, the same read the token mint makes. Added in
+   * release R1 and read by the web from R2 (C1).
+   */
+  @Field(() => ModuleAccessGrants)
+  moduleAccess!: ModuleAccessGrants;
 
   @Field()
   redirectPath!: string;

@@ -10,7 +10,7 @@
  */
 import type { Repository } from 'typeorm';
 
-import { HrModuleCode } from '../../common/enums';
+import { OWNER_MODULE, type OwnerModuleCode } from '@aquaculture/shared-contracts';
 import type { Employee } from '../../hr/entities/employee.entity';
 import type { AttendanceRecord } from '../entities/attendance-record.entity';
 import { GetAttendanceRecordsQuery } from '../queries/get-attendance-records.query';
@@ -64,7 +64,7 @@ function repositoryOf<Entity extends object>(queryBuilder: QueryBuilderDouble): 
 function expectScopedTo(
   queryBuilder: QueryBuilderDouble,
   employeeAlias: string,
-  moduleCode: HrModuleCode,
+  moduleCode: OwnerModuleCode,
 ): void {
   expect(queryBuilder['innerJoin']).toHaveBeenCalledTimes(1);
   expect(queryBuilder['innerJoin']).toHaveBeenCalledWith(
@@ -87,22 +87,22 @@ describe('attendance queries — module scope', () => {
 
     it('lists only records of employees in the module when one is given', async () => {
       const queryBuilder = await run(
-        new GetTodaysAttendanceQuery(tenantId, undefined, HrModuleCode.HYDROPONICS),
+        new GetTodaysAttendanceQuery(tenantId, undefined, OWNER_MODULE.HYDROPONICS),
       );
 
-      expectScopedTo(queryBuilder, 'employee', HrModuleCode.HYDROPONICS);
+      expectScopedTo(queryBuilder, 'employee', OWNER_MODULE.HYDROPONICS);
     });
 
     it('keeps the tenant predicate and the employee filter beside the scope', async () => {
       const queryBuilder = await run(
-        new GetTodaysAttendanceQuery(tenantId, 'emp-1', HrModuleCode.FARM),
+        new GetTodaysAttendanceQuery(tenantId, 'emp-1', OWNER_MODULE.FARM),
       );
 
       expect(queryBuilder['where']).toHaveBeenCalledWith('ar.tenantId = :tenantId', { tenantId });
       expect(queryBuilder['andWhere']).toHaveBeenCalledWith('ar.employeeId = :employeeId', {
         employeeId: 'emp-1',
       });
-      expectScopedTo(queryBuilder, 'employee', HrModuleCode.FARM);
+      expectScopedTo(queryBuilder, 'employee', OWNER_MODULE.FARM);
     });
 
     it('is untouched without a module (the Company view)', async () => {
@@ -133,12 +133,12 @@ describe('attendance queries — module scope', () => {
           undefined,
           20,
           1,
-          HrModuleCode.SENSOR,
+          OWNER_MODULE.SENSOR,
         ),
       );
 
       expect(queryBuilder['where']).toHaveBeenCalledWith('ar.tenantId = :tenantId', { tenantId });
-      expectScopedTo(queryBuilder, 'employee', HrModuleCode.SENSOR);
+      expectScopedTo(queryBuilder, 'employee', OWNER_MODULE.SENSOR);
     });
 
     it('is untouched without a module (the Company view)', async () => {
@@ -177,12 +177,12 @@ describe('attendance queries — module scope', () => {
           undefined,
           20,
           1,
-          HrModuleCode.FARM,
+          OWNER_MODULE.FARM,
         ),
       );
 
       expect(queryBuilder['where']).toHaveBeenCalledWith('ar.tenantId = :tenantId', { tenantId });
-      expectScopedTo(queryBuilder, 'employee', HrModuleCode.FARM);
+      expectScopedTo(queryBuilder, 'employee', OWNER_MODULE.FARM);
     });
 
     // The module IS the scope: an approver placed in a company-wide department must still see the
@@ -195,13 +195,13 @@ describe('attendance queries — module scope', () => {
           undefined,
           20,
           1,
-          HrModuleCode.SENSOR,
+          OWNER_MODULE.SENSOR,
         ),
       );
 
       expect(queryBuilder['andWhere']).not.toHaveBeenCalledWith(...ownDepartmentNarrowing);
       expect(approverLookup).not.toHaveBeenCalled();
-      expectScopedTo(queryBuilder, 'employee', HrModuleCode.SENSOR);
+      expectScopedTo(queryBuilder, 'employee', OWNER_MODULE.SENSOR);
     });
 
     it('keeps an explicit department beside the module', async () => {
@@ -212,7 +212,7 @@ describe('attendance queries — module scope', () => {
           'dept-explicit',
           20,
           1,
-          HrModuleCode.FARM,
+          OWNER_MODULE.FARM,
         ),
       );
 
@@ -222,7 +222,7 @@ describe('attendance queries — module scope', () => {
           departmentId: 'dept-explicit',
         },
       );
-      expectScopedTo(queryBuilder, 'employee', HrModuleCode.FARM);
+      expectScopedTo(queryBuilder, 'employee', OWNER_MODULE.FARM);
     });
 
     it('is untouched without a module (the Company view)', async () => {
@@ -332,11 +332,11 @@ describe('attendance queries — module scope', () => {
             undefined,
             20,
             1,
-            HrModuleCode.SENSOR,
+            OWNER_MODULE.SENSOR,
           ),
         );
 
-        expectScopedTo(queryBuilder, 'employee', HrModuleCode.SENSOR);
+        expectScopedTo(queryBuilder, 'employee', OWNER_MODULE.SENSOR);
       });
     });
   });
@@ -368,16 +368,16 @@ describe('attendance queries — module scope', () => {
 
     it('counts the module employees and their attendance when a module is given', async () => {
       const { employees, records } = await run(
-        new GetDailyAttendanceOverviewQuery(tenantId, '2026-03-08', HrModuleCode.FARM),
+        new GetDailyAttendanceOverviewQuery(tenantId, '2026-03-08', OWNER_MODULE.FARM),
       );
 
-      expectScopedTo(employees, 'employee', HrModuleCode.FARM);
-      expectScopedTo(records, 'employee', HrModuleCode.FARM);
+      expectScopedTo(employees, 'employee', OWNER_MODULE.FARM);
+      expectScopedTo(records, 'employee', OWNER_MODULE.FARM);
     });
 
     it('keeps both counts tenant-scoped beside the module scope', async () => {
       const { employees, records } = await run(
-        new GetDailyAttendanceOverviewQuery(tenantId, '2026-03-08', HrModuleCode.HYDROPONICS),
+        new GetDailyAttendanceOverviewQuery(tenantId, '2026-03-08', OWNER_MODULE.HYDROPONICS),
       );
 
       expect(employees['where']).toHaveBeenCalledWith('employee.tenantId = :tenantId', {
@@ -397,7 +397,7 @@ describe('attendance queries — module scope', () => {
 
     it('derives absent and the rate from the scoped counts', async () => {
       const { overview } = await run(
-        new GetDailyAttendanceOverviewQuery(tenantId, '2026-03-08', HrModuleCode.FARM),
+        new GetDailyAttendanceOverviewQuery(tenantId, '2026-03-08', OWNER_MODULE.FARM),
       );
 
       expect(overview).toEqual({

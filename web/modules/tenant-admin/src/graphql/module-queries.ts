@@ -41,7 +41,6 @@ export const MY_TENANT_MODULES_QUERY = `
       configuration
       activatedAt
       expiresAt
-      managerId
     }
   }
 `;
@@ -74,22 +73,62 @@ export const MODULE_USAGE_STATS_QUERY = `
 // Mutations
 // ============================================================================
 
+// PKG-06: Assign / Remove Manager name the module by its code and write the module's primary
+// manager grant; no document reads tenant_modules.managerId, which PKG-06 PR2 unmaps (ADR-051 §5).
 export const ASSIGN_MODULE_MANAGER_MUTATION = `
   mutation AssignModuleManager($input: AssignModuleManagerInput!) {
     assignModuleManager(input: $input) {
       id
       moduleId
-      managerId
     }
   }
 `;
 
 export const REMOVE_MODULE_MANAGER_MUTATION = `
-  mutation RemoveModuleManager($moduleId: ID!) {
-    removeModuleManager(moduleId: $moduleId) {
+  mutation RemoveModuleManager($moduleCode: String!) {
+    removeModuleManager(moduleCode: $moduleCode) {
       id
       moduleId
-      managerId
+    }
+  }
+`;
+
+/** Each owner module's designated managers who hold its manager grant (PKG-06). */
+export const MODULE_PRIMARY_MANAGERS_QUERY = `
+  query ModulePrimaryManagers {
+    modulePrimaryManagers {
+      moduleCode
+      userId
+    }
+  }
+`;
+
+/** A member's module roles as their next token carries them (PKG-06). */
+export const USER_MODULE_ACCESS_QUERY = `
+  query UserModuleAccess($userId: ID!) {
+    userModuleAccess(userId: $userId) {
+      userId
+      moduleAccess {
+        farm
+        hr
+        sensor
+        hydroponics
+      }
+    }
+  }
+`;
+
+/** Replaces a member's module roles as a whole (PKG-06, setUserModuleAccess). */
+export const SET_USER_MODULE_ACCESS_MUTATION = `
+  mutation SetUserModuleAccess($input: SetUserModuleAccessInput!) {
+    setUserModuleAccess(input: $input) {
+      userId
+      moduleAccess {
+        farm
+        hr
+        sensor
+        hydroponics
+      }
     }
   }
 `;

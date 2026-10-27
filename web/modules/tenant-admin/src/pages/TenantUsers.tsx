@@ -7,6 +7,7 @@ import { AddEditUserModal, type UserFormData } from '../components/users/AddEdit
 import { UserFilters } from '../components/users/UserFilters';
 import { BulkActions } from '../components/users/BulkActions';
 import { UserListSection, type DisplayUser } from '../components/users/UserListSection';
+import { ModuleAccessModal } from '../components/users/ModuleAccessModal';
 import { SiteAccessModal } from '../components/users/SiteAccessModal';
 import { EffectivePermissionsModal } from '../components/users/EffectivePermissionsModal';
 import { useTenantRoles } from '../hooks/useTenantRoles';
@@ -117,6 +118,7 @@ const TenantUsers: React.FC = () => {
   const [editingUser, setEditingUser] = useState<DisplayUser | null>(null);
   const [deletingUser, setDeletingUser] = useState<DisplayUser | null>(null);
   const [siteAccessUser, setSiteAccessUser] = useState<DisplayUser | null>(null);
+  const [moduleAccessUser, setModuleAccessUser] = useState<DisplayUser | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [activatingUser, setActivatingUser] = useState<DisplayUser | null>(null);
   const [unlockingUser, setUnlockingUser] = useState<DisplayUser | null>(null);
@@ -399,6 +401,7 @@ const TenantUsers: React.FC = () => {
           setDeleteError(null);
         }}
         onManageSiteAccess={setSiteAccessUser}
+        onManageModuleAccess={setModuleAccessUser}
         onActivateUser={(user) => {
           setLifecycleModalError(null);
           setLifecycleError(null);
@@ -436,6 +439,12 @@ const TenantUsers: React.FC = () => {
         isOpen={siteAccessUser !== null}
         onClose={() => setSiteAccessUser(null)}
         user={siteAccessUser}
+      />
+
+      <ModuleAccessModal
+        isOpen={moduleAccessUser !== null}
+        onClose={() => setModuleAccessUser(null)}
+        user={moduleAccessUser}
       />
 
       {deletingUser && (

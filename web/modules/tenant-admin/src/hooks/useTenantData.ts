@@ -7,6 +7,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { UseQueryResult } from '@tanstack/react-query';
 import { createTenantQueryKey, createTenantInvalidationKey, getTenantId, useFeedbackMutation } from '@aquaculture/shared-ui';
+import type { OwnerModuleCode } from '@aquaculture/shared-contracts';
 import {
   getMyTenant,
   getTenantStats,
@@ -15,8 +16,6 @@ import {
   getTenantDatabase,
   getTableSchema,
   getTableData,
-  assignModuleManager,
-  removeModuleManager,
   updateTenant,
   getMyModuleRefs,
   getModuleUsageStats,
@@ -48,6 +47,7 @@ import {
   viewAnnouncement,
   acknowledgeAnnouncement as acknowledgeAnnouncementApi,
 } from '../lib/api';
+import { assignModuleManager, removeModuleManager } from '../lib/module-access-api';
 import type {
   Tenant,
   TenantStats,
@@ -103,6 +103,10 @@ export const tenantKeys = {
   modules: () => createTenantQueryKey(getTenantId(), 'modules'),
   moduleRefs: () => createTenantQueryKey(getTenantId(), 'moduleRefs'),
   moduleUsageStats: () => createTenantQueryKey(getTenantId(), 'moduleUsageStats'),
+  // PKG-06: module access (useModuleAccess.ts).
+  modulePrimaryManagers: () => createTenantQueryKey(getTenantId(), 'modulePrimaryManagers'),
+  userModuleAccess: (userId: string) =>
+    createTenantQueryKey(getTenantId(), 'userModuleAccess', userId),
   users: (filters?: Record<string, unknown>) =>
     createTenantQueryKey(getTenantId(), 'users', filters),
   userEffectivePermissions: (userId: string) =>
@@ -209,34 +213,35 @@ export function useTenantDatabase() {
 }
 
 /**
- * Hook to assign module manager
+ * Hook to assign a module's manager, named by the module code (PKG-06): the designee gets the
+ * module's primary manager grant. The manager listing and the module rows are refetched.
  */
 export function useAssignModuleManager() {
   const queryClient = useQueryClient();
 
   return useFeedbackMutation({
     feedback: { success: 'Module manager assigned' },
-    mutationFn: ({ moduleId, userId }: { moduleId: string; userId: string }) =>
-      assignModuleManager(moduleId, userId),
+    mutationFn: ({ moduleCode, userId }: { moduleCode: OwnerModuleCode; userId: string }) =>
+      assignModuleManager(moduleCode, userId),
     onSuccess: () => {
-      // Invalidate modules query to refetch
       queryClient.invalidateQueries({ queryKey: tenantKeys.modules() });
+      queryClient.invalidateQueries({ queryKey: tenantKeys.modulePrimaryManagers() });
     },
   });
 }
 
 /**
- * Hook to remove module manager
+ * Hook to remove a module's manager, named by the module code (PKG-06).
  */
 export function useRemoveModuleManager() {
   const queryClient = useQueryClient();
 
   return useFeedbackMutation({
     feedback: { success: 'Module manager removed' },
-    mutationFn: (moduleId: string) => removeModuleManager(moduleId),
+    mutationFn: (moduleCode: OwnerModuleCode) => removeModuleManager(moduleCode),
     onSuccess: () => {
-      // Invalidate modules query to refetch
       queryClient.invalidateQueries({ queryKey: tenantKeys.modules() });
+      queryClient.invalidateQueries({ queryKey: tenantKeys.modulePrimaryManagers() });
     },
   });
 }

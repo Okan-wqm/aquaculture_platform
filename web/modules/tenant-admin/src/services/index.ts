@@ -24,8 +24,6 @@ export {
   getMyModuleRefs,
   getMyTenantModules,
   getModuleUsageStats,
-  assignModuleManager,
-  removeModuleManager,
   getTenantDatabase,
   getTableSchema,
   getTableData,

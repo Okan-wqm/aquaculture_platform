@@ -1,5 +1,14 @@
 import React from 'react';
-import { Users, Edit, Trash2, MapPin, UserCheck, LockOpen, ShieldCheck } from 'lucide-react';
+import {
+  Users,
+  Edit,
+  Trash2,
+  MapPin,
+  UserCheck,
+  LockOpen,
+  ShieldCheck,
+  LayoutGrid,
+} from 'lucide-react';
 import { UserAvatar } from '../ui/UserAvatar';
 import { RoleBadge } from '../ui/RoleBadge';
 import { StatusBadge } from '../ui/StatusBadge';
@@ -35,6 +44,8 @@ export interface UserListSectionProps {
   onEditUser: (user: DisplayUser) => void;
   onDeleteUser: (user: DisplayUser) => void;
   onManageSiteAccess: (user: DisplayUser) => void;
+  /** PKG-06: a member's role in each module (setUserModuleAccess). */
+  onManageModuleAccess: (user: DisplayUser) => void;
   /** ADMIN-HIGH-012: the return leg of deactivation. */
   onActivateUser: (user: DisplayUser) => void;
   /** ADMIN-HIGH-012: clear a failed-login lockout. */
@@ -47,6 +58,11 @@ export interface UserListSectionProps {
   canDeactivateUsers: boolean;
   canManageSiteAccess: boolean;
   totalUsersInPage: number;
+}
+
+/** A member holds module roles; an administrator holds every enabled module (ADR-051 §1). */
+function isMember(user: DisplayUser): boolean {
+  return user.role !== 'TENANT_ADMIN' && user.role !== 'SUPER_ADMIN';
 }
 
 /**
@@ -63,6 +79,7 @@ export const UserListSection: React.FC<UserListSectionProps> = ({
   onEditUser,
   onDeleteUser,
   onManageSiteAccess,
+  onManageModuleAccess,
   onActivateUser,
   onUnlockUser,
   onViewPermissions,
@@ -134,6 +151,21 @@ export const UserListSection: React.FC<UserListSectionProps> = ({
               <MapPin className="w-4 h-4" aria-hidden="true" />
             </Button>
           )}
+          {/* PKG-06: module roles are a member's; an administrator holds every enabled module.
+              The same tenant-administrator gate as site access (TenantAdminOrHigher). */}
+          {canManageSiteAccess && isMember(user) && (
+            <Button
+              variant="ghost"
+              size="sm"
+              iconOnly
+              type="button"
+              onClick={() => onManageModuleAccess(user)}
+              aria-label={`Manage module access for ${user.name}`}
+              title="Manage module access"
+            >
+              <LayoutGrid className="w-4 h-4" aria-hidden="true" />
+            </Button>
+          )}
           {canDeactivateUsers && user.status !== 'inactive' && (
             <Button
               variant="ghost"
@@ -191,9 +223,7 @@ export const UserListSection: React.FC<UserListSectionProps> = ({
               <ShieldCheck className="w-4 h-4" aria-hidden="true" />
             </Button>
           )}
-          {!canEditUsers &&
-          !canDeactivateUsers &&
-          !(canManageSiteAccess && user.role === 'MODULE_USER') ? (
+          {!canEditUsers && !canDeactivateUsers && !(canManageSiteAccess && isMember(user)) ? (
             <span className="text-xs text-gray-500 dark:text-gray-400">View only</span>
           ) : null}
         </div>

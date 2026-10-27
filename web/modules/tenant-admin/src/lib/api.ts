@@ -44,8 +44,6 @@ import {
   MY_MODULES_QUERY,
   MY_MODULE_REFS_QUERY,
   MODULE_USAGE_STATS_QUERY,
-  ASSIGN_MODULE_MANAGER_MUTATION,
-  REMOVE_MODULE_MANAGER_MUTATION,
   EDGE_DEVICES_QUERY,
   EDGE_DEVICE_QUERY,
   DEVICE_EVENTS_QUERY,
@@ -428,21 +426,7 @@ export async function getModuleUsageStats(): Promise<ModuleUsageStat[]> {
   return data.moduleUsageStats;
 }
 
-export async function assignModuleManager(moduleId: string, userId: string): Promise<TenantModule> {
-  const data = await apiClient.graphql<{ assignModuleManager: TenantModule }>(
-    ASSIGN_MODULE_MANAGER_MUTATION,
-    { input: { moduleId, userId } },
-  );
-  return data.assignModuleManager;
-}
-
-export async function removeModuleManager(moduleId: string): Promise<TenantModule> {
-  const data = await apiClient.graphql<{ removeModuleManager: TenantModule }>(
-    REMOVE_MODULE_MANAGER_MUTATION,
-    { moduleId },
-  );
-  return data.removeModuleManager;
-}
+// Assign / Remove Manager and member module roles: lib/module-access-api.ts (PKG-06).
 
 // ============================================================================
 // Database

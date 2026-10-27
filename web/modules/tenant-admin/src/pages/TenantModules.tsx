@@ -2,7 +2,9 @@ import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Package, Search, RefreshCw, AlertCircle } from 'lucide-react';
 import { useAuthContext, PageHeader, Button, Select } from '@aquaculture/shared-ui';
-import { useModuleRefs, useModuleUsageStats } from '../hooks/useTenantData';
+import { isOwnerModuleCode } from '@aquaculture/shared-contracts';
+import { useModuleRefs, useModuleUsageStats, useTenantUsers } from '../hooks/useTenantData';
+import { useModulePrimaryManagers } from '../hooks/useModuleAccess';
 import { ModuleCard, AssignManagerModal, ModuleDetailsModal } from '../components/modules';
 import type { DisplayModule } from '../components/modules';
 import type { MyModuleRef } from '../lib/types';
@@ -33,9 +35,10 @@ const moduleFeaturesMap: Record<string, string[]> = {
  * TenantModules Page
  *
  * Uses AuthContext modules (from login) as the source of truth for display,
- * augmented by a myModules GraphQL call to obtain real module UUIDs needed
- * for mutations such as assignModuleManager (BUG-019) and the icon name each
- * module record carries (drawn by ModuleIcon; the login payload has none).
+ * augmented by a myModules GraphQL call to obtain each module's record id
+ * (BUG-019) and the icon name it carries (drawn by ModuleIcon; the login
+ * payload has none). Assign Manager names the module by its code (PKG-06),
+ * and each owner module's manager comes from the primary-manager listing.
  *
  * FIX MED-08: Uses module.code as stable React key instead of module.id
  * (which changes when the UUID lookup resolves) to prevent card flicker.
@@ -58,8 +61,14 @@ const TenantModules: React.FC = () => {
   // Wave 4: Fetch module usage stats (graceful fallback)
   const { data: usageStats = {}, error: usageError } = useModuleUsageStats();
 
+  // PKG-06: each owner module's designated manager comes from the primary-manager listing — the
+  // grant the token reads — and is named from the tenant's users. tenant_modules.managerId is no
+  // longer read (ADR-051 §5).
+  const { data: primaryManagers = [], error: managersError } = useModulePrimaryManagers();
+  const { data: tenantUsers = [] } = useTenantUsers();
+
   // FIX MED-17: Surface fetch errors
-  const fetchError = moduleRefError || usageError;
+  const fetchError = moduleRefError || usageError || managersError;
 
   // Transform AuthContext modules to DisplayModule format
   const modules = useMemo<DisplayModule[]>(() => {
@@ -69,6 +78,12 @@ const TenantModules: React.FC = () => {
       const code = m.code || '';
       const stats = usageStats[code];
       const ref: MyModuleRef | undefined = moduleRefByCode[code];
+      const ownerModule = isOwnerModuleCode(code) ? code : null;
+      const designated = primaryManagers.find((entry) => entry.moduleCode === ownerModule);
+      const managerUser =
+        designated === undefined
+          ? undefined
+          : tenantUsers.find((candidate) => candidate.id === designated.userId);
       return {
         id: ref ? ref.id : code,
         code,
@@ -76,7 +91,17 @@ const TenantModules: React.FC = () => {
         description: `${m.name || code} module for your tenant`,
         status: 'active' as const,
         assignedUsers: stats?.userCount ?? 0,
-        manager: undefined,
+        ownerModule,
+        manager:
+          managerUser === undefined
+            ? undefined
+            : {
+                id: managerUser.id,
+                name:
+                  `${managerUser.firstName || ''} ${managerUser.lastName || ''}`.trim() ||
+                  managerUser.email,
+                email: managerUser.email,
+              },
         lastActivity: stats?.lastAccessAt
           ? new Date(stats.lastAccessAt).toLocaleDateString()
           : 'Recently',
@@ -86,7 +111,7 @@ const TenantModules: React.FC = () => {
         activatedAt: new Date().toISOString(),
       };
     });
-  }, [authModules, moduleRefByCode, usageStats]);
+  }, [authModules, moduleRefByCode, usageStats, primaryManagers, tenantUsers]);
 
   const filteredModules = modules.filter((module) => {
     const matchesSearch = module.name.toLowerCase().includes(searchQuery.toLowerCase());

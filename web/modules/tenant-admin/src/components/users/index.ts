@@ -17,3 +17,4 @@ export type { UserListSectionProps, DisplayUser, PaginationState } from './UserL
 export { EffectivePermissionsModal } from './EffectivePermissionsModal';
 export type { EffectivePermissionsModalProps } from './EffectivePermissionsModal';
 export { SiteAccessModal } from './SiteAccessModal';
+export { ModuleAccessModal } from './ModuleAccessModal';

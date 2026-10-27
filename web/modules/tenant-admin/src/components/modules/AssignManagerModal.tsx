@@ -7,7 +7,9 @@ import { UserAvatar } from '../ui/UserAvatar';
 import type { DisplayModule } from './ModuleCard';
 
 /**
- * Assign Manager Modal -- search and select a user to manage a module.
+ * Assign Manager Modal -- search and select a user to manage a module. The choice becomes the
+ * module's primary manager grant, named by the module code (PKG-06); the user's account role is
+ * left as it is.
  */
 const AssignManagerModal: React.FC<{
   isOpen: boolean;
@@ -38,10 +40,14 @@ const AssignManagerModal: React.FC<{
   );
 
   const handleConfirm = async () => {
-    if (!selectedUserId || !module) return;
+    // PKG-06: only an owner module has a manager, named by its code (never its catalogue id).
+    if (!selectedUserId || !module || module.ownerModule === null) return;
     setAssignError(null);
     try {
-      await assignMutation.mutateAsync({ moduleId: module.id, userId: selectedUserId });
+      await assignMutation.mutateAsync({
+        moduleCode: module.ownerModule,
+        userId: selectedUserId,
+      });
       setSelectedUserId(null);
       onClose();
     } catch (err) {

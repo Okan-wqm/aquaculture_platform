@@ -109,7 +109,6 @@ export interface TenantModule {
   configuration?: Record<string, unknown>;
   activatedAt: string;
   expiresAt?: string;
-  managerId?: string;
 }
 
 /**

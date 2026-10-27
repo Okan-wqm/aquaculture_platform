@@ -17,6 +17,7 @@ import {
 import { UserAvatar } from '../ui/UserAvatar';
 import ModuleIcon from './ModuleIcon';
 import { SD_CARD } from '../ui/suderra';
+import type { OwnerModuleCode } from '@aquaculture/shared-contracts';
 
 /**
  * Module for display.
@@ -28,6 +29,12 @@ export interface DisplayModule {
   description: string;
   status: 'active' | 'inactive' | 'pending';
   assignedUsers: number;
+  /**
+   * The owner module this card stands for (PKG-06), or null for a module that owns no data
+   * (alert, ai) and so has no manager to assign.
+   */
+  ownerModule: OwnerModuleCode | null;
+  /** The module's designated manager, from the primary-manager listing. */
   manager?: {
     id: string;
     name: string;
@@ -182,43 +189,45 @@ const ModuleCard: React.FC<ModuleCardProps> = ({
         </div>
       )}
 
-      {/* Manager Section */}
-      <div className="p-4 border-t border-gray-100 dark:border-gray-700">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Shield className="w-4 h-4 text-gray-500 dark:text-gray-400" />
-            <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-              Module Manager
-            </span>
-          </div>
-        </div>
-
-        {module.manager ? (
-          <div className="flex items-center justify-between mt-3">
-            <div className="flex items-center gap-3">
-              <UserAvatar name={module.manager.name} size="sm" />
-              <div>
-                <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                  {module.manager.name}
-                </p>
-                <p className="text-xs text-gray-500 dark:text-gray-400">{module.manager.email}</p>
-              </div>
+      {/* Manager Section — only an owner module has a manager (PKG-06) */}
+      {module.ownerModule !== null && (
+        <div className="p-4 border-t border-gray-100 dark:border-gray-700">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Shield className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+              <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                Module Manager
+              </span>
             </div>
-            <Button variant="ghost" size="xs" onClick={() => onAssignManager(module)}>
-              Change
-            </Button>
           </div>
-        ) : (
-          <Button
-            variant="secondary"
-            className="mt-3 justify-center"
-            leftIcon={<UserPlus className="w-4 h-4" />}
-            onClick={() => onAssignManager(module)}
-          >
-            Assign Manager
-          </Button>
-        )}
-      </div>
+
+          {module.manager ? (
+            <div className="flex items-center justify-between mt-3">
+              <div className="flex items-center gap-3">
+                <UserAvatar name={module.manager.name} size="sm" />
+                <div>
+                  <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                    {module.manager.name}
+                  </p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">{module.manager.email}</p>
+                </div>
+              </div>
+              <Button variant="ghost" size="xs" onClick={() => onAssignManager(module)}>
+                Change
+              </Button>
+            </div>
+          ) : (
+            <Button
+              variant="secondary"
+              className="mt-3 justify-center"
+              leftIcon={<UserPlus className="w-4 h-4" />}
+              onClick={() => onAssignManager(module)}
+            >
+              Assign Manager
+            </Button>
+          )}
+        </div>
+      )}
 
       {/* Features */}
       <div className="px-4 pb-4">

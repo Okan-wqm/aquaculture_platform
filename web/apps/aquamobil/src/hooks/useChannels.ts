@@ -20,15 +20,14 @@ import { useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-q
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useAuth } from './useAuth';
+import { useOfflineCacheScope } from './useOfflineCacheScope';
 
 import { MY_CHANNELS } from '@/graphql/messaging-operations';
-import { cacheUserData, getCachedUserData } from '@/pwa/offline-queue';
+import { readThroughOfflineCache } from '@/pwa/offline-cache';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import type { ChannelPage } from '@/types/messaging';
 import { normalizeChannelType } from '@/utils/channel-type-wire';
-import { logger } from '@/utils/logger';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
-import { userScopedCacheKey } from '@/utils/user-scoped-cache-key';
 
 /** Number of channels per page. */
 const PAGE_SIZE = 30;
@@ -100,6 +99,7 @@ export function useChannels(
   socketRef?: React.RefObject<ChannelSocketLike | null>,
 ): UseChannelsReturn {
   const { isAuthenticated, tenantId, user } = useAuth();
+  const cacheScope = useOfflineCacheScope();
   const queryClient = useQueryClient();
   const [offset, setOffset] = useState(0);
 
@@ -108,7 +108,7 @@ export function useChannels(
   const query = useQuery({
     // MT-CRITICAL-051: `myChannels` is membership-scoped — it returns the CURRENT
     // USER's channels — so user.id is part of BOTH the React Query key (this line)
-    // AND the IndexedDB cache namespace (userScopedCacheKey below). Without the
+    // AND the offline cache scope (tenant + user + grants, MOB-MEDIUM-031). Without the
     // user dimension, user A's channel list (sender names, unread state) is served
     // to user B on the same tenant/device after a logout→login. WHY 2026-04-29: the
     // tenant factory keeps tenant switches and sync invalidation on one cache tree.
@@ -117,28 +117,15 @@ export function useChannels(
     // cannot be proven, so the factory call must appear inline.
     queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels', user?.id, offset),
     queryFn: async () => {
-      const userId = user?.id;
-      try {
-        const page = await fetchChannels(PAGE_SIZE, offset);
-        // Write to IndexedDB as offline fallback (only first page). The cache key
-        // embeds user.id via userScopedCacheKey, so the namespace is per-user, not
-        // per-tenant (MT-CRITICAL-051) — and tenant-isolated by cacheUserData.
-        if (offset === 0 && tenantId && userId) {
-          const cacheKey = userScopedCacheKey(userId, CACHE_KEY);
-          await cacheUserData(tenantId, cacheKey, page, CACHE_TTL_MS).catch((error: unknown) => {
-            logger.error('[useChannels] failed to cache channel page for offline fallback', error);
-          });
-        }
-        return page;
-      } catch (error) {
-        // Network failed — return IndexedDB cached data if available (per-user).
-        if (offset === 0 && tenantId && userId) {
-          const cacheKey = userScopedCacheKey(userId, CACHE_KEY);
-          const cached = await getCachedUserData<ChannelPage>(tenantId, cacheKey);
-          if (cached) return cached;
-        }
-        throw error;
-      }
+      // Only the first page has an offline copy; it stands in when the server is
+      // unreachable and goes when the server refuses the caller.
+      if (offset !== 0) return fetchChannels(PAGE_SIZE, offset);
+      const read = await readThroughOfflineCache(
+        cacheScope,
+        { key: CACHE_KEY, ttlMs: CACHE_TTL_MS },
+        () => fetchChannels(PAGE_SIZE, 0),
+      );
+      return read.data;
     },
     enabled: isAuthenticated && !!tenantId && !!user?.id,
     staleTime: 30_000, // 30 seconds — channels change infrequently

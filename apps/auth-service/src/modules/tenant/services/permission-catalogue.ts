@@ -1,143 +1,33 @@
 /**
- * Tenant-RBAC permission catalogue — the single source of truth for every
- * capability a tenant role or per-user override may reference.
+ * Tenant-RBAC permission catalogue — auth-service's reading of the one capability
+ * catalogue, `TENANT_CAPABILITY_CATALOGUE` (`@aquaculture/shared-contracts`,
+ * access/tenant-capabilities.ts).
  *
- * WHY this is its own module: three consumers must agree on exactly one
+ * WHY the literal is not here: three auth consumers must agree on exactly one
  * catalogue or authorization drifts —
  *   1. the tenant-admin role editor (`permissionCategories` query, data-driven),
  *   2. token-mint resolution + `TenantPermissionGuard` enforcement,
  *   3. the write-time grant authority (`CapabilityAuthorityService`), which
- *      rejects any `resource:action` NOT in this catalogue.
- * It lives below the services (imports nothing from them) so both
- * `TenantRoleService` and `CapabilityAuthorityService` can depend on it with no
- * import cycle. `TenantRoleService` re-exports `PERMISSION_CATEGORIES` so the
- * resolver + catalogue spec keep their existing import path.
+ *      rejects any `resource:action` NOT in this catalogue —
+ * and so must every other workspace that names a capability (guards, the web,
+ * `decideAccess`), which could not import a literal private to this service
+ * (RBAC-MEDIUM-024). This module keeps what is auth's own: the whitelist set, the
+ * plan entitlement by module and the editor's filtered view. It lives below the
+ * services (imports nothing from them) so both `TenantRoleService` and
+ * `CapabilityAuthorityService` can depend on it with no import cycle.
  */
-
-/**
- * Permission Categories for UI + the storable-capability whitelist.
- */
-export const PERMISSION_CATEGORIES = {
-  farm: {
-    name: 'Farm Management',
-    resources: {
-      sites: { name: 'Sites', actions: ['view', 'create', 'edit', 'delete'] },
-      departments: { name: 'Departments', actions: ['view', 'create', 'edit', 'delete'] },
-      systems: { name: 'Systems', actions: ['view', 'create', 'edit', 'delete'] },
-      tanks: { name: 'Tanks', actions: ['view', 'create', 'edit', 'delete', 'assign'] },
-      ponds: { name: 'Ponds', actions: ['view', 'create', 'edit', 'delete'] },
-      equipment: { name: 'Equipment', actions: ['view', 'create', 'edit', 'delete', 'assign'] },
-    },
-  },
-  batch: {
-    name: 'Batch & Production',
-    resources: {
-      batches: {
-        name: 'Batches',
-        actions: ['view', 'create', 'edit', 'delete', 'transfer', 'split', 'merge'],
-      },
-      species: { name: 'Species', actions: ['view', 'create', 'edit', 'delete'] },
-      mortality: { name: 'Mortality Records', actions: ['view', 'record'] },
-      growth: { name: 'Growth Measurements', actions: ['view', 'record', 'analyze'] },
-      harvest: { name: 'Harvest', actions: ['view', 'plan', 'record'] },
-    },
-  },
-  operations: {
-    name: 'Operations',
-    resources: {
-      feeding: {
-        name: 'Feeding',
-        actions: ['view', 'record', 'manage_schedules', 'manage_inventory'],
-      },
-      sensors: { name: 'Sensors', actions: ['view', 'configure', 'calibrate', 'manage_alerts'] },
-      maintenance: {
-        name: 'Maintenance',
-        actions: ['view', 'create_work_orders', 'complete', 'manage_schedules'],
-      },
-      water_quality: { name: 'Water Quality', actions: ['view', 'record'] },
-    },
-  },
-  hr: {
-    name: 'HR & Administration',
-    resources: {
-      employees: { name: 'Employees', actions: ['view', 'create', 'edit', 'delete'] },
-      attendance: { name: 'Attendance', actions: ['view', 'manage'] },
-      leave: { name: 'Leave Management', actions: ['view', 'approve'] },
-      shifts: { name: 'Shifts', actions: ['view', 'create', 'edit', 'delete'] },
-      // HR finance salary visibility (HR-MEDIUM-005). Headcount/expenses on the HR
-      // finance tab stay MANAGER-visible; the salary/labour-cost/payroll-analytics
-      // figures are gated by `hr_finance:view_salary`, which a TENANT_ADMIN grants
-      // per role — so the tenant decides who sees pay, not a hardcoded role.
-      hr_finance: { name: 'HR Finance', actions: ['view_salary'] },
-    },
-  },
-  reports: {
-    name: 'Reports & Analytics',
-    resources: {
-      dashboard: { name: 'Dashboard', actions: ['view', 'analytics'] },
-      reports: { name: 'Reports', actions: ['view', 'export', 'create_custom'] },
-    },
-  },
-  admin: {
-    name: 'Settings & User Management',
-    resources: {
-      settings: { name: 'Settings', actions: ['view', 'edit'] },
-      users: { name: 'Users', actions: ['view', 'invite', 'edit_permissions', 'deactivate'] },
-      roles: { name: 'Roles', actions: ['view', 'create', 'edit', 'delete'] },
-    },
-  },
-  // Messaging + AI capabilities (Faz 7). Resource keys are globally unique
-  // (the wire permission is `${resourceKey}:${action}`, so keys must not collide
-  // with any above — e.g. AI settings is `ai_settings`, not `settings`). Adding
-  // them here is the SSoT change: the tenant-admin role editor (permissionCategories
-  // query, data-driven), token-mint resolution, and TenantPermissionGuard all
-  // pick them up automatically — no parallel catalogue.
-  messaging: {
-    name: 'Messaging',
-    resources: {
-      channels: {
-        name: 'Channels',
-        // create_group is the WhatsApp-like group-creation capability
-        // (MSG-MEDIUM-070); create_dm the 1:1; manage covers rename/members.
-        actions: ['view', 'create_group', 'create_dm', 'manage'],
-      },
-      messages: { name: 'Messages', actions: ['send'] },
-    },
-  },
-  ai: {
-    name: 'AI Assistant',
-    resources: {
-      ai_assistant: { name: 'AI Chat', actions: ['use'] },
-      // AI settings = the tenant BYOK keys / provider / model (Faz 1).
-      ai_settings: { name: 'AI Settings', actions: ['view', 'manage'] },
-      // Persona tiers — which AI persona a member may drive (AISAFETY-MEDIUM-013).
-      ai_personas: {
-        name: 'AI Personas',
-        actions: ['operator', 'manager', 'expert', 'supervisor'],
-      },
-    },
-  },
-  // Module-scoped AI specialists (RBAC-MEDIUM-016). A specialist persona
-  // (e.g. `expert-farm-production-v1`, see @aquaculture/shared-contracts
-  // AI_PERSONA_CATALOGUE) needs the caller's tier capability above AND the
-  // specialty capability here; the category is gated on BOTH the AI module and
-  // the specialty's own module (CATEGORY_MODULE_REQUIREMENTS), so a tenant
-  // lacking either never holds it and the role editor hides the category.
-  // Resource key `ai_specialties` is globally unique; the wire form is
-  // `ai_specialties:<module>`.
-  ai_specialists: {
-    name: 'AI Specialists',
-    resources: {
-      ai_specialties: { name: 'Specialist modules', actions: ['farm'] },
-    },
-  },
-};
+import {
+  PLATFORM_MODULE,
+  TENANT_CAPABILITIES,
+  TENANT_CAPABILITY_CATALOGUE,
+  type TenantCapabilityCategoryKey,
+} from '@aquaculture/shared-contracts';
 
 /**
  * Helper to convert panel permissions to a `resource:action` array.
  *
  * NOTE: the category key is intentionally NOT part of the wire permission — the
- * resource key is globally unique (see the messaging/ai note above), so
+ * resource key is globally unique (see the messaging/ai note in the catalogue), so
  * `${resource}:${action}` is the enforced capability string. A fabricated
  * category wrapper therefore cannot mint a new capability; the derived strings
  * are still validated against CATALOGUE_CAPABILITIES at every write site.
@@ -167,17 +57,7 @@ export function panelPermissionsToResourceArray(
  * finite, it also structurally bounds how many distinct capabilities any role
  * or override can store (a natural cap on JWT/assertion-header size).
  */
-export const CATALOGUE_CAPABILITIES: ReadonlySet<string> = (() => {
-  const capabilities = new Set<string>();
-  for (const category of Object.values(PERMISSION_CATEGORIES)) {
-    for (const [resource, definition] of Object.entries(category.resources)) {
-      for (const action of definition.actions) {
-        capabilities.add(`${resource}:${action}`);
-      }
-    }
-  }
-  return capabilities;
-})();
+export const CATALOGUE_CAPABILITIES: ReadonlySet<string> = new Set<string>(TENANT_CAPABILITIES);
 
 /** True when `capability` is a `resource:action` string the catalogue declares. */
 export function isKnownCapability(capability: string): boolean {
@@ -189,28 +69,33 @@ export function isKnownCapability(capability: string): boolean {
 // ============================================================================
 
 /**
- * Catalogue category → the licensable module code (see `ModuleCode` in
- * system-module/entities/module.entity.ts) a tenant MUST have enabled to hold
- * any capability in that category. A category NOT listed here is CORE — always
- * entitled regardless of plan:
- *   - `farm` / `batch` / `operations` — the base aquaculture product;
- *   - `reports` / `admin` — platform surfaces every tenant has;
- *   - `messaging` — no licensable `ModuleCode` exists yet, so it stays core
- *     (a dedicated messaging module gate is separate future work).
+ * Catalogue category → the licensable module codes (`PLATFORM_MODULE`, the module
+ * dictionary in shared-contracts) a tenant MUST have enabled to hold a capability
+ * of that category, given the capability's action. A category NOT listed here is
+ * CORE — always entitled regardless of plan:
+ *   - `company` — the Company layer belongs to every tenant (plan D1);
+ *   - `admin` — user and role administration every tenant has;
+ *   - `messaging` — no licensable module code exists for it.
  * Only the categories that map to OPTIONAL modules are gated:
  *   - `hr` → the HR module;
+ *   - `sensor` → the sensor module (edge-device I/O, RBAC-MEDIUM-026);
  *   - `ai` → the AI module (this is the audit's headline over-grant vector:
  *     a STARTER tenant granting itself `ai_settings:manage`);
- *   - `ai_specialists` → the AI module AND the specialty's module (all-of).
+ *   - `ai_specialists` → the AI module AND the specialty's own module (all-of):
+ *     the action of `ai_specialties:<module>` is that module, and the actions
+ *     come from the AI catalogue, so a new specialty module is gated by itself.
  * Keying by category (not individual capability) keeps this aligned with the
  * UI's category-grouped editor and avoids splitting a mixed category.
  */
-export const CATEGORY_MODULE_REQUIREMENTS: Readonly<Record<string, readonly string[]>> = {
-  hr: ['hr'],
-  ai: ['ai'],
-  // ALL-OF: a farm specialist persona is an AI feature over farm data, so the
+export const CATEGORY_MODULE_REQUIREMENTS: {
+  readonly [C in TenantCapabilityCategoryKey]?: (action: string) => readonly string[];
+} = {
+  hr: () => [PLATFORM_MODULE.HR],
+  sensor: () => [PLATFORM_MODULE.SENSOR],
+  ai: () => [PLATFORM_MODULE.AI],
+  // ALL-OF: a specialist persona is an AI feature over its module's data, so the
   // tenant must hold both modules (RBAC-MEDIUM-016).
-  ai_specialists: ['ai', 'farm'],
+  ai_specialists: (module) => [PLATFORM_MODULE.AI, module],
 };
 
 /**
@@ -219,12 +104,13 @@ export const CATEGORY_MODULE_REQUIREMENTS: Readonly<Record<string, readonly stri
  */
 const CAPABILITY_REQUIRED_MODULES: ReadonlyMap<string, readonly string[]> = (() => {
   const map = new Map<string, readonly string[]>();
-  for (const [categoryKey, category] of Object.entries(PERMISSION_CATEGORIES)) {
-    const requiredModules = CATEGORY_MODULE_REQUIREMENTS[categoryKey];
-    if (!requiredModules || requiredModules.length === 0) continue;
+  const requirements = new Map(Object.entries(CATEGORY_MODULE_REQUIREMENTS));
+  for (const [categoryKey, category] of Object.entries(TENANT_CAPABILITY_CATALOGUE)) {
+    const requirement = requirements.get(categoryKey);
+    if (requirement === undefined) continue;
     for (const [resource, definition] of Object.entries(category.resources)) {
       for (const action of definition.actions) {
-        map.set(`${resource}:${action}`, requiredModules);
+        map.set(`${resource}:${action}`, requirement(action));
       }
     }
   }
@@ -283,7 +169,7 @@ export function entitledPermissionCategories(
   entitled: ReadonlySet<string>,
 ): Record<string, CatalogueCategoryView> {
   const result: Record<string, CatalogueCategoryView> = {};
-  for (const [categoryKey, category] of Object.entries(PERMISSION_CATEGORIES)) {
+  for (const [categoryKey, category] of Object.entries(TENANT_CAPABILITY_CATALOGUE)) {
     const resources: Record<string, CatalogueResourceView> = {};
     for (const [resourceKey, definition] of Object.entries(category.resources)) {
       const actions = definition.actions.filter((action) =>

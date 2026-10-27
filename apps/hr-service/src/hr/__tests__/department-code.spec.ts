@@ -9,7 +9,7 @@
 import { ConflictException } from '@nestjs/common';
 import { EntityManager, FindOperator } from 'typeorm';
 
-import { HrModuleCode } from '../../common/enums';
+import { OWNER_MODULE } from '@aquaculture/shared-contracts';
 import { DepartmentHR } from '../entities/department.entity';
 import { assertDepartmentCodeFree } from '../services/department-code';
 
@@ -90,7 +90,7 @@ describe('assertDepartmentCodeFree', () => {
   });
 
   it('reports the code the way the admin typed it, not the casing of the department that holds it', async () => {
-    const { manager } = managerHolding(holder({ code: 'OPS', moduleCode: HrModuleCode.FARM }));
+    const { manager } = managerHolding(holder({ code: 'OPS', moduleCode: OWNER_MODULE.FARM }));
 
     await expect(assertDepartmentCodeFree(manager, tenantId, 'ops')).rejects.toThrow(
       "Department code 'ops' already exists on a farm department (codes are unique across every module)",
@@ -107,7 +107,7 @@ describe('assertDepartmentCodeFree', () => {
   });
 
   it('names the module that owns a code the admin may not be able to see', async () => {
-    const { manager } = managerHolding(holder({ moduleCode: HrModuleCode.FARM }));
+    const { manager } = managerHolding(holder({ moduleCode: OWNER_MODULE.FARM }));
 
     await expect(assertDepartmentCodeFree(manager, tenantId, 'OPS')).rejects.toThrow(
       "Department code 'OPS' already exists on a farm department (codes are unique across every module)",

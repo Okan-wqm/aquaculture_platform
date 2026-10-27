@@ -2,7 +2,8 @@ import { InputType, Field } from '@nestjs/graphql';
 import { IsOptional, IsEnum, IsUUID, IsBoolean } from 'class-validator';
 import { EmployeeStatus, EmploymentType, PersonnelCategory } from '../entities/employee.entity';
 import { StandardPaginationInput } from '@aquaculture/backend-common/pagination';
-import { HrModuleCode } from '../../common/enums';
+import { OWNER_MODULE, type OwnerModuleCode } from '@aquaculture/shared-contracts';
+import { HR_MODULE_CODE_ENUM } from '../../common/enums';
 
 @InputType()
 export class EmployeeFilterInput {
@@ -21,13 +22,13 @@ export class EmployeeFilterInput {
   @IsUUID('4')
   departmentHrId?: string;
 
-  @Field(() => HrModuleCode, {
+  @Field(() => HR_MODULE_CODE_ENUM, {
     nullable: true,
     description: 'Only employees whose (live) department belongs to this module',
   })
   @IsOptional()
-  @IsEnum(HrModuleCode)
-  moduleCode?: HrModuleCode;
+  @IsEnum(OWNER_MODULE)
+  moduleCode?: OwnerModuleCode;
 
   @Field({ nullable: true })
   @IsOptional()

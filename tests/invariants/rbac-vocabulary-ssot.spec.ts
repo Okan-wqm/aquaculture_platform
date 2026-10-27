@@ -7,10 +7,11 @@
  * That fork is deleted; this invariant forbids any backend service from
  * re-introducing a second `Role` enum or `RolesGuard` class.
  *
- * Scope is the BACKEND only (apps/ libs/ platform/). The aquaculture-mobile PWA's
- * deliberate offline `ROLE_RANK` mirror (web/apps/aquamobil/src/utils/role-rank.ts)
- * and the Rust SCADA operator vocabulary (sens-api-gateway) are intentionally
- * separate and live outside this path scope.
+ * Scope is the BACKEND only (apps/ libs/ platform/). The role hierarchy itself has
+ * one owner for the backend and the web alike, the shared-contracts platform roles
+ * (role-hierarchy-single-owner.spec.ts, RBAC-MEDIUM-024); the mobile PWA's former
+ * `ROLE_RANK` mirror is gone. The Rust SCADA operator vocabulary (sens-api-gateway)
+ * is a different vocabulary and lives outside this path scope.
  */
 
 import { execFileSync } from 'node:child_process';

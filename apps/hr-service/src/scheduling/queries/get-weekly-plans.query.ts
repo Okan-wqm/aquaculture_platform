@@ -1,4 +1,4 @@
-import type { HrModuleCode } from '../../common/enums';
+import type { OwnerModuleCode } from '@aquaculture/shared-contracts';
 import { WeeklyPlanStatus } from '../entities/weekly-plan.entity';
 
 export class GetWeeklyPlansQuery {
@@ -12,6 +12,6 @@ export class GetWeeklyPlansQuery {
     public readonly limit: number = 20,
     public readonly page: number = 1,
     /** Only plans of employees whose live department is in this module; absent = every module. */
-    public readonly moduleCode?: HrModuleCode,
+    public readonly moduleCode?: OwnerModuleCode,
   ) {}
 }

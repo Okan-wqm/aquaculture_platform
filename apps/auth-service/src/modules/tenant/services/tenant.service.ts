@@ -1,5 +1,4 @@
 import { getTenantSchemaName } from '@aquaculture/backend-common/database';
-import { Role } from '@aquaculture/backend-common/decorators';
 import {
   Injectable,
   NotFoundException,
@@ -14,6 +13,13 @@ import { User } from '../../authentication/entities/user.entity';
 import { TenantStats, TenantDatabaseInfo, TableInfo, TableSchemaInfo, ColumnInfo, IndexInfo, ModuleUsageStatResponse } from '../dto/tenant-stats.dto';
 import { TenantModule } from '../entities/tenant-module.entity';
 import { Tenant, TenantStatus } from '../entities/tenant.entity';
+
+import {
+  clearModuleManager,
+  designateModuleManager,
+  type ModuleManagerChange,
+  type ModuleManagerStores,
+} from './module-manager-designation';
 
 /**
  * Raw database row for column information query
@@ -549,69 +555,60 @@ export class TenantService {
   }
 
   /**
-   * Assign module manager to a module
+   * Assign module manager to a module. The designation, the legacy users.role promotion and the
+   * grants they imply commit together (RBAC-HIGH-027, module-manager-designation.ts).
    */
   async assignModuleManager(
     tenantId: string,
     moduleId: string,
     userId: string,
+    assignedBy: string,
   ): Promise<TenantModule> {
-    // Find tenant module
-    const tenantModule = await this.tenantModuleRepository.findOne({
-      where: { tenantId, moduleId },
-      relations: ['module'],
+    const change = await designateModuleManager(this.dataSource, this.managerStores, {
+      tenantId,
+      moduleId,
+      userId,
+      assignedBy,
     });
-
-    if (!tenantModule) {
-      throw new NotFoundException('Module not assigned to this tenant');
+    this.logManagerChange('module_manager_assigned', tenantId, change);
+    if (change.hrManagerGrantWithheld) {
+      // D6: an hr manager grant comes only from the primary-manager choice, never from Assign Manager.
+      this.logger.warn(
+        JSON.stringify({ event: 'module_manager_hr_grant_withheld', tenantId, moduleId, userId }),
+      );
     }
-
-    // Verify user belongs to tenant
-    const user = await this.userRepository.findOne({
-      where: { id: userId, tenantId },
-    });
-
-    if (!user) {
-      throw new NotFoundException('User not found in this tenant');
-    }
-
-    // Update module manager
-    tenantModule.managerId = userId;
-    const saved = await this.tenantModuleRepository.save(tenantModule);
-
-    // Update user role to MODULE_MANAGER if not already higher
-    if (user.role !== Role.TENANT_ADMIN && user.role !== Role.SUPER_ADMIN) {
-      user.role = Role.MODULE_MANAGER;
-      await this.userRepository.save(user);
-    }
-
-    this.logger.log(`Assigned ${user.email} as manager for module ${tenantModule.module?.name || moduleId}`);
-
-    return saved;
+    return change.tenantModule;
   }
 
   /**
-   * Remove module manager from a module
+   * Remove module manager from a module; the former manager's grants are re-derived with it.
    */
-  async removeModuleManager(
-    tenantId: string,
-    moduleId: string,
-  ): Promise<TenantModule> {
-    const tenantModule = await this.tenantModuleRepository.findOne({
-      where: { tenantId, moduleId },
-      relations: ['module'],
+  async removeModuleManager(tenantId: string, moduleId: string): Promise<TenantModule> {
+    const change = await clearModuleManager(this.dataSource, this.managerStores, {
+      tenantId,
+      moduleId,
     });
+    this.logManagerChange('module_manager_removed', tenantId, change);
+    return change.tenantModule;
+  }
 
-    if (!tenantModule) {
-      throw new NotFoundException('Module not assigned to this tenant');
-    }
+  private get managerStores(): ModuleManagerStores {
+    return { tenantModules: this.tenantModuleRepository, users: this.userRepository };
+  }
 
-    tenantModule.managerId = null;
-    const saved = await this.tenantModuleRepository.save(tenantModule);
-
-    this.logger.log(`Removed manager from module ${tenantModule.module?.name || moduleId}`);
-
-    return saved;
+  private logManagerChange(event: string, tenantId: string, change: ModuleManagerChange): void {
+    const grantRolesChanged = [...change.rederived.values()].reduce(
+      (count, changes) => count + changes.length,
+      0,
+    );
+    this.logger.log(
+      JSON.stringify({
+        event,
+        tenantId,
+        moduleCode: change.tenantModule.module.code,
+        grantRolesChanged,
+      }),
+    );
   }
 
   // NOTE: there is no service-level tenant-update method here. The W1 slice

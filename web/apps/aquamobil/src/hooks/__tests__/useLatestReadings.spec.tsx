@@ -4,9 +4,10 @@
 // anywhere on mobile. This hook joins sensors to the tank at the RESOLVER
 // level (sensorRawList(tankId:) on the indexed sensor.tank_id column), batches
 // the latest readings in one round-trip, and returns per-metric values each
-// carrying its own origin timestamp — the DataFreshness stamp's input. Offline,
-// the last known readings serve from the encrypted tenant cache rather than
-// rendering an empty (all-clear-looking) card.
+// carrying its own origin timestamp — the DataFreshness stamp's input. When the
+// server cannot be reached, the last known readings serve from the caller's
+// scoped offline cache rather than rendering an empty (all-clear-looking) card;
+// a refusal never does (MOB-MEDIUM-031, offline-cache.spec.ts).
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { renderHook, waitFor } from '@testing-library/react';
@@ -24,11 +25,14 @@ vi.mock('../useAuth', () => ({
   useAuth: (): { tenantId: string } => ({ tenantId: 'tenant-1' }),
 }));
 
-const mockCacheData = vi.fn();
-const mockGetCachedData = vi.fn();
-vi.mock('@/pwa/offline-queue', () => ({
-  cacheData: (...args: unknown[]): unknown => mockCacheData(...args),
-  getCachedData: (...args: unknown[]): unknown => mockGetCachedData(...args),
+const SCOPE = { keyPrefix: 'tenant-1:user-1:0000:' };
+vi.mock('../useOfflineCacheScope', () => ({
+  useOfflineCacheScope: (): typeof SCOPE => SCOPE,
+}));
+
+const mockReadThrough = vi.fn();
+vi.mock('@/pwa/offline-cache', () => ({
+  readThroughOfflineCache: (...args: unknown[]): unknown => mockReadThrough(...args),
 }));
 
 function sensorsResponse(): unknown {
@@ -102,8 +106,12 @@ function wrapper({ children }: { children: ReactNode }): ReactElement {
 describe('useLatestReadings (MOB-MEDIUM-008)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockGetCachedData.mockResolvedValue(null);
-    mockCacheData.mockResolvedValue(undefined);
+    mockReadThrough.mockImplementation(
+      async (_scope: unknown, _read: unknown, load: () => Promise<unknown>) => ({
+        data: await load(),
+        servedFromCache: false,
+      }),
+    );
     queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   });
 
@@ -180,19 +188,21 @@ describe('useLatestReadings (MOB-MEDIUM-008)', () => {
     expect(mockGraphqlRequest).toHaveBeenCalledTimes(1);
   });
 
-  it('serves last-known readings from the encrypted cache when offline', async () => {
-    mockGraphqlRequest.mockRejectedValue(new Error('Failed to fetch'));
-    mockGetCachedData.mockResolvedValue({
-      metrics: [
-        {
-          key: 'temperature',
-          label: 'Temp',
-          value: 17.2,
-          unit: '°C',
-          readingAt: '2026-07-12T09:00:00.000Z',
-        },
-      ],
-      hasSensors: true,
+  it('serves last-known readings the offline cache served while the server is unreachable', async () => {
+    mockReadThrough.mockResolvedValue({
+      data: {
+        metrics: [
+          {
+            key: 'temperature',
+            label: 'Temp',
+            value: 17.2,
+            unit: '°C',
+            readingAt: '2026-07-12T09:00:00.000Z',
+          },
+        ],
+        hasSensors: true,
+      },
+      servedFromCache: true,
     });
 
     const { result } = renderHook(() => useLatestReadings('tank-1'), { wrapper });
@@ -201,6 +211,21 @@ describe('useLatestReadings (MOB-MEDIUM-008)', () => {
     expect(result.current.metrics[0]?.value).toBe(17.2);
     // The stale origin timestamp survives so DataFreshness shows honest age.
     expect(result.current.metrics[0]?.readingAt).toBe('2026-07-12T09:00:00.000Z');
+  });
+
+  it('reads one snapshot per tank through the caller’s offline cache scope', async () => {
+    mockGraphqlRequest
+      .mockResolvedValueOnce(sensorsResponse())
+      .mockResolvedValueOnce(readingsResponse());
+
+    const { result } = renderHook(() => useLatestReadings('tank-1'), { wrapper });
+
+    await waitFor(() => expect(result.current.metrics.length).toBeGreaterThan(0));
+    expect(mockReadThrough).toHaveBeenCalledWith(
+      SCOPE,
+      { key: 'readings_tank-1', ttlMs: 12 * 60 * 60 * 1000 },
+      expect.any(Function),
+    );
   });
 
   it('does not fetch without a tankId and scopes keys by tenant', async () => {

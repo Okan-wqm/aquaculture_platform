@@ -134,6 +134,8 @@ export class MarineRoutesController {
       assignedSiteIds: user.assignedSiteIds,
       mobileFeatures: user.mobileFeatures,
       resourcePermissions: user.resourcePermissions,
+      // RBAC-HIGH-028: the module grants ride the farm-bound assertion too.
+      moduleAccess: user.moduleAccess,
     });
     const bodyBytes = JSON.stringify(body ?? {});
     const targetUrl = `${this.farmBaseUrl}${internalPath}`;

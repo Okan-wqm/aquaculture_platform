@@ -5,6 +5,7 @@ import {
   Role,
   RequireTenantPermission,
 } from '@aquaculture/backend-common/decorators';
+import { EDGE_DEVICE_IO_CONFIG_CAPABILITY } from '@aquaculture/shared-contracts';
 import { Logger } from '@nestjs/common';
 import { Resolver, Query, Mutation, Args, Int, ID, ResolveField, Parent } from '@nestjs/graphql';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -349,7 +350,7 @@ export class EdgeDeviceResolver {
    */
   @Mutation(() => DeviceIoConfig, { name: 'addDeviceIoConfig' })
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
-  @RequireTenantPermission('edge:manage-io-config')
+  @RequireTenantPermission(EDGE_DEVICE_IO_CONFIG_CAPABILITY)
   async addDeviceIoConfig(
     @Args('deviceId', { type: () => ID }) deviceId: string,
     @Args('input') input: AddIoConfigInput,
@@ -363,7 +364,7 @@ export class EdgeDeviceResolver {
    */
   @Mutation(() => DeviceIoConfig, { name: 'updateDeviceIoConfig' })
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
-  @RequireTenantPermission('edge:manage-io-config')
+  @RequireTenantPermission(EDGE_DEVICE_IO_CONFIG_CAPABILITY)
   async updateDeviceIoConfig(
     @Args('id', { type: () => ID }) id: string,
     @Args('deviceId', { type: () => ID }) deviceId: string,
@@ -378,7 +379,7 @@ export class EdgeDeviceResolver {
    */
   @Mutation(() => Boolean, { name: 'removeDeviceIoConfig' })
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
-  @RequireTenantPermission('edge:manage-io-config')
+  @RequireTenantPermission(EDGE_DEVICE_IO_CONFIG_CAPABILITY)
   async removeDeviceIoConfig(
     @Args('id', { type: () => ID }) id: string,
     @Args('deviceId', { type: () => ID }) deviceId: string,
@@ -393,7 +394,7 @@ export class EdgeDeviceResolver {
    */
   @Mutation(() => PushIoConfigResult, { name: 'pushIoConfigToDevice' })
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
-  @RequireTenantPermission('edge:manage-io-config')
+  @RequireTenantPermission(EDGE_DEVICE_IO_CONFIG_CAPABILITY)
   async pushIoConfigToDevice(
     @Args('deviceId', { type: () => ID }) deviceId: string,
     @Tenant() tenantId: string,
@@ -418,7 +419,7 @@ export class EdgeDeviceResolver {
   // fine-grained I/O permission as editing I/O config (now enforced — the
   // guard is wired globally), not merely the operator role.
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
-  @RequireTenantPermission('edge:manage-io-config')
+  @RequireTenantPermission(EDGE_DEVICE_IO_CONFIG_CAPABILITY)
   @Mutation(() => SetDigitalOutputResult, { name: 'setDigitalOutput' })
   async setDigitalOutput(
     @Args('input') input: SetDigitalOutputInput,
@@ -469,7 +470,7 @@ export class EdgeDeviceResolver {
    */
   @Mutation(() => BulkAddIoConfigResult, { name: 'bulkAddDeviceIoConfigs' })
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
-  @RequireTenantPermission('edge:manage-io-config')
+  @RequireTenantPermission(EDGE_DEVICE_IO_CONFIG_CAPABILITY)
   async bulkAddDeviceIoConfigs(
     @Args('deviceId', { type: () => ID }) deviceId: string,
     @Args('inputs', { type: () => [AddIoConfigInput] }) inputs: AddIoConfigInput[],

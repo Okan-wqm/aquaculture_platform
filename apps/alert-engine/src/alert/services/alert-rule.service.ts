@@ -15,7 +15,7 @@ import {
 import { AlertHistory } from '../entities/alert-history.entity';
 import { ActiveAlertCount, ActiveAlertCountDimension } from '../dto/active-alert-count.type';
 import { AlertHistoryOrder, severityRankSql } from '../dto/alert-history-order.enum';
-import { AlertModule } from '../entities/alert-module.enum';
+import type { OwnerModuleCode } from '@aquaculture/shared-contracts';
 import { AlertEvaluationService } from './alert-evaluation.service';
 import { applyAlertHistoryScope, type AlertHistoryScope } from './alert-history-scope';
 
@@ -336,7 +336,7 @@ export class AlertRuleService {
       severity: AlertSeverity;
       acknowledged: boolean;
       siteId?: string | null;
-      module?: AlertModule | null;
+      module?: OwnerModuleCode | null;
       count: string;
     }>();
 

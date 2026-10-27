@@ -27,8 +27,9 @@
  * # Image pinning (plan v3 R30)
  *
  * The default image is `timescale/timescaledb-ha:pg16` WITH an exact
- * `@sha256:...` digest — the same digest `docker-compose.droplet.yml`
- * uses for the production aqua-postgres container. Test PG ≡ prod PG
+ * `@sha256:...` digest — the `image` of `.github/manifests/postgres-image.json`,
+ * which the production aqua-postgres image is built FROM
+ * (`infrastructure/docker/Dockerfile.postgres-walg`). Test PG ≡ prod PG
  * — no drift class hidden by image-version difference.
  *
  * To override for a targeted test (e.g. exercising a newer PG feature):
@@ -61,14 +62,14 @@ import { randomBytes } from 'node:crypto';
 import type { DataSource, QueryRunner } from 'typeorm';
 
 /**
- * Production aqua-postgres image pin. Kept in sync with
- * `docker-compose.droplet.yml` so harness drift-detection runs against
- * the same server version the droplet does.
+ * Production aqua-postgres base image pin, so harness drift-detection and the
+ * engine proofs (ADR-053: constant-default ADD COLUMN is catalog-only) run
+ * against the server production runs.
  *
- * Rebumping cadence: follow the main compose file. When that pin changes,
- * update this constant in the SAME PR. Until a CI invariant enforces this
- * (tracked as Phase 6 work alongside SCHEMA_REGISTRY codegen), the contract
- * is maintained by reviewer discipline.
+ * `tests/invariants/postgres-image-uniformity.spec.ts` holds this constant
+ * equal to the manifest `image`, so a Postgres bump must edit this file in
+ * the same PR; that marks migration-harness affected and re-runs its specs on
+ * the new image.
  */
 export const DEFAULT_POSTGRES_IMAGE =
   'timescale/timescaledb-ha:pg16@sha256:b3d038d0a0757df8a5ec0a94ba68d9ad57b0e16100a024cf4b370c77ad5645f7';

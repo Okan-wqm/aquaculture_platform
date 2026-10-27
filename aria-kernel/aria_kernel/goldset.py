@@ -7,6 +7,7 @@ from typing import Any
 
 from .feedback_store import is_ground_truth_row, load_feedback
 from .ledger import append_declared_jsonl, load_declared_jsonl
+from .memory import record_learning_event
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
 
@@ -96,24 +97,19 @@ def propose_goldset(
         expected_surface="goldset_proposals",
     )
     if status == "ready":
-        append_declared_jsonl(
-            root / "memory" / "learning-events.jsonl",
-            {
-                "schema_version": 1,
-                "recorded_at": utc_now(),
-                "cycle_id": cycle_id,
-                "event_type": "goldset_promoted",
-                "target_type": "tool",
-                "target_id": tool_id,
-                "repo_state_id": None,
-                "base_commit_sha": None,
-                "evidence_hashes": [],
-                "details": {
-                    "true_positive_count": len(true_positives),
-                    "known_false_positive_count": len(known_false_positives),
-                },
+        record_learning_event(
+            root,
+            cycle_id=cycle_id,
+            event_type="goldset_promoted",
+            target_type="tool",
+            target_id=tool_id,
+            repo_state_id=None,
+            base_commit_sha=None,
+            evidence_hashes=[],
+            details={
+                "true_positive_count": len(true_positives),
+                "known_false_positive_count": len(known_false_positives),
             },
-            expected_surface="memory_learning_events",
         )
     return stored
 

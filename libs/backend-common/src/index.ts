@@ -17,7 +17,6 @@
  *
  * The two deliberately-NOT-re-exported subtrees remain deep-import-only:
  *   @aquaculture/backend-common/audit
- *   @aquaculture/backend-common/finding-registry
  *   @aquaculture/backend-common/ai-safety
  *   @aquaculture/backend-common/gdpr
  * These carry @Entity() decorators whose side-effect registers tables in

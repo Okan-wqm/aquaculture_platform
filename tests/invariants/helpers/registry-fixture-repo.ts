@@ -23,6 +23,7 @@ import {
   cpSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   symlinkSync,
   writeFileSync,
@@ -51,12 +52,20 @@ const DEBT_PLAN_CLI = 'tools/gates/debt-plan-truth.ts';
 const GATES_TSCONFIG = 'tools/gates/tsconfig.json';
 const CLI_TIMEOUT_MS = 120_000;
 
-/** Files the CLIs read from the repository they run in, besides the registry. */
-const COPIED_FILES = [
-  'docs/reviews/_registry/findings.jsonl.schema.json',
-  'docs/reviews/_registry/path-corrections.yaml',
-  '.github/CODEOWNERS',
-];
+const REGISTRY_DIR = 'docs/reviews/_registry';
+
+/**
+ * Files the CLIs read from the repository they run in, besides the registry:
+ * every schema of the registry directory (the row contract, and the event
+ * contract once the store has one), the path corrections and CODEOWNERS.
+ */
+function copiedFiles(): string[] {
+  const schemas = readdirSync(join(REPO_ROOT, REGISTRY_DIR))
+    .filter((name) => name.endsWith('.schema.json'))
+    .sort()
+    .map((name) => `${REGISTRY_DIR}/${name}`);
+  return [...schemas, `${REGISTRY_DIR}/path-corrections.yaml`, '.github/CODEOWNERS'];
+}
 
 const FIXTURE_GIT_ENV: NodeJS.ProcessEnv = {
   ...hermeticGitEnv(),
@@ -177,7 +186,7 @@ export class RegistryFixtureRepo {
       recursive: true,
       filter: (source) => !excludedFromCopy(source),
     });
-    for (const rel of COPIED_FILES) {
+    for (const rel of copiedFiles()) {
       mkdirSync(dirname(join(root, rel)), { recursive: true });
       copyFileSync(join(REPO_ROOT, rel), join(root, rel));
     }
@@ -321,5 +330,10 @@ export class RegistryFixtureRepo {
 
   debtPlanTruth(args: readonly string[] = []): CliRun {
     return runTsNode(this.root, DEBT_PLAN_CLI, args);
+  }
+
+  /** Any CLI of the fixture's tools/gates copy, run from the fixture (e.g. the branch converter). */
+  gate(script: string, args: readonly string[] = []): CliRun {
+    return runTsNode(this.root, script, args);
   }
 }

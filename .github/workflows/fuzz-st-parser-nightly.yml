@@ -199,7 +199,7 @@ jobs:
               '   cargo +nightly fuzz run st_parser <crash-input-file>',
               '   ```',
               '3. Determine root cause (see `fuzz-st-parser-output-' + context.runId + '` artifact for the libfuzzer trace).',
-              '4. File a finding under `docs/reviews/_registry/findings.jsonl` with severity HIGH (parser-crash class).',
+              '4. File a finding with `finding-registry add` (it writes an event log under `docs/reviews/_registry/findings/`; the frozen genesis segment `findings.jsonl` takes no rows) with severity HIGH (parser-crash class).',
               '5. Land the architectural fix in a follow-up batch.',
               '',
               '### Run metadata',

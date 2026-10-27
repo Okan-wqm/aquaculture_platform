@@ -22,6 +22,9 @@ from .digest import sha256_digest, sha256_digest_file
 # evidence_trust.py so memory, evidence validation, and tool health cannot drift.
 MEMORY_KINDS = ("beliefs", "observations", "uncertainties", "contradictions", "calibration", "learning-events")
 BELIEF_STATUSES = ("supported", "contradicted", "needs_revalidation", "stale", "withdrawn")
+# F1.1 — every kind a writer gives memory/learning-events.jsonl, and so the whole vocabulary: the three belief
+# transitions memory records, a belief reopened on lost evidence (memory and pr_tracking) and a promoted goldset.
+LEARNING_EVENT_KINDS = ("belief_proposed", "belief_corrected", "belief_confirmed", "evidence_invalidated", "goldset_promoted")
 STALE_AFTER_REVALIDATION_CYCLES = 3
 _MEMORY_SURFACE_BY_FILENAME = {
     "observations.jsonl": "memory_observations",
@@ -724,7 +727,7 @@ def _record_belief(
             cycle_id=cycle_id,
             base_dir=root,
         )
-    _record_learning_event(
+    record_learning_event(
         root,
         cycle_id=cycle_id,
         event_type=_belief_event_type(existing, row),
@@ -1433,7 +1436,7 @@ def _apply_diff_to_existing_beliefs(root: Path, cycle_id: str, diff: dict[str, A
         # is a no-op for verified_at here — which is the intended
         # invariant (audit-trail signal "last verified at when").
         append_jsonl(root / "memory" / "beliefs.jsonl", row)
-        _record_learning_event(
+        record_learning_event(
             root,
             cycle_id=cycle_id,
             event_type="evidence_invalidated",
@@ -1847,7 +1850,7 @@ def _record_calibration(
     )
 
 
-def _record_learning_event(
+def record_learning_event(
     root: Path,
     *,
     cycle_id: str | None,
@@ -1859,6 +1862,13 @@ def _record_learning_event(
     evidence_hashes: list[str],
     details: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    """The one writer of memory/learning-events.jsonl (F1.1): ``event_type`` is one of LEARNING_EVENT_KINDS.
+
+    goldset and pr_tracking record through this function, so the row has one spelling; the readers apply no
+    vocabulary, so rows an older writer gave another kind stay readable as they are.
+    """
+    if event_type not in LEARNING_EVENT_KINDS:
+        raise GovernanceError(f"learning_event_unknown_kind:{event_type}")
     return append_jsonl(
         root / "memory" / "learning-events.jsonl",
         {

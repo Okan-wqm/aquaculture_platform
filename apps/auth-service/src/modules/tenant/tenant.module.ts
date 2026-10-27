@@ -21,12 +21,14 @@ import { TenantSubscriptionProjectionHandler } from './event-handlers/tenant-sub
 import { AuthAdminNatsHandler } from './handlers/auth-admin-nats.handler';
 import { AuthUserQueryNatsHandler } from './handlers/auth-user-query-nats.handler';
 import { MobileSettingsResolver } from './resolvers/mobile-settings.resolver';
+import { ModuleAccessResolver } from './resolvers/module-access.resolver';
 import { TenantAdminResolver } from './resolvers/tenant-admin.resolver';
 import { TenantRoleResolver } from './resolvers/tenant-role.resolver';
 import { TenantResolver } from './resolvers/tenant.resolver';
 import { CapabilityAuthorityService } from './services/capability-authority';
 import { FarmSiteAssignmentValidator } from './services/farm-site-assignment-validator.service';
 import { MobileSettingsService } from './services/mobile-settings.service';
+import { ModuleAccessService } from './services/module-access.service';
 import { PlatformCapabilityService } from './services/platform-capability.service';
 import { TenantAdminService } from './services/tenant-admin.service';
 import { TenantProvisioningCommandService } from './services/tenant-provisioning-command.service';
@@ -78,10 +80,13 @@ import { EventDedupService } from '@aquaculture/backend-common/event-dedup';
     MobileSettingsService,
     // ADR-0016: single writer of auth.platform_capability_grants.
     PlatformCapabilityService,
+    // PKG-06: the admin path of module access (grants, Assign / Remove Manager).
+    ModuleAccessService,
     TenantResolver,
     TenantAdminResolver,
     TenantRoleResolver,
     MobileSettingsResolver,
+    ModuleAccessResolver,
     SchemaManagerService,
     // DBR-LOW-001 cure: daily 04:00 UTC reconcile of
     // auth.tenants.userCount vs auth.users count. Catches drift from

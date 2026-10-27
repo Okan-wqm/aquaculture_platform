@@ -11,6 +11,7 @@ import type { ModuleRole } from '@aquaculture/shared-contracts';
 import { collaborator, stub, stubMember } from '@aquaculture/testing';
 import type { DataSource, EntityManager, Repository } from 'typeorm';
 
+import { AuditLog } from '../../../../../audit/audit-log.entity';
 import type { AuditLogService, CreateAuditLogDto } from '../../../../../audit/audit-log.service';
 import { UserModuleAssignment } from '../../../../authentication/entities/user-module-assignment.entity';
 import { User } from '../../../../authentication/entities/user.entity';
@@ -263,7 +264,7 @@ export function makeWorld(seed: WorldSeed): World {
     {
       log: jest.fn((dto: CreateAuditLogDto, auditManager?: unknown) => {
         audits.push({ dto, inTransaction: inTransaction && auditManager === manager });
-        return Promise.resolve(Object.assign({}, dto));
+        return Promise.resolve(Object.assign(new AuditLog(), dto));
       }),
     },
     'AuditLogService',

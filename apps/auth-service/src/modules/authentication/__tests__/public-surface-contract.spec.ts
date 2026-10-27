@@ -5,6 +5,7 @@ import { collaborator, stub } from '@aquaculture/testing';
 import { AuditLogService } from '../../../audit/audit-log.service';
 import { Tenant, TenantPlan, TenantStatus } from '../../tenant/entities/tenant.entity';
 import { TenantResolver } from '../../tenant/resolvers/tenant.resolver';
+import { ModuleAccessService } from '../../tenant/services/module-access.service';
 import { TenantProvisioningCommandService } from '../../tenant/services/tenant-provisioning-command.service';
 import { TenantService } from '../../tenant/services/tenant.service';
 import { AuthResolver } from '../resolvers/auth.resolver';
@@ -56,6 +57,7 @@ describe('Public surface contract (SEC-CRITICAL-001 / MT-LOW-001)', () => {
       // failure instead of a silent `undefined is not a function`.
       collaborator<AuditLogService>({}, 'AuditLogService'),
       collaborator<TenantProvisioningCommandService>({}, 'TenantProvisioningCommandService'),
+      collaborator<ModuleAccessService>({}, 'ModuleAccessService'),
     );
 
     const result = await resolver.tenantBySlug('acme');

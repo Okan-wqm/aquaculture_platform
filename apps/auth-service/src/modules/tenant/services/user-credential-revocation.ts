@@ -18,7 +18,10 @@ export type UserCredentialInvalidationOperation =
   // enrollment gate instead of resuming an unenrolled session.
   | 'tenant-mfa-enforcement-enabled'
   // ADR-0016: a capability grant or revoke changes what the next token carries.
-  | 'platform-capability-changed';
+  | 'platform-capability-changed'
+  // PKG-06 (ADR-051 §2 "Change"): a module grant changed, or the tenant removed a module.
+  | 'module-access-changed'
+  | 'tenant-module-removed';
 
 /**
  * Canonical transaction fence for tenant-owned credential mutations.
@@ -73,7 +76,17 @@ export async function revokeActiveRefreshTokens(
   return result.affected ?? 0;
 }
 
-export function resolveCredentialInvalidationTenant(user: User): string | null {
+/**
+ * What an invalidation intent reads of the user it targets: a loaded User, or a row a set-based
+ * revocation selected (RemoveModule's holders, module-removal-revocation.ts).
+ */
+export type CredentialInvalidationTarget = Pick<User, 'id' | 'tenantId'> & {
+  readonly role: string;
+};
+
+export function resolveCredentialInvalidationTenant(
+  user: CredentialInvalidationTarget,
+): string | null {
   if (user.tenantId) {
     return user.tenantId;
   }
@@ -84,7 +97,7 @@ export function resolveCredentialInvalidationTenant(user: User): string | null {
 }
 
 export function createCredentialInvalidationIntent(
-  user: User,
+  user: CredentialInvalidationTarget,
   invalidatedAt: Date,
   operation: UserCredentialInvalidationOperation,
   reason: UserTokenInvalidationIntent['reason'],

@@ -82,8 +82,9 @@ export class UserModuleAssignment {
   /**
    * The member's role in this module (RBAC-HIGH-027): MODULE_MANAGER or MODULE_USER. Nullable in
    * release R1 (C3): containers of the previous release insert rows without it until they are
-   * replaced, and the module-access reader grants nothing for such a row. PKG-06 re-runs the
-   * backfill and sets NOT NULL in R3. Every writer sets it through moduleAssignmentGrant.
+   * replaced, and the module-access reader grants nothing for such a row. PKG-06 PR2 re-runs the
+   * backfill and sets NOT NULL. Every writer sets it: setUserModuleAccess and Assign / Remove
+   * Manager explicitly (module-grant-writes.ts), an invite through moduleAssignmentGrant.
    */
   @Column({ type: 'varchar', length: 32, nullable: true })
   role!: ModuleRole | null;

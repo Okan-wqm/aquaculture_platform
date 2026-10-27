@@ -672,7 +672,8 @@ export type AssignFeedsToBatchInput = {
 };
 
 export type AssignModuleManagerInput = {
-  moduleId: Scalars['String']['input'];
+  moduleCode?: InputMaybe<Scalars['String']['input']>;
+  moduleId?: InputMaybe<Scalars['String']['input']>;
   userId: Scalars['String']['input'];
 };
 
@@ -9530,6 +9531,18 @@ export type ModuleAccess = {
   sensor?: Maybe<ModuleRole>;
 };
 
+export type ModuleAccessInput = {
+  farm?: InputMaybe<ModuleRole>;
+  hr?: InputMaybe<ModuleRole>;
+  hydroponics?: InputMaybe<ModuleRole>;
+  sensor?: InputMaybe<ModuleRole>;
+};
+
+export type ModulePrimaryManager = {
+  moduleCode: Scalars['String']['output'];
+  userId: Scalars['ID']['output'];
+};
+
 export type ModuleRole =
   | 'MODULE_MANAGER'
   | 'MODULE_USER';
@@ -10100,6 +10113,7 @@ export type Mutation = {
   /** Set or update a retention policy. */
   setRetentionPolicy: RetentionPolicy;
   setSupplierApprovedSites: Array<SupplierSiteResponse>;
+  setUserModuleAccess: UserModuleAccess;
   setVfdFrequency: VfdCommandResult;
   setVfdSpeed: VfdCommandResult;
   /** Initiate MFA setup for the current user */
@@ -12317,7 +12331,8 @@ export type MutationRemoveLoRaDeviceArgs = {
 
 
 export type MutationRemoveModuleManagerArgs = {
-  moduleId: Scalars['ID']['input'];
+  moduleCode?: InputMaybe<Scalars['String']['input']>;
+  moduleId?: InputMaybe<Scalars['ID']['input']>;
 };
 
 
@@ -12672,6 +12687,11 @@ export type MutationSetSupplierApprovedSitesArgs = {
   preferredSiteId?: InputMaybe<Scalars['ID']['input']>;
   siteIds: Array<Scalars['ID']['input']>;
   supplierId: Scalars['ID']['input'];
+};
+
+
+export type MutationSetUserModuleAccessArgs = {
+  input: SetUserModuleAccessInput;
 };
 
 
@@ -15959,6 +15979,7 @@ export type Query = {
   me: MePayload;
   messages: MessagePageType;
   messagesSince: Array<Message>;
+  modulePrimaryManagers: Array<ModulePrimaryManager>;
   moduleUsageStats: Array<ModuleUsageStatResponse>;
   moduleUsers: Array<User>;
   mortalityDailyHistory: Array<DailyMortalityPointResponse>;
@@ -16228,6 +16249,7 @@ export type Query = {
   userConsentHistory: ConsentHistoryResponse;
   /** Get consent status for any user (SuperAdmin only) */
   userConsentStatus: UserConsentStatus;
+  userModuleAccess: UserModuleAccess;
   userPresence: Array<PublicUserProfile>;
   validateInvitation: InvitationValidationResponse;
   validateToken: TokenValidationResponse;
@@ -18446,6 +18468,11 @@ export type QueryUserConsentStatusArgs = {
 };
 
 
+export type QueryUserModuleAccessArgs = {
+  userId: Scalars['ID']['input'];
+};
+
+
 export type QueryUserPresenceArgs = {
   userIds: Array<Scalars['ID']['input']>;
 };
@@ -20560,6 +20587,11 @@ export type SetRetentionPolicyInput = {
   channelId?: InputMaybe<Scalars['String']['input']>;
   /** Retention period in days: 90, 365, 1095, or -1 (indefinite). */
   retentionDays: Scalars['Int']['input'];
+};
+
+export type SetUserModuleAccessInput = {
+  moduleAccess: ModuleAccessInput;
+  userId: Scalars['ID']['input'];
 };
 
 export type SetupMfaResponse = {
@@ -25079,6 +25111,11 @@ export type UserModule = {
   code: Scalars['String']['output'];
   defaultRoute: Scalars['String']['output'];
   name: Scalars['String']['output'];
+};
+
+export type UserModuleAccess = {
+  moduleAccess: ModuleAccess;
+  userId: Scalars['ID']['output'];
 };
 
 export type UserModuleInfo = {

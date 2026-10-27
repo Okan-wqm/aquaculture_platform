@@ -28,6 +28,10 @@ import { RefreshToken } from '../../authentication/entities/refresh-token.entity
 import { UserModuleAssignment } from '../../authentication/entities/user-module-assignment.entity';
 import { User, AccessType } from '../../authentication/entities/user.entity';
 import {
+  splitInvitedRole,
+  usersRoleColumn,
+} from '../../authentication/services/account-role-column';
+import {
   DurableUserTokenInvalidationService,
   type UserTokenInvalidationIntent,
 } from '../../authentication/services/durable-user-token-invalidation.service';
@@ -39,7 +43,6 @@ import { Tenant } from '../entities/tenant.entity';
 
 import { CapabilityAuthorityService, ValidatedOverrideSet } from './capability-authority';
 import { moduleGrantRows } from './module-assignment-grants';
-import { rederiveModuleGrantRoles } from './module-grant-rederivation';
 import { TenantRoleService, TenantRoleWithDetails } from './tenant-role.service';
 import {
   createCredentialInvalidationIntent,
@@ -252,7 +255,8 @@ export class UserLifecycleService {
         firstName: input.firstName,
         lastName: input.lastName,
         password: input.password || undefined,
-        role: Role.MODULE_USER, // Default global role; tenant role is separate
+        // A member: no account role (ADR-051 §1); the tenant role is separate.
+        role: usersRoleColumn(null),
         accessType: userAccessType,
         tenantId,
         isActive: true,
@@ -706,12 +710,8 @@ export class UserLifecycleService {
           'logout_all_devices',
         );
         await this.durableUserTokenInvalidation.enqueue(manager, intent);
-        // RBAC-HIGH-027: users.role is an input of the module grant roles. Last, because the
-        // re-derivation binds the rest of the transaction to the user's tenant (RLS).
-        const tenantId = saved.tenantId;
-        if (tenantId && (requestedRole !== undefined || patch.tenantId !== undefined)) {
-          await rederiveModuleGrantRoles(manager, { tenantId, userId, role: saved.role });
-        }
+        // PKG-06: users.role is an account role and no input of the module grants, whose roles
+        // their own writers set (assignment-module-role.ts): a role edit leaves them alone.
         return { saved, intent };
       });
 
@@ -906,6 +906,9 @@ export class UserLifecycleService {
       throw new BadRequestException(`Unknown role "${input.role}"`);
     }
     const invitedRole: Role = input.role;
+    // RBAC-HIGH-034: users.role takes only the account role; an invited module role goes to the
+    // grants below, never to users.role (an invited "module manager" is a member).
+    const invited = splitInvitedRole(invitedRole);
     if (invitedRole === Role.SUPER_ADMIN) {
       throw new BadRequestException(
         'SUPER_ADMIN cannot be invited — use AdminCreateUserCommand for platform accounts',
@@ -955,7 +958,7 @@ export class UserLifecycleService {
         email: normalisedEmail,
         firstName: input.firstName ?? null,
         lastName: input.lastName ?? null,
-        role: invitedRole,
+        role: usersRoleColumn(invited.kind === 'account' ? invited.accountRole : null),
         tenantId: input.tenantId,
         isActive: true,
         isEmailVerified: false,
@@ -986,13 +989,14 @@ export class UserLifecycleService {
       // UserModuleAssignment entries. The moduleIds presence check is inlined
       // into the `if` so TS narrows `input.moduleIds` to a defined string[]
       // (no non-null assertion needed on the .map).
-      if (invitedRole !== Role.TENANT_ADMIN && input.moduleIds && input.moduleIds.length > 0) {
+      if (invited.kind === 'member' && input.moduleIds && input.moduleIds.length > 0) {
         // RBAC-HIGH-027: each grant carries its module role (module-assignment-grants.ts).
+        const { moduleRole } = invited;
         const grants = await moduleGrantRows(manager, {
           moduleIds: input.moduleIds,
-          userRole: invitedRole,
+          invitedModuleRole: moduleRole,
           isPrimaryManager: (moduleId) =>
-            invitedRole === Role.MODULE_MANAGER && moduleId === input.primaryModuleId,
+            moduleRole === 'MODULE_MANAGER' && moduleId === input.primaryModuleId,
         });
         const assignments = grants.map((grant) =>
           umaRepo.create({

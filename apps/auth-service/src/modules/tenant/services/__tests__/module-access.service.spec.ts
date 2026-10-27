@@ -77,7 +77,7 @@ describe('ModuleAccessService.setUserModuleAccess', () => {
         intent: expect.objectContaining({
           userId: MEMBER,
           tenantId: TENANT,
-          reason: 'module_access_changed',
+          reason: 'role_permissions_changed',
         }),
       },
     ]);

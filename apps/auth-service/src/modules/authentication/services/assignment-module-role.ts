@@ -1,39 +1,30 @@
 /**
- * The role a module assignment holds (RBAC-HIGH-027; ADR-051 §2 "Backfill").
+ * The role an invite writes on each module grant it creates (RBAC-HIGH-027; PKG-06).
  *
- * WHY: a module grant carried no role. The per-module manager choice lived only in
- * `isPrimaryManager` and `tenant_modules.managerId`, which token mint never read, so the only way
- * to make someone a manager was the tenant-wide users.role. Release R1 adds
- * `user_module_assignments.role`; until PKG-06 gives tenant admins a per-module role of their
- * own, the role is derived from those inputs by the rule the backfill
- * (1819400000000-BackfillUserModuleAssignmentRole) applies to the rows that exist at R1.
+ * WHY: release R1 gave every grant a role (`user_module_assignments.role`) and, with no
+ * per-module role an admin could set, derived it from users.role, tenant_modules.managerId and
+ * the row's isPrimaryManager — the rule of the backfill (1819400000000). PKG-06 gives admins the
+ * per-module role itself: setUserModuleAccess and Assign / Remove Manager write it explicitly.
+ * The R1 rule then conflicts with them: re-deriving a member's rows from users.role whenever an
+ * input changed (the former module-grant-rederivation.ts) overwrote an explicit choice — an
+ * explicit {farm: MODULE_USER} for a legacy global MODULE_MANAGER came back as MODULE_MANAGER on
+ * the next role edit, and an explicit {sensor: MODULE_MANAGER} for a member fell back to
+ * MODULE_USER. The conflict is resolved in the rule: a stored role is the grant, and the legacy
+ * global role counts only where no role is stored yet — the backfill of roleless rows, whose
+ * SQL keeps the R1 rule. users.role is an account role (ADR-051 §1), and PKG-46's demotion of the
+ * global role "changes no access decision" precisely because grants no longer depend on it.
  *
- * WHAT: MODULE_MANAGER for the module's primary manager; MODULE_MANAGER for the module's
- * designated manager (tenant_modules.managerId) or a legacy global MODULE_MANAGER in any module
- * but hr, which keeps the power that user has today; MODULE_USER otherwise. An hr manager grant
- * comes only from the primary-manager choice (owner decision D6: pay is visible only inside HR,
- * so neither Assign Manager nor the tenant-wide role may open it). This is the one place users.role
- * still informs a grant, and only when the grant is written: the module-access reader reads the
- * row and never users.role. PKG-46 demotes the global role in R6.
- *
- * The rule holds over the inputs as they stand, not as they stood when the row was written: a
- * writer that inserts a row derives its role here, and every writer of an input — Assign and
- * Remove Manager (managerId and users.role) and the admin role edit (users.role) — re-derives
- * the member's rows in its own transaction (tenant/services/module-grant-rederivation.ts). The
- * one exception is a row whose input a container of the R0 image changed after the R1 migration
- * (the rollout window, or an image rollback): the backfill fills only rows without a role, so
- * such a row keeps its role until the member's next re-derivation.
+ * WHAT: the one writer that names a single role for several modules is an invite. Its grants
+ * take that role, with the backfill's D6 exception: an hr manager grant comes only from the
+ * primary-manager choice, never from a role named for several modules at once.
  */
-import { Role } from '@aquaculture/backend-common/decorators';
 import { OWNER_MODULE, PLATFORM_ROLE, type ModuleRole } from '@aquaculture/shared-contracts';
 
 export interface ModuleAssignmentGrantInput {
-  /** The admin chose this member as the module's primary manager. */
+  /** The invite chose this module as the member's primary managed module. */
   readonly isPrimaryManager: boolean;
-  /** The member is the module's designated manager (tenant_modules.managerId, Assign Manager). */
-  readonly isDesignatedManager: boolean;
-  /** The member's users.role when the grant is written. */
-  readonly userRole: Role;
+  /** The module role the invite named for all its modules. */
+  readonly invitedModuleRole: ModuleRole;
   /** The code of the module (`auth.modules.code`). */
   readonly moduleCode: string;
 }
@@ -48,7 +39,7 @@ export function moduleAssignmentGrant(input: ModuleAssignmentGrantInput): Module
   const managesModule =
     input.isPrimaryManager ||
     (input.moduleCode !== OWNER_MODULE.HR &&
-      (input.isDesignatedManager || input.userRole === Role.MODULE_MANAGER));
+      input.invitedModuleRole === PLATFORM_ROLE.MODULE_MANAGER);
   return {
     isPrimaryManager: input.isPrimaryManager,
     role: managesModule ? PLATFORM_ROLE.MODULE_MANAGER : PLATFORM_ROLE.MODULE_USER,

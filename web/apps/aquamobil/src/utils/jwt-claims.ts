@@ -30,6 +30,17 @@ function decodeClaims(token: string | null | undefined): Record<string, unknown>
 }
 
 /**
+ * One claim of an access token, unvalidated (`unknown`), for a reader that validates it with
+ * the claim's own guard — offline-cache-scope.ts reads `sub` and `moduleAccess` this way and
+ * checks `moduleAccess` with shared-contracts' isModuleAccess. Undefined for an absent claim
+ * or an undecodable token.
+ */
+export function readAccessTokenClaim(token: string | null | undefined, claim: string): unknown {
+  const claims = decodeClaims(token);
+  return claims === null ? undefined : claims[claim];
+}
+
+/**
  * Decode the tenant-RBAC `resourcePermissions` claim (an array of
  * `resource:action` capability strings) from an access token. Strictly
  * fail-closed: a missing / malformed / wrong-typed claim yields [] so the UI

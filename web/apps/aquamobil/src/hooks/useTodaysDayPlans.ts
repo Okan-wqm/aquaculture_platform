@@ -20,17 +20,23 @@
  * Cache kolaylıktır, otorite değildir — sunucu `recordMealFeeding`/
  * `finalizeMeal` komutlarını her hâlükârda yeniden doğrular; bu yüzden TTL
  * kısa tutulur (bariz bayat bir plan işçiyi yanıltmaktansa süresi dolsun).
+ *
+ * MOB-MEDIUM-031: the cached plans are read through the caller's offline cache
+ * scope (tenant + user + moduleAccess) and stand in only when the server cannot
+ * be reached. The seed this hook used to read on mount showed cached plans while
+ * the query loaded and kept them after it failed — a refusal included — so it is
+ * gone: `isOfflineCached` now means the query itself answered from the cache.
  */
 import { useQuery } from '@tanstack/react-query';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 
 import { useAuth } from './useAuth';
+import { useOfflineCacheScope } from './useOfflineCacheScope';
 
 import type { FeedingDayPlansQuery } from '@/generated/graphql';
 import { GET_FEEDING_DAY_PLANS } from '@/graphql/operations';
-import { cacheData, getCachedData } from '@/pwa/offline-queue';
+import { readThroughOfflineCache, type OfflineRead } from '@/pwa/offline-cache';
 import { graphqlRequest } from '@/services/authenticated-fetch';
-import { logger } from '@/utils/logger';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
 // MOB-HIGH-022: the slice, its meals and the meal status are the generated
@@ -68,40 +74,27 @@ export interface TodaysDayPlansResult {
 
 export function useTodaysDayPlans(): TodaysDayPlansResult {
   const { accessToken, tenantId, isAuthenticated } = useAuth();
+  const cacheScope = useOfflineCacheScope();
 
   const planDate = useMemo(() => localPlanDate(), []);
   const cacheKey = `${DAY_PLANS_CACHE_PREFIX}${planDate}`;
 
-  const [cachedSeed, setCachedSeed] = useState<FeedingDayPlanSlice[] | undefined>(undefined);
-  useEffect(() => {
-    let cancelled = false;
-    if (!tenantId) return;
-    getCachedData<FeedingDayPlanSlice[]>(tenantId, cacheKey)
-      .then((cached) => {
-        if (!cancelled && cached) {
-          setCachedSeed(cached);
-        }
-      })
-      .catch((error: unknown) => {
-        logger.error('[useTodaysDayPlans] failed to load cached day-plan seed', error);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [tenantId, cacheKey]);
-
-  const { data, isLoading, isSuccess, isError, refetch } = useQuery<FeedingDayPlanSlice[]>({
+  const { data, isLoading, isError, refetch } = useQuery<OfflineRead<FeedingDayPlanSlice[]>>({
     queryKey: createTenantQueryKey(tenantId, 'feedingDayPlans', tenantId, planDate),
     queryFn: async () => {
       if (!accessToken || !tenantId) {
         throw new Error('Not authenticated');
       }
-      const result = await graphqlRequest(GET_FEEDING_DAY_PLANS, { planDate });
-      const plans = result.feedingDayPlans;
       // Çevrimdışı yazım TEK queryFn'de — hangi ekranın önce mount ettiği
       // artık cache'in yazılıp yazılmayacağını belirlemiyor.
-      await cacheData(tenantId, cacheKey, plans, DAY_PLANS_CACHE_TTL_MS);
-      return plans;
+      return readThroughOfflineCache(
+        cacheScope,
+        { key: cacheKey, ttlMs: DAY_PLANS_CACHE_TTL_MS },
+        async () => {
+          const result = await graphqlRequest(GET_FEEDING_DAY_PLANS, { planDate });
+          return result.feedingDayPlans;
+        },
+      );
     },
     enabled: isAuthenticated && !!accessToken && !!tenantId,
     staleTime: 1000 * 60 * 5,
@@ -109,8 +102,8 @@ export function useTodaysDayPlans(): TodaysDayPlansResult {
     refetchOnWindowFocus: true,
   });
 
-  const plans = isSuccess ? (data ?? []) : (cachedSeed ?? []);
-  const isOfflineCached = !isSuccess && (cachedSeed?.length ?? 0) > 0;
+  const plans = data?.data ?? [];
+  const isOfflineCached = data?.servedFromCache === true && plans.length > 0;
 
   return {
     plans,

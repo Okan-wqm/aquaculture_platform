@@ -58,6 +58,10 @@ FITNESS_UNMEASURED = "fitness_unmeasured"
 FITNESS_STALE = "fitness_stale"
 FITNESS_BELOW_THRESHOLD = "fitness_below_threshold"
 
+# WP-D3 — the zoo's own scoring rule (ZOO-REPORT): a claim hits a defect when it names the labelled file and
+# its lines come within this many lines of the labelled ones.
+ZOO_LINE_WINDOW = 10
+
 
 def goldset_hash(goldset: dict[str, Any]) -> str:
     """The identity of one promoted gold corpus: the digest of its record."""
@@ -269,6 +273,69 @@ def measure_role_fitness(
     }
 
 
+def _is_line_number(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _claim_hits(claim: Any, label: dict[str, Any]) -> bool:
+    """Does one defect claim name the label's file within ``ZOO_LINE_WINDOW`` lines of its lines?"""
+    return (
+        isinstance(claim, dict)
+        and claim.get("file") == label["file"]
+        and _is_line_number(claim.get("start_line"))
+        and _is_line_number(claim.get("end_line"))
+        and claim["start_line"] <= label["line_end"] + ZOO_LINE_WINDOW
+        and claim["end_line"] >= label["line_start"] - ZOO_LINE_WINDOW
+    )
+
+
+def _proportion(count: int, n: int) -> dict[str, Any]:
+    from .judge_calibration import wilson_interval
+
+    return {"rate": count / n if n else None, "wilson": wilson_interval(count, n)}
+
+
+def score_zoo_discovery(responses: dict[str, Any], labels: list[dict[str, Any]]) -> dict[str, Any]:
+    """WP-D3 — the deterministic scorer of the change review's claims on the defect zoo.
+
+    ``labels`` are the zoo's records (``id``, ``kind`` ``defect`` | ``control``, ``file``, ``line_start``,
+    ``line_end``); ``responses`` maps a label id to the change-intelligence answer given for that change, whose
+    ``details.defect_claims`` are the claims (an answer without any holds none). A defect with a claim that
+    hits it is a hit, otherwise a miss; a control that draws any claim is a false alarm. Each proportion
+    carries its n and the 95% Wilson interval of ``judge_calibration.wilson_interval``, the one owner.
+    A label without an answer, or an answer for no label, is refused by name: a change nobody asked about is
+    neither a miss nor a clean control. Reads nothing but its arguments and calls no model; the exit metric
+    (recall against the plain-model arm) is measured later on DEV with this hook.
+    """
+    from .tool_registry import GovernanceError
+
+    known = {str(label["id"]) for label in labels}
+    unanswered, unknown = sorted(known - set(responses)), sorted(set(responses) - known)
+    if unanswered or unknown:
+        raise GovernanceError(f"zoo_scoring_ids_disagree: no answer for {unanswered}; answers for no label {unknown}")
+    hits: list[str] = []
+    misses: list[str] = []
+    false_alarms: list[str] = []
+    controls = 0
+    for label in sorted(labels, key=lambda record: str(record["id"])):
+        label_id = str(label["id"])
+        claims = (responses[label_id].get("details") or {}).get("defect_claims") or []
+        if label["kind"] == "control":
+            controls += 1
+            if claims:
+                false_alarms.append(label_id)
+        elif any(_claim_hits(claim, label) for claim in claims):
+            hits.append(label_id)
+        else:
+            misses.append(label_id)
+    defects = len(hits) + len(misses)
+    recall, false_alarm = _proportion(len(hits), defects), _proportion(len(false_alarms), controls)
+    return {
+        "defects": {"n": defects, "hits": hits, "misses": misses, "recall": recall["rate"], "wilson": recall["wilson"]},
+        "controls": {"n": controls, "false_alarms": false_alarms, "rate": false_alarm["rate"], "wilson": false_alarm["wilson"]},
+    }
+
+
 def _parse_stamp(value: Any) -> datetime | None:
     try:
         moment = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
@@ -336,7 +403,9 @@ __all__ = [
     "UNMEASURED_NO_LABELLED_EMISSION",
     "UNMEASURED_NO_OK_RUN",
     "UNMEASURED_NO_REPLAY_VERDICT",
+    "ZOO_LINE_WINDOW",
     "adapter_fitness_blocker",
     "goldset_hash",
     "measure_role_fitness",
+    "score_zoo_discovery",
 ]

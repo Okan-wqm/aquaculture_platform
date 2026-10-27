@@ -38,6 +38,7 @@ import { execFileSync, execSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
+import { FINDING_ID_SOURCE } from './finding-id-grammar';
 import { findingTrailerTargets, messageClosesFinding } from './finding-registry-projection';
 import { ORPHAN_MD_HEADING_REGEX, readOrphanMarkdownStore } from './finding-registry-store';
 import { type FindingTrailerTarget } from './finding-traceability';
@@ -112,17 +113,25 @@ const REQUIRE_CLOSES_TYPES = /^(fix|security|refactor\(agentic,phase-|feat)/;
 /** Hard format for the trailer; stricter than a free-text "closes" mention.
  *
  * ID alternation (in order):
- *   1. `<PREFIX>-(CRITICAL|HIGH|MEDIUM|LOW)-\d{3}` — registry / orphan IDs
- *      (UH-HIGH-001, ORPHAN-MEDIUM-032, etc.).
+ *   1. a registry / orphan id of the one grammar (finding-id-grammar.ts:
+ *      `<DOMAIN>-<SEVERITY>-<SEQUENCE>`, sequence 001..9999; UH-HIGH-001,
+ *      ORPHAN-MEDIUM-032, ARIA-HIGH-1000, etc.).
  *   2. `F-\d{3}` — ARIA finding IDs (e.g. F-001) under `aria-findings/`.
  *   3. `DEBT-\d{4}-\d{2}-\d{2}-\d{3}` — ARIA debt IDs (e.g.
  *      DEBT-2026-05-08-001) under `aria-debts/`.
  *
  * Routing based on path prefix happens in `validateCommit` so the gate
  * never fakes-validates an ARIA ID against the registry or vice versa.
+ *
+ * The kernel mints this trailer (aria-kernel/aria_kernel/plan_origin.py,
+ * CLOSES_TRAILER_RE), and aria-kernel/tests/test_closes_trailer_frame.py
+ * compares that pattern with this template literal, the owner's id source in
+ * `${FINDING_ID_SOURCE}`. Keep it one `new RegExp(` template literal: the test
+ * reads it from this source.
  */
-const CLOSES_TRAILER_REGEX =
-  /^Closes:\s+(\S+?)#([A-Z][A-Z0-9]+-(?:CRITICAL|HIGH|MEDIUM|LOW)-\d{3}|F-\d{3}|F-AUTO-V\d+\.\d+(?:-[A-Z0-9-]+)+|DEBT-\d{4}-\d{2}-\d{2}-\d{3})\s*$/;
+const CLOSES_TRAILER_REGEX = new RegExp(
+  `^Closes:\\s+(\\S+?)#(${FINDING_ID_SOURCE}|F-\\d{3}|F-AUTO-V\\d+\\.\\d+(?:-[A-Z0-9-]+)+|DEBT-\\d{4}-\\d{2}-\\d{2}-\\d{3})\\s*$`,
+);
 
 /** True when the path points at an ARIA-owned artifact (finding or debt). */
 function isAriaArtifactPath(path: string): boolean {
@@ -263,7 +272,7 @@ const PRE_PHASE6_SHAS: ReadonlySet<string> = new Set([
   '4b5174db', // fix(migration): replace archived migration imports with Baseline (3 services) — cherry-picked from f757b3ed
   // WASM-adoption feature commits whose Closes: trailers used a hyphenated
   // finding-ID prefix (SCADA-SANDBOX-*, CODEC-WASM-*) that fails the
-  // CLOSES_TRAILER_REGEX PREFIX rule ([A-Z][A-Z0-9]+, no hyphen). The findings
+  // CLOSES_TRAILER_REGEX PREFIX rule (the grammar's domain: no hyphen). The findings
   // are real (docs/reviews/claude/2026-07-13-*.md); only the trailer ID shape
   // was wrong. Amending is barred by the force-push ban, so these SHAs are
   // allowlisted. Later WASM-adoption commits use compliant ORPHAN-{SEV}-NNN IDs.

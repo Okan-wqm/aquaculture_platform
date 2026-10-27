@@ -2964,8 +2964,10 @@ submit-result`, the drain's `agent next-pending`, the worker lane's `worker list
   `base_branch_sha` (the staged base), `diff_hash` (over `git diff <base> <tip>`), `pr_url`,
   `pr_number`, `validation_gate_ref` and `validation_results` (the gate's recorded runs, read back
   through the ledger's verifier: command, exit code, run id, log hash, bounded output) —
-  `KERNEL_STAMPED_DELIVERY_FIELDS`. The agent contract asks for none of them; a value the agent
-  wrote is replaced and a differing one recorded (`implementation_delivery_overridden`:
+  `KERNEL_STAMPED_DELIVERY_FIELDS`. The executor also stamps `decision_stamp` (the executed
+  route and the change's numstat; shape owned by `decision_stamp.py`) by the same rule, outside
+  that tuple on purpose (the agent contract quotes the tuple). The agent contract asks for none
+  of them; a value the agent wrote is replaced and a differing one recorded (`implementation_delivery_overridden`:
   `agent_supplied`, `kernel`). Governance: `implementation_delivered` on success;
   `implementation_delivery_refused` (`stage` ∈ `DELIVERY_STAGES` = `branch_publication` /
   `commit_identity` / `admission` / `change_ledger` / `result_admissible` / `apply_gate` /

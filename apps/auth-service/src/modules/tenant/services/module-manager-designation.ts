@@ -11,20 +11,24 @@
  * an account role and is never written here.
  *
  * WHAT: both run inside the caller's transaction, which binds the tenant (RLS); they read the
- * binding back first (assertTenantRlsBound) and never re-bind it. They resolve the
- * module by its code, or by the module id the release-R2 web still sends, and only an owner
- * module is designated (alert and ai own no data and carry no grant); Assign Manager also needs
- * it enabled. They lock the tenant module first, then the members whose grants change in
- * ascending id order (their credential locks, as token mint takes), so two designations that
- * swap managers cannot deadlock and a mint never reads a half-written designation.
+ * binding back first (assertTenantRlsBound) and never re-bind it. They resolve the module by its
+ * code, which names only an owner module, or by the module id the release-R2 web still sends. A
+ * module that owns no data (alert, ai) carries no grant: named by its id, its designation stays
+ * tenant_modules.managerId alone until PKG-06 PR2 refuses it in R4 (C6 (b);
+ * data-less-module-designation.ts). A disabled module is designated as an enabled one: the grant
+ * is inert while the module is off, since the token reader joins isEnabled, and refusing it would
+ * refuse a module id the R2 console can still send. They lock the tenant module first, then the
+ * members whose grants change in ascending id order (their credential locks, as token mint
+ * takes), so two designations that swap managers cannot deadlock and a mint never reads a
+ * half-written designation.
  *   - Assign Manager gives the designee the module's primary manager grant (inserted, raised or
  *     reactivated) — in hr as in every owner module: it is the per-module manager choice D6
  *     admits — and takes every previous designation back to a user grant: the rows marked
  *     primary and the legacy managerId designee.
  *   - Remove Manager takes every designation back the same way.
  * tenant_modules.managerId is still mapped until PKG-06 PR2 unmaps it (C4), so it is written in
- * the same transaction as the grant it mirrors and nothing decides by it; the R3 backfill re-run
- * that PR carries reads it consistently.
+ * the same transaction as the grant it mirrors and nothing decides by it; the backfill re-run of
+ * PKG-06's contract migration reads it consistently. RBAC-MEDIUM-036 closes with that unmapping.
  */
 import {
   assertTenantRlsBound,
@@ -33,8 +37,10 @@ import {
 } from '@aquaculture/backend-common/database';
 import {
   isOwnerModuleCode,
+  isPlatformModuleCode,
   PLATFORM_ROLE,
   type OwnerModuleCode,
+  type PlatformModuleCode,
 } from '@aquaculture/shared-contracts';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import type { EntityManager, Repository } from 'typeorm';
@@ -44,8 +50,12 @@ import type { User } from '../../authentication/entities/user.entity';
 import { Module } from '../../system-module/entities/module.entity';
 import type { TenantModule } from '../entities/tenant-module.entity';
 
+import { clearDataLessModule, designateDataLessModule } from './data-less-module-designation';
 import { liveRoleOf, writeGrant, type GrantChange } from './module-grant-writes';
 import { lockUserForCredentialMutation } from './user-credential-revocation';
+
+/** A module that owns no data and carries no grant (alert, ai). */
+export type DataLessModuleCode = Exclude<PlatformModuleCode, OwnerModuleCode>;
 
 /** The repositories a designation writes through; the caller's transaction binds them. */
 export interface ModuleManagerStores {
@@ -74,10 +84,10 @@ export function moduleRefOf(input: {
 
 export interface DesignationResult {
   readonly tenantModule: TenantModule;
-  readonly moduleCode: OwnerModuleCode;
+  readonly moduleCode: PlatformModuleCode;
   /** The live grants the designation moved. */
   readonly changes: readonly GrantChange[];
-  /** The locked members, by id: the designee and every previous designation. */
+  /** The locked members whose grants it can move, by id: the designee and every previous one. */
   readonly members: ReadonlyMap<string, User>;
   /** Who held the designation before (primary rows and the legacy managerId). */
   readonly previousManagerIds: readonly string[];
@@ -98,9 +108,9 @@ export async function designateModuleManager(
   now: Date,
 ): Promise<DesignationResult> {
   await assertTenantRlsBound(manager, input.tenantId, 'auth');
-  const { tenantModule, moduleCode } = await lockOwnerTenantModule(manager, stores, input);
-  if (!tenantModule.isEnabled) {
-    throw new BadRequestException(`Module "${moduleCode}" is not enabled for this tenant`);
+  const { tenantModule, moduleCode } = await lockNamedTenantModule(manager, stores, input);
+  if (!isOwnerModuleCode(moduleCode)) {
+    return designateDataLessModule(manager, stores, tenantModule, moduleCode, input);
   }
   const previous = await designatedManagerIds(manager, tenantModule);
   const members = await lockMembers(manager, stores, input.tenantId, [input.userId, ...previous]);
@@ -150,7 +160,10 @@ export async function clearModuleManager(
   now: Date,
 ): Promise<DesignationResult> {
   await assertTenantRlsBound(manager, input.tenantId, 'auth');
-  const { tenantModule, moduleCode } = await lockOwnerTenantModule(manager, stores, input);
+  const { tenantModule, moduleCode } = await lockNamedTenantModule(manager, stores, input);
+  if (!isOwnerModuleCode(moduleCode)) {
+    return clearDataLessModule(manager, stores, tenantModule, moduleCode);
+  }
   const previous = await designatedManagerIds(manager, tenantModule);
   const members = await lockMembers(manager, stores, input.tenantId, previous);
 
@@ -176,26 +189,32 @@ export async function clearModuleManager(
   return { tenantModule: saved, moduleCode, changes, members, previousManagerIds: previous };
 }
 
-/** The tenant module of an owner module, under a write lock. */
-async function lockOwnerTenantModule(
+/**
+ * The named tenant module, under a write lock. A module code names only an owner module (the
+ * PKG-06 input); a module id, the release-R2 input, names any module of the dictionary.
+ */
+async function lockNamedTenantModule(
   manager: EntityManager,
   stores: ModuleManagerStores,
   input: { readonly tenantId: string; readonly module: ModuleRef },
-): Promise<{ tenantModule: TenantModule; moduleCode: OwnerModuleCode }> {
+): Promise<{ tenantModule: TenantModule; moduleCode: PlatformModuleCode }> {
   const catalogue = await manager.find(Module, { select: { id: true, code: true } });
   let named: Module | undefined;
   if ('moduleCode' in input.module) {
     const { moduleCode } = input.module;
     named = catalogue.find((module) => module.code === moduleCode);
     if (named === undefined) throw new BadRequestException(`"${moduleCode}" is no module`);
+    if (!isOwnerModuleCode(named.code)) {
+      throw new BadRequestException(`Module "${named.code}" owns no data and has no manager`);
+    }
   } else {
     const { moduleId } = input.module;
     named = catalogue.find((module) => module.id === moduleId);
     if (named === undefined) throw new NotFoundException('Module not assigned to this tenant');
   }
   const { code } = named;
-  if (!isOwnerModuleCode(code)) {
-    throw new BadRequestException(`Module "${code}" owns no data and has no manager`);
+  if (!isPlatformModuleCode(code)) {
+    throw new BadRequestException(`"${code}" is not a module of the dictionary`);
   }
   const tenantModule = await manager.withRepository(stores.tenantModules).findOne({
     where: { tenantId: input.tenantId, moduleId: named.id },

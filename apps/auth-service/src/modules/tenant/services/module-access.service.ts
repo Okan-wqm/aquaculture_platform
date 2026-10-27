@@ -14,7 +14,7 @@
  * and who each module's primary manager is.
  */
 import { bindTenantRlsContext } from '@aquaculture/backend-common/database';
-import type { ModuleAccess, OwnerModuleCode } from '@aquaculture/shared-contracts';
+import type { ModuleAccess, PlatformModuleCode } from '@aquaculture/shared-contracts';
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, Repository } from 'typeorm';
@@ -236,7 +236,7 @@ export class ModuleAccessService {
     actor: ModuleAccessActor,
     designation: DesignationResult,
     action: 'MODULE_MANAGER_ASSIGNED' | 'MODULE_MANAGER_REMOVED',
-    newValue: { readonly moduleCode: OwnerModuleCode; readonly managerId: string | null },
+    newValue: { readonly moduleCode: PlatformModuleCode; readonly managerId: string | null },
   ): Promise<void> {
     await this.auditLogService.log(
       {

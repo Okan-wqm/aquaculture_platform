@@ -394,20 +394,94 @@ describe('ModuleAccessService.assignModuleManager', () => {
   });
 
   it.each([
-    ['a module that owns no data (alert)', { moduleCode: 'alert' }, BadRequestException],
+    [
+      'a module that owns no data named by its code (alert)',
+      { moduleCode: 'alert' },
+      BadRequestException,
+    ],
     ['a code that is no module', { moduleCode: 'payroll' }, BadRequestException],
-    ['a disabled module', { moduleCode: 'hydroponics' }, BadRequestException],
     ['a module id the tenant does not hold', { moduleId: 'not-a-module' }, NotFoundException],
   ])('refuses %s, writing nothing', async (_label, module, error) => {
-    const world = makeWorld({
-      users: [{ id: MEMBER, role: Role.MODULE_USER }],
-      disabled: ['hydroponics'],
-    });
+    const world = makeWorld({ users: [{ id: MEMBER, role: Role.MODULE_USER }] });
 
     await expect(
       world.service.assignModuleManager(actor(), { module, userId: MEMBER }),
     ).rejects.toThrow(error);
     expect(world.grants).toEqual([]);
+    expect(world.managerOf('alert')).toBeNull();
+    expect(world.audits).toEqual([]);
+  });
+
+  // C6 (b): the R2 console shows a card for every module of the session and sends its id. A
+  // module disabled since the session began is designated as an enabled one: the grant is inert
+  // while the module is off, since the token reader joins tenant_modules.isEnabled.
+  it('designates a disabled module as an enabled one, the R2 console may still send it', async () => {
+    const world = makeWorld({
+      users: [{ id: MEMBER, role: Role.MODULE_USER }],
+      disabled: ['hydroponics'],
+    });
+
+    await world.service.assignModuleManager(actor(), {
+      module: { moduleId: MODULE_ID.hydroponics },
+      userId: MEMBER,
+    });
+
+    expect(world.grantOf(MEMBER, 'hydroponics')).toMatchObject({
+      isPrimaryManager: true,
+      role: 'MODULE_MANAGER',
+    });
+    expect(world.savedUsers).toEqual([]);
+  });
+
+  // C6 (b): the R2 console offers Assign Manager on a module that owns no data and sends its id.
+  // Refusing it is a BREAKING change for a release with migrations, so until PKG-06 PR2 unmaps
+  // managerId (R4) its designation stays that column alone: no grant, no users.role, no token.
+  it("keeps the R2 console's designation of a module that owns no data in managerId alone, audited", async () => {
+    const world = makeWorld({
+      users: [
+        { id: PREVIOUS, role: Role.MODULE_USER },
+        { id: MEMBER, role: Role.MODULE_USER },
+      ],
+      managers: { alert: PREVIOUS },
+    });
+
+    await world.service.assignModuleManager(actor(), {
+      module: { moduleId: MODULE_ID.alert },
+      userId: MEMBER,
+    });
+
+    expect(world.managerOf('alert')).toBe(MEMBER);
+    expect(world.grants).toEqual([]);
+    expect(world.savedUsers).toEqual([]);
+    expect(world.invalidations).toEqual([]);
+    expect(world.audits).toEqual([
+      {
+        inTransaction: true,
+        dto: expect.objectContaining({
+          tenantId: TENANT,
+          performedBy: ADMIN,
+          action: 'MODULE_MANAGER_ASSIGNED',
+          entityType: 'TenantModule',
+          entityId: 'tm-alert',
+          previousValue: { moduleCode: 'alert', managerIds: [PREVIOUS] },
+          newValue: { moduleCode: 'alert', managerId: MEMBER },
+        }),
+      },
+    ]);
+  });
+
+  it('refuses a user of another tenant on a module that owns no data, writing nothing', async () => {
+    const world = makeWorld({
+      users: [{ id: MEMBER, role: Role.MODULE_USER, tenantId: OTHER_TENANT }],
+    });
+
+    await expect(
+      world.service.assignModuleManager(actor(), {
+        module: { moduleId: MODULE_ID.alert },
+        userId: MEMBER,
+      }),
+    ).rejects.toThrow(new NotFoundException('User not found in this tenant'));
+    expect(world.managerOf('alert')).toBeNull();
     expect(world.audits).toEqual([]);
   });
 
@@ -457,5 +531,38 @@ describe('ModuleAccessService.removeModuleManager', () => {
     expect(world.invalidations).toEqual([]);
     expect(world.audits).toEqual([]);
     expect(world.steps).toEqual([`rls:${TENANT}`, 'tenant_module:farm']);
+  });
+
+  it("clears the R2 console's designation of a module that owns no data, audited, invalidating no token", async () => {
+    const world = makeWorld({
+      users: [{ id: PREVIOUS, role: Role.MODULE_USER }],
+      managers: { alert: PREVIOUS },
+    });
+
+    await world.service.removeModuleManager(actor(), { module: { moduleId: MODULE_ID.alert } });
+
+    expect(world.managerOf('alert')).toBeNull();
+    expect(world.invalidations).toEqual([]);
+    expect(world.audits.map((record) => record.dto)).toEqual([
+      expect.objectContaining({
+        action: 'MODULE_MANAGER_REMOVED',
+        entityId: 'tm-alert',
+        previousValue: { moduleCode: 'alert', managerIds: [PREVIOUS] },
+        newValue: { moduleCode: 'alert', managerId: null },
+      }),
+    ]);
+  });
+
+  it('refuses a module that owns no data named by its code, writing nothing', async () => {
+    const world = makeWorld({
+      users: [{ id: PREVIOUS, role: Role.MODULE_USER }],
+      managers: { alert: PREVIOUS },
+    });
+
+    await expect(
+      world.service.removeModuleManager(actor(), { module: { moduleCode: 'alert' } }),
+    ).rejects.toThrow(BadRequestException);
+    expect(world.managerOf('alert')).toBe(PREVIOUS);
+    expect(world.audits).toEqual([]);
   });
 });

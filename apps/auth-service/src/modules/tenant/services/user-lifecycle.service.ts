@@ -495,9 +495,12 @@ export class UserLifecycleService {
    * Admin-initiated user creation.
    *
    * Used by the SUPER_ADMIN flow on admin-api-service — a platform operator
-   * creates a user record at an arbitrary role (including SUPER_ADMIN) for
+   * creates a user record at an account role (including SUPER_ADMIN) for
    * any tenant (or for no tenant at all, in the case of platform-level
-   * SUPER_ADMIN accounts).
+   * SUPER_ADMIN accounts). users.role takes only the account role
+   * (RBAC-HIGH-034): a module role names no module here, so the account is
+   * written as a member and its module roles are set through
+   * setUserModuleAccess, as for an invited member.
    *
    * This method writes through the TypeORM User repository only. The
    * `password` column name is sourced from the `User` entity definition
@@ -542,7 +545,8 @@ export class UserLifecycleService {
     if (!isCanonicalRole(input.role)) {
       throw new BadRequestException(`Unknown role "${input.role}"`);
     }
-    const role: Role = input.role;
+    const requested = splitInvitedRole(input.role);
+    const role = usersRoleColumn(requested.kind === 'account' ? requested.accountRole : null);
 
     // Tenant validation — when a tenantId is provided it MUST resolve to
     // an active tenant. SUPER_ADMIN accounts legitimately pass null.
@@ -567,7 +571,9 @@ export class UserLifecycleService {
 
     const saved = await this.userRepository.save(newUser);
     // SECURITY: Log user ID only; email is PII (H-14).
-    this.logger.log(`Admin-created user userId=${saved.id} role=${saved.role}`);
+    this.logger.log(
+      `Admin-created user userId=${saved.id} role=${saved.role} requestedRole=${input.role}`,
+    );
     return saved;
   }
 

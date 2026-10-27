@@ -1031,6 +1031,52 @@ describe('UserLifecycleService', () => {
   });
 
   // ==========================================================================
+  // adminCreateUser
+  // ==========================================================================
+
+  // RBAC-HIGH-034: users.role is an account role (ADR-051 §1). The platform admin's create path
+  // writes an account role as it is handed; a module role names no module here, so the account is
+  // a member (MODULE_USER) whose module roles a tenant administrator sets per module.
+  describe('adminCreateUser', () => {
+    const adminCreate = (role: string): Promise<User> =>
+      service.adminCreateUser({
+        email: 'Platform.User@tenant.com',
+        firstName: 'Platform',
+        lastName: 'User',
+        password: 'S3cure-Passw0rd!',
+        role,
+        tenantId: TENANT_ID,
+      });
+
+    beforeEach(() => {
+      userRepository.findOne.mockResolvedValue(null);
+      tenantRepository.findOne.mockResolvedValue(createMockTenant());
+      userRepository.save.mockResolvedValue(createMockUser());
+    });
+
+    it.each([
+      [Role.SUPER_ADMIN, Role.SUPER_ADMIN],
+      [Role.TENANT_ADMIN, Role.TENANT_ADMIN],
+      [Role.MODULE_MANAGER, Role.MODULE_USER],
+      [Role.MODULE_USER, Role.MODULE_USER],
+    ])('writes the requested role %s into users.role as %s', async (requested, written) => {
+      await adminCreate(requested);
+
+      expect(userRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ role: written, tenantId: TENANT_ID }),
+      );
+      expect(userRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({ role: written, email: 'platform.user@tenant.com' }),
+      );
+    });
+
+    it('refuses a role that is no platform role, writing nothing', async () => {
+      await expect(adminCreate('PAYROLL_MANAGER')).rejects.toThrow(BadRequestException);
+      expect(userRepository.save).not.toHaveBeenCalled();
+    });
+  });
+
+  // ==========================================================================
   // deleteUser
   // ==========================================================================
 

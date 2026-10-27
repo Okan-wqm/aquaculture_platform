@@ -28,6 +28,11 @@ import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+// The registry's finding-id grammar has one owner. This script runs under plain
+// `node` (rust-ci has no `npm ci`), which strips types and so needs the explicit
+// `.ts` specifier; the owner stays erasable TypeScript for that reason.
+import { FINDING_SEVERITIES, findingIdSourceOf } from '../../tools/gates/finding-id-grammar.ts';
+
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 /** RUST-CVE-001 graveyard — resolved by the crates/local-rumqttc fork +
@@ -61,7 +66,18 @@ const REQUIRED_GHSA: ReadonlyArray<{ id: string; finding: string }> = [
  *  an explicit review cadence instead (deny.toml rubric). */
 const NON_DATE_DEADLINE_MARKERS = ['RE-EVAL QUARTERLY', 'NO_FIX_AVAILABLE'];
 
-const FINDING_ID_RE = /\b(?:[A-Z][A-Z0-9]*-)+(?:CI|CVE)-\d{3}\b|\bRUST-CVE-\d{3}\b/;
+/**
+ * A tracked finding id in a comment block. The domain and the sequence are the
+ * grammar owner's (three digits, or four from 1000, never a leading zero past
+ * three), so `EDGE-CI-1000` is tracked and `EDGE-CI-0999` is not. The classifier
+ * is a severity (an id the registry issues: `SUPPLY-HIGH-025`) or `CI` / `CVE`
+ * (the classifiers these advisory comments have always used: `EDGE-CI-010`,
+ * `RUST-CVE-002`); it is not any classifier, because an advisory id such as
+ * `RUSTSEC-2026-1234` has the shape of an id with a digits-only classifier.
+ */
+const FINDING_ID_RE = new RegExp(
+  `\\b${findingIdSourceOf([...FINDING_SEVERITIES, 'CI', 'CVE'])}\\b`,
+);
 const RUSTSEC_RE = /RUSTSEC-\d{4}-\d{4}/g;
 const DEADLINE_RE = /Deadline:\s*([^\n]+)/i;
 const OWNER_RE = /Owner:\s*\S+/i;

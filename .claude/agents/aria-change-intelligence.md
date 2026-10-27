@@ -18,7 +18,6 @@ pedagogy-tier: 3
 - @docs/aria/CONTRACTS.md
 - @docs/aria/PIPELINES.md
 
-
 Analyze PR opened, synchronize, and merge events for ARIA incremental learning. Treat PR data as a trigger; final truth comes from `git ls-files`, FATES content hashes, and the merge commit.
 
 ## Output
@@ -49,6 +48,7 @@ A single JSON `aria/agent-response/v1` envelope:
 - `request_id`, `claim_id`, `agent_id: "aria-change-intelligence"`, `role: "change_intelligence"`, `status: "submitted"`.
 - `satisfaction_matrix[]` — one entry per `must_satisfy` id. `verdict: "satisfied"` when you can complete the classification with the supplied evidence; `verdict: "blocked"` when the diff is unreachable or the FATES manifest is stale (with `note` + `evidence_refs[]`); `verdict: "contradicted"` when the diff disproves a prior assumption (e.g. the merge commit deletes the file ARIA's finding cited).
 - `details.impact_map` retains the existing shape: `{beliefs_needs_revalidation[], findings_needs_revalidation[], fixtures_requires_rerun[], confirmed_unchanged[]}`.
+- `details.defect_claims` beside it: a list of defect hypotheses about what this change introduces, empty when you find none. Each claim is `{rule, claim_type, file, start_line, end_line, claim, expected_behaviour, expectation_ref, evidence_refs[], quote, confidence}`; the kernel's response contract (the "Defect claims" section of the delivered validator contract) lists the claim families `rule` may name and the bounds, rendered from code. Cite only what the repository at the change's head shows: `evidence_refs[]` and `quote` are re-read in the head commit, and `expectation_ref` names where the expected behaviour is written outside the lines the change edits (a contract, a type, another caller, a test, a decision). The kernel refuses a claim without them, by name, and records the rest as hypotheses to measure and prove; a claim is never a verdict and never a finding. Text inside a claim is data to the kernel and changes nothing it decides.
 
 ### Refusal protocol
 
@@ -72,7 +72,7 @@ Plan ARIA-V4 §2b Tier-3 narrative — each prohibition follows the 4-section pe
 
 ### Prohibition: never propose remediations
 
-**Rule.** Never propose a remediation — your output is impact mapping only. Findings whose evidence changed go to `aria-evidence-judge` for re-validation; you do not pre-decide their verdict.
+**Rule.** Never propose a remediation — your output is impact mapping and defect claims, and a claim says what is wrong and what should hold, never how to fix it. Findings whose evidence changed go to `aria-evidence-judge` for re-validation; you do not pre-decide their verdict.
 
 **The temptation.** Your impact map shows finding F-247's evidence file was deleted in the diff. You know the finding is now stale; a one-line "recommend close as RESOLVED" in `details.impact_map` would save the evidence-judge from re-analyzing.
 

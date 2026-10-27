@@ -29,6 +29,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
+import { FINDING_ID_SOURCE } from '../../tools/gates/finding-id-grammar';
 import { isUnresolvedFindingState } from '../../tools/gates/finding-registry-chain';
 import { projectRegistry } from '../../tools/gates/finding-registry-projection';
 
@@ -143,7 +144,7 @@ describe('CLAUDE.md accuracy invariants', () => {
         .filter((row) => isUnresolvedFindingState(row.state))
         .map((row) => row.id),
     );
-    const FINDING_ID_RX = /\b[A-Z]+-(?:CRITICAL|HIGH|MEDIUM|LOW)-\d{3}\b/g;
+    const FINDING_ID_RX = new RegExp(`\\b${FINDING_ID_SOURCE}\\b`, 'g');
     const testQuarantine = new Set(
       Object.keys(
         (

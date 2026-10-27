@@ -791,6 +791,18 @@ def project_roots_of_listed_tree(
     return {name: meta["root"] for name, meta in _discover(_ListedTree(files, read_text)).items()}
 
 
+# The roots the cross-cutting review lens is asked about (DESIGN f.2.3): backend
+# and shared code (`apps/x`, `libs/x`, `platform/libs/x`, `platform/x`). Web and
+# tooling roots (`web/modules/x`, `tools/gates`) have their own service seat only.
+_CODE_ROOT_PARENTS = ("apps", "libs", "platform")
+
+
+def is_code_root(root: str) -> bool:
+    """Whether a project root lies under ``apps/``, ``libs/`` or ``platform/``."""
+    parent, _, child = root.partition("/")
+    return parent in _CODE_ROOT_PARENTS and bool(child)
+
+
 def _discover(tree: _ProjectTree) -> dict[str, dict[str, str]]:
     """Every project in the repository, by convention first and marker second.
 

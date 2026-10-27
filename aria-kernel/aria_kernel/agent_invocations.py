@@ -2378,21 +2378,22 @@ def list_agent_invocation_requests(
     return rows
 
 
-def minted_subject_refs(
+def minted_subject_seats(
     *,
     role: str,
-    target_agent: str,
+    target_agent: str | None = None,
     base_dir: str | Path | None = None,
-) -> set[str]:
-    """Every subject already asked about by a request for this role+target.
+) -> dict[str, frozenset[str]]:
+    """``{subject_ref: the seats already asked}`` for every subject a request for this role named.
 
-    WHAT: one pass over the request ledger, returning the ``subject_ref`` of
-    every row with the same ``role`` and ``target_agent``. A producer names
-    its subject (a merged PR, one gold-corpus state) on that field and asks
-    this set whether it has already minted for it. A row minted before the
-    field existed (ARIA-MEDIUM-385) spelled its subject as an evidence ref;
-    the ledger is append-only, so that row's subject is read where it was
-    written: its ``evidence_refs``.
+    WHAT: one pass over the request ledger. A producer names its subject (a
+    merged PR, one gold-corpus state) on ``subject_ref`` and asks this map
+    whether it has already minted for it, and for which seats of it. A row
+    minted before the field existed (ARIA-MEDIUM-385) spelled its subject as
+    an evidence ref; the ledger is append-only, so that row's subject is read
+    where it was written: its ``evidence_refs``. A row with no
+    ``change_context.seat`` (every row minted before SE-5, and every producer
+    that has no seats) asked the whole subject: seat ``change``.
 
     WHY the ``request_id`` collapse is not enough on its own: that identity
     hash folds ``cycle_id`` and the rendered prompt in (see ``_request_id``
@@ -2401,24 +2402,43 @@ def minted_subject_refs(
     subject — a duplicate envelope, duplicate spend, and a second answer that
     can contradict the first.
 
-    WHY a set rather than a per-subject lookup: the caller holds a growing
+    WHY a map rather than a per-subject lookup: the caller holds a growing
     list of subjects (every merge ever recorded), and a lookup per subject
     would re-read and re-verify the whole hash-chained ledger once per
     subject, per cycle.
+
+    WHY the target is optional and the seat is the grain: a seat is asked
+    once whichever agent holds it. A dedup scoped to one agent would ask it
+    again when its resolved agent changed between two runs; ``target_agent``
+    narrows the scan only for a caller that means one agent's rows.
     """
-    refs: set[str] = set()
+    seats: dict[str, set[str]] = {}
     for row in load_segments(ensure_tools_dir(base_dir), "agent_invocation_requests"):
-        if row.get("role") != role or row.get("target_agent") != target_agent:
+        if row.get("role") != role or (target_agent is not None and row.get("target_agent") != target_agent):
             continue
+        context = row.get("change_context")
+        seat = context.get("seat", WHOLE_CHANGE_SEAT) if isinstance(context, Mapping) else WHOLE_CHANGE_SEAT
         if "subject_ref" in row:
             subject = row["subject_ref"]
             if isinstance(subject, str) and subject:
-                refs.add(subject)
+                seats.setdefault(subject, set()).add(seat)
             continue
         row_refs = row.get("evidence_refs")
         if isinstance(row_refs, list):
-            refs.update(ref for ref in row_refs if isinstance(ref, str))
-    return refs
+            for ref in row_refs:
+                if isinstance(ref, str):
+                    seats.setdefault(ref, set()).add(seat)
+    return {subject: frozenset(found) for subject, found in seats.items()}
+
+
+def minted_subject_refs(
+    *,
+    role: str,
+    target_agent: str,
+    base_dir: str | Path | None = None,
+) -> set[str]:
+    """Every subject already asked about by a request for this role+target: the key set of ``minted_subject_seats``."""
+    return set(minted_subject_seats(role=role, target_agent=target_agent, base_dir=base_dir))
 
 
 def _find_request(root: Path, request_id: str) -> dict[str, Any]:

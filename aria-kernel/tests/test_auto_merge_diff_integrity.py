@@ -370,7 +370,7 @@ class PreMergeReEvaluationNamesTheDiffCauseTests(unittest.TestCase):
 
         def merge_pr(self, number: int, **kwargs: Any) -> dict[str, Any]:
             self.merge_calls.append({"number": number, **kwargs})
-            return {"merged": True}
+            return {"merged": True, "merge_commit_sha": "c" * 40}
 
         def get_open_issues(self, *, labels: list[str]) -> dict[str, Any]:
             return {"readable": True, "issues": []}

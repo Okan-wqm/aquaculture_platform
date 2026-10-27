@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Any
 
 from .ledger import append_declared_jsonl, load_declared_jsonl
+from .merge_record import arias_merges
 from .tool_registry import ensure_tools_dir, utc_now
 
 OWN_PR_HEAD_PREFIXES = ("aria/", "automation/")
@@ -178,6 +179,10 @@ def scan_merged_own_prs(
     governance event so the ledger carries the moment of discovery, and
     ``load_post_merge_reds`` below feeds the pressure producer — the red
     becomes next-cycle work, which is the learning loop.
+
+    F3.3a — a merged PR is ARIA's when ``merge_record`` holds its merge as
+    ARIA's (``arias_merges``), never by its head branch: PR #1906 was ARIA's
+    change on a person-named branch, and a branch prefix alone is no merge.
     """
     root = ensure_tools_dir(base_dir)
     readable, reason = reader.readable()
@@ -198,10 +203,11 @@ def scan_merged_own_prs(
     # yet; filing it under green would claim main stayed green before any
     # workflow said so.
     not_green: list[dict[str, Any]] = []
+    ours = arias_merges(root)
     for pr in reader.list_merged_own_prs(limit=limit):
         number = pr.get("number")
         head_ref = str(pr.get("headRefName") or "")
-        if not isinstance(number, int) or not is_own_pr_head(head_ref):
+        if not isinstance(number, int) or number not in ours:
             continue
         merge_sha = str((pr.get("mergeCommit") or {}).get("oid") or "")
         if not merge_sha:
@@ -239,9 +245,7 @@ def scan_merged_own_prs(
                 "cycle_id": cycle_id,
                 "pr_number": number,
                 "head_ref": head_ref,
-                # ARIA-HIGH-222 — the head the PR merged at: an ARIA merge
-                # attempt (a published merge_intent) is attributed to the
-                # merge by (PR, head), never by PR number alone.
+                # The head the PR merged at, as GitHub reports it.
                 "head_sha": str(pr.get("headRefOid") or ""),
                 "merge_sha": merge_sha,
                 "red_jobs": red_jobs,

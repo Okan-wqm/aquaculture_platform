@@ -241,7 +241,7 @@ class _RecordingAdapter:
 
     def merge_pr(self, pr_number: int, **kwargs: Any) -> dict:
         self.merge_calls.append({"pr_number": pr_number, **kwargs})
-        return {"merged": True}
+        return {"merged": True, "merge_commit_sha": "c" * 40}
 
     def get_pr_diff(self, pr_number: int) -> tuple[str | None, str | None]:
         # The Protocol's required read (ARIA-MEDIUM-581); this fixture's PR

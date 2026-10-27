@@ -89,6 +89,9 @@ FAMILIES: dict[str, Family] = {
     "python_source_facts": Family("tools-gates", f"{_K}source_facts.py:extract",
                                   ("module_name", "iter_sources", "iter_modules", "deepest_module", "path_parts",
                                    "chain_runs", "flatten_div", "module_bindings", "export_table")),
+    # F3.3a: the merge index and "which merges are ARIA's" have one reader, merge_record (ARIA-MEDIUM-746).
+    "merge_index": Family("planning-impl", f"{_K}merge_record.py:fold_merged_rows",
+                          ("fold_merged_rows", "merged_rows_by_change", "arias_merges")),
     # Dormant by design: routed every cycle, acts only with funnel_enabled (genesis_policy).
     "judgment_funnel": Family("judgment", f"{_K}judgment_funnel.py:route_judgment_sample", ("route_judgment_sample",),
                               (("judgment_funnel_routing", "judgment-funnel/routing.jsonl"),), gate="funnel_enabled"),
@@ -102,9 +105,6 @@ FAMILIES: dict[str, Family] = {
                              ("evaluate_change_outcomes", "_attributed_reverts"),
                              (("change_outcome", "change-ledger/outcome.jsonl"),),
                              plan_package="F3.3", finding="ARIA-HIGH-745"),
-    "merge_index": Family("planning-impl", f"{_K}merge_record.py:fold_merged_rows",
-                          ("fold_merged_rows", "_merge_index", "_aria_merged_prs", "scan_merged_own_prs"),
-                          plan_package="F3.4", finding="ARIA-MEDIUM-746"),
     "rule_contract": Family("judgment", f"{_K}rule_contract.py:resolve_rule_contract",
                             ("resolve_rule_contract", "_canary_contract"), plan_package="F2.4", finding="ARIA-LOW-738"),
     "seat_law": Family("judgment", f"{_K}feedback_store.py:distinct_judge_seats",

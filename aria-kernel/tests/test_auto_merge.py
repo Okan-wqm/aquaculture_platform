@@ -136,7 +136,7 @@ class FakeGitHubAdapter:
             raise RuntimeError("merge failed")
         call = {"number": number, "method": method, "expected_head_sha": expected_head_sha}
         self.merge_calls.append(call)
-        return {"merged": True, **call}
+        return {"merged": True, "merge_commit_sha": "c" * 40, **call}
 
 
 class AutoMergeTests(unittest.TestCase):

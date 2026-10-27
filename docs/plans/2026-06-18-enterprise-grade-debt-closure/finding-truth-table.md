@@ -256,13 +256,24 @@ Allowed truth buckets:
 | `DEPLOY-CRITICAL-017` | OPEN           | 2026-09-05   | infra-expert               | real-open                 |
 | `HR-CRITICAL-065`     | OPEN           | 2026-11-30   | hr-expert                  | real-open                 |
 | `FARM-CRITICAL-466`   | OPEN           | 2026-11-30   | farm-expert                | real-open                 |
-| `SEC-CRITICAL-206`    | OPEN           | 2026-11-30   | auth-security-expert       | already-fixed-needs-close |
-| `SEC-CRITICAL-207`    | OPEN           | 2026-11-30   | auth-security-expert       | already-fixed-needs-close |
 
 Updated 2026-10-26 (module-boundaries program, PKG-00): four active CRITICALs added.
 `HR-CRITICAL-065` (payroll and HR finance behind the global role), `FARM-CRITICAL-466`
 (farm-service authorizes by the global role alone) and `SEC-CRITICAL-206` / `SEC-CRITICAL-207`
 (the tenant-wide sockets). Their fixes are PKG-07, PKG-08 and PKG-10, release R4.
+
+Updated 2026-10-27 (module-boundaries program, PKG-10, release R4): `SEC-CRITICAL-206` and
+`SEC-CRITICAL-207` leave the active table in the branch whose `Closes:` trailers close them
+(`tools/gates/debt-plan-truth.ts` derives the active set at HEAD). `SEC-CRITICAL-206`: the /farms
+socket joins a member only to the rooms `decideAccess` allows from the token's `moduleAccess` and
+assigned sites (`t:{tenant}:m:farm[:site:{id}]`, `t:{tenant}:registry:{module}`), and every farm
+event is emitted through `FarmGateway.broadcastFarmEvent`, whose rooms derive from
+`FARM_WS_EVENT_ACCESS` (`apps/gateway-api/src/websocket/farm-ws-event-access.ts`).
+`SEC-CRITICAL-207`: the /sensors and /st-language handshakes require a sensor grant, sensor rooms
+carry the tenant prefix, a reading reaches the site room its `siteId` names, and
+`request.sensor.verifyDeviceOwnership` answers the device's site. Proof: the room specs under
+`apps/gateway-api/src/websocket/__tests__/`, `module-socket-rooms.spec.ts` in backend-common and
+`tests/invariants/ws-module-scoped-rooms.spec.ts`. The branch merges behind the R4 entry gate.
 
 Updated 2026-09-10 (W9t, the SUPER_ADMIN audit's last unmigrated page): one active CRITICAL added.
 Updated 2026-10-10 (farm E2E campaign, PR #1951): seven CRITICALs registered
@@ -566,27 +577,6 @@ main-reachable closer after merge and moves this row to `Resolved Evidence`.
   validator refused farm-service's cold start; two new
   migrations recreate them idempotently, proven against a Postgres shaped like production. The row
   stays OPEN until the post-merge close ceremony records the main-reachable closing commit.
-
-- `SEC-CRITICAL-206` (2026-10-27, module-boundaries PKG-10, release R4): the /farms socket joins a
-  member only to the rooms `decideAccess` allows from the token's `moduleAccess` and assigned sites
-  (`t:{tenant}:m:farm[:site:{id}]`, `t:{tenant}:registry:{module}`), and every farm event is
-  emitted through `FarmGateway.broadcastFarmEvent`, whose rooms derive from `FARM_WS_EVENT_ACCESS`
-  (`apps/gateway-api/src/websocket/farm-ws-event-access.ts`); no builder makes a tenant-wide room.
-  Proof: `farm.gateway.rooms.spec.ts`, `farm-ws-event-access.spec.ts`,
-  `libs/backend-common/src/websocket/__tests__/module-socket-rooms.spec.ts` and
-  `tests/invariants/ws-module-scoped-rooms.spec.ts`. The row stays OPEN until the post-merge close
-  ceremony records the main-reachable closing commit; the branch merges behind the R4 entry gate.
-
-- `SEC-CRITICAL-207` (2026-10-27, module-boundaries PKG-10, release R4): the /sensors and
-  /st-language handshakes require a sensor grant (`decideAccess` module('sensor') from the token's
-  `moduleAccess`); sensor rooms carry the tenant prefix (`t:{tenant}:m:sensor[:site:{id}]:…`); a
-  reading reaches the site room its `siteId` names, so a site-bound sensor operator receives only
-  its sites; `request.sensor.verifyDeviceOwnership` answers the device's site, so edge I/O admits a
-  site-bound operator only to devices of its sites; ST automation pushes reach the sensor module
-  room. Proof: `sensor-readings.gateway.rooms.spec.ts`, `st-language.gateway.rooms.spec.ts`,
-  `device-ownership.service.spec.ts`, `edge-device-nats.controller.spec.ts` and
-  `tests/invariants/ws-module-scoped-rooms.spec.ts`. The row stays OPEN until the post-merge close
-  ceremony records the main-reachable closing commit; the branch merges behind the R4 entry gate.
 
 The 2026-06-20 registry close follow-up left no OTHER active CRITICAL in
 `already-fixed-needs-close`; reconciled items moved to `Resolved Evidence`.

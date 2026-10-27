@@ -12,11 +12,18 @@
  * the grant is live, and returns the change of the live role (null when it did not move). A
  * primary grant is always a manager grant: a writer that lowers or removes it removes the
  * designation with it.
+ *
+ * RLS: user_module_assignments carries the forced tenant-isolation policy, and the writers run on
+ * a transaction their caller opened and bound (ModuleAccessService). `writeGrant` reads the
+ * binding back before it writes (assertTenantRlsBound) and refuses a transaction that is not
+ * bound to the tenant it writes for; it never re-binds one, since a write for tenant B inside
+ * tenant A's transaction is the defect to refuse.
  */
-import type { TenantScopedRepository } from '@aquaculture/backend-common/database';
+import { assertTenantRlsBound, tenantManagerRepo } from '@aquaculture/backend-common/database';
 import type { ModuleRole, OwnerModuleCode } from '@aquaculture/shared-contracts';
+import type { EntityManager } from 'typeorm';
 
-import type { UserModuleAssignment } from '../../authentication/entities/user-module-assignment.entity';
+import { UserModuleAssignment } from '../../authentication/entities/user-module-assignment.entity';
 
 export type GrantTarget = {
   readonly role: ModuleRole;
@@ -51,10 +58,13 @@ export interface GrantWrite {
 }
 
 export async function writeGrant(
-  assignments: TenantScopedRepository<UserModuleAssignment>,
+  manager: EntityManager,
+  tenantId: string,
   write: GrantWrite,
   now: Date,
 ): Promise<GrantChange | null> {
+  await assertTenantRlsBound(manager, tenantId, 'auth');
+  const assignments = tenantManagerRepo(manager, UserModuleAssignment, tenantId);
   const { row, target } = write;
   const from = liveRoleOf(row, now);
   if (target === null) {

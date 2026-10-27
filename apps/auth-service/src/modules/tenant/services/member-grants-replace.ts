@@ -16,7 +16,7 @@
  * designation that ended is reported, for the audit row. A tenant administrator holds every
  * enabled module through the account role, so module roles are set for members only.
  */
-import { tenantManagerRepo } from '@aquaculture/backend-common/database';
+import { assertTenantRlsBound, tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { Role } from '@aquaculture/backend-common/decorators';
 import {
   OWNER_MODULE_CODES,
@@ -64,6 +64,8 @@ export async function replaceMemberGrants(
   },
   now: Date,
 ): Promise<MemberGrantsReplaced> {
+  // The caller binds the transaction to the tenant; a writer reads it back, never re-binds it.
+  await assertTenantRlsBound(manager, input.tenantId, 'auth');
   const enabled = await enabledOwnerTenantModules(manager, stores, input.tenantId, 'lock');
   for (const code of OWNER_MODULE_CODES) {
     const role = input.choice[code];
@@ -106,7 +108,8 @@ export async function replaceMemberGrants(
     const wasDesignated =
       (row !== undefined && row.isPrimaryManager) || tenantModule.managerId === input.userId;
     const change = await writeGrant(
-      assignments,
+      manager,
+      input.tenantId,
       {
         userId: input.userId,
         moduleId: tenantModule.moduleId,

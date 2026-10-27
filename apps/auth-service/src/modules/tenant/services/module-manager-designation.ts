@@ -10,7 +10,8 @@
  * manager grant (isPrimaryManager, role MODULE_MANAGER) in user_module_assignments. users.role is
  * an account role and is never written here.
  *
- * WHAT: both run inside the caller's transaction, which binds the tenant (RLS). They resolve the
+ * WHAT: both run inside the caller's transaction, which binds the tenant (RLS); they read the
+ * binding back first (assertTenantRlsBound) and never re-bind it. They resolve the
  * module by its code, or by the module id the release-R2 web still sends, and only an owner
  * module is designated (alert and ai own no data and carry no grant); Assign Manager also needs
  * it enabled. They lock the tenant module first, then the members whose grants change in
@@ -26,6 +27,7 @@
  * that PR carries reads it consistently.
  */
 import {
+  assertTenantRlsBound,
   tenantManagerRepo,
   type TenantScopedRepository,
 } from '@aquaculture/backend-common/database';
@@ -95,6 +97,7 @@ export async function designateModuleManager(
   },
   now: Date,
 ): Promise<DesignationResult> {
+  await assertTenantRlsBound(manager, input.tenantId, 'auth');
   const { tenantModule, moduleCode } = await lockOwnerTenantModule(manager, stores, input);
   if (!tenantModule.isEnabled) {
     throw new BadRequestException(`Module "${moduleCode}" is not enabled for this tenant`);
@@ -109,6 +112,7 @@ export async function designateModuleManager(
   const changes: GrantChange[] = [];
   for (const userId of previous.filter((id) => id !== input.userId && members.has(id))) {
     const change = await retireDesignation(
+      manager,
       assignments,
       tenantModule,
       moduleCode,
@@ -119,7 +123,8 @@ export async function designateModuleManager(
     if (change !== null) changes.push(change);
   }
   const designeeChange = await writeGrant(
-    assignments,
+    manager,
+    input.tenantId,
     {
       userId: input.userId,
       moduleId: tenantModule.moduleId,
@@ -144,6 +149,7 @@ export async function clearModuleManager(
   input: { readonly tenantId: string; readonly module: ModuleRef; readonly assignedBy: string },
   now: Date,
 ): Promise<DesignationResult> {
+  await assertTenantRlsBound(manager, input.tenantId, 'auth');
   const { tenantModule, moduleCode } = await lockOwnerTenantModule(manager, stores, input);
   const previous = await designatedManagerIds(manager, tenantModule);
   const members = await lockMembers(manager, stores, input.tenantId, previous);
@@ -152,6 +158,7 @@ export async function clearModuleManager(
   const changes: GrantChange[] = [];
   for (const userId of previous.filter((id) => members.has(id))) {
     const change = await retireDesignation(
+      manager,
       assignments,
       tenantModule,
       moduleCode,
@@ -246,6 +253,7 @@ async function rowOf(
 
 /** A previous designation: a live grant goes back to a user grant, the designation goes. */
 async function retireDesignation(
+  manager: EntityManager,
   assignments: TenantScopedRepository<UserModuleAssignment>,
   tenantModule: TenantModule,
   moduleCode: OwnerModuleCode,
@@ -256,7 +264,8 @@ async function retireDesignation(
   const row = await rowOf(assignments, userId, tenantModule.moduleId);
   if (row === undefined) return null;
   return writeGrant(
-    assignments,
+    manager,
+    tenantModule.tenantId,
     {
       userId,
       moduleId: tenantModule.moduleId,

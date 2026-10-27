@@ -16,9 +16,16 @@
     "platform/**/*.{sh,bash}",
     "libs/**/*.{sh,bash}",
     "sens-api-gateway/**/*.{sh,bash}",
-    "apps/sensor-ingestion/**/*.{sh,bash}",
+    "apps/**/*.{sh,bash}",
     "crates/**/*.{sh,bash}",
-    "sensorprotocols/**/*.{sh,bash}"
+    "sensorprotocols/**/*.{sh,bash}",
+    "web/**/*.{sh,bash}",
+    "e2e/**/*.{sh,bash}",
+    "mcp/**/*.{sh,bash}",
+    "database/**/*.{sh,bash}",
+    "tests/**/*.{sh,bash}",
+    "aria-kernel/**/*.{sh,bash}",
+    "agents/**/*.{sh,bash}"
   ],
   "output_schema": {
     "type": "object",
@@ -39,9 +46,16 @@
       "platform",
       "libs",
       "sens-api-gateway",
-      "apps/sensor-ingestion",
+      "apps",
       "crates",
-      "sensorprotocols"
+      "sensorprotocols",
+      "web",
+      "e2e",
+      "mcp",
+      "database",
+      "tests",
+      "aria-kernel",
+      "agents"
     ]
   },
   "allowed_read_globs": [
@@ -54,11 +68,16 @@
     "platform/**",
     "libs/**",
     "sens-api-gateway/**",
-    "apps/sensor-ingestion/**",
+    "apps/**",
     "crates/**",
     "sensorprotocols/**",
-    "aria-kernel/aria_kernel/implementation_safety.py",
-    "aria-kernel/aria_kernel/workflow_contract_registry.py"
+    "web/**",
+    "e2e/**",
+    "mcp/**",
+    "database/**",
+    "tests/**",
+    "aria-kernel/**",
+    "agents/**"
   ],
   "forbidden_read_globs": [
     ".claude/**",
@@ -154,6 +173,6 @@
     "stdin_json": true
   },
   "freshness_window_hours": 168,
-  "parse_window_signature": "sha256:9943c2436e7c2e920b04f1313cb66cba55646caec1b7b0149634838e93959fba",
+  "parse_window_signature": "sha256:5c5ddb47bfe161befb814dab3bea47db01403f6663a18c675847b45c2233ac9b",
   "schema_version": 1
 }

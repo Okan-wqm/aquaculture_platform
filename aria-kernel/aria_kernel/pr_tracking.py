@@ -16,7 +16,7 @@ from .ledger import (
     append_declared_jsonl,
     load_declared_jsonl,
 )
-from .memory import latest_beliefs
+from .memory import latest_beliefs, record_learning_event
 from .tool_registry import GovernanceError, ensure_tools_dir, list_tools, utc_now
 
 if TYPE_CHECKING:
@@ -46,7 +46,6 @@ _DECLARED_SURFACE_BY_JSONL_SUFFIX: dict[str, str] = {
     "evidence-impact.jsonl": "evidence_impact",
     "cycle-state/incremental-plans.jsonl": "cycle_incremental_plans",
     "memory/beliefs.jsonl": "memory_beliefs",
-    "memory/learning-events.jsonl": "memory_learning_events",
 }
 
 
@@ -338,20 +337,27 @@ def dispatch_change_intelligence(
             continue
         # ARIA-HIGH-364 — impact analysis of a merge starts new work:
         # discretionary. A refused merge stays unasked and is walked again
-        # next cycle; the refusal holds for this cycle, so the walk stops.
+        # next cycle; a cycle-wide refusal holds for this cycle, so the walk stops.
         # The operator's named change is the work itself (critical path).
+        # WP-D4 — either way the mint names its change, so the door counts the
+        # change's seats and refuses the one past the registered seats. That
+        # refusal is the change's own: it is skipped by name and the walk goes on.
         admission = (
             admit_request(
                 "change_review.operator_subject", CHANGE_INTELLIGENCE_ROLE, base_dir=root, cycle_id=cycle_id,
+                subject_ref=offer.subject_ref,
             )
             if subject is not None
             else admit_request(
                 "change_review.merge_feed", CHANGE_INTELLIGENCE_ROLE, base_dir=root, cycle_id=cycle_id,
+                subject_ref=offer.subject_ref,
             )
         )
         if not admission.admitted:
             skipped.append({"pr_number": offer.pr_number, "subject_ref": offer.subject_ref,
                             "reason": admission.refusal})
+            if admission.refuses_this_change_only:
+                continue
             break
         already_asked.add(offer.subject_ref)
         changed_files = offer.changed_files
@@ -638,20 +644,16 @@ def _mark_beliefs_for_revalidation(root: Path, cycle_id: str, impacted: list[dic
             },
         )
         append_jsonl(root / "memory" / "beliefs.jsonl", row)
-        append_jsonl(
-            root / "memory" / "learning-events.jsonl",
-            {
-                "schema_version": 1,
-                "recorded_at": utc_now(),
-                "cycle_id": cycle_id,
-                "event_type": "evidence_invalidated",
-                "target_type": "belief",
-                "target_id": belief_id,
-                "repo_state_id": row.get("repo_state_id"),
-                "base_commit_sha": row.get("base_commit_sha"),
-                "evidence_hashes": _string_list(row.get("evidence_hashes")),
-                "details": {"reason": "PR or merge changed evidence reference"},
-            },
+        record_learning_event(
+            root,
+            cycle_id=cycle_id,
+            event_type="evidence_invalidated",
+            target_type="belief",
+            target_id=belief_id,
+            repo_state_id=row.get("repo_state_id"),
+            base_commit_sha=row.get("base_commit_sha"),
+            evidence_hashes=_string_list(row.get("evidence_hashes")),
+            details={"reason": "PR or merge changed evidence reference"},
         )
 
 

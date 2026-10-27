@@ -1,72 +1,84 @@
 #!/usr/bin/env ts-node
 /**
- * finding-registry — CLI for the Phase 6 append-only registry at
- * docs/reviews/_registry/findings.jsonl.
+ * finding-registry — CLI for the finding registry under docs/reviews/_registry/.
  *
  * Phase 2 deliverable per
  * docs/plans/2026-04-17-agentic-post-audit-consolidation-plan.md#Phase-2.
  *
+ * The registry (MF-2): findings.jsonl is the frozen genesis segment that
+ * genesis.json pins, and every change since the freeze is an event appended
+ * to the finding's own log, findings/<PREFIX>/<ID>.jsonl
+ * (finding-registry-events.ts). Readers see the projection: the fold of both,
+ * with RESOLVED derived from merged Closes: trailers
+ * (finding-registry-projection.ts).
+ *
  * Subcommands:
- *   verify               — re-compute the hash chain, assert every
- *                           prev_hash + content_hash is intact. Matches
- *                           tests/invariants/finding-registry-integrity
- *                           .spec.ts algorithm exactly — a CI gate and
- *                           a local smoke check in one CLI.
- *   project              — the registry as readers see it: every row as
- *                           stored, RESOLVED derived from merged Closes:
- *                           trailers (finding-registry-projection.ts).
+ *   verify [--base=<rev>] — the genesis segment's chain and pin, every event
+ *                           log's chain and anchors, the vocabulary, the row
+ *                           contract on every row an event wrote; with
+ *                           --base, every event log the base holds is a byte
+ *                           prefix of itself here, and once the base holds
+ *                           the freeze, genesis.json and findings.jsonl are
+ *                           unchanged.
+ *   verify --ref=<rev>    — the whole registry as <rev> stores it, as one JSON line.
+ *   verify --stdin        — the chain of the registry bytes on stdin.
+ *   genesis               — pin findings.jsonl in genesis.json
+ *                           (`npm run findings:genesis`).
+ *   project               — the registry as readers see it.
  *   add <domain> <json-path>
- *                         — allocate a domain-wide monotonic id and append
- *                           one finding from a JSON stub file. The stub
- *                           supplies severity / state /
- *                           title / layer / owner_agent / notes; the
- *                           CLI fills id / prev_hash / content_hash and
- *                           appends a newline-terminated entry.
+ *                         — allocate a domain-wide monotonic id and record one
+ *                           finding (a CREATED event) from a JSON stub.
  *   add-explicit <json-path>
  *                         — governed import/replay path for a stub whose id
- *                           is already externally fixed. It uses the same
- *                           exclusive registry mutation lock as `add`.
+ *                           is already externally fixed.
  *   import-narrative <json-path>
- *                         — import one exact ORPHAN heading into the
- *                           structured registry as a new OPEN row.
+ *                         — import one exact ORPHAN heading as a new OPEN
+ *                           finding.
+ *   reopen / assign / canonicalize-owner / sweep
+ *                         — CLOSURE_REJECTED / STATE_TRANSITIONED,
+ *                           OWNER_ASSIGNED, AMENDED and STATE_TRANSITIONED
+ *                           events on the findings they decide.
  *
  * Design notes:
- *   * No workflow writes RESOLVED, and no command derives a closure from
- *     history to record it (MF-1, PROC-HIGH-039). A fix commit's merged `Closes:` trailer IS the closure; the projection
- *     derives it at read time, so main is consistent the moment the fix
- *     merges and no second commit records it. `add` and `add-explicit` still
- *     accept a stub registered RESOLVED; MF-2's event schema refuses it
- *     (MF-DESIGN §4.5, the write side).
- *   * A mutation of a past row (reopen, assign, canonicalize-owner, sweep)
- *     re-stitches the chain from that row on (prev_hash pointers of later
- *     entries point at the mutated row's OLD content_hash) and verifies the
- *     result before it is written.
+ *   * No command writes RESOLVED, and none can: GitStateTarget and the event
+ *     schema exclude it. A fix commit's merged `Closes:` trailer IS the
+ *     closure (MF-1, PROC-HIGH-039).
+ *   * No command writes findings.jsonl: the freeze is checked against its pin
+ *     on every `verify`.
  *
  * Exit codes:
  *   0 — OK
- *   1 — integrity failure / missing id / chain break
+ *   1 — integrity failure / missing id / refused write
  *   2 — usage error
  */
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 import { findingIdAliasesBeside } from './finding-id-aliases';
 import { applyAssignment, type AssignmentRequest } from './finding-registry-assign';
 import {
-  canonicalJson,
   chainTip,
   type Finding,
   hasAccountableOwner,
   isDeadlineLapsed,
   isUnresolvedFindingState,
   parseRegistryJsonl,
-  rechain,
-  serializeRegistryJsonl,
   verify,
-  ZERO_HASH,
 } from './finding-registry-chain';
+import {
+  appendFindingEvents,
+  appendOnlyDefects,
+  type CreatedPayload,
+  currentFreeze,
+  type FindingEventDraft,
+  freezeAt,
+  type GitStateTarget,
+  isCreatedState,
+  pinGenesis,
+  registryDefects,
+} from './finding-registry-events';
 import {
   applyOwnerCanonicalization,
   canonicalOwner,
@@ -77,18 +89,23 @@ import {
   type ClosureRejection,
   closureVerdicts,
   commitNamesFinding,
+  EVENT_STORE_RELATIVE_PATH,
+  eventLogRelativePath,
+  foldRegistry,
   listMergedClosers,
   projectRegistry,
-  REGISTRY_RELATIVE_PATH,
+  projectRegistryRecords,
+  readRegistrySnapshotAt,
+  readRegistrySnapshotIn,
+  readRegistryStoreIn,
+  REGISTRY_DIR_RELATIVE_PATH,
+  registryDir,
+  registryLayout,
+  type RegistryLayout,
 } from './finding-registry-projection';
-import {
-  RegistryWriteRefused,
-  refuseInvalidChangedRows,
-  rowContractViolations,
-} from './finding-registry-rows';
+import { RegistryWriteRefused } from './finding-registry-rows';
 import {
   atomicWriteFileWithRegistryLease,
-  atomicWriteRegistryFile,
   claimedSequences,
   nextFindingId,
   ORPHAN_MD_HEADING_REGEX,
@@ -108,34 +125,18 @@ import { hermeticGitEnv } from './hermetic-git';
 // type-check. Every other gate in this directory is CJS; the odd one
 // out is now aligned (farm-service-enterprise-guardrails.ts precedent).
 const REPO_ROOT = resolve(__dirname, '..', '..');
-const REGISTRY_PATH = resolve(REPO_ROOT, REGISTRY_RELATIVE_PATH);
-const SCHEMA_PATH = resolve(
-  REPO_ROOT,
-  'docs',
-  'reviews',
-  '_registry',
-  'findings.jsonl.schema.json',
-);
+const DEFAULT_LAYOUT: RegistryLayout = registryLayout(registryDir(REPO_ROOT));
 const ORPHAN_FINDINGS_MD_PATH = resolve(REPO_ROOT, 'docs', 'reviews', 'orphan-findings.md');
 const GIT_OUTPUT_MAX_BUFFER_BYTES = 64 * 1024 * 1024;
 
-export interface RegistryPaths {
-  readonly registryPath: string;
-  readonly schemaPath: string;
-}
-
-export interface NarrativeImportPaths extends RegistryPaths {
+export interface NarrativeImportPaths {
+  readonly layout: RegistryLayout;
   readonly narrativePath: string;
   readonly narrativeReviewFile: string;
 }
 
-const DEFAULT_REGISTRY_PATHS: RegistryPaths = {
-  registryPath: REGISTRY_PATH,
-  schemaPath: SCHEMA_PATH,
-};
-
 const DEFAULT_NARRATIVE_IMPORT_PATHS: NarrativeImportPaths = {
-  ...DEFAULT_REGISTRY_PATHS,
+  layout: DEFAULT_LAYOUT,
   narrativePath: ORPHAN_FINDINGS_MD_PATH,
   narrativeReviewFile: 'docs/reviews/orphan-findings.md',
 };
@@ -155,6 +156,7 @@ interface FindingIdReservationLedger {
 export interface FindingAllocationAuthority {
   readonly lockPath: string;
   readonly reservationPath: string;
+  /** The registry directory of every active worktree. */
   readonly activeRegistryPaths: () => readonly string[];
 }
 
@@ -170,7 +172,7 @@ function gitOutput(repoRoot: string, args: readonly string[]): string {
 
 export function resolveGitFindingAllocationAuthority(
   repoRoot: string,
-  registryRelativePath = REGISTRY_RELATIVE_PATH,
+  registryRelativeDir = REGISTRY_DIR_RELATIVE_PATH,
 ): FindingAllocationAuthority {
   const commonDir = gitOutput(repoRoot, [
     'rev-parse',
@@ -193,70 +195,26 @@ export function resolveGitFindingAllocationAuthority(
       const paths = output
         .split('\0')
         .filter((field) => field.startsWith('worktree '))
-        .map((field) => resolve(field.slice('worktree '.length), registryRelativePath));
+        .map((field) => resolve(field.slice('worktree '.length), registryRelativeDir));
       return [...new Set(paths)].sort();
     },
   };
 }
 
-/**
- * Finding schema mirror — narrow to what the CLI touches. The canonical
- * schema lives in docs/reviews/_registry/findings.jsonl.schema.json; we
- * keep these interfaces structural (no runtime validation here — the
- * integrity invariant test enforces schema conformance separately).
- */
 // The Finding shape and the hash-chain algebra live in
-// ./finding-registry-chain (one implementation, shared with the git merge
-// driver). Re-exported here so existing importers of this CLI keep working.
+// ./finding-registry-chain (one implementation). Re-exported here so existing
+// importers of this CLI keep working.
 export type { Finding };
 
-export interface CanonicalRegistryPrefixCheck {
-  violation: string | null;
-  branchSuffixStartIndex: number;
+/** The rows recorded in the registry directory `dir`: genesis and events folded. */
+function recordedRows(layout: RegistryLayout): Finding[] {
+  return foldRegistry(readRegistryStoreIn(layout.dir));
 }
 
-export function checkCanonicalRegistryPrefix(
-  currentEntries: readonly unknown[],
-  canonicalEntries: readonly unknown[],
-  startIndex: number,
-): CanonicalRegistryPrefixCheck {
-  const branchSuffixStartIndex = canonicalEntries.length;
-  if (startIndex < canonicalEntries.length) {
-    return {
-      branchSuffixStartIndex,
-      violation:
-        `start index ${startIndex} enters the canonical origin/main prefix ` +
-        `(${canonicalEntries.length} entries)`,
-    };
-  }
-  if (currentEntries.length < canonicalEntries.length) {
-    return {
-      branchSuffixStartIndex,
-      violation:
-        `branch registry has ${currentEntries.length} entries but canonical origin/main has ` +
-        `${canonicalEntries.length}`,
-    };
-  }
-  for (let index = 0; index < canonicalEntries.length; index += 1) {
-    if (canonicalJson(currentEntries[index]) !== canonicalJson(canonicalEntries[index])) {
-      return {
-        branchSuffixStartIndex,
-        violation: `canonical origin/main entry ${index} differs from the branch registry`,
-      };
-    }
-  }
-  return { branchSuffixStartIndex, violation: null };
-}
-
-export function parseRechainStartIndex(raw: string | undefined): number | null {
-  if (raw === undefined || !/^(?:0|[1-9]\d*)$/.test(raw)) return null;
-  const parsed = Number(raw);
-  return Number.isSafeInteger(parsed) ? parsed : null;
-}
-
-function loadRegistry(registryPath = REGISTRY_PATH): Finding[] {
-  if (!existsSync(registryPath)) return [];
-  return parseRegistryJsonl(readFileSync(registryPath, 'utf8'));
+/** Every finding id a registry directory holds: its genesis rows and its event logs. */
+function registryIds(dir: string): string[] {
+  const store = readRegistryStoreIn(dir);
+  return [...store.genesis.map((row) => row.id), ...store.logs.keys()];
 }
 
 function loadReservationLedger(reservationPath: string): FindingIdReservationLedger {
@@ -312,14 +270,13 @@ function appendAll(target: string[], source: ReadonlyArray<string>): void {
   for (const value of source) target.push(value);
 }
 
-/** How the sweep reads one registry's ids; the default reads the file, a test injects the ids. */
+/** How the sweep reads one registry's ids; the default reads the directory, a test injects the ids. */
 export interface ActiveRegistryReader {
-  readIds: (registryPath: string) => ReadonlyArray<string>;
+  readIds: (registryDir: string) => ReadonlyArray<string>;
 }
 
 const FILE_REGISTRY_READER: ActiveRegistryReader = {
-  readIds: (registryPath) =>
-    existsSync(registryPath) ? loadRegistry(registryPath).map((entry) => entry.id) : [],
+  readIds: (dir) => (existsSync(dir) ? registryIds(dir) : []),
 };
 
 function idsFromActiveRegistries(
@@ -366,33 +323,103 @@ function reserveFindingId(
   );
 }
 
-/**
- * The registry's only write. Every row this write changes is held to the row
- * contract first (`refuseInvalidChangedRows`, ARIA-HIGH-044), so no mutator —
- * add, reopen, sweep, dedupe, assign, canonicalize-owner, or one written later —
- * can persist a row the schema refuses. A refusal throws before the atomic
- * write; `runRegistryMutation` reports it and exits 1.
- */
-export function writeRegistry(
-  entries: readonly Finding[],
-  lease: RegistryLockLease,
-  paths: RegistryPaths = DEFAULT_REGISTRY_PATHS,
-): void {
-  refuseInvalidChangedRows(loadRegistry(paths.registryPath), entries, paths.schemaPath);
-  atomicWriteRegistryFile(paths.registryPath, serializeRegistryJsonl(entries), lease);
+/** The lane id an event records as its actor when the CLI writes it. */
+function cliActor(subcommand: string): string {
+  return `finding-registry/${subcommand}`;
 }
 
-function cmdVerify(): number {
-  const entries = loadRegistry();
-  const result = verify(entries);
-  if (!result.ok) {
-    process.stderr.write(`FAIL: ${result.reason}\n\n`);
+/**
+ * Append `drafts` through the registry's one sink. A refusal (the event
+ * schema, the fold, the row contract, the owner rule) is reported and writes
+ * nothing; it returns null.
+ */
+function writeEvents(
+  layout: RegistryLayout,
+  drafts: readonly FindingEventDraft[],
+  lease: RegistryLockLease,
+  beforeWrite?: () => void,
+): string[] | null {
+  try {
+    return appendFindingEvents(layout, drafts, lease, beforeWrite);
+  } catch (error) {
+    if (!(error instanceof RegistryWriteRefused)) throw error;
+    process.stderr.write(`${error.message}\n`);
+    return null;
+  }
+}
+
+function eventLogRepoPath(findingId: string): string {
+  return `${EVENT_STORE_RELATIVE_PATH}/${eventLogRelativePath(findingId)}`;
+}
+
+function cmdVerify(args: readonly string[]): number {
+  const base = args.find((arg) => arg.startsWith('--base='))?.slice('--base='.length);
+  if (args.some((arg) => !arg.startsWith('--base=')) || base === '') {
+    process.stderr.write(
+      'usage: finding-registry verify [--base=<rev>] | verify --ref=<rev> | verify --stdin\n',
+    );
+    return 2;
+  }
+  // The base decides which remedy a pin mismatch may name: once it holds the freeze, none re-pins.
+  const freeze = base === undefined ? currentFreeze(REPO_ROOT) : freezeAt(REPO_ROOT, base);
+  const snapshot = readRegistrySnapshotIn(DEFAULT_LAYOUT.dir);
+  const defects = [
+    ...registryDefects(DEFAULT_LAYOUT, snapshot, freeze),
+    ...(base === undefined ? [] : appendOnlyDefects(REPO_ROOT, base)),
+  ];
+  if (defects.length > 0) {
+    process.stderr.write(`FAIL: the finding registry is not intact (${defects.length}):\n`);
+    for (const defect of defects) process.stderr.write(`  ${defect}\n`);
     return 1;
   }
-  process.stdout.write(`OK: registry chain valid (${result.entries} entries).\n\n`);
-  const tip = chainTip(entries);
-  if (tip) process.stdout.write(`Chain tip: ${tip}\n\n`);
+  writeOut(
+    `OK: genesis segment ${snapshot.store.genesis.length} entries ` +
+      `(tip ${chainTip(snapshot.store.genesis)}), ${snapshot.store.logs.size} event log(s)` +
+      `${base === undefined ? '' : `, append-only since ${base}`}.`,
+  );
   return 0;
+}
+
+/** How many defects a machine verdict names before it counts the rest. */
+const VERDICT_DEFECTS_NAMED = 5;
+
+/**
+ * `verify --ref=<rev>` — the whole registry as the commit stores it, judged
+ * by the contracts of this checkout: the genesis segment's chain and pin, every
+ * event log's chain and anchors, the fold and the row contract (`registryDefects`).
+ * The autonomy closure verifier (aria-kernel/aria_kernel/autonomy_closure.py)
+ * asks it of its evidence commit, so a verdict that claims a verified registry
+ * has verified the event logs the projection folds, not the frozen segment
+ * alone. Prints one JSON line, as `verify --stdin` does; exit 0 only when intact.
+ */
+function cmdVerifyRef(ref: string): number {
+  let verdict: {
+    ok: boolean;
+    entries: number;
+    event_logs: number;
+    reason: string | null;
+    tip: string | null;
+  };
+  try {
+    const snapshot = readRegistrySnapshotAt(REPO_ROOT, ref);
+    const defects = registryDefects(DEFAULT_LAYOUT, snapshot, null);
+    const named = defects.slice(0, VERDICT_DEFECTS_NAMED).join('; ');
+    verdict = {
+      ok: defects.length === 0,
+      entries: snapshot.store.genesis.length,
+      event_logs: snapshot.store.logs.size,
+      reason:
+        defects.length === 0
+          ? null
+          : `${named}${defects.length > VERDICT_DEFECTS_NAMED ? ` (+${defects.length - VERDICT_DEFECTS_NAMED} more)` : ''}`,
+      tip: defects.length === 0 ? chainTip(snapshot.store.genesis) : null,
+    };
+  } catch (error) {
+    const reason = `registry_unreadable: ${error instanceof Error ? error.message : String(error)}`;
+    verdict = { ok: false, entries: 0, event_logs: 0, reason, tip: null };
+  }
+  process.stdout.write(`${JSON.stringify(verdict)}\n`);
+  return verdict.ok ? 0 : 1;
 }
 
 /**
@@ -426,7 +453,7 @@ function cmdVerifyStdin(): number {
   return result.ok ? 0 : 1;
 }
 
-const PROJECT_FORMATS = ['jsonl', 'csv', 'json-array', 'closures'] as const;
+const PROJECT_FORMATS = ['jsonl', 'csv', 'json-array', 'closures', 'records'] as const;
 type ProjectFormat = (typeof PROJECT_FORMATS)[number];
 const CSV_COLUMNS = [
   'id',
@@ -448,7 +475,7 @@ interface ProjectArgs {
 
 const PROJECT_USAGE =
   'usage: finding-registry project [--ref=<rev>] [--stdin] [--ids <ID>...] ' +
-  '[--format=jsonl|csv|json-array|closures]\n';
+  '[--format=jsonl|csv|json-array|closures|records]\n';
 
 function parseProjectArgs(args: readonly string[]): ProjectArgs | null {
   let ref: string | undefined;
@@ -495,8 +522,8 @@ function csvCell(value: unknown): string {
 
 /**
  * `project` — the registry as every reader sees it (finding-registry-projection.ts):
- * the rows of the working tree, or of `--ref`, or of `--stdin` (a snapshot a
- * caller read from a Git tree), with RESOLVED derived from the trailers
+ * the store of the working tree, or of `--ref`; `--stdin` replaces its genesis
+ * segment with one a caller read from a Git tree. RESOLVED is derived from the trailers
  * merged into `--ref` (HEAD by default). Writes nothing. `--format=closures`
  * prints, per named finding, whether the projection closes it at the ref and
  * why not; exit 0 only when every named finding is closed.
@@ -508,13 +535,14 @@ function cmdProject(args: readonly string[]): number {
     return 2;
   }
   try {
-    const rows = parsed.stdin ? parseRegistryJsonl(readFileSync(0, 'utf8')) : undefined;
+    const genesis = parsed.stdin ? parseRegistryJsonl(readFileSync(0, 'utf8')) : undefined;
     if (parsed.format === 'closures') {
-      const verdicts = closureVerdicts(REPO_ROOT, { ref: parsed.ref, rows }, parsed.ids ?? []);
+      const verdicts = closureVerdicts(REPO_ROOT, { ref: parsed.ref, genesis }, parsed.ids ?? []);
       for (const verdict of verdicts) writeOut(JSON.stringify(verdict));
       return verdicts.every((verdict) => verdict.ok) ? 0 : 1;
     }
-    const projected = projectRegistry(REPO_ROOT, { ref: parsed.ref, rows });
+    const records = projectRegistryRecords(REPO_ROOT, { ref: parsed.ref, genesis });
+    const projected = records.map((record) => record.row);
     const wanted = parsed.ids;
     if (wanted !== null) {
       const unknown = wanted.filter((id) => !projected.some((row) => row.id === id));
@@ -525,7 +553,11 @@ function cmdProject(args: readonly string[]): number {
     }
     const selected =
       wanted === null ? projected : projected.filter((row) => wanted.includes(row.id));
-    if (parsed.format === 'json-array') {
+    if (parsed.format === 'records') {
+      for (const record of records) {
+        if (wanted === null || wanted.includes(record.row.id)) writeOut(JSON.stringify(record));
+      }
+    } else if (parsed.format === 'json-array') {
       writeOut(JSON.stringify(selected));
     } else if (parsed.format === 'csv') {
       writeOut(CSV_COLUMNS.join(','));
@@ -543,6 +575,22 @@ function cmdProject(args: readonly string[]): number {
   }
 }
 
+/**
+ * `genesis` — pin findings.jsonl as the frozen genesis segment
+ * (finding-registry-events.ts `pinGenesis`). The landing step reruns it by
+ * name, `npm run findings:genesis`, after merging origin/main; it refuses once
+ * the base of this checkout holds the freeze and the pin would differ from it.
+ */
+function cmdGenesis(lease: RegistryLockLease): number {
+  const { pin, reanchored } = pinGenesis(DEFAULT_LAYOUT, lease, currentFreeze(REPO_ROOT));
+  writeOut(
+    `Pinned ${pin.path}: ${pin.entries} entries, blob sha256 ${pin.blob_sha256}, ` +
+      `tip ${pin.tip_content_hash}.`,
+  );
+  for (const path of reanchored) writeOut(`  re-anchored ${path} on the new tip`);
+  return 0;
+}
+
 function readFindingStub(stubPath: string): Partial<Finding> | null {
   if (!existsSync(stubPath)) {
     process.stderr.write(`Stub file not found: ${stubPath}\n\n`);
@@ -552,7 +600,12 @@ function readFindingStub(stubPath: string): Partial<Finding> | null {
   return JSON.parse(stubRaw) as Partial<Finding>;
 }
 
-function buildFinding(stub: Partial<Finding>, id: string): Finding | null {
+/**
+ * The CREATED payload a stub describes: the row body without its chain fields.
+ * A finding is born OPEN or IN-PROGRESS with no closure; RESOLVED is derived
+ * from its fix commit's merged `Closes:` trailer and never registered.
+ */
+function buildCreatedPayload(stub: Partial<Finding>, id: string): CreatedPayload | null {
   const required: (keyof Finding)[] = [
     'severity',
     'state',
@@ -567,6 +620,22 @@ function buildFinding(stub: Partial<Finding>, id: string): Finding | null {
       return null;
     }
   }
+  const state = stub.state;
+  if (state === undefined || !isCreatedState(state)) {
+    process.stderr.write(
+      `Stub state ${String(state)}: a finding is registered OPEN or IN-PROGRESS. RESOLVED is ` +
+        "derived from the fix commit's merged Closes: trailer, and STALE/BLOCKED are later " +
+        'transitions.\n',
+    );
+    return null;
+  }
+  if ((stub.closing_commits ?? []).length > 0 || (stub.closed_at ?? null) !== null) {
+    process.stderr.write(
+      'Stub carries closing_commits/closed_at: a finding is registered with no closure; ' +
+        "RESOLVED is derived from the fix commit's merged Closes: trailer.\n",
+    );
+    return null;
+  }
   // ARIA-MEDIUM-535: the owner is stored as its CODEOWNERS handle, or refused.
   let ownerUser: string | null = null;
   if (stub.owner_user !== undefined && stub.owner_user !== null) {
@@ -580,146 +649,53 @@ function buildFinding(stub: Partial<Finding>, id: string): Finding | null {
 
   return {
     id,
-    severity: stub.severity as Finding['severity'],
-    state: stub.state as Finding['state'],
-    title: stub.title as string,
+    severity: stub.severity,
+    state,
+    title: stub.title,
     ...(stub.layer === undefined || stub.layer === null ? {} : { layer: stub.layer }),
     evidence: stub.evidence ?? [],
     rule_violated: stub.rule_violated ?? '',
-    owner_agent: stub.owner_agent as string,
-    raised_in_cycle: stub.raised_in_cycle as string,
+    owner_agent: stub.owner_agent,
+    raised_in_cycle: stub.raised_in_cycle,
     review_file: stub.review_file ?? '',
-    created_at: stub.created_at as string,
-    closed_at: stub.closed_at ?? null,
-    closing_commits: stub.closing_commits ?? [],
+    created_at: stub.created_at,
+    closed_at: null,
+    closing_commits: [],
     deadline: stub.deadline ?? null,
     owner_user: ownerUser,
     override_of: stub.override_of ?? null,
     notes: stub.notes ?? '',
     ...(stub.narrative ? { narrative: stub.narrative } : {}),
-    prev_hash: ZERO_HASH, // fixed by rechain
-    content_hash: ZERO_HASH, // fixed by rechain
   };
 }
 
-function validateAndAppendFinding(
-  newEntry: Finding,
-  entries: Finding[],
+/** Record a new finding: one CREATED event in its own log. */
+function appendCreatedFinding(
+  layout: RegistryLayout,
+  payload: CreatedPayload,
   lease: RegistryLockLease,
-  paths: RegistryPaths,
-  beforeRegistryWrite?: () => void,
+  subcommand: string,
+  beforeWrite?: () => void,
 ): number {
-  if (entries.some((entry) => entry.id === newEntry.id)) {
-    process.stderr.write(`Duplicate id: ${newEntry.id} already exists in registry.\n\n`);
-    return 1;
-  }
-
-  // Schema validation BEFORE rechain: reject malformed stubs at the
-  // earliest point. The prev_hash/content_hash placeholders match the
-  // schema's pattern rule (64-hex OR 64-zero), so validation can run
-  // pre-rechain. This guarantees no schema-violating entry ever hits
-  // the JSONL — the invariant test becomes a belt-and-suspenders
-  // check rather than the primary defence.
-  const contract = rowContractViolations(newEntry, paths.schemaPath, 'always');
-  if (contract.schema.length > 0) {
-    process.stderr.write('Stub failed schema validation:\n');
-    for (const message of contract.schema) {
-      process.stderr.write(`  ${message}\n\n`);
-    }
-    return 1;
-  }
-
-  const invalidEvidence = contract.evidence;
-  if (invalidEvidence.length > 0) {
-    process.stderr.write(
-      'Stub evidence must use canonical file/path citation shapes; move diagnostic prose to narrative:\n',
-    );
-    for (const violation of invalidEvidence) {
-      process.stderr.write(
-        `  evidence[${violation.index}]: ${JSON.stringify(violation.evidence)}\n`,
-      );
-    }
-    return 1;
-  }
-
-  entries.push(newEntry);
-  rechain(entries, entries.length - 1);
-
-  const post = verify(entries);
-  if (!post.ok) {
-    process.stderr.write(`Post-add integrity check FAILED: ${post.reason}\n\n`);
-    return 1;
-  }
-
-  beforeRegistryWrite?.();
-  writeRegistry(entries, lease, paths);
-  process.stdout.write(`Added: ${newEntry.id} at position ${entries.length - 1}\n\n`);
-  process.stdout.write(`Chain tip: ${newEntry.content_hash}\n\n`);
-  return 0;
-}
-
-/**
- * Rechain is a writer boundary too: it must never bless malformed suffix rows.
- * Historical pre-cutover evidence keeps its original relaxed contract, while
- * every later row is checked by the same citation authority as fresh appends.
- */
-export function validateRegistrySuffixForRechain(
-  entries: readonly unknown[],
-  startIndex: number,
-  schemaPath = SCHEMA_PATH,
-): string[] {
-  const violations: string[] = [];
-
-  for (let index = startIndex; index < entries.length; index += 1) {
-    const entry = entries[index];
-    const contract = rowContractViolations(entry, schemaPath, 'post-cutover');
-    for (const message of contract.schema) violations.push(`entry ${index} schema ${message}`);
-
-    const finding = entry as { id?: string };
-    for (const violation of contract.evidence) {
-      violations.push(
-        `entry ${index} (${String(finding.id ?? '<unknown>')}) evidence[${violation.index}]: ${JSON.stringify(violation.evidence)}`,
-      );
-    }
-  }
-
-  return violations;
-}
-
-export type PreparedRegistryRechain =
-  | { ok: true; entries: Finding[] }
-  | { ok: false; stage: 'suffix' | 'integrity'; failures: string[] };
-
-/**
- * Builds and verifies a rechain candidate without mutating the caller's array.
- * Persistent storage is eligible only when this function returns `ok: true`.
- */
-export function prepareRegistryRechain(
-  entries: readonly Finding[],
-  validationStartIndex: number,
-  rechainStartIndex: number,
-  schemaPath = SCHEMA_PATH,
-): PreparedRegistryRechain {
-  const validationFailures = validateRegistrySuffixForRechain(
-    entries,
-    validationStartIndex,
-    schemaPath,
+  const written = writeEvents(
+    layout,
+    [
+      {
+        finding_id: payload.id,
+        event_type: 'CREATED',
+        payload,
+        actor: cliActor(subcommand),
+        reason: null,
+        occurred_at: new Date().toISOString(),
+      },
+    ],
+    lease,
+    beforeWrite,
   );
-  if (validationFailures.length > 0) {
-    return { ok: false, stage: 'suffix', failures: validationFailures };
-  }
-
-  const candidate = structuredClone(entries) as Finding[];
-  rechain(candidate, rechainStartIndex);
-  const result = verify(candidate);
-  if (!result.ok) {
-    return {
-      ok: false,
-      stage: 'integrity',
-      failures: [result.reason ?? 'registry verification failed without a reason'],
-    };
-  }
-  return { ok: true, entries: candidate };
+  if (written === null) return 1;
+  writeOut(`Added: ${payload.id}`);
+  writeOut(`Event log: ${eventLogRepoPath(payload.id)}`);
+  return 0;
 }
 
 /**
@@ -740,7 +716,8 @@ export function prepareRegistryRechain(
  * the author remembering all of them.
  *
  * The stores, and why each counts:
- *   * the JSONL registry — the obvious one;
+ *   * the registry — its genesis segment and its event logs (a file name is
+ *     a finding id);
  *   * sibling active worktree registries via `authority`, so two concurrent
  *     branches cannot mint the same id;
  *   * `docs/reviews/orphan-findings.md`, which allocates from the SAME ORPHAN
@@ -778,11 +755,11 @@ export function appendAllocatedFinding(
   domain: string,
   stubPath: string,
   lease: RegistryLockLease,
-  paths: RegistryPaths = DEFAULT_REGISTRY_PATHS,
+  layout: RegistryLayout = DEFAULT_LAYOUT,
   authority?: FindingAllocationAuthority,
 ): number {
   if (
-    lease.resourcePath !== paths.registryPath ||
+    lease.resourcePath !== layout.dir ||
     (authority !== undefined && lease.lockPath !== authority.lockPath)
   ) {
     throw new RegistryLockError(
@@ -803,14 +780,13 @@ export function appendAllocatedFinding(
     return 2;
   }
 
-  const entries = loadRegistry(paths.registryPath);
   const reservationLedger = authority ? loadReservationLedger(authority.reservationPath) : null;
   const existingIds = claimedIdsForDomain(
     domain,
-    entries,
+    registryIds(layout.dir).map((id) => ({ id })),
     authority,
     FILE_REGISTRY_READER,
-    findingIdAliasesBeside(paths.registryPath).map((alias) => alias.alias),
+    findingIdAliasesBeside(layout.genesisPath).map((alias) => alias.alias),
   );
   const reserved = reservationLedger?.domains[domain];
   if (reserved) {
@@ -823,11 +799,11 @@ export function appendAllocatedFinding(
     process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n\n`);
     return 2;
   }
-  const newEntry = buildFinding(stub, id);
-  if (!newEntry) return 2;
-  return validateAndAppendFinding(newEntry, entries, lease, paths, () => {
+  const payload = buildCreatedPayload(stub, id);
+  if (!payload) return 2;
+  return appendCreatedFinding(layout, payload, lease, 'add', () => {
     if (authority && reservationLedger) {
-      reserveFindingId(authority, reservationLedger, domain, id, paths.registryPath, lease);
+      reserveFindingId(authority, reservationLedger, domain, id, layout.dir, lease);
     }
   });
 }
@@ -835,11 +811,11 @@ export function appendAllocatedFinding(
 export function appendExplicitFinding(
   stubPath: string,
   lease: RegistryLockLease,
-  paths: RegistryPaths = DEFAULT_REGISTRY_PATHS,
+  layout: RegistryLayout = DEFAULT_LAYOUT,
   authority?: FindingAllocationAuthority,
 ): number {
   if (
-    lease.resourcePath !== paths.registryPath ||
+    lease.resourcePath !== layout.dir ||
     (authority !== undefined && lease.lockPath !== authority.lockPath)
   ) {
     throw new RegistryLockError(
@@ -853,8 +829,6 @@ export function appendExplicitFinding(
     process.stderr.write('Explicit-id stub missing required field: id\n');
     return 2;
   }
-  const entries = loadRegistry(paths.registryPath);
-
   const idParts = /^([A-Z][A-Z0-9]*)-([A-Z0-9]+)-([0-9]{3})$/.exec(stub.id);
   if (!idParts?.[1] || !idParts[2] || !idParts[3]) {
     process.stderr.write(`Explicit finding id has an invalid allocation shape: ${stub.id}\n\n`);
@@ -872,10 +846,10 @@ export function appendExplicitFinding(
     idParts[1],
     claimedIdsForDomain(
       idParts[1],
-      entries,
+      registryIds(layout.dir).map((id) => ({ id })),
       authority,
       FILE_REGISTRY_READER,
-      findingIdAliasesBeside(paths.registryPath).map((alias) => alias.alias),
+      findingIdAliasesBeside(layout.genesisPath).map((alias) => alias.alias),
     ),
   );
   if (claimed.has(Number.parseInt(idParts[3], 10))) {
@@ -901,16 +875,16 @@ export function appendExplicitFinding(
     return 2;
   }
   const reservationLedger = authority ? loadReservationLedger(authority.reservationPath) : null;
-  const newEntry = buildFinding(stub, stub.id);
-  if (!newEntry) return 2;
-  return validateAndAppendFinding(newEntry, entries, lease, paths, () => {
+  const payload = buildCreatedPayload(stub, stub.id);
+  if (!payload) return 2;
+  return appendCreatedFinding(layout, payload, lease, 'add-explicit', () => {
     if (authority && reservationLedger) {
       reserveFindingId(
         authority,
         reservationLedger,
         idParts[1] as string,
         stub.id as string,
-        paths.registryPath,
+        layout.dir,
         lease,
       );
     }
@@ -923,8 +897,9 @@ export function appendNarrativeFinding(
   paths: NarrativeImportPaths = DEFAULT_NARRATIVE_IMPORT_PATHS,
   authority?: FindingAllocationAuthority,
 ): number {
+  const { layout } = paths;
   if (
-    lease.resourcePath !== paths.registryPath ||
+    lease.resourcePath !== layout.dir ||
     (authority !== undefined && lease.lockPath !== authority.lockPath)
   ) {
     throw new RegistryLockError(
@@ -952,8 +927,7 @@ export function appendNarrativeFinding(
     return 2;
   }
 
-  const entries = loadRegistry(paths.registryPath);
-  const structuredIds = entries.map((entry) => entry.id);
+  const structuredIds = registryIds(layout.dir);
   if (authority) appendAll(structuredIds, idsFromActiveRegistries(authority));
   if (claimedSequences('ORPHAN', structuredIds).has(Number.parseInt(idParts[2], 10))) {
     process.stderr.write(
@@ -1006,17 +980,17 @@ export function appendNarrativeFinding(
     closing_commits: [],
     notes: stub.notes ? `${stub.notes}\n${historicalNote}` : historicalNote,
   };
-  const newEntry = buildFinding(importedStub, stub.id);
-  if (!newEntry) return 2;
+  const payload = buildCreatedPayload(importedStub, stub.id);
+  if (!payload) return 2;
   const reservationLedger = authority ? loadReservationLedger(authority.reservationPath) : null;
-  return validateAndAppendFinding(newEntry, entries, lease, paths, () => {
+  return appendCreatedFinding(layout, payload, lease, 'import-narrative', () => {
     if (authority && reservationLedger) {
       reserveFindingId(
         authority,
         reservationLedger,
         'ORPHAN',
         stub.id as string,
-        paths.registryPath,
+        layout.dir,
         lease,
       );
     }
@@ -1039,30 +1013,25 @@ function resolveFullSha(repoRoot: string, sha: string): { sha?: string; reason?:
 }
 
 /**
- * `reopen <id>` — two decisions, each recorded on the stored row.
+ * `reopen <id>` — two decisions, each recorded as an event on the finding.
  *
- * Without `--reject-closure`: a registration repair. A row registered
- * RESOLVED at birth with no closing commit (an error: a closure is the fix
- * commit's merged trailer, which cannot exist before the fix merges) goes
- * back to OPEN. A row that names a closer is not a registration error, and
- * neither is a row the projection derives RESOLVED from a merged trailer:
- * both are refused, naming the closer and the override.
+ * Without `--reject-closure`: a registration repair. A finding recorded
+ * RESOLVED with no closing commit (an error: a closure is the fix commit's
+ * merged trailer, which cannot exist before the fix merges) goes back to OPEN
+ * (STATE_TRANSITIONED). A finding that names a closer is not a registration
+ * error, and neither is one the projection derives RESOLVED from a merged
+ * trailer: both are refused, naming the closer and the override.
  *
  * With `--reject-closure=<sha> --reason=<why>`: the override decision
- * (`applyClosureRejection`). Every closer the projection would still derive
- * on origin/main must be rejected in the same decision, or the finding is
- * still closed the moment the registry is read.
+ * (`applyClosureRejection`, recorded as CLOSURE_REJECTED). Every closer the
+ * projection would still derive on origin/main must be rejected in the same
+ * decision, or the finding is still closed the moment the registry is read.
  */
 function cmdReopen(id: string, lease: RegistryLockLease, rejection?: ClosureRejection): number {
-  const entries = loadRegistry();
-  const index = entries.findIndex((e) => e.id === id);
-  if (index === -1) {
+  const recorded = recordedRows(DEFAULT_LAYOUT).find((row) => row.id === id);
+  const projected = projectRegistry(REPO_ROOT).find((row) => row.id === id);
+  if (recorded === undefined || projected === undefined) {
     process.stderr.write(`Finding not found: ${id}\n`);
-    return 1;
-  }
-  const entry = entries[index];
-  if (!entry) {
-    process.stderr.write(`Finding at index ${index} is undefined — registry corruption?\n`);
     return 1;
   }
   if (rejection !== undefined) {
@@ -1076,24 +1045,25 @@ function cmdReopen(id: string, lease: RegistryLockLease, rejection?: ClosureReje
         process.stderr.write(`reopen refused: ${resolved.reason}\n`);
         return 1;
       }
-      const recorded = entry.closing_commits.some((closer) =>
+      const known = projected.closing_commits.some((closer) =>
         closer.startsWith(resolved.sha ?? ''),
       );
-      const trailer = commitNamesFinding(REPO_ROOT, resolved.sha, entry);
-      if (!recorded && !trailer.ok) {
+      const trailer = commitNamesFinding(REPO_ROOT, resolved.sha, projected);
+      if (!known && !trailer.ok) {
         process.stderr.write(`reopen refused: ${trailer.reason}\n`);
         return 1;
       }
       shas.push(resolved.sha);
     }
-    const outcome = applyClosureRejection(entry, { ...rejection, shas });
-    if (!outcome.ok) {
-      process.stderr.write(`reopen refused: ${outcome.reason}\n`);
+    const decided: Finding = structuredClone(projected);
+    const outcome = applyClosureRejection(decided, { ...rejection, shas });
+    if (!outcome.ok || outcome.rejected === undefined) {
+      process.stderr.write(`reopen refused: ${outcome.reason ?? 'no closer to reject'}\n`);
       return 1;
     }
     // Fail closed: a reopen that leaves an unrejected closer on origin/main is
-    // undone by the projection's next read, so it is not persisted at all.
-    const standing = listMergedClosers(REPO_ROOT, 'origin/main', entry);
+    // undone by the projection's next read, so it is not recorded at all.
+    const standing = listMergedClosers(REPO_ROOT, 'origin/main', decided);
     if (standing.length > 0) {
       process.stderr.write(
         `reopen refused: origin/main still closes ${id} through ${standing
@@ -1102,131 +1072,161 @@ function cmdReopen(id: string, lease: RegistryLockLease, rejection?: ClosureReje
       );
       return 1;
     }
-  } else {
-    // The stored state is not the finding's state: every closure after MF-1
-    // is stored OPEN and is RESOLVED only where the projection derives it from
-    // the merged trailer. Judging the stored row answered "already OPEN" for a
-    // finding every reader sees closed (MF-DESIGN §4.5).
-    for (const projected of projectRegistry(REPO_ROOT, { rows: [entry] })) {
-      if (projected.state === 'RESOLVED' && entry.state !== 'RESOLVED') {
-        const closers = projected.closing_commits.join(', ');
-        process.stderr.write(
-          `reopen refused: ${id} is RESOLVED — merged commit ${closers} closes it ` +
-            `(the stored row says ${entry.state}). Reopening a finding a commit closed is an ` +
-            `override decision: reopen ${id} --reject-closure=${closers} --reason=<why>.\n`,
-        );
-        return 1;
-      }
-    }
-    if (entry.state !== 'RESOLVED') {
-      process.stdout.write(`No-op: ${id} is already ${entry.state}.\n`);
-      return 0;
-    }
-    if (entry.closing_commits.length > 0) {
-      process.stderr.write(
-        `reopen refused: ${id} carries closing_commits (${entry.closing_commits.join(', ')}) — ` +
-          'reopening a finding a commit closed is an override decision: ' +
-          'reopen <id> --reject-closure=<sha> --reason=<why>.\n',
-      );
-      return 1;
-    }
-
-    entry.state = 'OPEN';
-    entry.closed_at = null;
-    entry.notes =
-      String(entry.notes ?? '') +
-      " [governed reopen: was registered RESOLVED at birth in error — the closure is derived from the fix commit's merged Closes: trailer.]";
+    const written = writeEvents(
+      DEFAULT_LAYOUT,
+      [
+        {
+          finding_id: id,
+          event_type: 'CLOSURE_REJECTED',
+          payload: { shas: outcome.rejected },
+          actor: cliActor('reopen'),
+          reason: rejection.reason.trim(),
+          occurred_at: new Date().toISOString(),
+        },
+      ],
+      lease,
+    );
+    if (written === null) return 1;
+    writeOut(`Reopened: ${id} — closer(s) ${outcome.rejected.join(', ')} rejected.`);
+    return 0;
   }
-  rechain(entries, index);
-  const post = verify(entries);
-  if (!post.ok) {
-    process.stderr.write(`Post-reopen integrity check FAILED: ${post.reason}\n`);
+  // The recorded state is not the finding's state: every closure after MF-1
+  // is recorded OPEN and is RESOLVED only where the projection derives it
+  // from the merged trailer. Judging the recorded row answered "already OPEN"
+  // for a finding every reader sees closed (MF-DESIGN §4.5).
+  if (projected.state === 'RESOLVED' && recorded.state !== 'RESOLVED') {
+    const closers = projected.closing_commits.join(', ');
+    process.stderr.write(
+      `reopen refused: ${id} is RESOLVED — merged commit ${closers} closes it ` +
+        `(the recorded row says ${recorded.state}). Reopening a finding a commit closed is an ` +
+        `override decision: reopen ${id} --reject-closure=${closers} --reason=<why>.\n`,
+    );
     return 1;
   }
-  writeRegistry(entries, lease);
-  process.stdout.write(
-    `Reopened: ${id} at position ${index} → state=OPEN (close fields cleared).\n`,
+  if (recorded.state !== 'RESOLVED') {
+    writeOut(`No-op: ${id} is already ${recorded.state}.`);
+    return 0;
+  }
+  if (recorded.closing_commits.length > 0) {
+    process.stderr.write(
+      `reopen refused: ${id} carries closing_commits (${recorded.closing_commits.join(', ')}) — ` +
+        'reopening a finding a commit closed is an override decision: ' +
+        'reopen <id> --reject-closure=<sha> --reason=<why>.\n',
+    );
+    return 1;
+  }
+  const written = writeEvents(
+    DEFAULT_LAYOUT,
+    [
+      {
+        finding_id: id,
+        event_type: 'STATE_TRANSITIONED',
+        payload: { from_state: 'RESOLVED', to_state: 'OPEN' },
+        actor: cliActor('reopen'),
+        reason:
+          "governed reopen: registered RESOLVED at birth in error — the closure is derived from the fix commit's merged Closes: trailer",
+        occurred_at: new Date().toISOString(),
+      },
+    ],
+    lease,
   );
-  const tip = chainTip(entries);
-  process.stdout.write(`Chain tip: ${tip}\n`);
+  if (written === null) return 1;
+  writeOut(`Reopened: ${id} → state=OPEN.`);
   return 0;
 }
 
 /**
  * `assign <id> [--owner-user=<handle>] [--deadline=<date>] --reason=<why>` —
- * gives a row its missing accountability fields (ARIA-HIGH-044). The rules
- * are `applyAssignment`'s (fill, never change; a reason; no lapsed deadline);
- * the chain is restitched from the row on, and `writeRegistry` holds the result
- * to the row contract.
+ * gives a finding its missing accountability fields (ARIA-HIGH-044) as an
+ * OWNER_ASSIGNED event. The rules are `applyAssignment`'s (fill, never
+ * change; a reason; no lapsed deadline); the sink holds the resulting row to
+ * the row contract.
  */
 export function assignFinding(
   id: string,
   request: AssignmentRequest,
   lease: RegistryLockLease,
-  paths: RegistryPaths = DEFAULT_REGISTRY_PATHS,
+  layout: RegistryLayout = DEFAULT_LAYOUT,
 ): number {
-  const entries = loadRegistry(paths.registryPath);
-  const index = entries.findIndex((e) => e.id === id);
-  const entry = entries[index];
-  if (entry === undefined) {
+  const recorded = recordedRows(layout).find((row) => row.id === id);
+  if (recorded === undefined) {
     process.stderr.write(`assign refused: ${id} is not in the registry\n`);
     return 1;
   }
-  const outcome = applyAssignment(entry, request);
+  const decided: Finding = structuredClone(recorded);
+  const outcome = applyAssignment(decided, request);
   if (!outcome.ok) {
     process.stderr.write(`assign refused: ${outcome.reason}\n`);
     return 1;
   }
   if (!outcome.changed) {
-    process.stdout.write(`No-op: ${id} already carries the requested owner_user/deadline.\n`);
+    writeOut(`No-op: ${id} already carries the requested owner_user/deadline.`);
     return 0;
   }
-  rechain(entries, index);
-  const post = verify(entries);
-  if (!post.ok) {
-    process.stderr.write(`Post-assign integrity check FAILED: ${post.reason}\n`);
-    return 1;
+  const payload: { owner_user?: string; deadline?: string } = {};
+  for (const field of outcome.fields) {
+    const value = decided[field];
+    if (typeof value === 'string') payload[field] = value;
   }
-  writeRegistry(entries, lease, paths);
-  process.stdout.write(
-    `Assigned: ${id} at position ${index} → ${outcome.fields.join(', ')}\nChain tip: ${chainTip(entries)}\n`,
+  const written = writeEvents(
+    layout,
+    [
+      {
+        finding_id: id,
+        event_type: 'OWNER_ASSIGNED',
+        payload,
+        actor: cliActor('assign'),
+        reason: request.reason.trim(),
+        occurred_at: request.now.toISOString(),
+      },
+    ],
+    lease,
   );
+  if (written === null) return 1;
+  writeOut(`Assigned: ${id} → ${outcome.fields.join(', ')}`);
   return 0;
 }
 
 /**
- * `canonicalize-owner <spelling> [--to=<handle>] --reason=<why>` — rewrites
- * every row whose owner_user is exactly `spelling` to its CODEOWNERS handle
- * (ARIA-MEDIUM-535, `applyOwnerCanonicalization`). Without `--to` the spelling
- * must name a handle by itself (`@okan-wqm`, `Okan-Wqm`); with it, the caller
- * states which person a legacy spelling means. The chain is restitched from the
- * first changed row and `writeRegistry` holds the result to the row contract.
+ * `canonicalize-owner <spelling> [--to=<handle>] --reason=<why>` — records the
+ * CODEOWNERS handle of every finding whose owner_user is exactly `spelling`
+ * (ARIA-MEDIUM-535, `applyOwnerCanonicalization`) as an AMENDED event. Without
+ * `--to` the spelling must name a handle by itself (`@okan-wqm`, `Okan-Wqm`);
+ * with it, the caller states which person a legacy spelling means.
  */
 export function canonicalizeOwnerSpelling(
   request: OwnerCanonicalizationRequest,
   lease: RegistryLockLease,
-  paths: RegistryPaths = DEFAULT_REGISTRY_PATHS,
+  layout: RegistryLayout = DEFAULT_LAYOUT,
 ): number {
-  const entries = loadRegistry(paths.registryPath);
-  const outcome = applyOwnerCanonicalization(entries, request);
+  const rows: Finding[] = structuredClone(recordedRows(layout));
+  const outcome = applyOwnerCanonicalization(rows, request);
   if (!outcome.ok) {
     process.stderr.write(`canonicalize-owner refused: ${outcome.reason}\n`);
     return 1;
   }
-  const [first] = outcome.indexes;
-  if (first === undefined) {
-    process.stdout.write(`No-op: no row carries owner_user ${JSON.stringify(request.spelling)}.\n`);
+  const changed = outcome.indexes.flatMap((index) => rows[index] ?? []);
+  if (changed.length === 0) {
+    writeOut(`No-op: no finding carries owner_user ${JSON.stringify(request.spelling)}.`);
     return 0;
   }
-  rechain(entries, first);
-  const post = verify(entries);
-  if (!post.ok) {
-    process.stderr.write(`Post-canonicalize integrity check FAILED: ${post.reason}\n`);
-    return 1;
-  }
-  writeRegistry(entries, lease, paths);
-  process.stdout.write(
-    `Canonicalized: ${outcome.indexes.length} row(s) owner_user ${request.spelling} -> ${outcome.owner}\nChain tip: ${chainTip(entries)}\n`,
+  const written = writeEvents(
+    layout,
+    changed.map(
+      (row): FindingEventDraft => ({
+        finding_id: row.id,
+        event_type: 'AMENDED',
+        payload: { fields: { owner_user: outcome.owner } },
+        actor: cliActor('canonicalize-owner'),
+        reason: request.reason.trim(),
+        occurred_at: request.now.toISOString(),
+      }),
+    ),
+    lease,
+  );
+  if (written === null) return 1;
+  writeOut(
+    `Canonicalized: ${changed.length} finding(s) owner_user ${request.spelling} -> ${outcome.owner}`,
   );
   return 0;
 }
@@ -1278,7 +1278,8 @@ export interface SweepConfig {
 export interface SweepAction {
   readonly id: string;
   readonly fromState: Finding['state'];
-  readonly toState: Finding['state'];
+  /** A sweep can move a finding anywhere but RESOLVED, which only a merged trailer derives. */
+  readonly toState: GitStateTarget;
   readonly reason: string;
 }
 
@@ -1347,10 +1348,10 @@ export function sweepReportLines(report: {
  * Deterministic ordering: deadline check before staleness check so a
  * past-deadline STALE-candidate lands in BLOCKED (the stronger signal).
  *
- * --dry-run prints the proposed transitions WITHOUT mutating the
- * registry. The daily workflow opens a PR with the mutations so a
- * human reviews before merge — direct auto-commit would open a
- * tampering surface (bot push to main).
+ * --dry-run prints the proposed transitions WITHOUT writing them. The
+ * daily workflow opens a PR with the appended events so a human reviews
+ * before merge — direct auto-commit would open a tampering surface (bot
+ * push to main).
  */
 export function planSweep(entries: readonly Finding[], config: SweepConfig): SweepAction[] {
   const actions: SweepAction[] = [];
@@ -1410,6 +1411,9 @@ export function planSweep(entries: readonly Finding[], config: SweepConfig): Swe
 function cmdSweep(args: string[], lease: RegistryLockLease): number {
   const dryRun = args.includes('--dry-run');
   const staleArg = args.find((a) => a.startsWith('--stale-after='));
+  const eventPathsOut = args
+    .find((a) => a.startsWith('--event-paths='))
+    ?.slice('--event-paths='.length);
   // Use Number.isFinite + explicit null check so `--stale-after=0` is NOT
   // coerced back to 30 by an || fallback (0 is falsy). The 0-threshold is
   // useful for dry-run debugging and should round-trip.
@@ -1420,9 +1424,8 @@ function cmdSweep(args: string[], lease: RegistryLockLease): number {
   }
 
   // The plan reads the projection: a finding a merged trailer closed is
-  // RESOLVED there, so the sweep never stales or blocks finished work. The
-  // transitions are then written to the stored rows.
-  const entries = loadRegistry();
+  // RESOLVED there, so the sweep never stales or blocks finished work. Each
+  // transition is then a STATE_TRANSITIONED event in its finding's log.
   const projected = projectRegistry(REPO_ROOT);
   const now = new Date();
   const actions = planSweep(projected, { staleAfterDays, dryRun, now });
@@ -1430,36 +1433,41 @@ function cmdSweep(args: string[], lease: RegistryLockLease): number {
   for (const line of sweepReportLines({ scanned: projected.length, actions, unowned })) {
     writeOut(line);
   }
+  // --event-paths: the event logs the plan appends to, one repo-relative path
+  // per line. The sweep lane declares them as its write set before it writes
+  // and stages exactly them afterwards.
+  if (eventPathsOut !== undefined) {
+    writeFileSync(
+      eventPathsOut,
+      actions.map((action) => `${eventLogRepoPath(action.id)}\n`).join(''),
+      'utf8',
+    );
+  }
   if (actions.length === 0) return 0;
 
   if (dryRun) {
     writeOut('');
-    writeOut('--dry-run: no mutations written.');
+    writeOut('--dry-run: no events written.');
     return 0;
   }
 
-  // Apply transitions; earliest mutated entry anchors rechain scope.
-  let minIndex = entries.length;
-  for (const a of actions) {
-    const i = entries.findIndex((e) => e.id === a.id);
-    if (i === -1) continue;
-    const entry = entries[i];
-    if (!entry) continue;
-    entry.state = a.toState;
-    if (i < minIndex) minIndex = i;
-  }
-  rechain(entries, minIndex);
-
-  const post = verify(entries);
-  if (!post.ok) {
-    console.error(`Post-sweep integrity check FAILED: ${post.reason}`);
-    return 1;
-  }
-
-  writeRegistry(entries, lease);
-  const tip = chainTip(entries);
-  console.log('');
-  console.log(`Applied ${actions.length} transitions. Chain tip: ${tip}`);
+  const written = writeEvents(
+    DEFAULT_LAYOUT,
+    actions.map(
+      (action): FindingEventDraft => ({
+        finding_id: action.id,
+        event_type: 'STATE_TRANSITIONED',
+        payload: { from_state: action.fromState, to_state: action.toState },
+        actor: cliActor('sweep'),
+        reason: `sweep: ${action.reason}`,
+        occurred_at: now.toISOString(),
+      }),
+    ),
+    lease,
+  );
+  if (written === null) return 1;
+  writeOut('');
+  writeOut(`Applied ${actions.length} transitions as STATE_TRANSITIONED events.`);
   return 0;
 }
 
@@ -1568,198 +1576,23 @@ function cmdList(args: readonly string[]): number {
   return 0;
 }
 
-function cmdRechainFrom(startIdxRaw: string | undefined, lease: RegistryLockLease): number {
-  // Branch-suffix helper: after a 3-way merge concatenates branch additions,
-  // or before an unmerged malformed tail is corrected, the first branch-only
-  // row can carry a stale hash. The canonical origin/main prefix is compared
-  // entry-for-entry, including its hashes, and is never eligible for this
-  // operation; an already-merged row changes only through a governed
-  // mutation (reopen, assign, canonicalize-owner, sweep).
-  //
-  // Discovery path for the index: run `verify` first — on failure
-  // it prints `chain break at entry N (<id>)`. Pass N here.
-  if (!startIdxRaw) {
-    console.error('rechain-from requires a start index: finding-registry rechain-from <N>');
-    return 2;
-  }
-  const startIndex = parseRechainStartIndex(startIdxRaw);
-  if (startIndex === null) {
-    console.error(
-      `rechain-from: <N> must be a canonical non-negative base-10 integer; got "${startIdxRaw}".`,
-    );
-    return 2;
-  }
-  const entries = loadRegistry();
-  if (startIndex >= entries.length) {
-    console.error(`rechain-from: index ${startIndex} is out of range (entries=${entries.length}).`);
-    return 2;
-  }
-  const canonicalRaw = gitOutput(REPO_ROOT, ['show', `origin/main:${REGISTRY_RELATIVE_PATH}`]);
-  const canonicalEntries = canonicalRaw
-    .split(/\r?\n/)
-    .filter((line) => line.trim())
-    .map((line) => JSON.parse(line) as Finding);
-  const prefixCheck = checkCanonicalRegistryPrefix(entries, canonicalEntries, startIndex);
-  if (prefixCheck.violation) {
-    console.error(`rechain-from: refusing canonical-history mutation: ${prefixCheck.violation}.`);
-    return 1;
-  }
-  // Semantic validation always begins at the canonical-main boundary. The
-  // requested index controls only where hashes are recalculated; otherwise a
-  // caller could skip invalid branch-only rows by choosing a later hash break.
-  const prepared = prepareRegistryRechain(entries, prefixCheck.branchSuffixStartIndex, startIndex);
-  if (!prepared.ok) {
-    const reason =
-      prepared.stage === 'suffix' ? 'an invalid registry suffix' : 'an invalid hash candidate';
-    console.error(`rechain-from: refusing to persist ${reason}:`);
-    for (const failure of prepared.failures) console.error(`  ${failure}`);
-    return 1;
-  }
-  writeRegistry(prepared.entries, lease);
-  console.log(
-    `rechain-from: registry integrity restored from entry ${startIndex} (total entries=${entries.length}).`,
-  );
-  return 0;
-}
-
-/**
- * cmdDedupe — one-time cleanup of duplicate ids introduced before the
- * add CLI's uniqueness gate existed. For every id appearing more than
- * once, keeps the entry with the earliest created_at (tie-break: first
- * position) and drops the rest. Rechains from the earliest dropped
- * index; verifies post-rechain.
- *
- * Safety:
- *   - Refuses to drop a duplicate whose content fields differ semantically
- *     from its counterpart (content fields = all fields except prev_hash
- *     and content_hash). Semantic-drift duplicates must be reconciled
- *     by a human editor — automatic-drop would silently lose work.
- *   - --dry-run prints what would change without touching disk.
- *
- * Usage:
- *   finding-registry dedupe [--dry-run]
- */
-function cmdDedupe(args: string[], lease: RegistryLockLease): number {
-  const dryRun = args.includes('--dry-run');
-  const entries = loadRegistry();
-  if (entries.length === 0) {
-    console.log('dedupe: registry is empty, nothing to do.');
-    return 0;
-  }
-
-  // Group indices by id.
-  const byId = new Map<string, number[]>();
-  for (let i = 0; i < entries.length; i++) {
-    const entry = entries[i];
-    if (!entry) continue;
-    const list = byId.get(entry.id) ?? [];
-    list.push(i);
-    byId.set(entry.id, list);
-  }
-
-  // Collect indices to drop (sorted descending so splice works without shifting).
-  const toDrop: number[] = [];
-  const semanticConflicts: { id: string; indices: number[] }[] = [];
-  let firstDropIndex = entries.length;
-
-  for (const [id, indices] of byId) {
-    if (indices.length < 2) continue;
-
-    const keepers = indices.map((i) => entries[i]!);
-    // Detect semantic drift: compare content fields (strip prev_hash + content_hash).
-    const canonicals = keepers.map((e) => {
-      const { prev_hash: _p, content_hash: _c, ...rest } = e;
-      return canonicalJson(rest);
-    });
-    const allIdentical = canonicals.every((c) => c === canonicals[0]);
-    if (!allIdentical) {
-      semanticConflicts.push({ id, indices });
-      continue;
-    }
-
-    // Pick the winner: earliest created_at, tie-break on first index.
-    let winnerIdx = indices[0]!;
-    let winner = entries[winnerIdx]!;
-    for (const i of indices.slice(1)) {
-      const candidate = entries[i]!;
-      if (candidate.created_at < winner.created_at) {
-        winner = candidate;
-        winnerIdx = i;
-      }
-    }
-    for (const i of indices) {
-      if (i !== winnerIdx) {
-        toDrop.push(i);
-        if (i < firstDropIndex) firstDropIndex = i;
-      }
-    }
-  }
-
-  if (semanticConflicts.length > 0) {
-    console.error(
-      `dedupe: ${semanticConflicts.length} duplicate id(s) have semantic drift and CANNOT be auto-dropped:`,
-    );
-    for (const c of semanticConflicts) {
-      console.error(
-        `  - ${c.id}: indices [${c.indices.join(', ')}] differ in content; manual reconcile required.`,
-      );
-    }
-    return 1;
-  }
-
-  if (toDrop.length === 0) {
-    console.log('dedupe: no duplicates found; registry is already clean.');
-    return 0;
-  }
-
-  console.log(`dedupe: ${toDrop.length} duplicate row(s) will be removed.`);
-  console.log(
-    `dedupe: affected ids: ${[...byId.entries()]
-      .filter(([, v]) => v.length > 1)
-      .map(([k]) => k)
-      .join(', ')}`,
-  );
-  console.log(`dedupe: earliest removal position: ${firstDropIndex}`);
-
-  if (dryRun) {
-    console.log('dedupe: --dry-run mode, not writing.');
-    return 0;
-  }
-
-  // Splice highest-index first so earlier indices stay stable.
-  toDrop.sort((a, b) => b - a);
-  for (const i of toDrop) entries.splice(i, 1);
-
-  rechain(entries, firstDropIndex);
-  const result = verify(entries);
-  if (!result.ok) {
-    console.error(`dedupe: post-rechain verify FAILED: ${result.reason}`);
-    return 1;
-  }
-  writeRegistry(entries, lease);
-  console.log(`dedupe: done. Registry is now ${entries.length} entries, chain tip:`);
-  console.log(entries[entries.length - 1]?.content_hash ?? '(empty)');
-  return 0;
-}
-
 function main(): void {
   const [, , sub, ...args] = process.argv;
   if (!sub) {
     process.stderr.write(
       [
-        'Usage: finding-registry <verify|project|add|add-explicit|import-narrative|reopen|assign|canonicalize-owner|sweep|list|rechain-from|dedupe> [args]',
-        '  verify [--stdin]  — the chain over the file or the stdin bytes',
-        '  project [--ref=<rev>] [--stdin] [--ids <ID>...] [--format=jsonl|csv|json-array|closures]  — the registry with RESOLVED derived from merged Closes: trailers',
-        '  add <domain> <stub.json>  — atomically allocate id + append',
+        'Usage: finding-registry <verify|genesis|project|add|add-explicit|import-narrative|reopen|assign|canonicalize-owner|sweep|list> [args]',
+        '  verify [--base=<rev>] | verify --ref=<rev> | verify --stdin  — genesis pin, event logs, append-only since <rev>; or the whole registry as <rev> stores it; or the chain of the stdin bytes',
+        '  genesis  — pin findings.jsonl as the frozen genesis segment (npm run findings:genesis)',
+        '  project [--ref=<rev>] [--stdin] [--ids <ID>...] [--format=jsonl|csv|json-array|closures|records]  — the registry with RESOLVED derived from merged Closes: trailers (records: each row with the file that holds it)',
+        '  add <domain> <stub.json>  — atomically allocate id + record CREATED',
         '  add-explicit <stub.json>  — governed replay/import with fixed id',
         '  import-narrative <stub.json>  — import one exact ORPHAN heading as OPEN',
         '  reopen <finding-id> [--reject-closure=<sha> ... --reason=<why>]',
         '  assign <finding-id> [--owner-user=<handle>] [--deadline=<YYYY-MM-DD>] --reason=<why>  — fill a missing owner/deadline',
-        '  canonicalize-owner <spelling> [--to=<handle>] --reason=<why>  — rewrite an owner_user spelling to its CODEOWNERS handle',
-        '  sweep [--dry-run] [--stale-after=<days>]',
+        '  canonicalize-owner <spelling> [--to=<handle>] --reason=<why>  — record an owner_user spelling as its CODEOWNERS handle',
+        '  sweep [--dry-run] [--stale-after=<days>] [--event-paths=<file>]',
         '  list [--state <CSV>] [--severity <CSV>] [--owner <name>] [--format table|id-only|json]',
-        '  rechain-from <N>   — post-merge integrity repair (see docblock)',
-        '  dedupe [--dry-run] — one-time duplicate-id cleanup (see docblock)',
         '',
       ].join('\n'),
     );
@@ -1768,34 +1601,44 @@ function main(): void {
 
   let exitCode = 0;
   if (sub === 'verify') {
-    if (args.length === 0) {
-      exitCode = cmdVerify();
-    } else if (args.length === 1 && args[0] === '--stdin') {
-      exitCode = cmdVerifyStdin();
-    } else {
-      process.stderr.write('usage: finding-registry verify [--stdin]\n');
+    const refArg = args.length === 1 ? (args[0] ?? '') : '';
+    const verifyRef = refArg.startsWith('--ref=') ? refArg.slice('--ref='.length) : '';
+    exitCode =
+      args.length === 1 && args[0] === '--stdin'
+        ? cmdVerifyStdin()
+        : verifyRef !== ''
+          ? cmdVerifyRef(verifyRef)
+          : cmdVerify(args);
+  } else if (sub === 'genesis') {
+    if (args.length > 0) {
+      process.stderr.write('usage: finding-registry genesis\n');
       process.exit(2);
     }
+    exitCode = runRegistryMutation((lease) => cmdGenesis(lease));
   } else if (sub === 'project') {
     exitCode = cmdProject(args);
   } else if (sub === 'add') {
     const domain = args[0];
     const stubPath = args[1];
     if (!domain || !stubPath) {
-      console.error('add requires domain and stub: finding-registry add <DOMAIN> <stub.json>');
+      process.stderr.write(
+        'add requires domain and stub: finding-registry add <DOMAIN> <stub.json>\n',
+      );
       process.exit(2);
     }
     exitCode = runRegistryMutation((lease, authority) =>
-      appendAllocatedFinding(domain, resolve(stubPath), lease, DEFAULT_REGISTRY_PATHS, authority),
+      appendAllocatedFinding(domain, resolve(stubPath), lease, DEFAULT_LAYOUT, authority),
     );
   } else if (sub === 'add-explicit') {
     const stubPath = args[0];
     if (!stubPath) {
-      console.error('add-explicit requires a stub: finding-registry add-explicit <stub.json>');
+      process.stderr.write(
+        'add-explicit requires a stub: finding-registry add-explicit <stub.json>\n',
+      );
       process.exit(2);
     }
     exitCode = runRegistryMutation((lease, authority) =>
-      appendExplicitFinding(resolve(stubPath), lease, DEFAULT_REGISTRY_PATHS, authority),
+      appendExplicitFinding(resolve(stubPath), lease, DEFAULT_LAYOUT, authority),
     );
   } else if (sub === 'import-narrative') {
     const stubPath = args[0];
@@ -1833,10 +1676,6 @@ function main(): void {
     exitCode = runRegistryMutation((lease) => cmdSweep(args, lease));
   } else if (sub === 'list') {
     exitCode = cmdList(args);
-  } else if (sub === 'rechain-from') {
-    exitCode = runRegistryMutation((lease) => cmdRechainFrom(args[0], lease));
-  } else if (sub === 'dedupe') {
-    exitCode = runRegistryMutation((lease) => cmdDedupe(args, lease));
   } else {
     process.stderr.write(`Unknown subcommand: ${sub}\n`);
     process.exit(2);
@@ -1853,7 +1692,7 @@ function runRegistryMutation(
 ): number {
   try {
     const authority = resolveGitFindingAllocationAuthority(REPO_ROOT);
-    return withRegistryFileLock(REGISTRY_PATH, (lease) => action(lease, authority), {
+    return withRegistryFileLock(DEFAULT_LAYOUT.dir, (lease) => action(lease, authority), {
       lockPath: authority.lockPath,
     });
   } catch (error) {

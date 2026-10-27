@@ -514,28 +514,106 @@ function camelToSnake(value: string): string {
 function analyzeGuardCoverage(units: readonly SourceUnit[], result: AnalysisResult): void {
   const modules = units.filter((unit) => unit.relativePath.endsWith('app.module.ts'));
   for (const unit of modules) {
-    const registersTenantGuard =
-      /APP_GUARD[\s\S]{0,240}TenantGuard|TenantGuard[\s\S]{0,240}APP_GUARD/.test(unit.text);
-    const importsTenantGuard = /\bTenantGuard\b/.test(unit.text);
+    const guardImport = findTenantGuardImport(unit.sourceFile);
+    const importsTenantGuard = guardImport !== undefined;
+    const importLine = guardImport ? lineOf(unit.sourceFile, guardImport) : 1;
+    const registered = registersTenantGuard(unit.sourceFile);
     result.observations.push({
       id: `tenant-guard-registration:${unit.relativePath}`,
       type: 'tenant_guard_registration',
       path: unit.relativePath,
-      line: importsTenantGuard ? firstLineMatching(unit, /\bTenantGuard\b/) : 1,
-      details: { importsTenantGuard, registersTenantGuard },
+      line: importLine,
+      details: { importsTenantGuard, registersTenantGuard: registered },
     });
-    if (importsTenantGuard && !registersTenantGuard) {
+    if (importsTenantGuard && !registered) {
       result.findings.push({
         id: `tenant-guard-missing:${unit.relativePath}`,
         rule: 'tenant_guard_missing',
         severity: 'medium',
         path: unit.relativePath,
-        line: firstLineMatching(unit, /\bTenantGuard\b/),
+        line: importLine,
         message: 'App module imports TenantGuard but does not register it as an APP_GUARD.',
-        evidence: [{ path: unit.relativePath, line: firstLineMatching(unit, /\bTenantGuard\b/) }],
+        evidence: [{ path: unit.relativePath, line: importLine }],
       });
     }
   }
+}
+
+/** The import specifier that brings a tenant guard into the module, if any. */
+function findTenantGuardImport(sourceFile: ts.SourceFile): ts.ImportSpecifier | undefined {
+  for (const statement of sourceFile.statements) {
+    const bindings = ts.isImportDeclaration(statement)
+      ? statement.importClause?.namedBindings
+      : undefined;
+    const specifier =
+      bindings && ts.isNamedImports(bindings)
+        ? bindings.elements.find((element) => TENANT_GUARD_NAMES.has(element.name.text))
+        : undefined;
+    if (specifier) {
+      return specifier;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * True when the module has an `{ provide: APP_GUARD, ... }` provider that is a
+ * tenant guard: `useClass` / `useExisting` naming one, or a `useFactory` /
+ * `useValue` that constructs one or declares one as its return type. A tenant
+ * guard that is only imported, exported, listed as a plain provider or named in
+ * a comment, or an APP_GUARD that registers another guard, is not a
+ * registration. The whole file is walked, so a provider array declared as a
+ * constant and spread into `providers` is found too.
+ */
+function registersTenantGuard(sourceFile: ts.SourceFile): boolean {
+  let registered = false;
+  visit(sourceFile, (node) => {
+    registered = registered || (ts.isObjectLiteralExpression(node) && isTenantGuardAppGuard(node));
+  });
+  return registered;
+}
+
+function isTenantGuardAppGuard(provider: ts.ObjectLiteralExpression): boolean {
+  const provide = providerMember(provider, 'provide');
+  if (!provide || !ts.isIdentifier(provide) || provide.text !== 'APP_GUARD') {
+    return false;
+  }
+  const aliased = providerMember(provider, 'useClass') ?? providerMember(provider, 'useExisting');
+  if (aliased && isTenantGuardName(aliased)) {
+    return true;
+  }
+  const factory = providerMember(provider, 'useFactory');
+  const returnType = factory && ts.isFunctionLike(factory) ? factory.type : undefined;
+  if (returnType && ts.isTypeReferenceNode(returnType) && isTenantGuardName(returnType.typeName)) {
+    return true;
+  }
+  return [factory, providerMember(provider, 'useValue')].some(
+    (built) => built !== undefined && constructsTenantGuard(built),
+  );
+}
+
+/** The value of a provider's `name: value` property, or the function of a `name() {}` method. */
+function providerMember(provider: ts.ObjectLiteralExpression, name: string): ts.Node | undefined {
+  for (const member of provider.properties) {
+    if (member.name && (ts.isIdentifier(member.name) || ts.isStringLiteralLike(member.name))) {
+      if (member.name.text === name) {
+        return ts.isPropertyAssignment(member) ? member.initializer : member;
+      }
+    }
+  }
+  return undefined;
+}
+
+function isTenantGuardName(node: ts.Node): boolean {
+  return ts.isIdentifier(node) && TENANT_GUARD_NAMES.has(node.text);
+}
+
+function constructsTenantGuard(root: ts.Node): boolean {
+  let constructs = false;
+  visit(root, (node) => {
+    constructs = constructs || (ts.isNewExpression(node) && isTenantGuardName(node.expression));
+  });
+  return constructs;
 }
 
 function hasCrossTenantComment(text: string, fullStart: number, start: number): boolean {
@@ -601,12 +679,6 @@ function declarationName(
     return parent.name.getText(sourceFile);
   }
   return '<anonymous>';
-}
-
-function firstLineMatching(unit: SourceUnit, pattern: RegExp): number {
-  const lines = unit.text.split(/\r?\n/);
-  const index = lines.findIndex((line) => pattern.test(line));
-  return index >= 0 ? index + 1 : 1;
 }
 
 function readSourceUnit(path: string, workspaceRoot: string, program: ts.Program): SourceUnit {

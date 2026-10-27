@@ -149,9 +149,17 @@ class TheAtlasFindsTheKnownFacts(AtlasCase):
         self.assertEqual(bar["liveness"], "live")
         self.assertIn("judgment_pipeline", bar["liveness_via"])
 
-    def test_the_learning_log_has_three_writers(self) -> None:
-        writers = {path_of(site) for site in self.family("learning_log")["writers"]}
-        self.assertLessEqual({f"{KERNEL}memory.py", f"{KERNEL}goldset.py", f"{KERNEL}pr_tracking.py"}, writers)
+    def test_the_learning_log_has_one_writer_the_public_owner(self) -> None:
+        # F1.1: three writers at d42f5488b (memory, goldset, pr_tracking); goldset and pr_tracking now call the owner.
+        log = self.family("learning_log")
+        self.assertEqual(log["owner"], f"{KERNEL}memory.py:record_learning_event")
+        self.assertEqual({path_of(site) for site in log["writers"]}, {f"{KERNEL}memory.py"})
+        self.assertIsNone(log["finding"], "a family with one owner carries no copy finding")
+
+    def test_goldset_and_pr_tracking_reach_the_learning_log_through_its_owner(self) -> None:
+        callers = set(self.family("learning_log")["callers"])
+        self.assertLessEqual({f"{KERNEL}goldset.py:propose_goldset",
+                              f"{KERNEL}pr_tracking.py:_mark_beliefs_for_revalidation"}, callers)
 
     def test_the_plan_ledger_has_one_writer(self) -> None:
         plan_events = self.family("plan_events_ledger")

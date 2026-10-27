@@ -78,6 +78,9 @@ FAMILIES: dict[str, Family] = {
                              ("generate_fitness_report",), (("fitness_reports", "fitness/fitness-reports.jsonl"),)),
     # F0.9p: the one census of learned rows that name no source; the doctor's `provenance` organ is its reader.
     "row_provenance": Family("learning-memory", f"{_K}row_provenance.py:provenance_census", ("provenance_census",)),
+    # F1.2 — what a learning mechanism contributed over a window of cycles: the scorecard and every reader take it from here.
+    "mechanism_contribution": Family("learning-memory", f"{_K}autonomy_evidence.py:mechanism_contribution",
+                                     ("mechanism_contribution",)),
     "calibration_gate": Family("judgment", f"{_K}genesis_policy.py:effective_calibration_gate",
                                ("effective_calibration_gate",)),
     "verbatim_quote_law": Family("judgment", f"{_K}evidence_trust.py:quote_matches_at", ("quote_matches_at",)),

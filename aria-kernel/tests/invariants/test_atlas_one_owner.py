@@ -53,6 +53,9 @@ SINGLE_OWNER = {
     "role_agent_targets": f"{_KERNEL}agent_surface.py",
     # F0.9p — the provenance census: no second computer of "which learned rows have no source".
     "row_provenance": f"{_KERNEL}row_provenance.py",
+    # F1.2 — a learning mechanism's contribution over a window of cycles: autonomy_evidence computes it, the scorecard
+    # and every other reader (fitness included) take it from there.
+    "mechanism_contribution": f"{_KERNEL}autonomy_evidence.py",
 }
 
 # One planted second owner per family: a second writer of the family's ledger
@@ -93,6 +96,11 @@ _PLANTED = {
     # SE-5 — a second answer to 'which agents may serve this role', under the owner's name.
     "role_agent_targets": ("def allowed_targets_for_role(role):\n    return ()\n",),
     "row_provenance": ("def provenance_census(root):\n    return {}\n",),
+    # A second computation under the owner's name, in the signature the owner has and in a keyword-only one.
+    "mechanism_contribution": (
+        "def mechanism_contribution(rows, cycle_ids):\n    return {}\n",
+        "def mechanism_contribution(*, base_dir, cycle_ids):\n    return {}\n",
+    ),
 }
 
 

@@ -67,6 +67,12 @@ EXPECTED_CAPABILITIES = (
     "enterprise_readiness",
     "autonomy_unlock",
 )
+# F1.2 — the scorecard lenses join the roster after the proof capabilities (test_scorecard_lens_specs pins them).
+EXPECTED_LENSES = (
+    "finding_quality",
+    "implementation_quality",
+    "learning_from_memory",
+)
 
 KERNEL = "aria-kernel/aria_kernel/"
 EXECUTOR_ACCEPTANCE_AUTHORITY = (
@@ -1420,7 +1426,7 @@ def alias_factory(root):
     def test_capability_spec_is_the_only_deeply_immutable_authority_roster(
         self,
     ) -> None:
-        self.assertEqual(tuple(CAPABILITY_SPECS), EXPECTED_CAPABILITIES)
+        self.assertEqual(tuple(CAPABILITY_SPECS), (*EXPECTED_CAPABILITIES, *EXPECTED_LENSES))
         self.assertIsInstance(CAPABILITY_SPECS, MappingProxyType)
         self.assertFalse(hasattr(autonomy_evidence_module, "_CAPABILITY_SPECS"))
         self.assertIsInstance(CAPABILITY_AUTHORITY_PATHS, MappingProxyType)
@@ -2658,6 +2664,9 @@ class NativeProofContractTests(unittest.TestCase):
                 "enterprise_acceptance_events",
                 "enterprise_autonomy_unlock_events",
             ),
+            # F1.2 — a scorecard lens names numbers computed by their owners; it folds no ledger through the evidence
+            # accumulator, so it counts none (test_scorecard_lens_specs).
+            **{lens: () for lens in EXPECTED_LENSES},
         }
         self.assertEqual(
             {key: spec.count_surfaces for key, spec in CAPABILITY_SPECS.items()},

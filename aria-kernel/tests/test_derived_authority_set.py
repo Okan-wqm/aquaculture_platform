@@ -166,9 +166,10 @@ _BOARD: tuple[str, ...] = (
 )
 # Trust-boundary renderers (B1 bullet 5; PLAN-v2 §2 'Güven sınırı'). pr_tracking joined with WP-D2
 # (conformance audit R10): it chooses the diff and impact blocks a change-intelligence envelope
-# carries and places their <untrusted_*> tags itself.
+# carries and places their <untrusted_*> tags itself. judge_fanout joined with J3: it places an
+# untrusted_seat block per seat in the arbiter's weighing brief.
 _TRUST_RENDERERS: tuple[str, ...] = tuple(f"{_KERNEL}{name}.py" for name in (
-    "agent_invocations", "untrusted_tree", "text_safety", "pr_tracking",
+    "agent_invocations", "untrusted_tree", "text_safety", "pr_tracking", "judge_fanout",
 ))
 _NAMED_MEMBERS: tuple[str, ...] = _RAIL_MODULES + _TEST_COLLECTION + _BOARD + _TRUST_RENDERERS
 

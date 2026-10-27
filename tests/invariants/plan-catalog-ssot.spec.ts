@@ -33,6 +33,7 @@ import { resolve } from 'node:path';
 
 import * as yaml from 'js-yaml';
 
+import { FINDING_ID_REGEX } from '../../tools/gates/finding-id-grammar';
 import {
   REPO_ROOT,
   allEntityDeclarations,
@@ -101,7 +102,7 @@ function expiryIso(value: string | Date): string {
 function assertGoverned(entries: AllowlistEntry[], today: string): void {
   for (const entry of entries) {
     expect(entry.owner.trim().length).toBeGreaterThan(0);
-    expect(entry.findingId).toMatch(/^[A-Z]+-(CRITICAL|HIGH|MEDIUM|LOW)-\d{3}$/);
+    expect(entry.findingId).toMatch(FINDING_ID_REGEX);
     expect(entry.reason.trim().length).toBeGreaterThan(20);
     expect(expiryIso(entry.expiry) >= today).toBe(true);
   }

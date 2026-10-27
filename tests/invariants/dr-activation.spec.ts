@@ -40,6 +40,8 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
+import { FINDING_ID_REGEX } from '../../tools/gates/finding-id-grammar';
+
 const repoRoot = resolve(__dirname, '../..');
 const workflowsDir = join(repoRoot, '.github/workflows');
 const manifestPath = join(repoRoot, '.github/manifests/dr-activation.json');
@@ -133,7 +135,7 @@ describe('DR activation manifest', () => {
       if (!/^BR-\d+$/.test(capability.unlockPhase)) {
         unowned.push(`${key}: unlockPhase "${capability.unlockPhase}" is not a plan phase`);
       }
-      if (!/^[A-Z][A-Z0-9-]+-\d+$/.test(capability.finding)) {
+      if (!FINDING_ID_REGEX.test(capability.finding)) {
         unowned.push(`${key}: finding "${capability.finding}" is not a tracked finding ID`);
       }
       if (!existsSync(join(repoRoot, capability.unlockPlan))) {

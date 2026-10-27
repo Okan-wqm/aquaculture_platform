@@ -16,6 +16,7 @@ from .ledger import (
     append_declared_jsonl,
     load_declared_jsonl,
 )
+from .agent_surface import ROLE_TARGET_PAIRING
 from .memory import latest_beliefs, record_learning_event
 from .tool_registry import GovernanceError, ensure_tools_dir, list_tools, utc_now
 
@@ -30,7 +31,9 @@ if TYPE_CHECKING:
 # evidence moved file). That reading is what the agent is for, and the merge
 # commit is when it is worth paying for.
 CHANGE_INTELLIGENCE_ROLE = "change_intelligence"
-CHANGE_INTELLIGENCE_AGENT = "aria-change-intelligence"
+# The generic agent of the role is the role's first pairing: one owner of
+# "which agent serves a role" (agent_surface), never a second spelling here.
+CHANGE_INTELLIGENCE_AGENT = ROLE_TARGET_PAIRING[CHANGE_INTELLIGENCE_ROLE][0]
 
 # Evidence-ref budget for one change-intelligence envelope. A merge of 400
 # files must not be pasted whole into a prompt; the agent is told the full
@@ -295,7 +298,7 @@ def dispatch_change_intelligence(
     impacted services' roots), from which ``envelope_file_set`` derives the
     context-recall file set.
     """
-    from .agent_invocations import create_agent_invocation_request, minted_subject_refs
+    from .agent_invocations import WHOLE_CHANGE_SEAT, create_agent_invocation_request, minted_subject_refs
     from .pressure_evidence import split_citable_refs
     from .request_admission import admit_request
     from .text_safety import untrusted_block
@@ -411,7 +414,7 @@ def dispatch_change_intelligence(
             base_dir=root,
             admission=admission,
             change_review_workspace=workspace,
-            change_context={"changed_files": listed_files, "impacted_roots": impacted_roots},
+            change_context={"changed_files": listed_files, "impacted_roots": impacted_roots, "seat": WHOLE_CHANGE_SEAT},
         )
         minted.append({
             "pr_number": offer.pr_number, "subject_ref": offer.subject_ref, "request_id": request.get("request_id"),

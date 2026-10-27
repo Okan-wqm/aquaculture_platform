@@ -277,7 +277,7 @@ class ProviderRouting:
 
 def _validate_routing(raw: Any) -> ProviderRouting:
     """The routing block, or a refusal naming the first rule it breaks."""
-    from .agent_surface import DISPATCHABLE_ROLES, ROLE_TARGET_PAIRING
+    from .agent_surface import DISPATCHABLE_ROLES, allowed_targets_for_role
     from .model_fleet import _FLEET, provider_admits_writes
 
     fleet = {provider.key for provider in _FLEET}
@@ -302,7 +302,7 @@ def _validate_routing(raw: Any) -> ProviderRouting:
                               f":extra={sorted(set(roles_raw) - set(DISPATCHABLE_ROLES))}")
     roles: dict[str, str | dict[str, str]] = {}
     for role, entry in roles_raw.items():
-        if isinstance(entry, dict) and set(entry) != set(ROLE_TARGET_PAIRING.get(role, ())):
+        if isinstance(entry, dict) and set(entry) != set(allowed_targets_for_role(role) or ()):
             raise GovernanceError(f"provider_routing_targets:{role}:{sorted(entry)}")
         names = [entry] if isinstance(entry, str) else list(entry.values()) if isinstance(entry, dict) else [None]
         if any(name not in ladders for name in names):
@@ -444,7 +444,7 @@ def verify_agent_mirrors(*, repo_root: str | Path) -> list[dict[str, Any]]:
     Returns one row per defect; empty means every mirror agrees with the
     kernel. Used by the Plan 032 invariant test and available to `doctor`.
     """
-    from .agent_runtime_profile import _parse_frontmatter_field  # noqa: PLC0415
+    from .agent_runtime_profile import parse_frontmatter_field  # noqa: PLC0415
 
     root = Path(repo_root)
     agents_dir = root / ".claude" / "agents"
@@ -453,7 +453,7 @@ def verify_agent_mirrors(*, repo_root: str | Path) -> list[dict[str, Any]]:
     for path in sorted(agents_dir.glob("aria-*.md")):
         text = path.read_text(encoding="utf-8")
         rel = path.relative_to(root).as_posix()
-        profile_id = _parse_frontmatter_field(text, RUNTIME_PROFILE_FRONTMATTER_KEY)
+        profile_id = parse_frontmatter_field(text, RUNTIME_PROFILE_FRONTMATTER_KEY)
         if not profile_id:
             defects.append({"ref": rel, "reason": "runtime_profile_missing"})
             continue
@@ -461,8 +461,8 @@ def verify_agent_mirrors(*, repo_root: str | Path) -> list[dict[str, Any]]:
         if profile is None:
             defects.append({"ref": rel, "reason": "runtime_profile_unknown", "profile": profile_id})
             continue
-        mirror_model = _parse_frontmatter_field(text, "model")
-        mirror_effort = _parse_frontmatter_field(text, "effort")
+        mirror_model = parse_frontmatter_field(text, "model")
+        mirror_effort = parse_frontmatter_field(text, "effort")
         if mirror_model != profile.model or mirror_effort != profile.effort:
             defects.append({
                 "ref": rel, "reason": "runtime_profile_mirror_drift",

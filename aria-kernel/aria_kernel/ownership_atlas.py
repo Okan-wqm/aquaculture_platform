@@ -60,6 +60,14 @@ FAMILIES: dict[str, Family] = {
     # F1.1: goldset and pr_tracking record through the owner, whose event kinds are a closed vocabulary.
     "learning_log": Family("learning-memory", f"{_K}memory.py:record_learning_event",
                            ledgers=(("memory_learning_events", "memory/learning-events.jsonl"),)),
+    # SE-5: the lifecycle state of an entity is its replayed chain, read in one place. `_target_is_shadow` is the
+    # name of the second, unverified reading that was deleted; listing it makes its return an offender.
+    "lifecycle_state": Family("learning-memory", f"{_K}genesis_lifecycle.py:current_lifecycle_state",
+                              ("current_lifecycle_state", "_target_is_shadow"),
+                              (("genesis_lifecycle_events", "genesis-lifecycle/events.jsonl"),)),
+    # SE-5: which agents may serve a role (the static pairing plus the granted per-service agents) is answered here.
+    "role_agent_targets": Family("judgment", f"{_K}agent_surface.py:allowed_targets_for_role",
+                                 ("allowed_targets_for_role", "resolve_seat_agent")),
     "fitness_report": Family("learning-memory", f"{_K}fitness.py:generate_fitness_report",
                              ("generate_fitness_report",), (("fitness_reports", "fitness/fitness-reports.jsonl"),)),
     "calibration_gate": Family("judgment", f"{_K}genesis_policy.py:effective_calibration_gate",

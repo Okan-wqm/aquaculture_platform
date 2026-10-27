@@ -1,7 +1,8 @@
-import { Module, Global } from '@nestjs/common';
+import { Module, Global, OnModuleInit } from '@nestjs/common';
 import { ServiceMetricsService } from '@aquaculture/backend-common/metrics';
 
 import { GatewayMetricsController } from './metrics.controller';
+import { MODULE_ACCESS_CLAIM_REGISTRY } from './module-access-claim.metrics';
 
 /**
  * Gateway Metrics Module
@@ -16,4 +17,11 @@ import { GatewayMetricsController } from './metrics.controller';
   providers: [ServiceMetricsService],
   exports: [ServiceMetricsService],
 })
-export class GatewayMetricsModule {}
+export class GatewayMetricsModule implements OnModuleInit {
+  constructor(private readonly serviceMetrics: ServiceMetricsService) {}
+
+  onModuleInit(): void {
+    // RBAC-HIGH-028 / PKG-04 accept: the share of verified tokens carrying moduleAccess.
+    this.serviceMetrics.registerContributor('module-access-claim', MODULE_ACCESS_CLAIM_REGISTRY);
+  }
+}

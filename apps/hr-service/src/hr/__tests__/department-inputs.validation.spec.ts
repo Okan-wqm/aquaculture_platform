@@ -12,7 +12,7 @@
  */
 import { ArgumentMetadata, ValidationPipe } from '@nestjs/common';
 
-import { HrModuleCode } from '../../common/enums';
+import { OWNER_MODULE } from '@aquaculture/shared-contracts';
 import { CreateDepartmentInput } from '../dto/create-department.input';
 import { UpdateDepartmentInput } from '../dto/update-department.input';
 
@@ -40,7 +40,7 @@ describe('CreateDepartmentInput through the global pipe', () => {
       code: 'CTL',
       description: 'Automation',
       siteId,
-      moduleCode: HrModuleCode.SENSOR,
+      moduleCode: OWNER_MODULE.SENSOR,
       parentDepartmentId: departmentId,
       managerId: departmentId,
       budgetCode: 'BC-1',
@@ -67,6 +67,15 @@ describe('CreateDepartmentInput through the global pipe', () => {
     ).rejects.toThrow();
   });
 
+  it('accepts hr: an HR-owned unit no longer has to be stored as company-wide (HR-MEDIUM-064)', async () => {
+    await expect(
+      pipe.transform(
+        { name: 'People', code: 'PPL', moduleCode: OWNER_MODULE.HR },
+        bodyOf(CreateDepartmentInput),
+      ),
+    ).resolves.toMatchObject({ moduleCode: 'hr' });
+  });
+
   it('refuses a module the schema does not know', async () => {
     await expect(
       pipe.transform({ name: 'N', code: 'C', moduleCode: 'alert' }, bodyOf(CreateDepartmentInput)),
@@ -84,10 +93,10 @@ describe('UpdateDepartmentInput through the global pipe', () => {
   it('accepts a partial update that moves a department to another module', async () => {
     await expect(
       pipe.transform(
-        { id: departmentId, moduleCode: HrModuleCode.FARM },
+        { id: departmentId, moduleCode: OWNER_MODULE.FARM },
         bodyOf(UpdateDepartmentInput),
       ),
-    ).resolves.toMatchObject({ id: departmentId, moduleCode: HrModuleCode.FARM });
+    ).resolves.toMatchObject({ id: departmentId, moduleCode: OWNER_MODULE.FARM });
   });
 
   it('accepts an explicit null to make a department company-wide again', async () => {

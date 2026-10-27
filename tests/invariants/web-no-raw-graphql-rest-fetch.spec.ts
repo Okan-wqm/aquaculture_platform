@@ -15,6 +15,11 @@
  *   - a baselined file that no longer offends → the ratchet test FAILS until it is
  *     REMOVED from the set (a review-visible edit), so the baseline can't go stale.
  * Debt tracked: docs/reviews/orphan-findings.md#ORPHAN-MEDIUM-204.
+ *
+ * A raw fetch is also one through a local name bound to the endpoint
+ * (`const API_URL = '/graphql'; … fetch(API_URL, …)`): five sensor-module hooks hid
+ * from the literal match that way, and besides the auth barrier they never reported
+ * a GRAPHQL_VALIDATION_FAILED to the shell's build-skew check (FE-MEDIUM-380).
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -23,6 +28,17 @@ const REPO_ROOT = resolve(__dirname, '..', '..');
 const SCAN_ROOTS = ['web/modules', 'web/shell/src'];
 const SKIP_DIRS = new Set(['node_modules', 'dist', '__tests__', 'test', '__mocks__']);
 const RAW_TRANSPORT = /fetch\(\s*[`'"](?:\/graphql|\/api)/;
+/** `const NAME = '/graphql'` (or `/api`), with an optional type annotation; captures NAME. */
+const ENDPOINT_BINDING =
+  /\b(?:const|let|var)\s+(\w+)\s*(?::[^=;]+)?=\s*[`'"](?:\/graphql|\/api)[`'"]/g;
+
+/** Whether `source` fetches the endpoint, literally or through a name bound to it. */
+function fetchesRawTransport(source: string): boolean {
+  if (RAW_TRANSPORT.test(source)) return true;
+  return [...source.matchAll(ENDPOINT_BINDING)].some(([, name]) =>
+    new RegExp(`fetch\\(\\s*${name}\\b`).test(source),
+  );
+}
 
 /**
  * A7 burn-down — files that STILL use raw fetch. This set may ONLY shrink.
@@ -60,7 +76,7 @@ function walk(dir: string): string[] {
 }
 
 const offenders = SCAN_ROOTS.flatMap((r) => walk(resolve(REPO_ROOT, r)))
-  .filter((f) => RAW_TRANSPORT.test(readFileSync(f, 'utf8')))
+  .filter((f) => fetchesRawTransport(readFileSync(f, 'utf8')))
   .map((f) => f.replace(`${REPO_ROOT}/`, ''));
 
 describe('frontend uses sanctioned GraphQL/REST clients, not raw fetch', () => {
@@ -76,7 +92,7 @@ describe('frontend uses sanctioned GraphQL/REST clients, not raw fetch', () => {
   it('every baselined offender still offends (ratchet cannot go stale)', () => {
     const fixed = [...KNOWN_OFFENDERS].filter((f) => {
       try {
-        return !RAW_TRANSPORT.test(readFileSync(resolve(REPO_ROOT, f), 'utf8'));
+        return !fetchesRawTransport(readFileSync(resolve(REPO_ROOT, f), 'utf8'));
       } catch {
         return true; // file moved/deleted → must be removed from the set
       }

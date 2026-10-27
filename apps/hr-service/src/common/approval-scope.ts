@@ -15,7 +15,7 @@
 import type { ObjectLiteral, Repository, SelectQueryBuilder } from 'typeorm';
 
 import { Employee } from '../hr/entities/employee.entity';
-import type { HrModuleCode } from './enums';
+import type { OwnerModuleCode } from '@aquaculture/shared-contracts';
 import { isModuleScoped } from './module-scope';
 
 export interface ApprovalScopeRequest {
@@ -23,7 +23,7 @@ export interface ApprovalScopeRequest {
   /** The approver's HR EMPLOYEE id (never the auth user id); null for a viewer with no employee record. */
   readonly approverId: string | null;
   readonly departmentId?: string;
-  readonly moduleCode?: HrModuleCode | null;
+  readonly moduleCode?: OwnerModuleCode | null;
   /** False for a tenant admin, who is never narrowed to a department implicitly. */
   readonly narrowToOwnDepartment: boolean;
 }

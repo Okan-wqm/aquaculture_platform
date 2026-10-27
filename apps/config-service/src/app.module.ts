@@ -17,7 +17,11 @@ import {
   RlsModule,
   SchemaDriftModule,
 } from '@aquaculture/backend-common/database';
-import { RolesGuard, ServiceIdentityGuard, TenantGuard } from '@aquaculture/backend-common/guards';
+import {
+  accessGuardProviders,
+  ServiceIdentityGuard,
+  TenantGuard,
+} from '@aquaculture/backend-common/guards';
 import { LoggingModule } from '@aquaculture/backend-common/logging';
 import { ServiceMetricsModule } from '@aquaculture/backend-common/metrics';
 // DB-INFRA-HIGH-003: config-service onboarded to the event backbone to be a GDPR
@@ -255,12 +259,9 @@ const GRAPHQL_MAX_COMPLEXITY = 1000;
         new TenantGuard(reflector, undefined, configService),
       inject: [Reflector, ConfigService],
     },
-    // SECURITY: Roles guard - enforces @Roles() decorator authorization
-    {
-      provide: APP_GUARD,
-      useFactory: (reflector: Reflector): RolesGuard => new RolesGuard(reflector),
-      inject: [Reflector],
-    },
+    // SECURITY: RolesGuard enforces @Roles(); once this service is enrolled in ADR-051 its
+    // MODULE_ACCESS_ENROLMENT entry adds the access-classification guard (RBAC-HIGH-030).
+    ...accessGuardProviders('config-service'),
     /** SEC-M22: Register global audit logging for compliance — all mutations are tracked. */
     {
       provide: APP_INTERCEPTOR,

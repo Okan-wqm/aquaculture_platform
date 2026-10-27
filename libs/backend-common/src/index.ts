@@ -34,6 +34,9 @@ export * from './decorators/current-user.decorator';
 export * from './decorators/roles.decorator';
 export * from './decorators/cacheable.decorator';
 export * from './decorators/require-permission.decorator';
+// ADR-051 (RBAC-HIGH-030, RBAC-HIGH-031): the access spec and the per-handler decision
+export * from './decorators/access.decorator';
+export * from './decorators/access-caller.decorator';
 
 // Guards
 export * from './guards/roles.guard';
@@ -41,6 +44,8 @@ export * from './guards/tenant.guard';
 export * from './guards/tenant-permission.guard';
 export * from './guards/service-identity.guard';
 export * from './guards/token-revocation.service';
+export * from './guards/access-classification.guard';
+export { accessGuardProviders, MODULE_ACCESS_SERVICE } from './guards/access-guard-providers';
 
 // Utils - Inter-service authentication
 export * from './utils/service-identity.util';

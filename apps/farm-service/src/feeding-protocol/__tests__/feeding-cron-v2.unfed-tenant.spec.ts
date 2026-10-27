@@ -29,13 +29,22 @@
  * Üçünden herhangi biri sessizce değişirse tenant yine kör kalır ve bunu
  * hiçbir test yakalamıyordu. Bu spec o zinciri pinler.
  */
+const mockTenantUnderProbe = '11111111-1111-4111-8111-111111111111';
 const managerFind = jest.fn();
 const managerQuery = jest.fn();
 const runnerQuery = jest.fn();
 
 jest.mock('@aquaculture/backend-common/database', () => ({
   ...jest.requireActual('@aquaculture/backend-common/database'),
-  listTenantSchemas: jest.fn().mockResolvedValue(['tenant_aaaa']),
+  // Discovery asks each tenant under its own RLS context; here one tenant is
+  // asked and the probe runs on the fake runner. That the context really makes
+  // the FORCE-RLS tables visible is proven on real Postgres by
+  // feeding-cron-v2.discovery.rls.postgres.spec.ts.
+  findTenantsMatching: async (
+    _ds: unknown,
+    _schema: string,
+    probe: (qr: { query: typeof runnerQuery }) => Promise<boolean>,
+  ): Promise<string[]> => ((await probe({ query: runnerQuery })) ? [mockTenantUnderProbe] : []),
   runInTenantTransaction: (
     _ds: unknown,
     _schema: string,
@@ -166,13 +175,16 @@ describe('Yeni tenant — balıklı ama atamasız ünite sessiz kalmaz (FARM-MED
     // Keşif UNION'ından `tank_batches` kolu düşerse yeni tenant cron'a HİÇ
     // girmez ve yukarıdaki tespit de hiç koşmaz.
     const h = makeHarness({ stockedUnits: 1 });
-    runnerQuery.mockImplementation(async (sql: string) => {
-      if (String(sql).includes('SET search_path')) return [];
-      return String(sql).includes('tank_batches') ? [{ tenantId: TENANT }] : [];
-    });
+    runnerQuery.mockResolvedValue([{ '?column?': 1 }]);
 
     const tenants = await h.service.feedingTenants();
 
-    expect(tenants).toContain(TENANT);
+    expect(tenants).toEqual([mockTenantUnderProbe]);
+    // Tek ifade, dört kol: atama, yakın plan, STOKLU ÜNİTE, aktif batch.
+    const probeSql = String(runnerQuery.mock.calls[0]?.[0]);
+    expect(probeSql).toContain('feeding_protocol_assignments');
+    expect(probeSql).toContain('feeding_day_plans');
+    expect(probeSql).toContain('tank_batches');
+    expect(probeSql).toContain('batches_v2');
   });
 });

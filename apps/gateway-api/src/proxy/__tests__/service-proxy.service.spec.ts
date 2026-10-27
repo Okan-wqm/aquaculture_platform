@@ -786,6 +786,44 @@ describe('ServiceProxyService', () => {
       );
     });
 
+    // RBAC-HIGH-028: the REST proxy binds the module grants into the assertion exactly as the
+    // federation data source does — always present, `{}` for a token that predates the claim.
+    it.each([
+      ['the token claim', { sensor: 'MODULE_USER' }, { sensor: 'MODULE_USER' }],
+      ['an empty claim for a token minted before moduleAccess', undefined, {}],
+    ])('RBAC-HIGH-028: binds %s into the REST-proxy assertion', async (_label, claim, expected) => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        headers: new Map([['content-type', 'application/json']]),
+        json: jest.fn().mockResolvedValue({ result: 'data' }),
+      });
+      const mockReq = makeMockRequest({
+        path: '/api/test',
+        method: 'GET',
+        headers: { authorization: 'Bearer valid-token' },
+        body: {},
+        query: {},
+        user: {
+          sub: 'user-1',
+          tenantId: '11111111-1111-4111-8111-111111111111',
+          roles: ['MODULE_USER'],
+          ...(claim === undefined ? {} : { moduleAccess: claim }),
+        },
+      });
+
+      await service.proxyRequest(mockReq, makeMockResponse(), 'test-service');
+
+      const [, init] = mockFetch.mock.calls[0] ?? [];
+      const headers: Record<string, string> = (init as { headers: Record<string, string> }).headers;
+      const assertionHeader = headers['x-verified-user-assertion'];
+      if (!assertionHeader) throw new Error('expected an x-verified-user-assertion header');
+      const assertion: unknown = JSON.parse(
+        Buffer.from(assertionHeader, 'base64url').toString('utf8'),
+      );
+      expect(assertion).toEqual(expect.objectContaining({ moduleAccess: expected }));
+    });
+
     it('should handle proxy errors in proxyRequest', async () => {
       circuitBreaker.execute.mockRejectedValueOnce(new BadGatewayException('Service unavailable'));
 

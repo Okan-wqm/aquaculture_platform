@@ -5,7 +5,12 @@
 
 import { describe, it, expect } from 'vitest';
 
-import { decodeResourcePermissions, decodeTenantId, resolveRequestTenantId } from '../jwt-claims';
+import {
+  decodeResourcePermissions,
+  decodeTenantId,
+  readAccessTokenClaim,
+  resolveRequestTenantId,
+} from '../jwt-claims';
 
 /** Build an unsigned JWT-shaped string whose payload is `claims`, base64url-encoded. */
 function tokenWith(claims: unknown): string {
@@ -77,5 +82,23 @@ describe('decodeResourcePermissions', () => {
     ['a claim with a non-string member', tokenWith({ resourcePermissions: ['farm:read', 7] })],
   ])('fails closed to [] for %s', (_label, token) => {
     expect(decodeResourcePermissions(token)).toEqual([]);
+  });
+});
+
+// MOB-MEDIUM-031: the offline cache scope reads `sub` and `moduleAccess` raw and validates the
+// grant claim with shared-contracts' own guard.
+describe('readAccessTokenClaim', () => {
+  it('returns the raw claim, unvalidated', () => {
+    const token = tokenWith({ sub: 'u1', moduleAccess: { farm: 'MODULE_USER' } });
+    expect(readAccessTokenClaim(token, 'sub')).toBe('u1');
+    expect(readAccessTokenClaim(token, 'moduleAccess')).toEqual({ farm: 'MODULE_USER' });
+  });
+
+  it.each([
+    ['an absent token', null],
+    ['a malformed token', 'opaque-token'],
+    ['a missing claim', tokenWith({ sub: 'u1' })],
+  ])('is undefined for %s', (_label, token) => {
+    expect(readAccessTokenClaim(token, 'moduleAccess')).toBeUndefined();
   });
 });

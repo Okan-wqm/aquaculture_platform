@@ -1636,6 +1636,8 @@ jobs:
             npm cache verify --cache .npm-cache >/dev/null 2>&1 || true
             npm ci --ignore-scripts --no-audit
           fi
+      - name: Self-test Sens enterprise validation
+        run: npm run gates:sens-enterprise-validation:self-test
       - name: Run Sens enterprise validation
         run: npm run gates:sens-enterprise-validation
       - name: Upload Sens enterprise validation artifacts

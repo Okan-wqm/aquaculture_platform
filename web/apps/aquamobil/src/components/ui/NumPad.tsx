@@ -75,7 +75,7 @@ export function NumPad({
             type="button"
             onClick={() => press(k.key)}
             aria-label={k.aria}
-            className="h-tap-key min-h-touch rounded-xl bg-surface-2 text-head font-mono font-semibold text-ink-1 inline-flex items-center justify-center touch-feedback active:bg-surface-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-acc"
+            className="h-tap-key min-h-touch rounded-xl bg-surface-2 text-head font-semibold tabular-nums text-ink-1 inline-flex items-center justify-center touch-feedback active:bg-surface-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-acc"
           >
             {k.label}
           </button>

@@ -1,5 +1,12 @@
 import { randomUUID } from 'crypto';
 
+import {
+  OWNER_MODULE_CODES,
+  PLATFORM_ROLE,
+  type ModuleAccess,
+  type ModuleRole,
+  type OwnerModuleCode,
+} from '@aquaculture/shared-contracts';
 import jwt, { SignOptions } from 'jsonwebtoken';
 
 /**
@@ -38,6 +45,11 @@ export interface TestTokenOptions {
   tenantId?: string | null;
   /** Assigned module codes. Defaults to all platform modules. */
   modules?: string[];
+  /**
+   * The per-module grants (ADR-051 §2). Defaults to what auth-service mints: TENANT_ADMIN holds
+   * every owner module of `modules` as MODULE_MANAGER; every other role holds none unless given.
+   */
+  moduleAccess?: ModuleAccess;
   /** Resource-level permissions. Defaults to empty array. */
   resourcePermissions?: string[];
   /** Token expiration (ms/zeit format). Defaults to '1h'. */
@@ -65,6 +77,8 @@ export interface TestJwtPayload {
   roles: TestRole[];
   tenantId: string | null;
   modules: string[];
+  /** Always present on a token auth-service mints (RBAC-HIGH-027); `{}` for no grant. */
+  moduleAccess: ModuleAccess;
   resourcePermissions: string[];
   type: 'access' | 'refresh';
   jti?: string;
@@ -84,6 +98,20 @@ const ALL_MODULES = [
   'alert',
   'config',
 ] as const;
+
+/**
+ * The moduleAccess auth-service mints when a test names none: TENANT_ADMIN manages every owner
+ * module the tenant has (here, of `modules`); a member's grants come from assignment rows a token
+ * fixture does not have, so it holds none (a missing grant means no access, ADR-051 §1).
+ */
+function defaultModuleAccess(role: TestRole, modules: readonly string[]): ModuleAccess {
+  const access: { [Code in OwnerModuleCode]?: ModuleRole } = {};
+  if (role !== PLATFORM_ROLE.TENANT_ADMIN) return access;
+  for (const code of OWNER_MODULE_CODES) {
+    if (modules.includes(code)) access[code] = PLATFORM_ROLE.MODULE_MANAGER;
+  }
+  return access;
+}
 
 /**
  * Generate a signed JWT token for E2E testing.
@@ -106,13 +134,15 @@ export function generateTestToken(options: TestTokenOptions = {}): string {
         ? null
         : randomUUID();
 
+  const modules = options.modules ?? [...ALL_MODULES];
   const payload: Record<string, unknown> = {
     sub: userId,
     email: options.email ?? `e2e-${userId.slice(0, 8)}@test.aquaculture.io`,
     role,
     roles: options.roles ?? [role],
     tenantId,
-    modules: options.modules ?? [...ALL_MODULES],
+    modules,
+    moduleAccess: options.moduleAccess ?? defaultModuleAccess(role, modules),
     resourcePermissions: options.resourcePermissions ?? [],
     type: options.type ?? 'access',
     ...options.customClaims,
@@ -165,6 +195,7 @@ export function generateTokenWithWrongSecret(
     roles: options.roles ?? [role],
     tenantId: options.tenantId ?? randomUUID(),
     modules: options.modules ?? [...ALL_MODULES],
+    moduleAccess: options.moduleAccess ?? {},
     resourcePermissions: options.resourcePermissions ?? [],
     type: options.type ?? 'access',
     jti: randomUUID(),
@@ -224,6 +255,8 @@ export interface RoleTokenOptions {
   tenantId?: string;
   /** Assigned module codes. */
   modules?: string[];
+  /** The per-module grants (see TestTokenOptions.moduleAccess). */
+  moduleAccess?: ModuleAccess;
   /** Resource permissions. */
   resourcePermissions?: string[];
   /** Token expiration. */
@@ -241,6 +274,7 @@ export function generateModuleUserToken(options: RoleTokenOptions = {}): string 
     role: 'MODULE_USER',
     tenantId: options.tenantId,
     modules: options.modules,
+    moduleAccess: options.moduleAccess,
     resourcePermissions: options.resourcePermissions,
     expiresIn: options.expiresIn,
   });
@@ -257,6 +291,7 @@ export function generateTenantAdminToken(options: RoleTokenOptions = {}): string
     role: 'TENANT_ADMIN',
     tenantId: options.tenantId,
     modules: options.modules,
+    moduleAccess: options.moduleAccess,
     resourcePermissions: options.resourcePermissions,
     expiresIn: options.expiresIn,
   });
@@ -278,6 +313,7 @@ export function generateSuperAdminToken(options: RoleTokenOptions = {}): string 
     role: 'SUPER_ADMIN',
     tenantId: null,
     modules: options.modules,
+    moduleAccess: options.moduleAccess,
     resourcePermissions: options.resourcePermissions,
     expiresIn: options.expiresIn,
   });

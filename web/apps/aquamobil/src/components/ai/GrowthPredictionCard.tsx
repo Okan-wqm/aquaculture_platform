@@ -76,7 +76,7 @@ export function GrowthPredictionCard({ batchId }: GrowthPredictionCardProps): Re
             <div className="text-meta text-ink-3 font-medium mb-1">Current</div>
             {/* ORPHAN-MEDIUM-589: predicted, not measured — the tilde travels
                 with the number, away from the card's Advisory chip. */}
-            <div className="text-head font-mono font-bold text-ink-2 tabular-nums">
+            <div className="text-head font-bold text-ink-2 tabular-nums">
               <Approx />
               {prediction.currentAvgWeight.toFixed(0)}
               <span className="text-meta text-ink-3 font-medium font-sans ml-0.5">g</span>
@@ -88,7 +88,7 @@ export function GrowthPredictionCard({ batchId }: GrowthPredictionCardProps): Re
           </div>
           <div className="text-center">
             <div className="text-meta text-ink-3 font-medium mb-1">Predicted (30d)</div>
-            <div className="text-head font-mono font-bold text-ink-1 tabular-nums">
+            <div className="text-head font-bold text-ink-1 tabular-nums">
               {prediction.predictedAvgWeight30d.toFixed(0)}
               <span className="text-meta text-ink-3 font-medium font-sans ml-0.5">g</span>
             </div>
@@ -96,7 +96,7 @@ export function GrowthPredictionCard({ batchId }: GrowthPredictionCardProps): Re
           {/* WHY: Growth delta badge — ok for acceleration, crit for deceleration */}
           <div
             className={clsx(
-              'text-meta font-mono font-semibold px-2 py-1 rounded-lg tabular-nums',
+              'text-meta font-semibold px-2 py-1 rounded-lg tabular-nums',
               growthDelta >= 0 ? 'bg-surface-2 text-ok' : 'bg-crit-dim text-crit',
             )}
           >
@@ -109,19 +109,19 @@ export function GrowthPredictionCard({ batchId }: GrowthPredictionCardProps): Re
             for operators who want more than the headline weight prediction. */}
         <div className="grid grid-cols-3 gap-2">
           <div className="bg-surface-2 rounded-lg p-2.5 text-center">
-            <div className="text-title font-mono font-bold text-ink-1 tabular-nums">
+            <div className="text-title font-bold text-ink-1 tabular-nums">
               {prediction.predictedSGR.toFixed(2)}
             </div>
             <div className="text-meta text-ink-3 font-semibold">SGR %/d</div>
           </div>
           <div className="bg-surface-2 rounded-lg p-2.5 text-center">
-            <div className="text-title font-mono font-bold text-ink-1 tabular-nums">
+            <div className="text-title font-bold text-ink-1 tabular-nums">
               {prediction.predictedFCR.toFixed(2)}
             </div>
             <div className="text-meta text-ink-3 font-semibold">FCR</div>
           </div>
           <div className="bg-surface-2 rounded-lg p-2.5 text-center">
-            <div className="text-title font-mono font-bold text-ink-1 tabular-nums">
+            <div className="text-title font-bold text-ink-1 tabular-nums">
               {prediction.estimatedBiomass30d >= 1000
                 ? `${(prediction.estimatedBiomass30d / 1000).toFixed(1)}t`
                 : `${prediction.estimatedBiomass30d.toFixed(0)}kg`}

@@ -1,4 +1,4 @@
-import type { HrModuleCode } from '../../common/enums';
+import type { OwnerModuleCode } from '@aquaculture/shared-contracts';
 
 /**
  * The attendance records waiting for an approver's review.
@@ -21,7 +21,7 @@ export class GetPendingAttendanceApprovalsQuery {
     public readonly limit: number = 20,
     public readonly page: number = 1,
     /** Only records of employees whose live department is in this module; absent = every module. */
-    public readonly moduleCode?: HrModuleCode,
+    public readonly moduleCode?: OwnerModuleCode,
     /**
      * With no explicit department and no module, narrow to the approver's own department.
      * False for a tenant admin, who approves across departments and is never narrowed implicitly.

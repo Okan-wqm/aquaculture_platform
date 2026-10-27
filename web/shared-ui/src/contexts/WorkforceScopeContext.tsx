@@ -21,12 +21,14 @@ import type { MessageKey } from '../i18n';
  * it. The one place a module code is turned into words, so a department card, a
  * scope badge and the workspace switcher can never name a module two ways.
  * Typing the table over every `HrModuleCode` makes the compiler reject a new schema module
- * until it has a name.
+ * until it has a name. HR has no workspace of its own (the HR module is the
+ * company-wide view), so an HR-owned department is named by its module.
  */
 export const WORKFORCE_MODULE_LABEL_KEYS: Record<HrModuleCode, MessageKey> = {
   FARM: 'nav.workspace.aqua',
   HYDROPONICS: 'nav.workspace.gh',
   SENSOR: 'nav.workspace.ctl',
+  HR: 'hr.module.hr',
 };
 
 const WorkforceScopeContext = createContext<HrModuleCode | null>(null);

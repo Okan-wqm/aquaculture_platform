@@ -63,7 +63,7 @@ function MetricCell({ label, value, isLoading }: MetricCellProps): JSX.Element {
       {isLoading ? (
         <MetricSkeleton />
       ) : (
-        <p className="text-title font-mono font-semibold text-ink-1 tabular-nums">{value}</p>
+        <p className="text-title font-semibold text-ink-1 tabular-nums">{value}</p>
       )}
     </div>
   );

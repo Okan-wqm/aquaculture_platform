@@ -154,9 +154,13 @@ describe('FeedingCronV2Service.hourlyTick (W5)', () => {
 
     await harness.service.hourlyTick();
 
-    const failed = harness.settle.mock.calls.find((call) => call[1] === false);
+    // settle(tenantId, runId, succeeded, error): the ledger row is closed under
+    // the SAME tenant that claimed it (the ledger is FORCE-RLS).
+    const failed = harness.settle.mock.calls.find((call) => call[2] === false);
     expect(failed).toBeDefined();
-    expect(failed![2]).toBe('boom');
+    expect(failed![0]).toBe(OSLO_TENANT);
+    expect(failed![1]).toBe('run-1');
+    expect(failed![3]).toBe('boom');
     // Diğer tenant'ın işi (İstanbul 07:00 kapsama) yine claim'lendi.
     expect(harness.claim).toHaveBeenCalledWith(
       ISTANBUL_TENANT,
@@ -177,6 +181,7 @@ describe('FeedingCronV2Service.hourlyTick (W5)', () => {
 
     expect(harness.sweepTenant).toHaveBeenCalledTimes(1);
     expect(harness.settle).toHaveBeenCalledWith(
+      OSLO_TENANT,
       'run-1',
       false,
       expect.stringContaining('page cap'),

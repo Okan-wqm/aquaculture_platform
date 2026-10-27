@@ -174,10 +174,15 @@ describe('MainLayout — the tenant console', () => {
     // The tenant line comes from the session, with TenantContext empty as in production.
     expect(within(rail()).getByText('Acme Fish')).toBeTruthy();
     expect(container.querySelector('.sd-content')).not.toBeNull();
-    // README §7.1: the page column is capped at 1520 px and stays left-aligned.
+    // The page column follows the window: it fills the content column, so it grows and
+    // shrinks with it. No fixed pixel cap, and it is not centred in a capped box either.
     const main = screen.getByRole('main');
-    expect(main).toHaveClass('sd-main', 'w-full', 'max-w-[1520px]');
+    expect(main).toHaveClass('sd-main', 'w-full');
     expect(main).not.toHaveClass('mx-auto');
+    expect(
+      [...main.classList].filter((name) => /^max-w-\[\d+px\]$/.test(name)),
+      'a fixed pixel max-width freezes the page while the window grows',
+    ).toEqual([]);
     // The header names the page from the nav, under "Workspace · Area".
     expect(screen.getByRole('heading', { level: 1, name: 'Company dashboard' })).toBeTruthy();
     expect(screen.getByText('Company · Overview')).toBeTruthy();

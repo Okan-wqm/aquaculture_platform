@@ -7,7 +7,7 @@ import { AlertResolver } from '../alert.resolver';
 import { AlertEvaluationService } from '../../services/alert-evaluation.service';
 import { AlertRuleService } from '../../services/alert-rule.service';
 import { AlertHistory } from '../../entities/alert-history.entity';
-import { AlertModule } from '../../entities/alert-module.enum';
+import { OWNER_MODULE } from '@aquaculture/shared-contracts';
 import { ActiveAlertCountDimension } from '../../dto/active-alert-count.type';
 import { AlertHistoryOrder } from '../../dto/alert-history-order.enum';
 import { AlertRule, AlertSeverity } from '../../../database/entities/alert-rule.entity';
@@ -136,12 +136,12 @@ describe('AlertResolver.alertHistory', () => {
         undefined,
         undefined,
         SITE_ID,
-        AlertModule.FARM,
+        OWNER_MODULE.FARM,
       );
 
       expect(getAlertHistory).toHaveBeenCalledWith(
         tenantId,
-        expect.objectContaining({ resolved: false, siteId: SITE_ID, module: AlertModule.FARM }),
+        expect.objectContaining({ resolved: false, siteId: SITE_ID, module: OWNER_MODULE.FARM }),
         { page: 1, limit: 20 },
         AlertHistoryOrder.NEWEST_FIRST,
       );
@@ -161,7 +161,7 @@ describe('AlertResolver.alertHistory', () => {
           undefined,
           undefined,
           undefined,
-          AlertModule.FARM,
+          OWNER_MODULE.FARM,
           orderBy,
         );
 
@@ -269,13 +269,13 @@ describe('AlertResolver.activeAlertCounts', () => {
   });
 
   it('forwards the module filter and the per-site grouping', async () => {
-    await resolver.getActiveAlertCounts(tenantId, null, AlertModule.SENSOR, [
+    await resolver.getActiveAlertCounts(tenantId, null, OWNER_MODULE.SENSOR, [
       ActiveAlertCountDimension.SITE,
     ]);
 
     expect(countActiveAlerts).toHaveBeenCalledWith(tenantId, {
       siteId: undefined,
-      module: AlertModule.SENSOR,
+      module: OWNER_MODULE.SENSOR,
       groupBy: [ActiveAlertCountDimension.SITE],
     });
   });

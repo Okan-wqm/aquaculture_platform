@@ -13,7 +13,7 @@
  *      graphite ramp, primary → the workspace accent, warning and accent
  *      (Severity's "high" tier) → the hazard amber, error → the hazard red,
  *      every radius → square, and the sans / display
- *      faces → Barlow / Barlow Condensed. Card, Button, Badge, DataTable,
+ *      faces → the Industry pair (both Inter). Card, Button, Badge, DataTable,
  *      Input inside the scope therefore render Industry with no per-component
  *      skin, and their own `dark:` classes keep working because the dark theme
  *      re-assigns the same scales to the Control-room ramp.
@@ -163,12 +163,12 @@
     --radius-3xl: var(--radius-sd);
     --radius-4xl: var(--radius-sd);
 
-    /* Type: Barlow for the body, Barlow Condensed 600 for display and the
-       PageHeader title (it reads --page-title-*). The faces are re-pointed
-       here, not in theme.css, so the auth pages keep Instrument Serif. The
-       font-family declaration is what the column's text inherits; the two
-       variables reach an explicit `font-sans` / `font-display`. Figures are
-       tabular so columns of readings line up. */
+    /* Type: the Industry pair names Inter for the body and for display and the
+       PageHeader title (it reads --page-title-*), headings at weight 600. The
+       faces are re-pointed here, not only in theme.css, so a surface can still
+       diverge from the globals. The font-family declaration is what the
+       column's text inherits; the two variables reach an explicit `font-sans` /
+       `font-display`. Figures are tabular so columns of readings line up. */
     --font-sans: var(--font-body-sd);
     --font-display: var(--font-display-sd);
     --page-title-font: var(--font-display-sd);
@@ -429,13 +429,14 @@
   .sd-page {
     color: var(--color-sd-ink);
   }
+  /* The stack fills its column. It used to stop at 1920px and centre itself, so a
+     window wider than that left the page frozen in the middle; the console column
+     (`.sd-content`) is the page's width and the stack follows it. */
   .sd-stack {
     display: flex;
     flex-direction: column;
     gap: 22px;
     width: 100%;
-    max-width: 1920px;
-    margin-inline: auto;
   }
 
   .sd-pagehead {
@@ -455,7 +456,7 @@
     text-transform: uppercase;
     white-space: nowrap;
   }
-  /* The h1: 28px Barlow Condensed 600, narrowing with the column. */
+  /* The h1: 28px Inter 600, narrowing with the column. */
   .sd-page-title {
     color: var(--color-sd-ink);
     font-family: var(--font-display);

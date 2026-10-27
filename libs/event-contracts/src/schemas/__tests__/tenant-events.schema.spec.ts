@@ -156,7 +156,7 @@ const VALID_FIXTURES: Record<TenantEventType, Record<string, unknown>> = {
   }),
   TenantModulesAssigned: withBase('TenantModulesAssigned', {
     moduleIds: [MODULE_ID],
-    moduleCodes: ['FARM', 'SENSOR'],
+    moduleCodes: ['farm', 'sensor'],
     pricingMonthlyTotal: 199,
     pricingAnnualTotal: 1990,
     pricingTier: 'professional',

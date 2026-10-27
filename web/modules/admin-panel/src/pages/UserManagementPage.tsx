@@ -34,7 +34,7 @@ import {
 import { expectedTotalPages } from '@platform/pagination-contracts';
 import { adminKeys, useAdminMutation, useAdminQuery } from '../hooks';
 import { QueryFailureNotice } from '../components/QueryFailureNotice';
-import { isPlatformRole, type PlatformRole } from '../services/types/users';
+import { isPlatformRole, type PlatformRole } from '@aquaculture/shared-contracts';
 import { Mail, Plus, Search as SearchIcon, Trash2 } from 'lucide-react';
 
 const PAGE_SIZE = 20;

@@ -57,6 +57,9 @@
       "@aquaculture/backend-common/constants": ["libs/backend-common/src/constants/index.ts"],
       "@aquaculture/backend-common/context": ["libs/backend-common/src/context/index.ts"],
       "@aquaculture/backend-common/database": ["libs/backend-common/src/database/index.ts"],
+      "@aquaculture/backend-common/database/testing": [
+        "libs/backend-common/src/database/testing.ts"
+      ],
       "@aquaculture/backend-common/event-dedup": ["libs/backend-common/src/event-dedup/index.ts"],
       "@aquaculture/backend-common/dataloader": ["libs/backend-common/src/dataloader/index.ts"],
       "@aquaculture/backend-common/decorators": ["libs/backend-common/src/decorators/index.ts"],

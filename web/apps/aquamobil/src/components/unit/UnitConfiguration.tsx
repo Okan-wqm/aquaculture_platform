@@ -22,7 +22,7 @@ export function UnitConfiguration({ tank }: { tank: Tank }): ReactElement {
       <div className="text-meta text-ink-3 mb-3">Unit configuration</div>
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <div className="text-title font-mono font-semibold text-ink-1 tabular-nums">
+          <div className="text-title font-semibold text-ink-1 tabular-nums">
             {tank.volume > 0 ? `${tank.volume}` : '—'}
           </div>
           <div className="text-meta text-ink-3">
@@ -30,7 +30,7 @@ export function UnitConfiguration({ tank }: { tank: Tank }): ReactElement {
           </div>
         </div>
         <div>
-          <div className="text-title font-mono font-semibold text-ink-1 tabular-nums">
+          <div className="text-title font-semibold text-ink-1 tabular-nums">
             {tank.maxBiomass > 0 ? compactCount(tank.maxBiomass) : '—'}
           </div>
           <div className="text-meta text-ink-3">

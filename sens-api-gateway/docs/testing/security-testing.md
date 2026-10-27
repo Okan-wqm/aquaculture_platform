@@ -50,7 +50,7 @@ Workspace job runs `cargo check` implicitly via the clippy and test jobs (both o
 
 ### 2.2 `cargo deny` (license + advisory + source policy)
 
-- `deny.toml` exists at `sens-api-gateway/deny.toml`. It carries license carve-outs including the `rodbus = BSD-3-Clause` exception (`deny.toml:70–73`).
+- `deny.toml` exists at `sens-api-gateway/deny.toml`. It carries the license allow-list with per-crate carve-outs (`[licenses]` `exceptions`) plus `[bans]` and `[sources]` policy.
 - The same path-filter gap applies: `cargo deny check` at workspace level runs but isn't retriggered by changes to `sens-api-gateway/**`.
 - Tracked as `ORPHAN-EDGE-006`.
 

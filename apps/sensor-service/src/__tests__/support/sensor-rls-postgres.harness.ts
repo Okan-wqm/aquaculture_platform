@@ -1,6 +1,10 @@
 import { randomBytes } from 'node:crypto';
 
-import { applyTenantRlsToSchema, getTenantSchemaName } from '@aquaculture/backend-common/database';
+import { getTenantSchemaName } from '@aquaculture/backend-common/database';
+import {
+  armTenantRls,
+  publishActiveTenantMappings,
+} from '@aquaculture/backend-common/database/testing';
 import {
   bootPostgresContainer,
   type HarnessContext,
@@ -104,7 +108,7 @@ export async function bootSensorRlsHarness(
       await ddl.destroy();
     }
 
-    await armRls(admin, { schemaOverride: schema });
+    await armTenantRls(admin, { schemaOverride: schema });
 
     await admin.query(`GRANT USAGE ON SCHEMA "${schema}", sensor, public TO ${runtimeRole}`);
     // The DML set tenant-schema-privileges.ts grants `sensor_service` on every
@@ -127,7 +131,7 @@ export async function bootSensorRlsHarness(
     await sourceDdl.initialize();
     const sourceTables = sourceDdl.entityMetadatas.map((metadata) => metadata.tableName);
     await sourceDdl.destroy();
-    await armRls(admin, { schemaOverride: 'sensor', includeTables: sourceTables });
+    await armTenantRls(admin, { schemaOverride: 'sensor', includeTables: sourceTables });
     for (const table of sourceTables) {
       await admin.query(
         `GRANT SELECT, INSERT, UPDATE, DELETE ON sensor."${table}" TO ${runtimeRole}`,
@@ -178,48 +182,4 @@ export async function bootSensorRlsHarness(
       await shutdownHarness(harness);
     },
   };
-}
-
-/**
- * (Re)define the active tenant↔schema mapping the harness serves. In
- * production the function reads the admin.tenant_schemas ledger; here it lists
- * the active tenants directly, and CREATE OR REPLACE keeps the runtime role's
- * EXECUTE grant across a redefinition.
- */
-async function publishActiveTenantMappings(
-  executor: Pick<DataSource, 'query'>,
-  tenants: readonly string[],
-): Promise<void> {
-  const rows = tenants.map(
-    (tenantId) =>
-      `SELECT '${getTenantSchemaName(tenantId)}'::text, '${tenantId}'::uuid, true, true`,
-  );
-  // No active tenant is an empty result, not an empty VALUES list.
-  const body =
-    rows.length > 0
-      ? rows.join('\n      UNION ALL ')
-      : 'SELECT NULL::text, NULL::uuid, true, true WHERE false';
-  await executor.query(`
-    CREATE OR REPLACE FUNCTION platform.list_active_tenant_schema_mappings()
-    RETURNS TABLE (schema_name text, tenant_id uuid, schema_exists boolean, committed_proof boolean)
-    LANGUAGE sql STABLE AS $fn$
-      ${body}
-    $fn$`);
-}
-
-/** Arm FORCE RLS with the platform helper under db-migrate's DDL authority. */
-async function armRls(
-  admin: DataSource,
-  options: { schemaOverride: string; includeTables?: readonly string[] },
-): Promise<void> {
-  const previousDdlAuthority = process.env['DB_MIGRATE_DDL_AUTHORITY'];
-  process.env['DB_MIGRATE_DDL_AUTHORITY'] = '1';
-  const qr = admin.createQueryRunner();
-  try {
-    await applyTenantRlsToSchema(qr, options);
-  } finally {
-    await qr.release();
-    if (previousDdlAuthority === undefined) delete process.env['DB_MIGRATE_DDL_AUTHORITY'];
-    else process.env['DB_MIGRATE_DDL_AUTHORITY'] = previousDdlAuthority;
-  }
 }

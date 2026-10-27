@@ -15,7 +15,7 @@ import { createPaginatedQueryResult } from '@platform/cqrs';
 import type { GraphQLSchema } from 'graphql';
 import type { Repository } from 'typeorm';
 
-import { HrModuleCode } from '../../common/enums';
+import { OWNER_MODULE } from '@aquaculture/shared-contracts';
 import type { Employee } from '../../hr/entities/employee.entity';
 import { LeaveResolver } from '../leave.resolver';
 import { GetLeaveRequestsQuery } from '../queries/get-leave-requests.query';
@@ -99,7 +99,7 @@ describe('leave API — module scope contract', () => {
         undefined,
         20,
         1,
-        HrModuleCode.FARM,
+        OWNER_MODULE.FARM,
       );
 
       expect(queryBus.execute).toHaveBeenCalledWith(
@@ -112,7 +112,7 @@ describe('leave API — module scope contract', () => {
           undefined,
           20,
           1,
-          HrModuleCode.FARM,
+          OWNER_MODULE.FARM,
         ),
       );
     });
@@ -124,7 +124,7 @@ describe('leave API — module scope contract', () => {
         undefined,
         20,
         1,
-        HrModuleCode.SENSOR,
+        OWNER_MODULE.SENSOR,
       );
 
       expect(queryBus.execute).toHaveBeenCalledWith(
@@ -134,7 +134,7 @@ describe('leave API — module scope contract', () => {
           undefined,
           20,
           1,
-          HrModuleCode.SENSOR,
+          OWNER_MODULE.SENSOR,
           true,
         ),
       );
@@ -162,7 +162,7 @@ describe('leave API — module scope contract', () => {
         '2026-10-22',
         '2026-10-22',
         undefined,
-        HrModuleCode.HYDROPONICS,
+        OWNER_MODULE.HYDROPONICS,
       );
 
       expect(queryBus.execute).toHaveBeenCalledWith(
@@ -171,7 +171,7 @@ describe('leave API — module scope contract', () => {
           undefined,
           '2026-10-22',
           '2026-10-22',
-          HrModuleCode.HYDROPONICS,
+          OWNER_MODULE.HYDROPONICS,
         ),
       );
     });

@@ -24,8 +24,8 @@ The keywords **MUST**, **MUST NOT**, **REQUIRED**, **SHALL**, **SHALL NOT**, **S
 
 | Chapter | Standard | Our version | Crate / feature flag | Status | Primary evidence |
 |---------|----------|-------------|----------------------|--------|------------------|
-| [modbus-tcp.md](./modbus-tcp.md) | IEC 61158 / MBAP — Modbus Application Protocol v1.1b3 (2012) | Client-only; FC 1/2/3/4/5/6 | `rodbus = "=1.4.0"` / default | PARTIAL | `src/modbus.rs:55-68`, `Cargo.toml:70` |
-| [modbus-rtu.md](./modbus-rtu.md) | Modbus over Serial Line V1.02 (2006), 11-bit UART | Client-only; identical FC set to TCP | `rodbus = "=1.4.0"` + `tokio-serial = "5.4"` / default, `target_os="linux"` | PARTIAL | `src/modbus.rs:713-758`, `Cargo.toml:70-72` |
+| [modbus-tcp.md](./modbus-tcp.md) | IEC 61158 / MBAP — Modbus Application Protocol v1.1b3 (2012) | Client-only; FC 1/2/3/4/5/6 | `tokio-modbus = "~0.17"` + `tokio-rustls = "0.26"` / default | PARTIAL | `src/modbus.rs:62-72`, `Cargo.toml:88-89` |
+| [modbus-rtu.md](./modbus-rtu.md) | Modbus over Serial Line V1.02 (2006), 11-bit UART | Client-only; identical FC set to TCP | `tokio-modbus = "~0.17"` + `tokio-serial = "5.4"` / default, `target_os="linux"` | PARTIAL | `src/modbus.rs` (`open_rtu`), `Cargo.toml:88-91` |
 | [mqtt.md](./mqtt.md) | OASIS MQTT v3.1.1 (2014) | Client-only (v3.1.1); username+password + TLS 1.2+ | `rumqttc = "0.25"` / default | PRESENT | `src/mqtt.rs:193-269`, `Cargo.toml:33` |
 | [opc-ua.md](./opc-ua.md) | IEC 62541-6 OPC UA v1.04 (2017) — TCP binary transport | Hand-rolled TCP binary client; `SecurityPolicy#None` is the wired default endpoint path | *(hand-rolled; `opcua = "0.12"` pulled only for the OPC UA **server** feature `opc-ua-server`, not for this client)* | PARTIAL | `src/plc_programming/opcua.rs:43-69`, `Cargo.toml:266` |
 | [s7comm.md](./s7comm.md) | Siemens S7 Communication over ISO-on-TCP (RFC 1006) | Hand-rolled S7comm client; COTP + S7 Job/Ack | *(hand-rolled, no external crate)* | PARTIAL | `src/plc_programming/s7comm.rs:36-103` |

@@ -1,17 +1,17 @@
 import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 
 import { useAuth } from './useAuth';
+import { useOfflineCacheScope } from './useOfflineCacheScope';
 
 import {
   GET_MY_ATTENDANCE_RECORDS,
   GET_MY_ATTENDANCE_SUMMARY,
   GET_TODAYS_ATTENDANCE,
 } from '@/graphql/operations';
-import { cacheUserData, getCachedUserData } from '@/pwa/offline-queue';
+import { readThroughOfflineCache } from '@/pwa/offline-cache';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import type { AttendanceRecord, AttendanceSummary } from '@/types';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
-import { userScopedCacheKey } from '@/utils/user-scoped-cache-key';
 
 // =============================================================================
 // Cache TTL constants (IndexedDB offline fallback — not React Query in-memory)
@@ -50,6 +50,7 @@ export function useMyAttendanceRecords(
   params: AttendanceRecordsParams = {},
 ): UseQueryResult<AttendanceRecord[], Error> {
   const { tenantId, user, isAuthenticated } = useAuth();
+  const cacheScope = useOfflineCacheScope();
 
   // WHY defaults here: the page always wants "last 7 days" on mount. Providing
   // sensible defaults means the caller doesn't need a useEffect to trigger fetch.
@@ -67,23 +68,22 @@ export function useMyAttendanceRecords(
     queryFn: async () => {
       if (!tenantId || !user?.id) return [];
 
-      const cacheKey = userScopedCacheKey(user.id, 'attendance-records', startDate, endDate, limit);
-      try {
-        const result = await graphqlRequest(GET_MY_ATTENDANCE_RECORDS, { startDate, endDate, limit });
-
-        const records = result.myAttendanceRecords;
-
-        // WHY async cache write: IndexedDB write should never block the UI thread.
-        // If it fails, the online path still works fine.
-        await cacheUserData(tenantId, cacheKey, records, CACHE_TTL_30M);
-        return records;
-      } catch (error) {
-        // WHY fallback to IndexedDB: network failures are expected on fish farms.
-        // Return stale data rather than showing an error screen.
-        const cached = await getCachedUserData<AttendanceRecord[]>(tenantId, cacheKey);
-        if (cached) return cached;
-        throw error;
-      }
+      // WHY the offline copy: network failures are expected on fish farms, and
+      // stale records beat an error screen — while the server is unreachable;
+      // a refusal surfaces and purges the copy (MOB-MEDIUM-031).
+      const read = await readThroughOfflineCache(
+        cacheScope,
+        { key: `attendance-records:${startDate}:${endDate}:${limit}`, ttlMs: CACHE_TTL_30M },
+        async (): Promise<AttendanceRecord[]> => {
+          const result = await graphqlRequest(GET_MY_ATTENDANCE_RECORDS, {
+            startDate,
+            endDate,
+            limit,
+          });
+          return result.myAttendanceRecords;
+        },
+      );
+      return read.data;
     },
     // WHY enabled guard: prevents firing a request before auth is ready,
     // which would always 401 and pollute the error state.
@@ -121,6 +121,7 @@ export function useMyAttendanceSummary(
   params: AttendanceSummaryParams = {},
 ): UseQueryResult<AttendanceSummary | null, Error> {
   const { tenantId, user, isAuthenticated } = useAuth();
+  const cacheScope = useOfflineCacheScope();
 
   const now = new Date();
   const month = params.month ?? now.getMonth() + 1;
@@ -134,18 +135,15 @@ export function useMyAttendanceSummary(
     queryFn: async () => {
       if (!tenantId || !user?.id) return null;
 
-      const cacheKey = userScopedCacheKey(user.id, 'attendance-summary', year, month);
-      try {
-        const result = await graphqlRequest(GET_MY_ATTENDANCE_SUMMARY, { month, year });
-
-        const summary = result.myAttendanceSummary;
-        await cacheUserData(tenantId, cacheKey, summary, CACHE_TTL_1H);
-        return summary;
-      } catch (error) {
-        const cached = await getCachedUserData<AttendanceSummary>(tenantId, cacheKey);
-        if (cached) return cached;
-        throw error;
-      }
+      const read = await readThroughOfflineCache(
+        cacheScope,
+        { key: `attendance-summary:${year}:${month}`, ttlMs: CACHE_TTL_1H },
+        async (): Promise<AttendanceSummary | null> => {
+          const result = await graphqlRequest(GET_MY_ATTENDANCE_SUMMARY, { month, year });
+          return result.myAttendanceSummary;
+        },
+      );
+      return read.data;
     },
     enabled: isAuthenticated && !!tenantId && !!user?.id,
     // WHY 5min staleTime: summaries only change when a new attendance record is
@@ -169,6 +167,7 @@ export function useMyAttendanceSummary(
  */
 export function useTodaysAttendance(): UseQueryResult<AttendanceRecord[], Error> {
   const { tenantId, user, isAuthenticated } = useAuth();
+  const cacheScope = useOfflineCacheScope();
 
   return useQuery<AttendanceRecord[]>({
     // SECURITY (MT-CRITICAL-051): today's attendance is the CURRENT user's
@@ -178,21 +177,18 @@ export function useTodaysAttendance(): UseQueryResult<AttendanceRecord[], Error>
     queryFn: async () => {
       if (!tenantId || !user?.id) return [];
 
-      const cacheKey = userScopedCacheKey(user.id, 'todays-attendance');
-      try {
-        const result = await graphqlRequest(GET_TODAYS_ATTENDANCE);
-
-        const records = result.myTodaysAttendance;
-        await cacheUserData(tenantId, cacheKey, records, CACHE_TTL_1H);
-        return records;
-      } catch (error) {
-        // WHY fallback: today's attendance drives the clock-in/out button state.
-        // Showing stale data (e.g., "already clocked in") is better than a broken
-        // button that the operator can't use at all.
-        const cached = await getCachedUserData<AttendanceRecord[]>(tenantId, cacheKey);
-        if (cached) return cached;
-        throw error;
-      }
+      // WHY the offline copy: today's attendance drives the clock-in/out button
+      // state. Stale data (e.g., "already clocked in") beats a broken button the
+      // operator can't use at all — while the server is unreachable.
+      const read = await readThroughOfflineCache(
+        cacheScope,
+        { key: 'todays-attendance', ttlMs: CACHE_TTL_1H },
+        async (): Promise<AttendanceRecord[]> => {
+          const result = await graphqlRequest(GET_TODAYS_ATTENDANCE);
+          return result.myTodaysAttendance;
+        },
+      );
+      return read.data;
     },
     enabled: isAuthenticated && !!tenantId && !!user?.id,
     // WHY 30s staleTime: clock-in/out is the primary real-time action on this

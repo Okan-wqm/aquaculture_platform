@@ -11,8 +11,11 @@ name: Finding State Sweep
 #
 # Why a PR, not a direct push:
 #   Auto-commits to main are a tampering surface. The sweep opens a PR that
-#   CODEOWNERS review before merge — the state transitions are visible and
-#   the hash-chain recomputation is deterministic, so the review is fast.
+#   CODEOWNERS review before merge — each transition is one appended
+#   STATE_TRANSITIONED line in the finding's own event log
+#   (docs/reviews/_registry/findings/<PREFIX>/<ID>.jsonl; findings.jsonl is
+#   frozen since MF-2), so the review is fast and the PR conflicts with no
+#   other registry PR unless both decide the same finding.
 #
 # Why daily (not hourly / weekly):
 #   30-day staleness drifts slowly; daily granularity catches it within
@@ -86,9 +89,12 @@ jobs:
           esac
           echo "stale_after=${STALE_AFTER}" >> "$GITHUB_OUTPUT"
           echo "dry_run=${DRY_RUN}" >> "$GITHUB_OUTPUT"
+          # --event-paths lists the event logs the plan appends to: the
+          # preflight declares exactly them, and the PR stages exactly them.
           npx ts-node --project tools/gates/tsconfig.json \
             tools/gates/finding-registry.ts sweep \
-            --dry-run --stale-after=${STALE_AFTER} | tee /tmp/sweep-plan.txt
+            --dry-run --stale-after=${STALE_AFTER} \
+            --event-paths="${RUNNER_TEMP}/finding-state-sweep-paths.txt" | tee /tmp/sweep-plan.txt
           # Exit early if nothing to do.
           if grep -q "^Sweep clean:" /tmp/sweep-plan.txt; then
             echo "has_changes=false" >> "$GITHUB_OUTPUT"
@@ -108,14 +114,16 @@ jobs:
 
           from aria_kernel.preflight import verify_workflow_preflight
 
-          registry = "docs/reviews/_registry/findings.jsonl"
+          # The event logs the dry run planned to append to, one per line.
+          planned = Path(os.environ["RUNNER_TEMP"], "finding-state-sweep-paths.txt")
+          event_logs = [line for line in planned.read_text(encoding="utf-8").splitlines() if line]
           verdict = verify_workflow_preflight(
               workflow_id="finding-state-sweep",
               job_id="sweep",
               profile="standard",
               workspace_root=os.environ["GITHUB_WORKSPACE"],
-              allowed_write_roots=[registry],
-              path_allowlist=[registry],
+              allowed_write_roots=event_logs,
+              path_allowlist=event_logs,
               network_policy=["github_api"],
               network_enforcement_evidence="GitHub App PR API via automation/open-report-pr.sh",
               token_provenance="github_app:installation",
@@ -137,13 +145,16 @@ jobs:
           set -euo pipefail
           npx ts-node --project tools/gates/tsconfig.json \
             tools/gates/finding-registry.ts sweep \
-            --stale-after=${STALE_AFTER}
+            --stale-after=${STALE_AFTER} \
+            --event-paths="${RUNNER_TEMP}/finding-state-sweep-paths.txt"
 
-      - name: Verify post-sweep chain integrity
+      - name: Verify post-sweep registry integrity
         if: steps.plan.outputs.has_changes == 'true' && steps.plan.outputs.dry_run != 'true'
+        # The sweep only appended: every event log HEAD holds is a byte prefix
+        # of itself, and the frozen segment still matches its pin.
         run: |
           npx ts-node --project tools/gates/tsconfig.json \
-            tools/gates/finding-registry.ts verify
+            tools/gates/finding-registry.ts verify --base=HEAD
 
       - name: Mint GitHub App installation token
         id: app_token
@@ -199,7 +210,8 @@ jobs:
           export PR_TITLE="chore(findings): daily state sweep - OPEN to STALE, past-deadline to BLOCKED"
           export PR_BODY_FILE="$BODY_FILE"
           export COMMIT_MESSAGE="chore(findings): automated state sweep"
-          export CHANGED_PATHS="docs/reviews/_registry/findings.jsonl"
+          CHANGED_PATHS="$(cat "${RUNNER_TEMP}/finding-state-sweep-paths.txt")"
+          export CHANGED_PATHS
           bash tools/scripts/automation/open-report-pr.sh
 
       # ADR-036 — upload the enterprise-preflight audit proof so the sweep

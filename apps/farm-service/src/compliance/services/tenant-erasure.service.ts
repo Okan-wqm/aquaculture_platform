@@ -59,6 +59,7 @@ import {
 import { OutboxPublisher } from '@platform/outbox';
 import {
   createBaseEvent,
+  restoreEventId,
   tenantErasureOutcomeEventType,
   TenantDataErasedEvent,
   TenantDataErasureFailedEvent,
@@ -767,7 +768,7 @@ export class TenantErasureService {
   ): TenantDataErasedEvent {
     const erasedAt = this.isoFromRow(storedProof.erasedAt);
     return {
-      eventId: storedProof.eventId as TenantDataErasedEvent['eventId'],
+      eventId: restoreEventId(storedProof.eventId),
       eventType: tenantErasureOutcomeEventType('farm-service', 'erased'),
       timestamp: erasedAt,
       tenantId: event.tenantId,

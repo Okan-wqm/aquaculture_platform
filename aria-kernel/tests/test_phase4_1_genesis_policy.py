@@ -183,6 +183,12 @@ class GenesisPolicyTests(unittest.TestCase):
                 # scorecard fields must be measured in each of 14 consecutive
                 # cycles), parsed strictly by gates_policy.
                 "gates",
+                # F0.6 (ARIA-MEDIUM-731) — hypothesis_cut: how many
+                # non-matching observations end a night hypothesis, and the
+                # operator-written exempt experiment ids. Parsed strictly (no
+                # default fill) by hypothesis_cut_policy; read by
+                # experiment_night.plan_night_experiments.
+                "hypothesis_cut",
             },
         )
 

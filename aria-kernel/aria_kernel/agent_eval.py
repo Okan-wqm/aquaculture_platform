@@ -47,9 +47,10 @@ import re
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Collection
+from typing import Any, Callable, Collection
 
 from .artifact_safety import assert_real_mode_env_safe
+from .decision_stamp import DECISION_STAMP_FIELD, stamp_churn, stamp_route_key
 from .failure_attribution import (
     Attribution,
     InvocationLedgersSource,
@@ -1057,11 +1058,15 @@ def _attributed_reverts(root: Path) -> dict[str, dict[str, Any]]:
 def _episode(
     role: str, subject: str, plan_id: str, source: dict[str, str], occurred_at: Any,
     outcome: str, failure_mode: str | None, supersedes: str | None = None,
-    attribution: Attribution | None = None,
+    attribution: Attribution | None = None, decision_stamp: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """One episode. ARIA-HIGH-370: a failure is ``attributable`` only when
     ``failure_attribution`` names the work from the failure's own evidence;
-    the attribution's mode replaces the lane token the reason started with."""
+    the attribution's mode replaces the lane token the reason started with.
+    F3.1 — an implementer episode carries the decision stamp (executed route
+    and numstat) of its plan's delivered change when the outcome recorded one;
+    it is not part of the episode's judgement, so a recorded row is never
+    re-judged for it."""
     from .attribution_void import void_for
 
     canonical = json.dumps([role, plan_id, source], sort_keys=True).encode("utf-8")
@@ -1082,6 +1087,7 @@ def _episode(
         "attributable": failure_mode is None or attribution is not None,
         "attribution": attribution.as_row() if attribution is not None else None,
         **({"voided_by": voided_by} if voided_by is not None else {}),
+        **({DECISION_STAMP_FIELD: decision_stamp} if decision_stamp is not None else {}),
         "occurred_at": occurred_at, "evidence": evidence, "supersedes": supersedes,
     }
 
@@ -1094,6 +1100,7 @@ def _performance_episodes(
     precedes it), an attributed self-revert superseding its merge."""
     drafters: dict[str, str] = {}
     implementers: dict[str, str] = {}
+    stamps: dict[str, dict[str, Any]] = {}
     converged_episodes: dict[str, dict[str, Any]] = {}
     rejected_episodes: dict[str, dict[str, Any]] = {}
     episodes: list[dict[str, Any]] = []
@@ -1109,6 +1116,9 @@ def _performance_episodes(
             drafters[plan_id] = str(payload.get("revised_by_agent") or "aria-primary-planner")
         elif kind in ("implementation_requested", "implementation_started"):
             implementers[plan_id] = str(payload["implementer_agent"])
+        elif kind == "implementation_outcome_recorded":
+            if payload.get(DECISION_STAMP_FIELD) is not None:
+                stamps[plan_id] = payload[DECISION_STAMP_FIELD]
         elif kind == "plan_evaluated" and payload["terminal_state"] == "CONVERGED":
             converged = _episode("drafter", drafter, plan_id, source, at, "converged", None)
             converged_episodes[plan_id] = converged
@@ -1136,6 +1146,7 @@ def _performance_episodes(
             rejected = _episode(
                 "implementer", implementers[plan_id], plan_id, source, at, "rejected", rejection,
                 attribution=attribute_implementation_failure(rejection, implementer=implementers[plan_id]),
+                decision_stamp=stamps.get(plan_id),
             )
             rejected_episodes[plan_id] = rejected
             episodes.append(rejected)
@@ -1150,7 +1161,7 @@ def _performance_episodes(
             # so the implementer is not scored both ways for one change.
             prior = rejected_episodes.pop(plan_id, None) if payload.get("merged_after_rejection") else None
             merged = _episode("implementer", implementers[plan_id], plan_id, source, at, "merged", None,
-                              supersedes=prior["episode_id"] if prior else None)
+                              supersedes=prior["episode_id"] if prior else None, decision_stamp=stamps.get(plan_id))
             episodes.append(merged)
             revert = reverts.get(str(payload["merge_sha"]))
             if revert is not None:
@@ -1159,6 +1170,7 @@ def _performance_episodes(
                     {"surface": "enterprise_self_reverts", "id": str(revert["key"])}, revert["recorded_at"],
                     "self_reverted", f"self_revert:{revert['trigger']}", supersedes=merged["episode_id"],
                     attribution=attribute_self_revert(str(revert["trigger"]), implementer=merged["subject"]),
+                    decision_stamp=stamps.get(plan_id),
                 ))
     return episodes
 
@@ -1300,12 +1312,22 @@ def _repeat_failures(episodes: list[dict[str, Any]], role: str) -> dict[str, Any
             "by_failure_mode": dict(sorted(seen.items()))}
 
 
-def _scorecard(episodes: list[dict[str, Any]], role: str) -> dict[str, dict[str, Any]]:
+def _subject_of(row: dict[str, Any]) -> str:
+    return str(row["subject"])
+
+
+def _route_of(row: dict[str, Any]) -> str:
+    return stamp_route_key(row.get(DECISION_STAMP_FIELD))
+
+
+def _scorecard(
+    episodes: list[dict[str, Any]], role: str, group: Callable[[dict[str, Any]], str] = _subject_of,
+) -> dict[str, dict[str, Any]]:
     cards: dict[str, dict[str, Any]] = {}
     for row in episodes:
         if row["role"] != role:
             continue
-        card = cards.setdefault(str(row["subject"]), {"episodes": 0, "attributable": 0, "succeeded": 0, "outcomes": {}})
+        card = cards.setdefault(group(row), {"episodes": 0, "attributable": 0, "succeeded": 0, "outcomes": {}})
         card["episodes"] += 1
         card["outcomes"][row["outcome"]] = card["outcomes"].get(row["outcome"], 0) + 1
         card["attributable"] += 1 if row["attributable"] else 0
@@ -1313,6 +1335,23 @@ def _scorecard(episodes: list[dict[str, Any]], role: str) -> dict[str, dict[str,
     for card in cards.values():
         card["success_rate"] = round(card["succeeded"] / card["attributable"], 6) if card["attributable"] else None
     return cards
+
+
+def _implementer_by_route(episodes: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """The implementer's scorecard per executed route, plus the lines each route changed.
+
+    An episode whose plan recorded no stamp (or a null route) lands under the
+    unstamped key, so the share that cannot be attributed to a route is a
+    number; an episode with no stamp changed no counted lines.
+    """
+    cards = _scorecard(episodes, "implementer", group=_route_of)
+    lines = dict.fromkeys(cards, 0)
+    for row in episodes:
+        stamp = row.get(DECISION_STAMP_FIELD)
+        if row["role"] == "implementer" and stamp is not None:
+            churn = stamp_churn(stamp)
+            lines[_route_of(row)] += churn["added"] + churn["deleted"]
+    return {route: {**card, "lines_changed": lines[route]} for route, card in cards.items()}
 
 
 def performance_kpis(*, base_dir: str | Path | None = None) -> dict[str, Any]:
@@ -1326,6 +1365,7 @@ def performance_kpis(*, base_dir: str | Path | None = None) -> dict[str, Any]:
             "repeat_failure_rate": {role: _repeat_failures(episodes, role) for role in ("drafter", "implementer")},
             "drafter_scorecard": _scorecard(episodes, "drafter"),
             "implementer_scorecard": _scorecard(episodes, "implementer"),
+            "implementer_by_route": _implementer_by_route(episodes),
         },
         "not_computable": dict(NOT_COMPUTABLE_KPIS),
     }

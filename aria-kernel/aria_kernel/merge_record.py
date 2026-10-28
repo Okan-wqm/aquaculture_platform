@@ -228,6 +228,16 @@ PR_STATE_OPEN = "open"
 # reopen writes no `opened` row) is the PR's outcome, and a refused merge ends
 # it; a close or an unreadable head only describes it until then.
 _PR_STATE_PRECEDENCE = ("merged", EVENT_MERGE_UNPROVEN, EVENT_LINEAGE_UNVERIFIED, EVENT_CLOSED_UNMERGED)
+# The states in which a PR no longer holds the change it carried: closed
+# without a merge, or a merge refused for a named fact. Every other state
+# (open, merged, an unreadable merged head being retried) holds it.
+_PR_STATES_THAT_RELEASE_THE_CHANGE = frozenset({EVENT_CLOSED_UNMERGED, EVENT_MERGE_UNPROVEN})
+
+
+def _pr_state(rows: list[dict[str, Any]], number: int) -> str:
+    """Where one PR's lifecycle stands: the highest-precedence event any of its rows carries, else open."""
+    events = {row.get("event") for row in rows if row.get("pr_number") == number}
+    return next((event for event in _PR_STATE_PRECEDENCE if event in events), PR_STATE_OPEN)
 
 
 def pull_requests_for_change(rows: list[dict[str, Any]], *, proposal_id: str,
@@ -255,12 +265,23 @@ def pull_requests_for_change(rows: list[dict[str, Any]], *, proposal_id: str,
             continue
         if type(row.get("pr_number")) is int:
             opened.setdefault(row["pr_number"], None)
-    result = []
-    for number in opened:
-        events = {row.get("event") for row in rows if row.get("pr_number") == number}
-        state = next((event for event in _PR_STATE_PRECEDENCE if event in events), PR_STATE_OPEN)
-        result.append({"pr_number": number, "pr_state": state})
-    return result
+    return [{"pr_number": number, "pr_state": _pr_state(rows, number)} for number in opened]
+
+
+def pr_holds_change(rows: list[dict[str, Any]], *, head_sha: str) -> bool:
+    """Whether a PR still holds the change whose delivered head is ``head_sha``.
+
+    ARIA-MEDIUM-742 — "this change is in flight" is asked of this ledger, not
+    inferred from a plan's state (a plan whose PR a person closed stays
+    ``IMPLEMENTATION_RECORDED``). The PRs are the numbers named by the rows
+    that carry this head; the answer is False only when at least one exists and
+    every one of them is closed unmerged or refused. Open, merged (the plan
+    folds MERGED only when the reconciler next runs), a merged head being
+    retried, and a head no row names at all (a damaged ledger: the one
+    ``gh pr create`` writes ``opened``) hold the change: fail closed.
+    """
+    numbers = {row["pr_number"] for row in rows if row.get("head_sha") == head_sha and type(row.get("pr_number")) is int}
+    return not numbers or any(_pr_state(rows, number) not in _PR_STATES_THAT_RELEASE_THE_CHANGE for number in numbers)
 
 
 def merged_row_instant(row: Mapping[str, Any]) -> str:
@@ -765,6 +786,7 @@ __all__ = [
     "observed_merge",
     "opened_row",
     "pr_change_binding",
+    "pr_holds_change",
     "pull_requests_for_change",
     "record_merge",
     "record_pr_unmergeable",

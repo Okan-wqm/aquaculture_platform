@@ -38,7 +38,7 @@ import {
   type ScheduledJobExecutor,
 } from '@aquaculture/backend-common/scheduling';
 import { DataSource, QueryRunner } from 'typeorm';
-import { listTenantSchemas, runInTenantTransaction } from '@aquaculture/backend-common/database';
+import { findTenantsMatching, runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { withTenantContext } from '@aquaculture/backend-common/context';
 import { OutboxPublisher } from '@platform/outbox';
 import { createBaseEvent } from '@platform/event-contracts';
@@ -469,44 +469,26 @@ export class ReportSchedulerService {
   }
 
   /**
-   * Distinct tenantIds across all tenant schemas. Each tenant_<uuid> schema
-   * holds one tenant's rows; the full uuid is read from `sites` because the
-   * schema name is a truncated 16-hex derivation and cannot be reversed.
+   * The tenants that do regulatory reporting. Each active tenant answers for
+   * itself under its own RLS context (`findTenantsMatching`): `regulatory_settings`
+   * and `sites` sit under FORCE row-level security, so a bare QueryRunner saw zero
+   * rows of both for every tenant and the whole job silently found nobody to
+   * serve (FARM-HIGH-481).
+   *
+   * Anchored on regulatory_settings (the SSoT for "this tenant does regulatory
+   * reporting", populated at setup) OR sites, so a tenant that has configured
+   * reporting but has no sites row yet — or vice-versa after a site was removed —
+   * is still discovered. Keying only on `sites` silently skipped such tenants
+   * (their deadlines/retries never ran).
    */
   private async discoverTenantIds(): Promise<string[]> {
-    const schemas = await listTenantSchemas(this.dataSource);
-    const tenantIds = new Set<string>();
-    for (const schema of schemas) {
-      const runner = this.dataSource.createQueryRunner();
-      await runner.connect();
-      try {
-        await runner.query(`SET search_path TO "${schema}", farm, public`);
-        // A schema is exactly one tenant, so any row's tenantId identifies it.
-        // Anchor discovery on regulatory_settings (the SSoT for "this tenant
-        // does regulatory reporting", populated at setup) UNION sites, so a
-        // tenant that has configured reporting but has no sites row yet — or
-        // vice-versa after a site was removed — is still discovered. Keying only
-        // on `sites` silently skipped such tenants (their deadlines/retries never
-        // ran).
-        const rows: Array<{ tenantId: string }> = await runner.query(
-          `SELECT "tenantId" FROM regulatory_settings WHERE "tenantId" IS NOT NULL
-             UNION
-           SELECT "tenantId" FROM sites WHERE "tenantId" IS NOT NULL
-           LIMIT 1`,
-        );
-        for (const row of rows) {
-          if (row.tenantId) tenantIds.add(row.tenantId);
-        }
-      } catch (error) {
-        this.logger.error(
-          `Tenant discovery failed for schema ${schema}: ${(error as Error).message}`,
-        );
-      } finally {
-        await runner.query('RESET search_path').catch(() => undefined);
-        await runner.release();
-      }
-    }
-    return Array.from(tenantIds);
+    return findTenantsMatching(this.dataSource, 'farm', async (queryRunner) => {
+      const rows: unknown[] = await queryRunner.query(
+        `SELECT 1 WHERE EXISTS (SELECT 1 FROM regulatory_settings)
+                     OR EXISTS (SELECT 1 FROM sites)`,
+      );
+      return rows.length > 0;
+    });
   }
 
   private getAdvisoryLockKey(jobName: string): number {

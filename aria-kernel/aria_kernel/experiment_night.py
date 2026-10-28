@@ -19,6 +19,21 @@ WHAT: two budgeted lanes, both riding mechanisms that already exist (İ1):
     FP signal — and NEVER auto-mints an anti-pattern (operator signature
     is a hard constraint; the report surface is the channel).
 
+    F0.6 (ARIA-MEDIUM-731): an experiment whose own observations hold
+    ``hypothesis_cut.max_nonmatching_observations`` non-matching runs in a
+    row (``nonmatching_streaks``) is a refuted hypothesis, and the night stops
+    running it. Without the cut the same two HIGH experiments ranked first
+    every night, took two of the three problem slots for good and starved
+    every other candidate (94 of 95 observation rows on origin/aria/state).
+    The cut frees the slot; it is derived from the observation ledger and the
+    pre-registered policy each night, so nothing is latched and raising the
+    limit re-arms the experiment. It is the night's selection, not a verdict:
+    the finding keeps its status and certainty, no belief or anti-pattern is
+    written, the regression lane is untouched, and an operator can still run
+    the experiment by hand. Each cut is named once per experiment, finding
+    and limit as an ``experiment_hypothesis_cut`` governance row; every night
+    the standing cut is disclosed in the payload (``cut_problem``).
+
   * REGRESSION lane — every fix-verified binding IS the regression
     fixture (E21-c): re-run the verification experiment; a matched run
     means the fix still holds; an unmatched RED run means the defect is
@@ -38,7 +53,12 @@ import subprocess
 from pathlib import Path
 from typing import Any, Callable
 
-from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir
+from .tool_registry import (
+    GovernanceError,
+    append_tools_governance,
+    append_tools_governance_once,
+    ensure_tools_dir,
+)
 
 # Budgets — small on purpose: the bench proves the wiring nightly without
 # turning the cycle into a CI farm. Raising them is a data decision the
@@ -52,6 +72,10 @@ MAX_REGRESSION_RERUNS_PER_NIGHT = 3
 _PROBLEM_CHANGE_TIER = 3
 
 _SEVERITY_ORDER = {"HIGH": 0, "MEDIUM": 1, "LOW": 2, "INFORMATIONAL": 3}
+
+# The governance row that names a cut hypothesis (F0.6). One row per
+# (experiment, finding, limit): a changed limit is a changed claim.
+HYPOTHESIS_CUT_KIND = "experiment_hypothesis_cut"
 
 
 def _expects_red(contract: dict[str, Any]) -> bool:
@@ -88,6 +112,36 @@ def _head_sha(repo_root: Path) -> str:
     return completed.stdout.strip()
 
 
+def nonmatching_streaks(observations: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """The one computer of how long each experiment's refutation run is (F0.6).
+
+    Walks the observations in ledger order. For every experiment, a
+    ``matched is True`` row ends the streak; a ``matched is False`` row adds one
+    unless its ``run_status`` is ``timeout`` (a run that never reached a verdict
+    is neither evidence for the hypothesis nor against it, and does not end the
+    streak); a row whose ``matched`` is not a bool is no observation and is
+    ignored. Observations are counted, not distinct commits.
+
+    Returns ``{experiment_id: {"count", "first_run", "last_run"}}`` for the
+    experiments with a standing streak; first and last are the validation run
+    ids of the first and last observation counted in it.
+    """
+    streaks: dict[str, dict[str, Any]] = {}
+    for row in observations:
+        matched = row.get("matched")
+        if not isinstance(matched, bool):
+            continue
+        experiment_id = str(row.get("experiment_id"))
+        if matched:
+            streaks.pop(experiment_id, None)
+        elif row.get("run_status") != "timeout":
+            run_id = row.get("validation_run_id")
+            streak = streaks.setdefault(experiment_id, {"count": 0, "first_run": run_id, "last_run": run_id})
+            streak["count"] += 1
+            streak["last_run"] = run_id
+    return streaks
+
+
 def plan_night_experiments(
     repo_root: str | Path,
     *,
@@ -98,11 +152,21 @@ def plan_night_experiments(
     Separated from execution so the selection policy is testable without
     running a single command, and so the payload can always say what was
     skipped (no silent caps).
+
+    A would-be problem candidate whose streak reaches the pre-registered limit
+    goes to ``cut`` instead of ``problem``, before the severity sort and the
+    budget slice so it frees its slot. A refused ``hypothesis_cut`` block
+    raises here, before any run: it never reads as "no cut".
     """
-    from .experiment import list_experiments
+    from .experiment import list_experiment_observations, list_experiments
     from .finding import _replay_findings, list_fix_verified_bindings
+    from .genesis_policy import hypothesis_cut_policy
 
     repo_path = Path(repo_root).resolve()
+    cut_policy = hypothesis_cut_policy(repo_path)
+    limit = cut_policy["max_nonmatching_observations"]
+    exempt = frozenset(cut_policy["exempt_experiments"])
+    streaks = nonmatching_streaks(list_experiment_observations(base_dir=base_dir))
     docs = _replay_findings(repo_path)
 
     latest_experiments: dict[str, dict[str, Any]] = {}
@@ -110,6 +174,7 @@ def plan_night_experiments(
         latest_experiments[str(row.get("experiment_id"))] = row
 
     problem_candidates: list[dict[str, Any]] = []
+    cut: list[dict[str, Any]] = []
     unresolvable_bindings: list[dict[str, Any]] = []
     for experiment in latest_experiments.values():
         finding_ref = experiment.get("finding_ref")
@@ -130,6 +195,19 @@ def plan_night_experiments(
         if doc.get("status") not in ("OPEN", "IN_PROGRESS"):
             continue
         if isinstance(doc.get("reproduction"), dict):
+            continue
+        experiment_id = str(experiment.get("experiment_id"))
+        streak = streaks.get(experiment_id)
+        if streak is not None and streak["count"] >= limit and experiment_id not in exempt:
+            cut.append({
+                "experiment_id": experiment_id,
+                "finding_id": finding_ref,
+                "recipe_ref": experiment.get("recipe_ref"),
+                "nonmatching_observations": streak["count"],
+                "max_nonmatching_observations": limit,
+                "first_validation_run_id": streak["first_run"],
+                "last_validation_run_id": streak["last_run"],
+            })
             continue
         problem_candidates.append({
             "experiment_id": experiment.get("experiment_id"),
@@ -153,6 +231,10 @@ def plan_night_experiments(
     return {
         "schema_version": 1,
         "problem": problem_candidates[:MAX_PROBLEM_RUNS_PER_NIGHT],
+        "cut": sorted(cut, key=lambda c: c["experiment_id"]),
+        # An exempt id no registered experiment carries is a typo or a stale
+        # name: disclosed, never ignored (as the unresolvable bindings are).
+        "unknown_exemptions": sorted(exempt - latest_experiments.keys()),
         "regression": regression_candidates[:MAX_REGRESSION_RERUNS_PER_NIGHT],
         "skipped_problem": max(0, len(problem_candidates) - MAX_PROBLEM_RUNS_PER_NIGHT),
         "skipped_regression": max(0, len(regression_candidates) - MAX_REGRESSION_RERUNS_PER_NIGHT),
@@ -202,6 +284,15 @@ def run_night_experiments(
     regressions: list[dict[str, Any]] = []
     still_fixed: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
+
+    for item in plan["cut"]:
+        try:
+            append_tools_governance_once(
+                tools_root, HYPOTHESIS_CUT_KIND, {**item, "cycle_id": cycle_id},
+                claim_keys=("experiment_id", "finding_id", "max_nonmatching_observations"),
+            )
+        except GovernanceError as exc:
+            errors.append({"lane": "cut", "finding_id": str(item["finding_id"]), "error": str(exc)})
 
     for item in plan["problem"]:
         finding_id = str(item["finding_id"])
@@ -308,6 +399,8 @@ def run_night_experiments(
         "planned_regression": len(plan["regression"]),
         "skipped_problem": plan["skipped_problem"],
         "skipped_regression": plan["skipped_regression"],
+        "cut_problem": plan["cut"],
+        "unknown_exemptions": plan["unknown_exemptions"],
         "reproduced": reproduced,
         "refuted": refuted,
         "regressions": regressions,

@@ -167,6 +167,6 @@ describe('K-5: legacy feeding engine cutover gate', () => {
     expect(body.length).toBeGreaterThan(400);
     expect(body).toContain('legacyFeedingEngineEnabled()');
     // Log metinlerindeki süslü parantezler gövdeyi erken kapatmamalı.
-    expect(body).toContain('listTenantSchemas');
+    expect(body).toContain('forEachVerifiedTenantSchema');
   });
 });

@@ -13,7 +13,7 @@ import {
 } from '@aquaculture/backend-common/scheduling';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
-import { listTenantSchemas } from '@aquaculture/backend-common/database';
+import { forEachVerifiedTenantSchema } from '@aquaculture/backend-common/database';
 import { DateTime } from 'luxon';
 import { createBaseEvent } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
@@ -168,27 +168,19 @@ export class RecurringTaskService {
   }
 
   async generateDueTasks(): Promise<Task[]> {
-    this.logger.log('Running recurring task generation across all tenant schemas...');
+    this.logger.log('Running recurring task generation across all active tenants...');
     const now = new Date();
     const generatedTasks: Task[] = [];
 
-    const tenantSchemas = await listTenantSchemas(this.dataSource);
-    if (tenantSchemas.length === 0) {
-      this.logger.debug('No tenant schemas found, skipping recurring task generation');
-      return generatedTasks;
-    }
-
-    this.logger.log(`Processing recurring task generation for ${tenantSchemas.length} tenant schemas`);
-
-    for (const schema of tenantSchemas) {
-      const queryRunner = this.dataSource.createQueryRunner();
-      await queryRunner.connect();
-
-      try {
-        await queryRunner.query(`SET search_path TO "${schema}", farm, public`);
-
-        await queryRunner.startTransaction();
-
+    // FARM-HIGH-481: the pass used to list `tenant_*` schemas and open a bare
+    // QueryRunner with only a `search_path`; `recurring_templates` and `tasks`
+    // are under FORCE row-level security, so no template was ever due and no
+    // task was ever generated. The fan-out owns the runner, the transaction
+    // (SELECT FOR UPDATE, the task inserts, the outbox enqueue and the template
+    // bump commit together) and the tenant binding.
+    const results = await forEachVerifiedTenantSchema(
+      this.dataSource,
+      async ({ schemaName: schema, queryRunner }) => {
         const dueTemplates: RecurringTemplate[] = await queryRunner.query(
           `SELECT * FROM recurring_templates
            WHERE "isActive" = true
@@ -198,10 +190,7 @@ export class RecurringTaskService {
           [now],
         );
 
-        if (dueTemplates.length === 0) {
-          await queryRunner.commitTransaction();
-          continue;
-        }
+        if (dueTemplates.length === 0) return;
 
         for (const template of dueTemplates) {
           try {
@@ -278,17 +267,14 @@ export class RecurringTaskService {
             );
           }
         }
+      },
+      { logger: this.logger },
+    );
 
-        await queryRunner.commitTransaction();
-      } catch (err) {
-        this.logger.error(
-          `Recurring task generation failed for schema ${schema}: ${(err as Error).message}`,
-        );
-        await queryRunner.rollbackTransaction().catch(() => {});
-      } finally {
-        await queryRunner.query('RESET search_path').catch(() => {});
-        await queryRunner.release();
-      }
+    for (const failed of results.filter((result) => result.outcome !== 'ok')) {
+      this.logger.error(
+        `Recurring task generation ${failed.outcome} for schema ${failed.schemaName}: ${failed.error?.message}`,
+      );
     }
 
     return generatedTasks;

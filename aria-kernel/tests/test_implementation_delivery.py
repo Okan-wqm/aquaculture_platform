@@ -21,6 +21,7 @@ the real executor child is ``tests/test_executor_implementation_identity.py``):
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import subprocess
@@ -42,7 +43,7 @@ from aria_kernel.implementation_delivery import (
     stamp_implementation_delivery,
 )
 from aria_kernel.ledger import load_declared_jsonl
-from aria_kernel.tool_registry import ensure_tools_dir
+from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
 from tests._helpers.ambient_git_config import AMBIENT_GIT_CONFIG
 from tests._helpers.git_fixtures import _git, implementer_identity_args, make_repo_with_initial_commit
 from tests._helpers.installation_credential import LANE_CREDENTIAL_ENV
@@ -90,6 +91,7 @@ def _delivery(**overrides: object) -> ImplementationDelivery:
         branch=BRANCH, branch_tip_sha="a" * 40, base_branch_sha="0" * 40, diff_hash="sha256:" + "b" * 64,
         pr_url="https://github.com/fixture/r/pull/7", pr_number=7, validation_gate_ref="sha256:" + "c" * 64,
         validation_results=({"command": "npx nx affected --target=test", "exit_code": 0},),
+        decision_stamp=DECISION_STAMP,
     )
     fields.update(overrides)
     return ImplementationDelivery(**fields)
@@ -97,6 +99,23 @@ def _delivery(**overrides: object) -> ImplementationDelivery:
 
 def _published(branch: str = BRANCH, *, adopted: str | None = BRANCH, refusal: str | None = None) -> QuarantinePublication:
     return QuarantinePublication(3, 0, (), (branch,) if branch else (), (), refusal=refusal, head_adopted=adopted)
+
+
+# F3.1 / ARIA-LOW-741 — the decision stamp the delivery carries: the route that executed the change and its size.
+DECISION_STAMP = {
+    "schema_version": 1,
+    "route": {"provider": "zai", "model": "glm-5.3"},
+    "numstat": [{"path": "src/app.ts", "added": 1, "deleted": 1}],
+}
+
+
+def _stamped_delivery(stamp: object = DECISION_STAMP, **overrides: object) -> ImplementationDelivery:
+    """``_delivery`` carrying ``stamp``; at base the field does not exist, which is an assertion, not a ``TypeError``."""
+    import dataclasses
+
+    if "decision_stamp" not in {item.name for item in dataclasses.fields(ImplementationDelivery)}:
+        raise AssertionError("F3.1: ImplementationDelivery has no decision_stamp field (the stamp has no carrier)")
+    return _delivery(decision_stamp=stamp, **overrides)
 
 
 class StampTests(unittest.TestCase):
@@ -151,6 +170,80 @@ class StampTests(unittest.TestCase):
         })
         self.assertEqual(details["kernel"], {"pr_url": "https://github.com/fixture/r/pull/7", "branch_tip_sha": "a" * 40, "pr_number": 7})
         self.assertNotIn("branch", details["agent_supplied"], "an equal value is not an override")
+
+
+class DecisionStampIsStampedByTheKernelTests(unittest.TestCase):
+    """F3.1 / ARIA-LOW-741 — the executor stamps the decision stamp beside the delivery's facts, never the agent.
+
+    The stamp (executed route + change numstat) rides the SAME replace-and-record rule as the eight kernel-stamped
+    delivery fields, on the SAME record ``implementation_record`` reads, but outside ``KERNEL_STAMPED_DELIVERY_FIELDS``
+    on purpose: ``.claude/agents/aria-implementer.md`` is at its line cap and the agent-contract coupling
+    (``test_i_v9_impl_01_implementer_output_envelope_shape``) requires every member of that tuple to be quoted
+    there, so the new field must not join it. An agent that writes its own ``decision_stamp`` (a route it was not
+    run on, a size it did not make) is replaced and DISCLOSED, like any forged delivery field.
+
+    BASE: ``ImplementationDelivery`` has no ``decision_stamp`` field, so each test fails by assertion (``_stamped_delivery``).
+    """
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory(prefix="aria-f31-stamp-")
+        self.addCleanup(self.tmp.cleanup)
+        self.tools = ensure_tools_dir(Path(self.tmp.name) / "aria-tools")
+
+    def _overridden(self) -> list[dict]:
+        rows = load_declared_jsonl(self.tools / "governance.jsonl", expected_surface="tools_governance")
+        return [row for row in rows if row.get("kind") == delivery.IMPLEMENTATION_DELIVERY_OVERRIDDEN_EVENT]
+
+    def test_the_stamp_lands_on_the_nested_record_the_bridge_reads(self) -> None:
+        envelope = {"details": {"implementation": {}}}
+        changed = stamp_implementation_delivery(envelope, delivery=_stamped_delivery(), request_id="AIR-1", claim_id="c-1",
+                                                base_dir=self.tools)
+        self.assertTrue(changed)
+        self.assertEqual(envelope["details"]["implementation"]["decision_stamp"], DECISION_STAMP)
+        self.assertEqual(self._overridden(), [], "an agent that wrote nothing was not overridden")
+
+    def test_a_flat_legacy_record_is_stamped_flat(self) -> None:
+        envelope: dict = {}
+        stamp_implementation_delivery(envelope, delivery=_stamped_delivery(), request_id="AIR-1", claim_id="c-1", base_dir=self.tools)
+        self.assertEqual(envelope["details"]["decision_stamp"], DECISION_STAMP)
+        self.assertNotIn("implementation", envelope["details"])
+
+    def test_an_agent_written_stamp_is_replaced_and_disclosed_by_type_and_size_never_by_body(self) -> None:
+        forged = {"schema_version": 1, "route": {"provider": "anthropic", "model": "claude-opus-5"},
+                  "numstat": [{"path": "docs/readme.md", "added": 0, "deleted": 0}]}
+        envelope = {"details": {"implementation": {"decision_stamp": forged}}}
+        changed = stamp_implementation_delivery(envelope, delivery=_stamped_delivery(), request_id="AIR-1", claim_id="c-1",
+                                                base_dir=self.tools)
+        self.assertTrue(changed)
+        self.assertEqual(envelope["details"]["implementation"]["decision_stamp"], DECISION_STAMP, "the agent's route survived")
+        [row] = self._overridden()
+        details = row["details"]
+        self.assertEqual((details["request_id"], details["claim_id"]), ("AIR-1", "c-1"))
+        self.assertEqual(details["agent_supplied"], {"decision_stamp": "<dict of 3>"})
+        self.assertEqual(details["kernel"], {"decision_stamp": DECISION_STAMP})
+
+    def test_a_second_identical_stamp_changes_nothing_and_records_nothing(self) -> None:
+        envelope = {"details": {"implementation": {"decision_stamp": {"schema_version": 9, "route": None, "numstat": []}}}}
+        stamp_implementation_delivery(envelope, delivery=_stamped_delivery(), request_id="AIR-1", claim_id="c-1", base_dir=self.tools)
+        after_first = self._overridden()
+        self.assertEqual(len(after_first), 1)
+        self.assertFalse(stamp_implementation_delivery(envelope, delivery=_stamped_delivery(), request_id="AIR-1", claim_id="c-1",
+                                                       base_dir=self.tools))
+        self.assertEqual(self._overridden(), after_first)
+
+    def test_the_stamp_stays_outside_the_eight_kernel_stamped_fields_the_agent_contract_quotes(self) -> None:
+        import importlib
+        import importlib.util
+
+        if importlib.util.find_spec("aria_kernel.decision_stamp") is None:
+            raise AssertionError("F3.1: aria_kernel.decision_stamp does not exist")
+        DECISION_STAMP_FIELD = importlib.import_module("aria_kernel.decision_stamp").DECISION_STAMP_FIELD
+        self.assertEqual(DECISION_STAMP_FIELD, "decision_stamp")
+        self.assertEqual(KERNEL_STAMPED_DELIVERY_FIELDS, (
+            "branch", "branch_tip_sha", "base_branch_sha", "diff_hash", "pr_url", "pr_number",
+            "validation_gate_ref", "validation_results",
+        ))
+        self.assertNotIn(DECISION_STAMP_FIELD, _stamped_delivery().record_fields())
 
 
 class RefusalTests(unittest.TestCase):
@@ -900,6 +993,18 @@ class ResultAdmissibilityTests(_DeliveredBranch):
         self.assertIn("red_first_declared", captured[0], "the delivery did not pass the declaration to the gate at all")
         self.assertIsNone(captured[0]["red_first_declared"])
 
+    def test_an_envelope_stamped_with_the_decision_stamp_is_still_admissible(self) -> None:
+        # F3.1 / ARIA-LOW-741 — the executor stamps the decision stamp onto the outcome record AFTER the
+        # delivery and the submit then judges that stamped envelope: the new field must not make an
+        # admissible envelope inadmissible (the record's shape is the agent contract's, and the stamp is not
+        # in it). Base fails by assertion: the delivery has nothing to stamp.
+        from aria_kernel.agent_invocations import find_request, judge_claim_submission
+
+        envelope = self._envelope(evidence_ref="src/app.ts:1")
+        stamp_implementation_delivery(envelope, delivery=_stamped_delivery(), request_id=self.request["request_id"],
+                                      claim_id=self.claim["claim_id"], base_dir=self.tools)
+        self.assertEqual(envelope["details"]["implementation"]["decision_stamp"], DECISION_STAMP)
+
     def test_a_decision_the_kernel_could_not_reach_is_the_hosts(self) -> None:
         # Every code a verification-unavailable one: the submit would journal
         # no row and the executor would release harness-class; the delivery
@@ -1082,6 +1187,171 @@ class ARefusedChangeValidatedStopsThePrTests(_DeliveredBranch):
         self.assertLess(stages.index(delivery.CHANGE_VALIDATED_STAGE), stages.index("credential"))
         self.assertLess(stages.index(delivery.CHANGE_VALIDATED_STAGE), stages.index("push"))
         self.assertLess(stages.index(delivery.CHANGE_VALIDATED_STAGE), stages.index("pr_open"))
+
+
+class TheScopeVerdictAndTheStampShareOneReadOfTheChangeTests(_DeliveredBranch):
+    """F3.1 / ARIA-LOW-741 — the delivery reads a change's path set and its line counts in ONE git call.
+
+    ``DELIVERY_GIT_CALLS`` is 4 (rev-parse, the scope verdict's diff, the patch for ``diff_hash``, the push) and
+    is priced into ``IMPLEMENTATION_DELIVERY_WORST_CASE_SECONDS`` (pinned beyond this module and in a workflow
+    this package may not edit), so the numstat cannot be a fifth subprocess: the scope verdict's read becomes
+    ``change_paths.name_status_args(base, tip, churn=True)`` and ONE parse feeds both the verdict and the stamp.
+    What the verdict decides from must not change: the same path set as the plain reader (a rename is its
+    source AND its target, ARIA-CRITICAL-214), the same refusal family when the diff cannot be read.
+
+    No sandbox is needed: the host-bound collaborators (the admission's sandbox) are stood in for, as in
+    ``ARefusedChangeValidatedStopsThePrTests``; the real stages are the commit identity and the change ledger.
+    The tests assert the read they stand on was the combined one (RED at base, where it is the plain one).
+    """
+
+    def _stage_change(self, base_files: dict[str, str], edit) -> tuple[str, str]:
+        """Rebuild BRANCH: ``base_files`` (the delivery's base), then ``edit(repo)`` committed under the kernel's key."""
+        _git(["reset", "-q", "--hard", self.base], cwd=self.repo)
+        for rel, content in base_files.items():
+            (self.repo / rel).parent.mkdir(parents=True, exist_ok=True)
+            (self.repo / rel).write_text(content, encoding="utf-8")
+        _git(["add", "-A"], cwd=self.repo)
+        _git([*implementer_identity_args(), "commit", "-q", "-m", "seed the delivery's base"], cwd=self.repo)
+        base = _git(["rev-parse", "HEAD"], cwd=self.repo).stdout.strip()
+        edit(self.repo)
+        signing = ["-c", "gpg.format=ssh", "-c", f"user.signingkey={self.kernel_key}", "-c", "commit.gpgsign=true"]
+        _git([*implementer_identity_args(), *signing, "commit", "-q", "-m", "feat: the change"], cwd=self.repo)
+        tip = _git(["rev-parse", "HEAD"], cwd=self.repo).stdout.strip()
+        self.ids = {**IDS, "base_sha": base}
+        return base, tip
+
+    def _run(self, *, scope_verdict=None):
+        """Run the delivery to its scope verdict; (the refusal, every git argv the delivery ran)."""
+        calls: list[list[str]] = []
+        real_git = delivery._git
+
+        def spy(args, **kwargs):  # noqa: ANN001 - the module's own shape
+            calls.append(list(args))
+            return real_git(args, **kwargs)
+
+        patches = [mock.patch.object(delivery, "delivery_admission_refusal", return_value=None),
+                   mock.patch.object(delivery, "validation_sandbox_for", return_value=object()),
+                   mock.patch.object(delivery, "_git", side_effect=spy)]
+        if scope_verdict is not None:
+            patches.append(mock.patch("aria_kernel.change_ledger.verify_change_scope", side_effect=scope_verdict))
+        with contextlib.ExitStack() as stack:
+            for patch in patches:
+                stack.enter_context(patch)
+            refused = self._deliver()
+        return refused, calls
+
+    @staticmethod
+    def _the_diff_calls(calls: list[list[str]]) -> list[list[str]]:
+        return [call for call in calls if call[0] == "diff"]
+
+    def test_the_scope_verdict_decides_from_the_same_nine_paths_the_plain_reader_names(self) -> None:
+        from aria_kernel.change_paths import name_status_args, parse_name_status_z
+        from tests.test_change_churn_reader import CHURN, CHURN_BASE_FILES, apply_churn_edits
+
+        base, tip = self._stage_change(CHURN_BASE_FILES, apply_churn_edits)
+        seen: dict = {}
+
+        def capture(**kwargs):  # noqa: ANN003 - verify_change_scope's keyword shape
+            seen.update(kwargs)
+            raise GovernanceError("captured: the scope verdict was asked")
+
+        refused, calls = self._run(scope_verdict=capture)
+        self.assertEqual((refused.stage, refused.reason), ("change_ledger", "change_committed_refused:captured: the scope verdict was asked"))
+        # The oracle: the plain reader, run here, and the literal nine paths (the rename as both of its names).
+        plain = _git(name_status_args(base, tip), cwd=self.repo).stdout
+        self.assertEqual(seen["actual_affected_files"], sorted({path for _status, path in parse_name_status_z(plain)}))
+        self.assertEqual(seen["actual_affected_files"], sorted(path for path, *_rest in CHURN))
+        self.assertEqual(len(seen["actual_affected_files"]), 9)
+        # ... decided from the ONE combined read: --raw and --numstat in the scope verdict's own git call.
+        first_diff = self._the_diff_calls(calls)[0]
+        self.assertIn("--raw", first_diff)
+        self.assertIn("--numstat", first_diff)
+        self.assertNotIn("--name-status", first_diff)
+
+    def test_the_nine_path_change_reaches_the_stamp_as_nine_measured_paths_with_the_route_of_its_envelope(self) -> None:
+        # The stamp's two inputs, as the delivery hands them to the ONE constructor, for the three routes a delivery
+        # can have: the executor's spawn stamp, a native runtime attempt the governance ledger holds, and none.
+        import importlib
+        import importlib.util
+
+        from aria_kernel.tool_registry import append_tools_governance
+        from tests.test_change_churn_reader import CHURN_BASE_FILES, CHURN_COUNTS, apply_churn_edits
+
+        if importlib.util.find_spec("aria_kernel.decision_stamp") is None:
+            raise AssertionError("F3.1: aria_kernel.decision_stamp does not exist")
+        owner = importlib.import_module("aria_kernel.decision_stamp")
+        self._stage_change(CHURN_BASE_FILES, apply_churn_edits)
+        attempt = append_tools_governance(self.tools, "runtime_attempt_started", {
+            "request_id": "AIR-1", "claim_id": "claim-1", "provider": "openai", "model": "gpt-6-astra"})
+        envelopes = {
+            "the spawn route": ({"request_id": "AIR-1", "claim_id": "claim-1",
+                                 "details": {"agent_dispatch_model": "glm-5.3"}}, ("zai", "glm-5.3")),
+            "a native runtime attempt": ({"request_id": "AIR-1", "claim_id": "claim-1",
+                                          "details": {"runtime_attempt_ledger_hash": attempt["ledger_hash"]}},
+                                         ("openai", "gpt-6-astra")),
+            "no route at all": ({"request_id": "AIR-1", "claim_id": "claim-1", "details": {}}, None),
+        }
+
+        class _Stopped(Exception):
+            pass
+
+        for name, (envelope, route) in envelopes.items():
+            with self.subTest(route=name):
+                seen: dict = {}
+
+                def constructor(route, churn):  # noqa: ANN001 - the owner's own parameter names
+                    seen.update(route=route, churn=churn)
+                    raise _Stopped()
+
+                with contextlib.ExitStack() as stack:
+                    stack.enter_context(mock.patch.object(delivery, "delivery_admission_refusal", return_value=None))
+                    stack.enter_context(mock.patch.object(delivery, "validation_sandbox_for", return_value=object()))
+                    stack.enter_context(mock.patch("aria_kernel.change_ledger.verify_change_scope", return_value=({}, [], {})))
+                    stack.enter_context(mock.patch.object(owner, "build_decision_stamp", constructor))
+                    if hasattr(delivery, "build_decision_stamp"):
+                        stack.enter_context(mock.patch.object(delivery, "build_decision_stamp", constructor))
+                    with self.assertRaises(_Stopped):
+                        deliver_implementation(
+                            request_id="AIR-1", claim_id="claim-1", agent_id="aria-implementer", cycle_id=CYCLE_ID,
+                            signer_key_fp=self.kernel_fingerprint, implementation_ids=self.ids, envelope=envelope,
+                            output_path=self.root / "envelope.json", workspace_root=self.repo, base_dir=self.tools,
+                            publication=_published(), profile=None,
+                        )
+                self.assertEqual(seen["route"], route)
+                self.assertEqual(sorted(seen["churn"].entries), sorted(CHURN_COUNTS))
+
+    def test_an_unplanned_file_renamed_into_a_planned_path_is_still_refused_for_its_source(self) -> None:
+        # ARIA-CRITICAL-214 in the delivery: the diff of `git mv src/secret.ts src/planned.ts` is a deletion AND an
+        # addition; the plan intends only the target, so the SOURCE is the drift. The combined read must keep both.
+        from aria_kernel.change_ledger import emit_change_planned
+
+        def rename(repo: Path) -> None:
+            _git(["mv", "src/secret.ts", "src/planned.ts"], cwd=repo)
+
+        self._stage_change({"src/secret.ts": "export const secret = 1;\n"}, rename)
+        planned = emit_change_planned(
+            plan_id="plan-rename", finding_id="F-rename", intended_affected_files=["src/planned.ts"],
+            intended_validation_refs=[], architectural_tier=1, base_dir=self.tools,
+        )
+        self.ids = {**self.ids, "change_id": planned["change_id"]}
+        refused, calls = self._run()
+        self.assertEqual(refused.stage, "change_ledger")
+        self.assertTrue(refused.reason.startswith("change_committed_refused:scope_drift_requires_human"), refused.reason)
+        self.assertIn("drift=['src/secret.ts']", refused.reason)
+        self.assertIn("--numstat", self._the_diff_calls(calls)[0], "the verdict was not decided from the combined read")
+        self.assertFalse((self.tools / "change-ledger" / "committed.jsonl").exists())
+        self.assertFalse((self.tools / "recovery").exists())
+        self.assertFalse((self.tools / "pr-lifecycle.jsonl").exists())
+
+    def test_a_base_the_repository_does_not_hold_is_refused_by_name_from_the_combined_read(self) -> None:
+        self.ids = {**self.ids, "base_sha": "1" * 40}
+        refused, calls = self._run()
+        self.assertEqual(refused.stage, "change_ledger")
+        self.assertTrue(refused.reason.startswith("diff_unresolvable:"), refused.reason)
+        # The failure is the combined read's: the family and the stage are the plain read's, the argv is the new one.
+        self.assertEqual([call[0] for call in calls], ["rev-parse", "diff"], "nothing ran after the unreadable diff")
+        self.assertIn("--numstat", calls[1])
+        self._assert_nothing_external_happened()
 
 
 class ValidationTimeoutStopsTheWholeTreeTests(unittest.TestCase):
@@ -1775,6 +2045,80 @@ class CredentialIsMintedWhereItIsConsumedTests(unittest.TestCase):
         self.assertEqual(self._log(self.push_log)[0]["credential_names"], ["GH_TOKEN"])
         self.assertEqual(self._log(self.gh_log)[0]["credential_names"], ["GH_TOKEN"])
         self.assertEqual(self._governance("delivery_credential_issued"), [])
+
+    # -- F3.1 / ARIA-LOW-741: the decision stamp of a delivered change ------------------------------------------------
+    # The whole chain runs here against a real checkout, a real remote and the fixture suite; the stamp is read off the
+    # ``ImplementationDelivery`` it returns. Base: the dataclass has no ``decision_stamp`` (an assertion, not an error).
+
+    def _deliver_stamped(self, *, dispatch_model: str | None):
+        """Deliver, with the executor's route stamp on the envelope (or none), and return what the delivery says."""
+        from aria_kernel.gh_token_factory import PROVIDER_INSTALLATION_TOKEN_LIFETIME_SECONDS
+
+        if dispatch_model is not None:
+            # The executor force-stamps the model it resolved into the envelope it passes to the delivery.
+            self.envelope["details"]["agent_dispatch_model"] = dispatch_model
+            self.output.write_text(json.dumps(self.envelope), encoding="utf-8")
+        return self._deliver(horizon_seconds=PROVIDER_INSTALLATION_TOKEN_LIFETIME_SECONDS)
+
+    def _assert_carries_a_stamp(self, delivered) -> None:
+        self.assertTrue(hasattr(delivered, "decision_stamp"), "F3.1: ImplementationDelivery carries no decision_stamp")
+
+    def _numstat_by_git(self) -> list[dict]:
+        """The independent oracle: ``git diff --numstat`` over the delivered base and tip, run here."""
+        rows = []
+        for line in _git(["diff", "--numstat", self.ids["base_sha"], self.tip], cwd=self.repo).stdout.splitlines():
+            added, deleted, path = line.split("\t", 2)
+            rows.append({"path": path, "added": None if added == "-" else int(added),
+                         "deleted": None if deleted == "-" else int(deleted)})
+        return sorted(rows, key=lambda row: row["path"])
+
+    def test_a_delivered_change_carries_the_route_that_executed_it_and_its_size(self) -> None:
+        delivered = self._deliver_stamped(dispatch_model="glm-5.3")
+        self._assert_carries_a_stamp(delivered)
+        self.assertEqual(delivered.decision_stamp, {
+            "schema_version": 1,
+            "route": {"provider": "zai", "model": "glm-5.3"},
+            "numstat": [{"path": "apps/farm-service/src/sample-interval.ts", "added": 1, "deleted": 1}],
+        })
+        self.assertEqual(delivered.decision_stamp["numstat"], self._numstat_by_git())
+        self.assertEqual(delivered.branch_tip_sha, self.tip)
+
+    def test_a_delivery_whose_route_cannot_be_proven_records_null_and_is_not_refused(self) -> None:
+        delivered = self._deliver_stamped(dispatch_model=None)
+        self._assert_carries_a_stamp(delivered)
+        self.assertEqual(delivered.decision_stamp, {
+            "schema_version": 1, "route": None,
+            "numstat": [{"path": "apps/farm-service/src/sample-interval.ts", "added": 1, "deleted": 1}],
+        })
+        self.assertEqual(delivered.decision_stamp["numstat"], self._numstat_by_git())
+        self.assertEqual(len(self._log(self.push_log)), 1, "the delivery went through: a missing route is a null, not a refusal")
+
+    def test_the_stamp_costs_no_fifth_git_subprocess_and_leaves_the_patch_bytes_alone(self) -> None:
+        # DELIVERY_GIT_CALLS is priced into IMPLEMENTATION_DELIVERY_WORST_CASE_SECONDS (13410), asserted beyond this
+        # module and written in the executor workflow this package may not edit: the numstat rides the scope
+        # verdict's own diff call.
+        from aria_kernel.digest import sha256_digest_text
+
+        calls: list[list[str]] = []
+        real_git = delivery._git
+
+        def spy(args, **kwargs):  # noqa: ANN001 - the module's own shape
+            calls.append(list(args))
+            return real_git(args, **kwargs)
+
+        with mock.patch.object(delivery, "_git", side_effect=spy):
+            delivered = self._deliver_stamped(dispatch_model="glm-5.3")
+        base_sha = self.ids["base_sha"]
+        self.assertEqual([call[0] for call in calls], ["rev-parse", "diff", "diff", "push"], calls)
+        self.assertIn("--raw", calls[1])
+        self.assertIn("--numstat", calls[1])
+        self.assertEqual(calls[2], ["diff", base_sha, self.tip], "the patch call, whose bytes diff_hash seals, is unchanged")
+        self.assertEqual(delivery.DELIVERY_GIT_CALLS, 4)
+        self.assertEqual(delivery.IMPLEMENTATION_DELIVERY_WORST_CASE_SECONDS, 13410)
+        patch_text = subprocess.run(["git", "diff", base_sha, self.tip], cwd=self.repo, capture_output=True, text=True,
+                                    check=True).stdout
+        self.assertEqual(delivered.diff_hash, sha256_digest_text(patch_text))
+        self._assert_carries_a_stamp(delivered)
 
 
 if __name__ == "__main__":

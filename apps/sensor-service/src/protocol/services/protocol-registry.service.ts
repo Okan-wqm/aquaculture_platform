@@ -2,7 +2,7 @@ import { Injectable, Inject, OnModuleInit, Logger, Optional } from '@nestjs/comm
 import { InjectRepository } from '@nestjs/typeorm';
 import { ModuleRef } from '@nestjs/core';
 import { Repository, EntityManager, DeepPartial, QueryDeepPartialEntity } from 'typeorm';
-import { forEachTenantSchema } from '@aquaculture/backend-common/database';
+import { forEachVerifiedRetainedTenantSchema } from '@aquaculture/backend-common/database';
 
 import { SensorProtocol, ProtocolCategory } from '../../database/entities/sensor-protocol.entity';
 import { BaseProtocolAdapter, ProtocolCapabilities } from '../adapters/base-protocol.adapter';
@@ -89,7 +89,7 @@ export class ProtocolRegistryService implements OnModuleInit {
     }
 
     // 2. Fan the catalog out to every provisioned tenant schema.
-    const results = await forEachTenantSchema(
+    const results = await forEachVerifiedRetainedTenantSchema(
       this.protocolRepository.manager.connection,
       async ({ queryRunner }) => {
         for (const adapter of this.adapters) {
@@ -103,14 +103,14 @@ export class ProtocolRegistryService implements OnModuleInit {
     if (notOk.length > 0) {
       this.logger.warn(
         `Protocol sync reached ${results.length - notOk.length}/${results.length} tenant schema(s); ` +
-          `unsynced: ${notOk.map((r) => r.schema).join(', ')}`,
+          `unsynced: ${notOk.map((r) => r.schemaName).join(', ')}`,
       );
     }
   }
 
   /**
    * Upsert one adapter's definition into whichever schema `manager` is bound to
-   * (the source `sensor` schema, or a tenant schema via forEachTenantSchema's
+   * (the source `sensor` schema, or a tenant schema via the verified fan-out's
    * search_path-pinned QueryRunner).
    */
   private async upsertProtocol(

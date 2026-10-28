@@ -9,15 +9,19 @@ same ledgers replay reads, and injected into the evidence by
 
 Three measured components:
 
-* **Paired gain** (F1.7, ARIA-HIGH-734) — `agent_eval.compare_eval_windows`
-  in its PAIRED mode (one-sided exact McNemar on the candidate's and the
-  incumbent's discordant cases, real runs only, `mock_mode=False`) at the
-  pre-registered `alpha` / `min_discordant_pairs` of the superiority block:
-  it must read `improved`. `insufficient_evidence`, `flat`, `regressed` all
-  refuse — a promotion that cannot show a significant gain is not a
-  promotion. The lifecycle records no predecessor for an entity, so the
-  incumbent is the entity itself: its previous window against its current
-  one on the same case ids.
+* **Paired gain** (F1.7, ARIA-HIGH-734; sequential since F1.8(a)) —
+  `agent_eval.compare_eval_windows` in its PAIRED mode (the one-sided
+  mixture e-process of the candidate's and the incumbent's discordant
+  cases, real runs only, `mock_mode=False`) at the pre-registered `alpha` /
+  `min_discordant_pairs` of the superiority block: it must read `improved`.
+  `insufficient_evidence`, `flat`, `regressed` all refuse — a promotion that
+  cannot show a significant gain is not a promotion. The proof is recomputed
+  at every cycle and every ACTIVE attempt, so the test is valid at every look
+  and the comparison is anchored where the entity entered EVAL_WINDOW (an
+  entity with no entry is anchored at the look itself and has no evidence).
+  The lifecycle records no predecessor for an entity, so the incumbent is the
+  entity itself: its window before the anchor against its runs since, on the
+  same case ids.
 * **Duel superiority** — when `knowledge-graph/duel-ratings.jsonl` carries
   at least `min_duel_matches` decided duels involving the candidate, its
   Bradley-Terry rating must top every opponent it faced. Fewer matches →
@@ -37,9 +41,10 @@ from typing import Any
 
 from .agent_eval import compare_eval_windows
 from .calibrated_intelligence import bradley_terry
+from .genesis_lifecycle import eval_window_entered_at
 from .genesis_policy import superiority_policy
 from .ledger import load_jsonl
-from .tool_registry import ensure_tools_dir
+from .tool_registry import ensure_tools_dir, utc_now_datetime
 
 # A direction verdict that found material risks is a WIN for the reviewer
 # of that direction (their scrutiny landed) and a LOSS for the reviewed
@@ -90,6 +95,7 @@ def compute_eval_window_superiority(
     carries it is recomputable from ledgers alone.
     """
     policy = superiority_policy(repo_root)
+    entered = eval_window_entered_at(entity_id=entity_id, base_dir=base_dir)
     window = compare_eval_windows(
         target_agent=entity_id,
         incumbent_agent=entity_id,
@@ -98,6 +104,7 @@ def compute_eval_window_superiority(
         alpha=policy["alpha"],
         min_discordant_pairs=policy["min_discordant_pairs"],
         mock_mode=False,
+        window_start=utc_now_datetime() if entered is None else entered,
     )
     reasons: list[str] = []
     if window["verdict"] != "improved":

@@ -66,6 +66,9 @@ FAMILIES: dict[str, Family] = {
     # F1.1: goldset and pr_tracking record through the owner, whose event kinds are a closed vocabulary.
     "learning_log": Family("learning-memory", f"{_K}memory.py:record_learning_event",
                            ledgers=(("memory_learning_events", "memory/learning-events.jsonl"),)),
+    # F1.8(a): the paired gain decision, the e-process and the one McNemar tail it still reports.
+    "paired_gain_decision": Family("learning-memory", f"{_K}agent_eval.py:compare_eval_windows",
+                                   ("paired_e_value", "sequential_paired_verdict", "_upper_tail")),
     # SE-5: the lifecycle state of an entity is its replayed chain, read in one place. `_target_is_shadow` is the
     # name of the second, unverified reading that was deleted; listing it makes its return an offender.
     "lifecycle_state": Family("learning-memory", f"{_K}genesis_lifecycle.py:current_lifecycle_state",

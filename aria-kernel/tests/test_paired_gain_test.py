@@ -10,12 +10,15 @@ agents are "improved" about 36% of the time (measurement review M1), and
 The repaired contract (PLAN-v2 §2 'Kazanç/anlamlılık', §3 F1.7):
 
 * ``compare_eval_windows`` gains a PAIRED mode: candidate and incumbent on the SAME case
-  ids (``fixture_id``); only discordant pairs carry information; the decision is an exact
-  McNemar test on them, ONE-SIDED for a gain: p = P(Binomial(n, 1/2) >= candidate_only),
-  n = candidate_only + incumbent_only. The interval on the candidate's share of the
-  discordant pairs is ``judge_calibration.wilson_lower`` (reused, not rewritten).
-  ``improved`` needs p <= alpha AND n >= min_discordant_pairs; fewer pairs is
-  ``insufficient_evidence``. Mock runs are never scored.
+  ids (``fixture_id``); only discordant pairs carry information. The single-look exact
+  McNemar tail stays in the result, ONE-SIDED for a gain: p = P(Binomial(n, 1/2) >=
+  candidate_only), n = candidate_only + incumbent_only, DESCRIPTIVE since F1.8(a). The
+  interval on the candidate's share of the discordant pairs is
+  ``judge_calibration.wilson_lower`` (reused, not rewritten). The VERDICT is F1.8(a)'s
+  sequential e-process (``test_sequential_gain_test``): ``improved`` needs
+  E(candidate_only, incumbent_only) * alpha > 1 AND n >= min_discordant_pairs; fewer pairs
+  is ``insufficient_evidence``. The comparison is anchored at ``window_start``. Mock runs
+  are never scored.
 * alpha and min_discordant_pairs are pre-registered in the genesis_policy ``superiority``
   block, parsed by the SE-13 strict parser: a block that omits one is refused by its
   dotted path, never filled from a default.
@@ -27,8 +30,11 @@ Red at the branch base on an assertion (existing API): ``SuperiorityPolicyTests`
 ``PairedModeTests`` — ``compare_eval_windows(..., incumbent_agent=, alpha=,
 min_discordant_pairs=, mock_mode=False)`` and its result keys ``mode``, ``verdict``,
 ``p_value``, ``wilson_lower``, ``discordant_pairs``, ``paired_case_count``, ``alpha``,
-``min_discordant_pairs``. F1.8(a) (anytime-valid sequential decision) extends this mode
-later and is not pinned here.
+``min_discordant_pairs``. F1.8(a) (anytime-valid sequential decision) changed this mode's
+verdict and anchored its windows: the rows below that moved with it are
+``PairedModeTests._paired`` (passes ``window_start``), the 9/1 and 6/0 tables (``flat``:
+E = 18.51 and 18.14 are under 1/alpha = 20), ``PromotionDecisionTests``' A/A fixture (writes
+the EVAL_WINDOW entry the anchor is read from) and the spy test (asserts ``window_start``).
 """
 from __future__ import annotations
 
@@ -47,6 +53,7 @@ from aria_kernel.genesis_policy import superiority_policy
 from aria_kernel.genesis_superiority import compute_eval_window_superiority
 from aria_kernel.judge_calibration import wilson_lower
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
+from tests.test_sequential_gain_test import _enter_eval_window
 
 ALPHA = 0.05
 MIN_PAIRS = 6
@@ -63,6 +70,8 @@ AA_SEED = 1729
 AA_TRIALS = 200
 AA_CASES = 40
 AA_PASS_PROBABILITIES = (0.3, 0.5, 0.6, 0.7, 0.8, 0.9)
+# The anchored comparison (F1.8(a)): the runs of ``_row`` (1 day old) fall after a window_start 5 days back.
+WINDOW_START_DAYS_AGO = 5.0
 
 
 def _row(agent: str, case: str, passed: bool, *, days_ago: float = 1.0, mock_mode: bool = False) -> dict[str, Any]:
@@ -165,7 +174,11 @@ class PromotionDecisionTests(_ToolsCase):
     def test_aa_noise_does_not_promote_more_often_than_alpha(self) -> None:
         # The same agent, identical per-case pass probability in both windows, the same
         # case ids. Today the window comparison promotes ~44% of these trials.
+        # The comparison is anchored at the entity's EVAL_WINDOW entry (F1.8(a)): 40 days ago
+        # is before it (the baseline), 5 days ago after it. Without the entry nothing can pass
+        # and the assertion below would be vacuous.
         repo_root = self._override(SUPERIORITY_BLOCK)
+        _enter_eval_window(self.tools, "cand", datetime.now(timezone.utc) - timedelta(days=20))
         promoted = 0
         for earlier, later in _aa_trials(random.Random(AA_SEED))[:100]:
             rows = [_row("cand", f"CASE-{i:03d}", p, days_ago=40) for i, p in enumerate(earlier)]
@@ -176,6 +189,11 @@ class PromotionDecisionTests(_ToolsCase):
         self.assertLessEqual(promoted / 100, ALPHA, f"A/A promoted {promoted}/100 trials")
 
     def test_mock_runs_never_make_a_promotion(self) -> None:
+        # The comparison is anchored at the EVAL_WINDOW entry (F1.8(a)): 40 days ago is the baseline,
+        # 5 days ago the candidate window. Without the entry the gate answers insufficient_evidence
+        # whatever the rows are, and removing the real-only filter would go unnoticed. With it, 10
+        # fail -> pass pairs read 'improved' (E = 2047/11) if a mock run were ever scored.
+        _enter_eval_window(self.tools, "cand", datetime.now(timezone.utc) - timedelta(days=20))
         rows = [_row("cand", f"CASE-{i:03d}", False, days_ago=40, mock_mode=True) for i in range(10)]
         rows += [_row("cand", f"CASE-{i:03d}", True, days_ago=5, mock_mode=True) for i in range(10)]
         _write_runs(self.tools, rows)
@@ -185,6 +203,8 @@ class PromotionDecisionTests(_ToolsCase):
         self.assertFalse(proof["passed"], "a gain made of mock eval runs promoted the candidate")
 
     def test_the_comparison_is_called_real_only_with_the_registered_values(self) -> None:
+        entered = datetime.now(timezone.utc).replace(microsecond=0) - timedelta(days=20)
+        _enter_eval_window(self.tools, "cand", entered)
         with mock.patch.object(genesis_superiority, "compare_eval_windows", wraps=compare_eval_windows) as spy:
             compute_eval_window_superiority(
                 entity_id="cand", base_dir=self.tools, repo_root=self._override(SUPERIORITY_BLOCK)
@@ -192,6 +212,7 @@ class PromotionDecisionTests(_ToolsCase):
         self.assertTrue(spy.call_args_list, "the promotion decision ran no comparison")
         for call in spy.call_args_list:
             self.assertIs(call.kwargs.get("mock_mode"), False, "promotion read mock eval runs")
+            self.assertEqual(call.kwargs.get("window_start"), entered, "the comparison is not anchored at the EVAL_WINDOW entry")
         self.assertTrue(
             any(c.kwargs.get("alpha") == ALPHA and c.kwargs.get("min_discordant_pairs") == MIN_PAIRS
                 for c in spy.call_args_list),
@@ -206,6 +227,7 @@ class PairedModeTests(_ToolsCase):
         return compare_eval_windows(
             target_agent="cand", incumbent_agent="inc", base_dir=self.tools,
             alpha=alpha, min_discordant_pairs=min_pairs, mock_mode=mock_mode,
+            window_start=datetime.now(timezone.utc) - timedelta(days=WINDOW_START_DAYS_AGO),
         )
 
     def test_exact_mcnemar_and_wilson_lower_on_a_known_table(self) -> None:
@@ -220,12 +242,16 @@ class PairedModeTests(_ToolsCase):
         self.assertEqual(result["wilson_lower"], 0.5958)
         self.assertEqual(result["wilson_lower"], wilson_lower(9, 10))
         self.assertEqual((result["alpha"], result["min_discordant_pairs"]), (ALPHA, 10))
-        self.assertEqual(result["verdict"], "improved")
+        # The fixed-n test called this 'improved' (p <= alpha). The sequential verdict pays for being
+        # valid at every look: E(9, 1) = 1018/55 = 18.51 is under 1/alpha = 20 (F1.8(a)).
+        self.assertEqual(result["verdict"], "flat")
 
-    def test_known_tables_decide_by_p_value_and_pair_count(self) -> None:
-        # (candidate_only, incumbent_only, min_pairs) -> (exact one-sided p, verdict)
+    def test_known_tables_decide_by_e_value_and_pair_count(self) -> None:
+        # (candidate_only, incumbent_only, min_pairs) -> (exact one-sided p, verdict). The verdict is
+        # by the e-value E(c, b) * alpha > 1; p is the single-look tail the result still reports.
         cases = {
-            (6, 0, 6): (1 / 64, "improved"),
+            (7, 0, 6): (1 / 128, "improved"),  # E = 255/8 = 31.9 >= 20
+            (6, 0, 6): (1 / 64, "flat"),  # p <= alpha but E = 127/7 = 18.14 < 20: one more pair is needed
             (3, 0, 3): (1 / 8, None),  # p > alpha: measured, not a gain
             (5, 5, 6): (638 / 1024, None),
             (1, 9, 6): (1023 / 1024, None),

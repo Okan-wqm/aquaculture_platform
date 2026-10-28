@@ -8,7 +8,9 @@ NON-test code (the directory name keeps it out of ``unittest discover``); no mod
 them (``from_state`` = the previous state, the evidence each state's own gate asks of
 ``validate_transition``), but without the proofs ``record_transition`` computes kernel-side: a chain is a
 fixture of the LEDGER, never a call to the recorder. ``forged_row`` appends one arbitrary row, which is
-how a hand-appended ledger line is built.
+how a hand-appended ledger line is built. Every row carries ``RECORDED_AT`` unless a test names its stamp
+(``forged_row(recorded_at=)``, ``chain(recorded_at={state: stamp})``): a reader of the entry instant (F1.8a) needs rows
+that are not all one moment.
 """
 from __future__ import annotations
 
@@ -19,6 +21,7 @@ from typing import Any
 from aria_kernel.genesis_lifecycle import lifecycle_events_path
 from aria_kernel.ledger import append_declared_jsonl
 
+RECORDED_AT = "2026-10-27T00:00:00+00:00"
 LADDER = (
     "PRESSURE", "CANDIDATE_PROPOSED", "HUMAN_REQUIRED", "REQUEST", "DRAFT",
     "REAL_SANDBOX", "SHADOW", "EVAL_WINDOW", "ACTIVE",
@@ -57,11 +60,11 @@ def evidence_for(state: str, *, scope: str | None = None, with_proof: bool = Tru
 
 def forged_row(
     store: Path, entity: str, to_state: str, *, from_state: str | None, evidence: Mapping[str, Any] | None = None,
-    kind: str = "agent",
+    kind: str = "agent", recorded_at: str = RECORDED_AT,
 ) -> dict[str, Any]:
     """Append ONE lifecycle row exactly as given: the hand-appended line a ledger could be handed."""
     row = {
-        "schema_version": 1, "recorded_at": "2026-10-27T00:00:00+00:00", "entity_id": entity, "entity_kind": kind,
+        "schema_version": 1, "recorded_at": recorded_at, "entity_id": entity, "entity_kind": kind,
         "from_state": from_state, "to_state": to_state, "evidence": dict(evidence or {}),
         "operator_approval_ref": None,
     }
@@ -70,11 +73,13 @@ def forged_row(
 
 def chain(
     store: Path, entity: str, through: str, *, kind: str = "agent", scope: str | None = None, with_proof: bool = True,
+    recorded_at: Mapping[str, str] | None = None,
 ) -> None:
     """Append the replayable chain of ``entity`` up to ``through``: every row legal from the one before it.
 
     ``through`` is a rung of ``LADDER`` or ``REJECTED`` (a rejection of the draft). ``scope`` and ``with_proof``
-    only shape the ACTIVE row.
+    only shape the ACTIVE row. ``recorded_at`` names the stamp of the rows of the states it lists; the others
+    keep ``RECORDED_AT``.
     """
     if through == "REJECTED":
         states = [*LADDER[: LADDER.index("DRAFT") + 1], "REJECTED"]
@@ -85,6 +90,7 @@ def chain(
         forged_row(
             store, entity, state, from_state=previous, kind=kind,
             evidence=evidence_for(state, scope=scope, with_proof=with_proof),
+            recorded_at=(recorded_at or {}).get(state, RECORDED_AT),
         )
         previous = state
 

@@ -39,13 +39,16 @@ agent invocation mutates state beyond observation class).
 """
 from __future__ import annotations
 
+import bisect
 import hashlib
 import json
 import math
 import os
 import re
+import sys
 import uuid
 from datetime import datetime, timedelta, timezone
+from fractions import Fraction
 from pathlib import Path
 from typing import Any, Callable, Collection
 
@@ -755,13 +758,16 @@ Dated = list[tuple[datetime, dict[str, Any]]]
 def _split_windows(
     rows: list[dict[str, Any]], *, now: datetime, window_days: int
 ) -> tuple[Dated, Dated, int]:
-    """(previous, current, undated count) for [now-2W, now-W) and [now-W, now],
+    """(previous, current, undated count) for [now-2W, now-W) and [now-W, ...),
     each run carried with its parsed ``recorded_at``.
 
     Adjacent, non-overlapping, half-open at the seam so a run on the
-    boundary is counted once, in the current window. Both modes of
-    `compare_eval_windows` select their runs here, so they cannot disagree
-    about which window a run belongs to.
+    boundary is counted once, in the current window. The current window is
+    open at the end: no run is dated after the look, and the paired mode
+    anchors it at a fixed ``window_start`` (``now = window_start + W``), so an
+    entity that stays in EVAL_WINDOW past W keeps accruing evidence instead
+    of locking itself out. Both modes of `compare_eval_windows` select their
+    runs here, so they cannot disagree about which window a run belongs to.
     """
     current_start = now - timedelta(days=window_days)
     previous_start = now - timedelta(days=2 * window_days)
@@ -790,14 +796,16 @@ def compare_eval_windows(
     incumbent_agent: str | None = None,
     alpha: float | None = None,
     min_discordant_pairs: int | None = None,
+    window_start: datetime | None = None,
 ) -> dict[str, Any]:
     """Is round N+1 better than round N? - the program's own success test.
 
     Two modes. The WINDOW mode (no ``incumbent_agent``) describes one
     agent's trend between two time windows; it runs no significance test
     and decides nothing (``agent-eval delta``). The PAIRED mode (F1.7,
-    ``incumbent_agent`` given) is the gain test a promotion decides on:
-    see ``_compare_paired``.
+    ``incumbent_agent`` given) is the gain test a promotion decides on, a
+    sequential one anchored at ``window_start`` (F1.8(a)): see
+    ``_compare_paired``.
 
     The intelligence plan defines improvement as a MEASURED difference
     between consecutive windows, not a felt one. `aggregate_eval_metrics`
@@ -811,15 +819,17 @@ def compare_eval_windows(
     """
     if window_days <= 0:
         raise GovernanceError("window_days must be positive")
-    now = datetime.now(timezone.utc)
     if incumbent_agent is not None:
         return _compare_paired(
             target_agent=target_agent, incumbent_agent=incumbent_agent, base_dir=base_dir,
             window_days=window_days, mock_mode=mock_mode, alpha=alpha,
-            min_discordant_pairs=min_discordant_pairs, now=now,
+            min_discordant_pairs=min_discordant_pairs, window_start=window_start,
         )
-    if alpha is not None or min_discordant_pairs is not None:
-        raise GovernanceError("alpha and min_discordant_pairs belong to the paired mode: name an incumbent_agent")
+    if alpha is not None or min_discordant_pairs is not None or window_start is not None:
+        raise GovernanceError(
+            "alpha, min_discordant_pairs and window_start belong to the paired mode: name an incumbent_agent"
+        )
+    now = datetime.now(timezone.utc)
     if min_runs < 1:
         raise GovernanceError("min_runs must be at least 1")
 
@@ -880,10 +890,10 @@ def compare_eval_windows(
     }
 
 
-#: The paired mode's test, named in its result so a later sequential
-#: (anytime-valid, PLAN-v2 F1.8(a)) decision is a different name, not a
-#: silently different number under the same one.
-PAIRED_TEST = "exact_mcnemar_one_sided"
+#: The paired mode's test, named in its result. The mixture prior is part of the
+#: name: a different prior is a different test, not a silently different number
+#: under the same one (PLAN-v2 F1.8(a)).
+SEQUENTIAL_TEST = "uniform_mixture_e_process_one_sided"
 
 
 def _upper_tail(successes: int, trials: int) -> float:
@@ -891,43 +901,119 @@ def _upper_tail(successes: int, trials: int) -> float:
     return sum(math.comb(trials, k) for k in range(successes, trials + 1)) / 2 ** trials
 
 
-def _newest_outcome_per_case(runs: Dated) -> dict[str, bool]:
-    """fixture_id -> passed of the newest run on that case."""
-    newest: dict[str, tuple[datetime, bool]] = {}
+def paired_e_value(candidate_only: int, incumbent_only: int) -> Fraction:
+    """The one-sided mixture e-value of a gain, exact: E(c, b) = c! b! / (n+1)! * sum_{k<=c} C(n+1, k).
+
+    c = candidate_only, b = incumbent_only, n = c + b. With theta the probability that
+    the candidate wins a discordant pair (H0: theta <= 1/2) and a uniform prior on
+    theta in (1/2, 1), E is the likelihood ratio averaged over the prior. Under H0 it
+    is a nonnegative supermartingale started at E(0, 0) = 1, so P(some look has
+    E >= 1/alpha) <= alpha for any look schedule (Ville 1939; Robbins 1970).
+    """
+    pairs = candidate_only + incumbent_only
+    return Fraction(
+        sum(math.comb(pairs + 1, k) for k in range(candidate_only + 1)),
+        (pairs + 1) * math.comb(pairs, candidate_only),
+    )
+
+
+def sequential_paired_verdict(
+    candidate_only: int, incumbent_only: int, *, alpha: float, min_discordant_pairs: int
+) -> tuple[str, Fraction, Fraction]:
+    """(verdict, E in the candidate's direction, E in the incumbent's), the comparison with 1/alpha exact.
+
+    ``improved`` iff E(c, b) * alpha > 1 (the always-valid p-value 1/E is below alpha);
+    ``regressed`` iff E(b, c) * alpha > 1; else ``flat``. Fewer than
+    ``min_discordant_pairs`` pairs is ``insufficient_evidence``: the floor only removes
+    rejections, so it cannot cost validity.
+    """
+    gain, loss = paired_e_value(candidate_only, incumbent_only), paired_e_value(incumbent_only, candidate_only)
+    if candidate_only + incumbent_only < min_discordant_pairs:
+        return "insufficient_evidence", gain, loss
+    level = Fraction(alpha)
+    if gain * level > 1:
+        return "improved", gain, loss
+    return ("regressed" if loss * level > 1 else "flat"), gain, loss
+
+
+def _single_look_size(pairs: int, *, alpha: float) -> float:
+    """P(identical agents read 'improved' at n = ``pairs``) = P(Bin(n, 1/2) >= c*), 0.0 when no c* exists.
+
+    c* is the fewest candidate wins whose e-value crosses 1/alpha. E(c, n - c) rises with c, so
+    c* is found by bisection."""
+    wins = bisect.bisect_left(
+        range(pairs + 1), True, key=lambda c: paired_e_value(c, pairs - c) * Fraction(alpha) > 1
+    )
+    return _upper_tail(wins, pairs) if wins <= pairs else 0.0
+
+
+_FLOAT_MAX = Fraction(sys.float_info.max)
+
+
+def _json_float(value: Fraction) -> float:
+    """``float(value)``, saturating at the largest finite float: the proof is stored as JSON, which has no infinity.
+
+    The verdict is decided on the exact Fraction before this is called."""
+    return float(value) if value <= _FLOAT_MAX else sys.float_info.max
+
+
+def _first_outcome_per_case(runs: Dated) -> dict[str, bool]:
+    """fixture_id -> passed of the FIRST run on that case (a tie goes to the earlier row).
+
+    First, not newest: a case contributes the pair it had when it first entered the
+    comparison, so a later re-run cannot change it (the nesting the sequential test needs)
+    and a candidate cannot re-run a failing case until it passes.
+    """
+    first: dict[str, tuple[datetime, bool]] = {}
     for recorded, row in runs:
         case = str(row["fixture_id"])
-        if case not in newest or recorded >= newest[case][0]:
-            newest[case] = (recorded, bool(row["passed"]))
-    return {case: passed for case, (_, passed) in newest.items()}
+        if case not in first or recorded < first[case][0]:
+            first[case] = (recorded, bool(row["passed"]))
+    return {case: passed for case, (_, passed) in first.items()}
 
 
 def _compare_paired(
     *, target_agent: str, incumbent_agent: str, base_dir: str | Path | None, window_days: int,
-    mock_mode: bool | None, alpha: float | None, min_discordant_pairs: int | None, now: datetime,
+    mock_mode: bool | None, alpha: float | None, min_discordant_pairs: int | None,
+    window_start: datetime | None,
 ) -> dict[str, Any]:
-    """F1.7 (ARIA-HIGH-734) — candidate vs incumbent on the SAME case ids.
+    """F1.7 (ARIA-HIGH-734), sequential since F1.8(a) (ARIA-LOW-949) — candidate vs incumbent on the SAME case ids.
 
     WHY: the window mode called any positive pass_rate delta 'improved'; two
     identical agents read 'improved' about 36% of the time (measurement
-    review M1) and a promotion decided on that. Here each side is its
-    newest REAL run per case (mock runs are never scored), cases are paired
-    by ``fixture_id``, and only discordant pairs carry information: with n
-    of them, p = P(Bin(n, 1/2) >= candidate_only) is the one-sided exact
-    McNemar test of a gain. 'improved' needs p <= alpha AND
-    n >= min_discordant_pairs; fewer pairs is 'insufficient_evidence'.
-    'regressed' is the same test in the incumbent's direction; otherwise
-    'flat' (no significant difference). alpha and min_discordant_pairs come
-    from the caller's pre-registered policy and are never defaulted.
+    review M1) and a promotion decided on that. F1.7's fixed-n McNemar test
+    fixed one look, but ARIA looks at every cycle and at every ACTIVE attempt,
+    and a fixed-n test pays for every look (10.0% 'improved' on identical agents,
+    measured). The verdict is therefore the one-sided mixture e-process of the
+    discordant pairs (``paired_e_value``): valid at every look, however many.
 
-    The candidate side is ``target_agent``'s current window. A distinct
-    incumbent is measured side by side, in the same window; an incumbent
-    that IS the candidate (no other version in service) is its own
-    previous window: before against after on the same cases.
+    Each side is its FIRST REAL run per case (mock runs are never scored), cases
+    are paired by ``fixture_id``, and only discordant pairs carry information.
+    ``sequential_paired_verdict`` decides: 'improved' needs E(c, b) * alpha > 1 AND
+    n >= min_discordant_pairs; 'regressed' is the same in the incumbent's direction;
+    fewer pairs is 'insufficient_evidence'; otherwise 'flat'. alpha and
+    min_discordant_pairs come from the caller's pre-registered policy and are never
+    defaulted. ``p_value`` (the single-look exact McNemar tail) and ``wilson_lower``
+    are DESCRIPTIVE: the verdict never reads them.
 
-    ``aa_noise_floor`` is the A/A floor at this n: the probability that two
-    identical agents with n discordant pairs read 'improved', i.e. the
-    test's exact size; it is <= alpha by construction and 0 below the pair
-    minimum.
+    The windows are anchored, not sliding: ``window_start`` (required, aware) opens
+    the candidate's window and nothing closes it. A distinct incumbent is measured
+    side by side in that same window; an incumbent that IS the candidate (no other
+    version in service) is its own previous window [window_start - window_days,
+    window_start): before against after on the same cases.
+
+    The alpha guarantee, per entity, rests on three assumptions:
+    A1 nesting - every look sees the earlier looks' pairs unchanged plus new ones (the
+       anchor and the first-run rule; the ledgers are append-only);
+    A2 case supply - which cases run next may depend on anything observed so far,
+       never on the outcome of the case itself;
+    A3 exchangeability under H0 - the two sides are the same agent on the same
+       provider and model; drift between the sides is NOT defended here.
+
+    ``aa_noise_floor`` is the exact single-look size of this rule at this n: the
+    probability that two identical agents with n discordant pairs read 'improved',
+    P(Bin(n, 1/2) >= c*) with c* the fewest candidate wins that cross 1/alpha; 0.0
+    below the pair minimum or when no c crosses.
     """
     if mock_mode is not False:
         raise GovernanceError(
@@ -935,54 +1021,63 @@ def _compare_paired(
         )
     if alpha is None or min_discordant_pairs is None:
         raise GovernanceError("the paired gain test needs the pre-registered alpha and min_discordant_pairs")
+    if window_start is None or window_start.utcoffset() is None:
+        raise GovernanceError(
+            "the paired gain test is anchored: window_start must be an aware datetime "
+            f"(the entity's EVAL_WINDOW entry), got {window_start!r}"
+        )
     from .judge_calibration import wilson_lower
 
+    now = window_start + timedelta(days=window_days)
     previous, current, undated = _split_windows(
         list_eval_runs(base_dir=base_dir, target_agent=target_agent, mock_mode=False),
         now=now, window_days=window_days,
     )
-    candidate = _newest_outcome_per_case(current)
+    candidate = _first_outcome_per_case(current)
     if incumbent_agent == target_agent:
-        incumbent = _newest_outcome_per_case(previous)
+        incumbent = _first_outcome_per_case(previous)
     else:
         _, incumbent_current, incumbent_undated = _split_windows(
             list_eval_runs(base_dir=base_dir, target_agent=incumbent_agent, mock_mode=False),
             now=now, window_days=window_days,
         )
-        incumbent = _newest_outcome_per_case(incumbent_current)
+        incumbent = _first_outcome_per_case(incumbent_current)
         undated += incumbent_undated
     shared = sorted(candidate.keys() & incumbent.keys())
     candidate_only = sum(1 for case in shared if candidate[case] and not incumbent[case])
     incumbent_only = sum(1 for case in shared if incumbent[case] and not candidate[case])
     pairs = candidate_only + incumbent_only
-    p_value = _upper_tail(candidate_only, pairs)
-    if pairs < min_discordant_pairs:
-        verdict, reason = "insufficient_evidence", f"need {min_discordant_pairs} discordant pairs, have {pairs}"
-    elif p_value <= alpha:
-        verdict, reason = "improved", f"candidate wins {candidate_only}/{pairs} discordant pairs, p={p_value:.6g} <= {alpha}"
-    elif _upper_tail(incumbent_only, pairs) <= alpha:
-        verdict, reason = "regressed", f"incumbent wins {incumbent_only}/{pairs} discordant pairs"
-    else:
-        verdict, reason = "flat", f"p={p_value:.6g} > alpha={alpha} on {pairs} discordant pairs"
-    critical = next((k for k in range(pairs + 1) if _upper_tail(k, pairs) <= alpha), None)
-    aa_noise_floor = (
-        _upper_tail(critical, pairs) if critical is not None and pairs >= min_discordant_pairs else 0.0
+    verdict, gain, loss = sequential_paired_verdict(
+        candidate_only, incumbent_only, alpha=alpha, min_discordant_pairs=min_discordant_pairs
     )
+    threshold = 1 / Fraction(alpha)
+    margin = f"1/alpha = {_json_float(threshold):.6g}"
+    if verdict == "insufficient_evidence":
+        reason = f"need {min_discordant_pairs} discordant pairs, have {pairs}"
+    elif verdict == "improved":
+        reason = f"candidate wins {candidate_only}/{pairs} discordant pairs, e-value {_json_float(gain):.6g} > {margin}"
+    elif verdict == "regressed":
+        reason = f"incumbent wins {incumbent_only}/{pairs} discordant pairs, e-value {_json_float(loss):.6g} > {margin}"
+    else:
+        reason = f"e-value {_json_float(gain):.6g} <= {margin} on {pairs} discordant pairs"
     return {
         "schema_version": 1,
         "mode": "paired",
-        "test": PAIRED_TEST,
+        "test": SEQUENTIAL_TEST,
         "target_agent": target_agent,
         "incumbent_agent": incumbent_agent,
         "window_days": window_days,
+        "window_start": window_start.isoformat(),
         "mock_mode": False,
         "paired_case_count": len(shared),
         "discordant_pairs": {"candidate_only": candidate_only, "incumbent_only": incumbent_only},
-        "p_value": p_value,
+        "e_value": _json_float(gain),
+        "e_threshold": _json_float(threshold),
+        "p_value": _upper_tail(candidate_only, pairs),
         "wilson_lower": wilson_lower(candidate_only, pairs),
         "alpha": alpha,
         "min_discordant_pairs": min_discordant_pairs,
-        "aa_noise_floor": aa_noise_floor,
+        "aa_noise_floor": _single_look_size(pairs, alpha=alpha) if pairs >= min_discordant_pairs else 0.0,
         "verdict": verdict,
         "reason": reason,
         "undated_run_count": undated,

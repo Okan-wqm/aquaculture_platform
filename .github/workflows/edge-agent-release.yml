@@ -235,8 +235,12 @@ jobs:
         # places at /usr/lib/llvm-12/lib. cross propagates this env var
         # INTO the container via `[build.env] passthrough = ["LIBCLANG_PATH"]`
         # in Cross.toml — the documented cross integration pattern.
+        # CROSS_REPO_ROOT: Cross.toml `[build.env] volumes` mounts the checkout so the
+        # repository-root workspace manifest that crates/alarm-core inherits from is visible
+        # inside the container (2.0.0-rc.6 failed all three builds without it).
         env:
           LIBCLANG_PATH: /usr/lib/llvm-12/lib
+          CROSS_REPO_ROOT: ${{ github.workspace }}
         run: cross build --target-dir "$CARGO_TARGET_DIR" --release --target ${{ matrix.target }} --features "$EDGE_RELEASE_FEATURES"
 
       - name: Resolve release binary path

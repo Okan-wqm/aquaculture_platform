@@ -1171,6 +1171,7 @@ def anchor_candidate_groups(
     tool_id: str,
     base_dir: str | Path | None = None,
     demand: int = 0,
+    minted: frozenset[tuple[str, str]] = frozenset(),
 ) -> list[dict[str, Any]]:
     """Unanimous 2-judge groups that must be re-examined by the arbiter.
 
@@ -1178,11 +1179,14 @@ def anchor_candidate_groups(
 
     * a ``false_positive`` verdict is UNCONDITIONAL - that is the row that
       suppresses a finding class forever, and suppression is the one
-      consequence no later evidence can undo;
-    * ``demand`` is the readiness shortfall (how many more anchors the tool
-      needs before its precision counts as judged, JJ-2a). Once the tool has
-      enough anchors the demand is zero and routine consensus stays 2-judge -
-      the cost bound is a consequence of the gate, not a separate knob.
+      consequence no later evidence can undo. It never spends ``demand``;
+    * ``demand`` (ARIA-MEDIUM-1087) is the most NEW ``true_positive`` pairs
+      returned: the pair that turns agreement into ground truth. A pair whose
+      arbiter is already minted (its ``(judgment_group_id, digest)`` is in
+      ``minted``) is still returned, so the dispatcher can name it, and spends
+      nothing; so does a held group (``hold`` is set). A pair whose
+      fingerprint already has a committed finding is not a candidate: the
+      promoter skips it as already promoted.
 
     Split groups are NOT returned: they belong to
     ``dispatch_arbiter_for_split_verdicts``, which mints the same arbiter for
@@ -1192,7 +1196,8 @@ def anchor_candidate_groups(
 
     grouped, settled = _judge_rows_by_group(tool_id, base_dir)
     _arbitrated, terminal = _uncertain_group_keys(tool_id, base_dir)
-    remaining = max(int(demand), 0)
+    new_pairs = max(int(demand), 0)
+    promoted: set[str] | None = None
     candidates: list[dict[str, Any]] = []
     for (run_id, finding_id, group_id), by_judge in sorted(grouped.items()):
         if (run_id, finding_id, group_id) in terminal:
@@ -1205,11 +1210,19 @@ def anchor_candidate_groups(
         if len(verdicts) != 1:
             continue
         verdict = verdicts.pop()
-        if verdict != "false_positive":
-            if remaining <= 0:
-                continue
-        remaining = max(remaining - 1, 0)
         target_sha, hold = _group_tree(by_judge)
+        inputs = _seat_inputs(by_judge)
+        if verdict != "false_positive":
+            if promoted is None:
+                from .finding_promotion import promoted_fingerprints
+
+                promoted = promoted_fingerprints(base_dir)
+            if _group_fingerprint(by_judge) in promoted:
+                continue
+            if hold is None and (group_id, inputs["digest"]) not in minted:
+                if new_pairs <= 0:
+                    continue
+                new_pairs -= 1
         candidates.append({
             "tool_id": tool_id,
             "run_id": run_id,
@@ -1223,7 +1236,7 @@ def anchor_candidate_groups(
             ],
             "target_sha": target_sha,
             "hold": hold,
-            "arbiter_inputs": _seat_inputs(by_judge),
+            "arbiter_inputs": inputs,
         })
     return candidates
 
@@ -1233,33 +1246,32 @@ def dispatch_arbiter_for_anchor_groups(
     tool_id: str,
     base_dir: str | Path | None = None,
     cycle_id: str | None = None,
+    max_tp_pairs: int | None = None,
 ) -> dict[str, Any]:
     """JJ-1 - mint the third judge that turns agreement into an ANCHOR.
 
-    The readiness shortfall is derived here, not passed in, so the mint and
-    the gate can never disagree about how many anchors a tool still owes.
-    Idempotent on the same ``(judgment_group_id, inputs digest)`` key the
-    split arm uses. ARIA-HIGH-1084 — the arbiter is minted at the tree the
-    pair judged, and a pair whose seats judged different trees is held by
-    name, exactly as in the split arm.
+    ARIA-MEDIUM-1087 - every unanimous ``true_positive`` pair gets its third
+    seat, ``max_tp_pairs`` NEW ones per call (``None`` reads the shipped
+    ``anchor_tp_pairs_per_tool_per_cycle``; the cycle passes the operator's
+    value), whatever the tool's anchor count: the bound is a ceiling, the
+    admission door below is the real throttle. A pair whose arbiter is already
+    in flight does not consume it. Idempotent on the same
+    ``(judgment_group_id, inputs digest)`` key the split arm uses.
+    ARIA-HIGH-1084 - the arbiter is minted at the tree the pair judged, and a
+    pair whose seats judged different trees is held by name, exactly as in the
+    split arm.
     """
-    from .feedback_store import (
-        ANCHOR_PROMOTION_MIN_JUDGMENTS,
-        anchor_group_keys,
-    )
+    from .genesis_policy import judgment_pipeline_policy
 
     root = ensure_tools_dir(base_dir)
+    if max_tp_pairs is None:
+        max_tp_pairs = int(judgment_pipeline_policy()["anchor_tp_pairs_per_tool_per_cycle"])
     minted_inputs = _minted_arbiter_inputs(root)
-    demand = max(
-        ANCHOR_PROMOTION_MIN_JUDGMENTS
-        - len(anchor_group_keys(tool_id=tool_id, base_dir=root)),
-        0,
-    )
     minted: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
     held: list[str] = []
     for candidate in anchor_candidate_groups(
-        tool_id=tool_id, base_dir=root, demand=demand,
+        tool_id=tool_id, base_dir=root, demand=max_tp_pairs, minted=frozenset(minted_inputs),
     ):
         group = str(candidate.get("judgment_group_id") or "")
         if candidate["hold"] is not None:
@@ -1299,7 +1311,7 @@ def dispatch_arbiter_for_anchor_groups(
     _disclose_tree_holds(root, tool_id, held)
     return {
         "schema_version": 1,
-        "anchor_demand": demand,
+        "anchor_pair_bound": max_tp_pairs,
         "minted_count": len(minted),
         "minted": minted,
         "skipped": skipped,

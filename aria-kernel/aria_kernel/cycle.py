@@ -2217,6 +2217,7 @@ def _phase_judgment_pipeline(context: PhaseContext) -> dict[str, Any]:
                 tool_id=tool_id,
                 base_dir=context.base_dir,
                 cycle_id=context.cycle_id,
+                max_tp_pairs=int(pipeline_policy["anchor_tp_pairs_per_tool_per_cycle"]),
             )
             arbiter_requests += len(anchoring.get("minted") or [])
         except GovernanceError as exc:

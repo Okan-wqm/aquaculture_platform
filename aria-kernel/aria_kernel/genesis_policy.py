@@ -105,6 +105,14 @@ POLICY_KEYS = {
 
 JUDGMENT_PIPELINE_DEFAULTS: dict[str, Any] = {
     "sample_size_per_tool": 5,
+    # ARIA-MEDIUM-1087 — the most NEW unanimous true_positive pairs the anchor
+    # arm mints an arbiter for, per tool per cycle (judge_fanout.
+    # dispatch_arbiter_for_anchor_groups; false_positive pairs are
+    # unconditional and an arbiter already in flight does not count). A
+    # ceiling, not a throttle: it equals `sample_size_per_tool`, the most new
+    # pairs one tool's sample can produce in a cycle; the drain-budget door
+    # (`judge_fanout.arbitration`, discretionary) is the real throttle.
+    "anchor_tp_pairs_per_tool_per_cycle": 5,
     # Second sealed night measured 462 judge envelopes minted against ~9
     # drained per night: 296 died of anchor staleness without ever being
     # read. 32 per role ≈ 3 nights of drain headroom at the measured

@@ -16,11 +16,23 @@ family table and the writer detection are not restated in this test:
     every writer or computer of a single-owner family outside the owner's module.
 Both are new in F0.9b; at the branch base the module does not exist, which
 every test reports as an assertion failure, not an import error.
+
+J4 (ARIA-HIGH-1083, ARIA-HIGH-1084) adds two families, each with one owner the
+commit it lands: ``item_citations`` (what a sampled adapter finding cites: the
+tier-0 gate, the judge fan-out and the verdict-cache key read ONE list) and
+``closing_tree`` (the mixed-tree law of a closing set: the consensus engine and
+the arbiter's producer ask ONE predicate). At the branch base neither family
+exists in the atlas and ``item_citations.py`` does not exist, which each new
+test reports as an assertion failure.
 """
 from __future__ import annotations
 
+import ast
 import importlib
 import importlib.util
+import json
+import subprocess
+import sys
 import unittest
 from pathlib import Path
 from types import ModuleType
@@ -45,6 +57,10 @@ SINGLE_OWNER = {
     "python_source_facts": f"{_KERNEL}source_facts.py",
     # F1.1 — the learning journal: memory.record_learning_event, no other writer (goldset and pr_tracking routed).
     "learning_log": f"{_KERNEL}memory.py",
+    # J4 — one reading of an item's citations (the retired private readers: tier0._item_refs, judgment_funnel._item_cited_refs).
+    "item_citations": f"{_KERNEL}item_citations.py",
+    # J4 — one mixed-tree predicate (the retired private spellings: feedback_store._target_shas, ._common_target_sha).
+    "closing_tree": f"{_KERNEL}feedback_store.py",
     # SE-5 — the lifecycle state of an entity: current_lifecycle_state replays the entity's chain and is the only
     # reader of the lifecycle ledger; agent_invocations._target_is_shadow, a second unverified replay, is deleted.
     "lifecycle_state": f"{_KERNEL}genesis_lifecycle.py",
@@ -97,6 +113,21 @@ _PLANTED = {
         "append_declared_jsonl(root / 'memory' / 'learning-events.jsonl', row, expected_surface='memory_learning_events')\n",
         "append_jsonl(root / 'memory' / 'learning-events.jsonl', row)\n",
         "append_declared_jsonl(path, row, expected_surface='memory_learning_events')\n",
+    ),
+    # J4 — a second reader of the item's citations under the owner's name, the cited-line helper, and the two retired names.
+    "item_citations": (
+        "def item_cited_refs(item):\n    return []\n",
+        "def cited_line(item):\n    return None\n",
+        "def _item_refs(item):\n    return []\n",
+        "def _item_cited_refs(item):\n    return []\n",
+    ),
+    # J4 — a second mixed-tree predicate, a second reading of the common tree, and the two retired private spellings.
+    "closing_tree": (
+        "def tree_is_mixed(rows):\n    return False\n",
+        "def target_shas(rows):\n    return set()\n",
+        "def common_target_sha(rows):\n    return None\n",
+        "def _target_shas(rows):\n    return set()\n",
+        "def _common_target_sha(rows):\n    return None\n",
     ),
     # SE-5 — the claim-side SHADOW predicate agent_invocations carried (a second, unverified replay of the ledger),
     # and a second writer of the lifecycle ledger under its declared surface.
@@ -183,6 +214,70 @@ class APlantedSecondOwnerIsRed(unittest.TestCase):
 
     def test_the_owner_itself_is_not_an_offender(self) -> None:
         self.assertEqual(_generator().one_owner_offenders(_owner_sources()), [])
+
+
+_CITATIONS = "aria_kernel.item_citations"
+
+
+class TheCitationsOwnerIsAFoundationModule(unittest.TestCase):
+    """J4 E3 — the gate, the fan-out and the funnel cannot import each other, so the owner they share imports no kernel module.
+
+    The owner reaches ``evidence_trust.parse_evidence_ref`` lazily, inside the function that needs it: importing the
+    module in a fresh interpreter loads the package and the module and nothing else of the kernel."""
+
+    @staticmethod
+    def _source() -> str:
+        if importlib.util.find_spec(_CITATIONS) is None:
+            raise AssertionError(f"J4: {_CITATIONS} does not exist")
+        return (_REPO_ROOT / _KERNEL / "item_citations.py").read_text(encoding="utf-8")
+
+    def test_a_fresh_interpreter_imports_it_and_loads_no_other_kernel_module(self) -> None:
+        self._source()
+        code = (
+            "import json, sys\n"
+            f"sys.path.insert(0, {str(_REPO_ROOT / 'aria-kernel')!r})\n"
+            f"import {_CITATIONS}\n"
+            "print(json.dumps(sorted(name for name in sys.modules if name.split('.')[0] == 'aria_kernel')))\n"
+        )
+        done = subprocess.run([sys.executable, "-I", "-c", code], capture_output=True, text=True, check=False)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(json.loads(done.stdout), ["aria_kernel", _CITATIONS])
+
+    def test_no_import_of_a_kernel_module_sits_at_module_level(self) -> None:
+        tree = ast.parse(self._source())
+        module_level = [
+            ast.unparse(node) for node in tree.body
+            if (isinstance(node, ast.ImportFrom) and (node.level > 0 or str(node.module).split(".")[0] == "aria_kernel"))
+            or (isinstance(node, ast.Import) and any(alias.name.split(".")[0] == "aria_kernel" for alias in node.names))
+        ]
+        self.assertEqual(module_level, [])
+
+
+class AFifthReaderOfTheCitedLineIsRed(unittest.TestCase):
+    """R11 of the J4 conformance audit - the atlas must name the retired fifth reader.
+
+    ``system_one_points._cited_line`` read what an item cites (strings only, line 1 as the
+    fallback) beside the owner, so the shadow Jev asks were about another line than the
+    one the judges are handed. The ``item_citations`` family listed ``cited_line`` but
+    not that private name, so a second reader under it was invisible to the one-owner
+    scan. Planted the way every other forgery is: a forged module outside the owner that
+    defines ``_cited_line`` must be the one offender, of the ``item_citations`` family.
+    """
+
+    _SHAPES = (
+        "def _cited_line(item):\n    return None\n",
+        "def _cited_line(item: dict) -> tuple[str, int] | None:\n    return (item.get('path') or '', 1)\n",
+    )
+
+    def test_a_second_reader_named_cited_line_outside_the_owner_is_an_offender(self) -> None:
+        gen = _generator()
+        for shape in self._SHAPES:
+            with self.subTest(shape=shape.splitlines()[0]):
+                offenders = gen.one_owner_offenders({**_owner_sources(), _FORGED: shape})
+                self.assertEqual(
+                    [o for o in offenders if o.startswith(f"{_FORGED}:")],
+                    [f"{_FORGED}:1:item_citations"],
+                )
 
 
 if __name__ == "__main__":

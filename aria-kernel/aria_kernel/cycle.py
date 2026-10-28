@@ -2195,11 +2195,13 @@ def _phase_judgment_pipeline(context: PhaseContext) -> dict[str, Any]:
             # go to the arbiter, in the same phase that produced them. Runs
             # AFTER consensus so a group settled this tick is never arbitrated,
             # and per-tool containment keeps one bad tool off the batch.
+            # ARIA-HIGH-1084 — neither arbiter arm is handed the cycle's HEAD:
+            # each mints at the tree its group's seats judged (the consumer
+            # refuses a closing set of different trees), whatever HEAD became.
             arbitration = dispatch_arbiter_for_split_verdicts(
                 tool_id=tool_id,
                 base_dir=context.base_dir,
                 cycle_id=context.cycle_id,
-                target_sha=target_sha,
             )
             arbiter_requests += len(arbitration.get("minted") or [])
         except GovernanceError as exc:
@@ -2215,7 +2217,7 @@ def _phase_judgment_pipeline(context: PhaseContext) -> dict[str, Any]:
                 tool_id=tool_id,
                 base_dir=context.base_dir,
                 cycle_id=context.cycle_id,
-                target_sha=target_sha,
+                max_tp_pairs=int(pipeline_policy["anchor_tp_pairs_per_tool_per_cycle"]),
             )
             arbiter_requests += len(anchoring.get("minted") or [])
         except GovernanceError as exc:

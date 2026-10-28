@@ -147,28 +147,6 @@ def _item_recipe(item: Mapping[str, Any]) -> bool:
     return bool(str(item.get("recipe_id") or "").strip())
 
 
-def _item_refs(item: Mapping[str, Any]) -> list[tuple[str, str]]:
-    """The item's cited refs as (kind, ref) pairs, the sampler's shapes.
-
-    ``path`` (the finding's own file, no line), ``evidence`` entries as
-    strings (``path:line``) and as adapter dicts (``{"path", "line"}``).
-    """
-    refs: list[tuple[str, str]] = []
-    path = str(item.get("path") or "").strip()
-    if path:
-        refs.append(("path", path))
-    for entry in item.get("evidence") or []:
-        if isinstance(entry, str) and entry.strip():
-            refs.append(("evidence", entry.strip()))
-        elif isinstance(entry, Mapping):
-            entry_path = str(entry.get("path") or "").strip()
-            if entry_path:
-                line = entry.get("line")
-                ref = f"{entry_path}:{line}" if isinstance(line, int) and line > 0 else entry_path
-                refs.append(("evidence", ref))
-    return refs
-
-
 def _ref_path_and_line(ref: str) -> tuple[str, int | None]:
     from .evidence_trust import parse_evidence_ref
 
@@ -259,12 +237,13 @@ def tier0_gate(
         return _pass(NOTE_NO_ANCHOR, fingerprint, checks)
 
     from .evidence_probe import GitProbeSession
+    from .item_citations import CITED_PATH, item_cited_refs
 
     session = probe if probe is not None else GitProbeSession()
     root = Path(repo_root)
 
     # 3. Refs resolve at the SHA (path and, when named, line).
-    refs = _item_refs(item)
+    refs = item_cited_refs(item)
     blobs: dict[str, str] = {}
     for kind, ref in refs:
         rel, line = _ref_path_and_line(ref)
@@ -274,7 +253,7 @@ def tier0_gate(
             return _pass(NOTE_GIT_UNAVAILABLE, fingerprint, checks)
         if outcome.returncode != 0:
             return _reject(
-                REJECT_CITED_PATH_ABSENT if kind == "path" else REJECT_EVIDENCE_REF_ABSENT,
+                REJECT_CITED_PATH_ABSENT if kind == CITED_PATH else REJECT_EVIDENCE_REF_ABSENT,
                 f"{rel}@{target_sha[:12]}", fingerprint, checks,
             )
         text = outcome.stdout.decode("utf-8", errors="replace")

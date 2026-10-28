@@ -6,6 +6,7 @@ import os
 import re
 import time
 import uuid
+from collections.abc import Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -13,6 +14,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterator
 
 from .agent_priors import reviewer_names
+from .decision_stamp import DECISION_STAMP_FIELD, validate_decision_stamp
 from .finding_id_grammar import parse_finding_id
 from .implementation_rejections import VALID_IMPLEMENTATION_REJECTION_CLASSES, ImplementationSettlement
 from .independence_check import CROSS_REVIEW_SELF_AGREEMENT_REASON
@@ -1645,6 +1647,7 @@ def record_implementation_outcome(
     validation_results: list[dict[str, Any]],
     signer_key_fp: str,
     completed_at: str,
+    decision_stamp: Mapping[str, Any] | None = None,
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     """V9.2 — emit ``implementation_outcome_recorded`` event.
@@ -1659,6 +1662,12 @@ def record_implementation_outcome(
     the kernel-side ``verify_commit_signature`` cross-check happens
     via implementation_safety, not this validator (we don't want a
     state-machine validator that requires git access).
+
+    ``decision_stamp`` (F3.1, ARIA-LOW-741) is the executed route and the
+    numstat the executor stamped on the delivered change
+    (:mod:`aria_kernel.decision_stamp` owns the shape). The key is in the
+    payload only when a stamp is given, so an outcome recorded without one
+    keeps its exact bytes and its idempotency key.
     """
     _validate_id(plan_id, "plan_id")
     _require_non_empty(claim_id, "claim_id")
@@ -1680,6 +1689,8 @@ def record_implementation_outcome(
         "signer_key_fp": signer_key_fp,
         "completed_at": completed_at,
     }
+    if decision_stamp is not None:
+        payload[DECISION_STAMP_FIELD] = decision_stamp
     return _mutate(
         plan_id=plan_id,
         command_name="record-implementation-outcome",
@@ -2589,6 +2600,7 @@ def _apply_event(state: dict[str, Any], event: dict[str, Any]) -> None:
             "base_branch_sha": None,
             "started_at": None,
             "completed_at": None,
+            "decision_stamp": None,
             "merged_at": None,
             "rejected_at": None,
             "rejection_class": None,
@@ -2623,6 +2635,7 @@ def _apply_event(state: dict[str, Any], event: dict[str, Any]) -> None:
         impl["signer_key_fp"] = payload["signer_key_fp"]
         impl["base_branch_sha"] = payload["base_branch_sha"]
         impl["completed_at"] = payload.get("completed_at")
+        impl["decision_stamp"] = payload.get(DECISION_STAMP_FIELD)
     elif event_type == "implementation_merged":
         _require_mergeable(state, payload.get("merged_after_rejection"))
         if payload.get("merged_after_rejection") is not None:
@@ -3345,6 +3358,8 @@ def _validate_event(event: dict[str, Any]) -> None:
             raise GovernanceError("validation_results must be an array")
         _require_non_empty(payload.get("signer_key_fp"), "signer_key_fp")
         _require_non_empty(payload.get("base_branch_sha"), "base_branch_sha")
+        if DECISION_STAMP_FIELD in payload:
+            validate_decision_stamp(payload[DECISION_STAMP_FIELD])
     elif event_type == "implementation_merged":
         _require_non_empty(payload.get("merge_sha"), "merge_sha")
         _require_non_empty(payload.get("merged_at"), "merged_at")

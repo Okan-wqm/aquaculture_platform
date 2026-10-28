@@ -45,6 +45,15 @@ SINGLE_OWNER = {
     "python_source_facts": f"{_KERNEL}source_facts.py",
     # F1.1 — the learning journal: memory.record_learning_event, no other writer (goldset and pr_tracking routed).
     "learning_log": f"{_KERNEL}memory.py",
+    # F3.1 (ARIA-LOW-741, ARIA-MEDIUM-742) — the decision stamp's concepts, one owner each from the commit they land.
+    # Which (provider, model) executed a sealed response, and the one writer of the executor's route key.
+    "executed_route": f"{_KERNEL}independence_check.py",
+    # A change's per-path line counts: the one git call and the one parse (change_paths).
+    "change_churn": f"{_KERNEL}change_paths.py",
+    # The stamp's closed shape, its constructor, validator and readers.
+    "decision_stamp": f"{_KERNEL}decision_stamp.py",
+    # "this subject's change is in flight": the one fold the F loop guard reads.
+    "change_in_flight": f"{_KERNEL}finding_grounding.py",
 }
 
 # One planted second owner per family: a second writer of the family's ledger
@@ -76,6 +85,21 @@ _PLANTED = {
         "append_jsonl(root / 'memory' / 'learning-events.jsonl', row)\n",
         "append_declared_jsonl(path, row, expected_surface='memory_learning_events')\n",
     ),
+    # F3.1 — a second function under each computer name of a new family: the resolver, its caller-side wrapper and the
+    # key writer; the numstat parse; the stamp's constructor, validator and two readers; the in-flight fold.
+    "executed_route": (
+        "def executed_route(response, *, attempt_rows):\n    return None\n",
+        "def executed_route_of(response, *, base_dir):\n    return None\n",
+        "def stamp_dispatch_model(details, model):\n    details['agent_dispatch_model'] = model\n",
+    ),
+    "change_churn": ("def parse_change_z(output):\n    return (), None\n",),
+    "decision_stamp": (
+        "def build_decision_stamp(route, churn):\n    return {}\n",
+        "def validate_decision_stamp(stamp):\n    return None\n",
+        "def stamp_churn(stamp):\n    return {}\n",
+        "def stamp_route_key(stamp):\n    return 'unstamped'\n",
+    ),
+    "change_in_flight": ("def _in_flight_state(plan_id, tools_root, lifecycle):\n    return None\n",),
 }
 
 
@@ -86,10 +110,17 @@ def _generator() -> ModuleType:
 
 
 def _owner_sources() -> dict[str, str]:
-    return {path: (_REPO_ROOT / path).read_text(encoding="utf-8") for path in sorted(set(SINGLE_OWNER.values()))}
+    # An owner module that does not exist yet contributes no source here; ``test_every_owner_module_exists`` is what
+    # says so (by assertion), so one missing owner does not turn every planted-forgery test into a file error.
+    return {path: (_REPO_ROOT / path).read_text(encoding="utf-8")
+            for path in sorted(set(SINGLE_OWNER.values())) if (_REPO_ROOT / path).is_file()}
 
 
 class SingleOwnerFamiliesKeepOneOwner(unittest.TestCase):
+    def test_every_owner_module_exists(self) -> None:
+        missing = sorted(path for path in set(SINGLE_OWNER.values()) if not (_REPO_ROOT / path).is_file())
+        self.assertEqual(missing, [], "a single-owner family names an owner module that does not exist (F3.1: decision_stamp.py)")
+
     def test_no_second_writer_or_computer_exists(self) -> None:
         gen = _generator()
         self.assertEqual(gen.one_owner_offenders(gen.production_sources(_REPO_ROOT)), [],

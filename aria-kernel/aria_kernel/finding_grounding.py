@@ -116,9 +116,12 @@ GLOBAL_CAP_EXCEEDED = "f_finding_global_cap_exceeded"
 SUBJECT_QUARANTINED = "f_finding_subject_quarantined"
 SUBJECT_COOL_OFF = "f_finding_subject_cool_off"
 WATCHDOG_RESOLUTION_STREAK = "f_finding_watchdog_resolution_streak"
+# ARIA-MEDIUM-742 — one subject has one change in flight.
+SUBJECT_CHANGE_IN_FLIGHT = "f_finding_subject_change_in_flight"
 LOOP_GUARD_REASONS: tuple[str, ...] = (
     LOOP_HISTORY_UNAVAILABLE, SELF_LOOP_ORIGIN_SURFACE, SELF_LOOP_OWN_CHANGE, SELF_LOOP_WATCHDOG_RECENT,
     GLOBAL_CAP_EXCEEDED, SUBJECT_QUARANTINED, SUBJECT_COOL_OFF, WATCHDOG_RESOLUTION_STREAK,
+    SUBJECT_CHANGE_IN_FLIGHT,
 )
 # ADR-0003 prerequisites 3 and 5 name the watchdog's origin family and "the
 # last 3" closed / RESOLVED findings; both are the ADR's own terms.
@@ -164,6 +167,14 @@ class PlanRecord:
     # kernel could not attribute at all (`unclassified`): not a failure of the
     # finding, but counted (`UNVERIFIED_FAILURE_STREAK`).
     unverified_failed_at: datetime | None = None
+    # ARIA-MEDIUM-742 — the implementation-phase state of a plan whose change
+    # has not ended (requested, in flight, or recorded with its PR holding the
+    # delivered change); None for every other plan. See ``_in_flight_state``.
+    in_flight_state: str | None = None
+
+    @property
+    def change_in_flight(self) -> bool:
+        return self.in_flight_state is not None
 
     @property
     def f_sourced(self) -> bool:
@@ -360,6 +371,28 @@ def _declared_rows(path: Path, surface: str) -> list[dict[str, Any]]:
     return load_declared_jsonl(path, expected_surface=surface) if path.exists() else []
 
 
+def _in_flight_state(plan_id: str, tools_root: Path, lifecycle: list[dict[str, Any]]) -> str | None:
+    """The plan's implementation-phase state while its change has not ended, else None.
+
+    The state set is the plan ledger's (``IMPLEMENTATION_PHASE_STATES``), and
+    "a PR holds the delivered change" is the PR lifecycle ledger's answer
+    (``merge_record.pr_holds_change``), never inferred from the plan state: a
+    plan whose PR a person closed stays ``IMPLEMENTATION_RECORDED``. A plan
+    with no delivered tip recorded yet has no PR, so it holds its subject.
+    """
+    from .merge_record import pr_holds_change
+    from .plan_convergence import IMPLEMENTATION_PHASE_STATES, fold_plan_state
+
+    folded = fold_plan_state(plan_id=plan_id, base_dir=tools_root)
+    state = folded.get("state")
+    if state not in IMPLEMENTATION_PHASE_STATES:
+        return None
+    tip = (folded.get("implementation") or {}).get("branch_tip_sha")
+    if not tip or pr_holds_change(lifecycle, head_sha=tip):
+        return str(state)
+    return None
+
+
 def _fold_plans(tools_root: Path, now: datetime) -> tuple[PlanRecord, ...]:
     """Every started plan, its source and its outcome, from the plan ledger and the bindings.
 
@@ -383,6 +416,7 @@ def _fold_plans(tools_root: Path, now: datetime) -> tuple[PlanRecord, ...]:
     clock = provider_clock(tools_root)
     plans: dict[str, dict[str, Any]] = {}
     previous_at: dict[str, datetime] = {}
+    implementation_requested: list[str] = []
     for event in _declared_rows(tools_root / "plans" / "events.jsonl", "plan_convergence_events"):
         plan_id, kind = event.get("plan_id"), event.get("event_type")
         payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
@@ -402,6 +436,8 @@ def _fold_plans(tools_root: Path, now: datetime) -> tuple[PlanRecord, ...]:
             }
         elif plan_id not in plans:
             continue
+        elif kind == "implementation_requested":
+            implementation_requested.append(plan_id)
         elif kind == "implementation_merged":
             sha = payload.get("merge_sha")
             # ARIA-HIGH-390 (review of #1910, F6) — a merge after the kernel
@@ -417,6 +453,17 @@ def _fold_plans(tools_root: Path, now: datetime) -> tuple[PlanRecord, ...]:
                 plans[plan_id]["failed_at"] = at
             elif kind == "implementation_rejected" and payload.get("fault_domain") in UNVERIFIED_FAULT_DOMAINS:
                 plans[plan_id]["unverified_failed_at"] = at
+    if implementation_requested:
+        # Only the plans that are still active and saw an implementation request
+        # can hold a change; the rest of the ledger (history) is not folded.
+        from .merge_record import lifecycle_rows
+        from .plan_convergence import list_active_plans
+
+        active = set(list_active_plans(base_dir=tools_root))
+        pending = [plan_id for plan_id in dict.fromkeys(implementation_requested) if plan_id in active]
+        lifecycle = lifecycle_rows(tools_root) if pending else []
+        for plan_id in pending:
+            plans[plan_id]["in_flight_state"] = _in_flight_state(plan_id, tools_root, lifecycle)
     return tuple(PlanRecord(**fields) for fields in plans.values())
 
 
@@ -671,6 +718,13 @@ def _loop_refusal(
             if now - at < history.cool_off:
                 return SUBJECT_COOL_OFF, {"plan_id": plan.plan_id, **cause,
                                           "until": (at + history.cool_off).isoformat()}
+    # ARIA-MEDIUM-742 — one subject has one change in flight: a plan of this
+    # subject whose implementation was requested and whose change has not ended
+    # holds it. Last of the subject guards on purpose: it only refuses what used
+    # to be admitted, so no existing refusal changes its name.
+    for plan in own:
+        if plan.change_in_flight:
+            return SUBJECT_CHANGE_IN_FLIGHT, {"plan_id": plan.plan_id, "state": plan.in_flight_state}
     # Guard 3 — originating-skill self-loop: an ARIA-originated finding whose plan would
     # modify ARIA's own code, or a finding emitted after ARIA merged a change on its evidence.
     # A deferred write set (ARIA-HIGH-381) is not yet known, so every grounded surface counts.
@@ -760,6 +814,7 @@ __all__ = [
     "SELF_LOOP_ORIGIN_SURFACE",
     "SELF_LOOP_OWN_CHANGE",
     "SELF_LOOP_WATCHDOG_RECENT",
+    "SUBJECT_CHANGE_IN_FLIGHT",
     "SUBJECT_COOL_OFF",
     "UNVERIFIED_FAILURE_STREAK",
     "SUBJECT_QUARANTINED",

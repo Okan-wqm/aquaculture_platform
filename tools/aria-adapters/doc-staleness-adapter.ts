@@ -377,6 +377,16 @@ const STATUS_HEADER_RES: readonly RegExp[] = [
   new RegExp(`^\\s*\\|\\s*${STATUS_LABEL}\\s*\\|\\s*${STATUS_VALUE}(?:\\||$)`, 'i'),
 ];
 
+// The repo's own banner for a document that stays live authority although its name reads like a record
+// (`docs/aria/SPEC.md` is named for a spec and delegates its stale statements to CURRENT_STATE). It outranks the
+// file-name guess ONLY: a record directory, a dated name, an archive path, a historical marker or a status header
+// still make a record. A whole token, so `ARIA-LIVE-AUTHORITY-NOT` and `XARIA-LIVE-AUTHORITY` are other words.
+const LIVE_AUTHORITY_BANNER_RE = /(?<![\p{L}\p{N}_-])ARIA-LIVE-AUTHORITY(?![\p{L}\p{N}_-])/u;
+
+function carriesLiveAuthorityBanner(lines: readonly string[]): boolean {
+  return lines.slice(0, MARKER_HEAD_LINES).some((line) => LIVE_AUTHORITY_BANNER_RE.test(line));
+}
+
 export function isPointInTimeRecord(docRel: string, lines: readonly string[]): boolean {
   const segments = normalizeWorkspacePath(docRel).split('/');
   return (
@@ -384,10 +394,11 @@ export function isPointInTimeRecord(docRel: string, lines: readonly string[]): b
     segments.some(
       (segment) => RECORD_DIR_SEGMENTS.has(segment) || DATED_SEGMENT_RE.test(segment),
     ) ||
-    segments[segments.length - 1]
-      .toLowerCase()
-      .split(NAME_SEPARATOR_RE)
-      .some((token) => RECORD_NAME_TOKENS.has(token)) ||
+    (!carriesLiveAuthorityBanner(lines) &&
+      segments[segments.length - 1]
+        .toLowerCase()
+        .split(NAME_SEPARATOR_RE)
+        .some((token) => RECORD_NAME_TOKENS.has(token))) ||
     lines
       .slice(0, MARKER_HEAD_LINES)
       .some((line) => RECORD_MARKERS.some((marker) => line.includes(marker))) ||

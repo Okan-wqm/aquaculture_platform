@@ -116,6 +116,12 @@ FAMILIES: dict[str, Family] = {
     # (judge_fanout._group_tree) both ask it (the retired private spellings: feedback_store._target_shas, ._common_target_sha).
     "closing_tree": Family("judgment", f"{_K}feedback_store.py:tree_is_mixed",
                            ("tree_is_mixed", "target_shas", "common_target_sha", "_target_shas", "_common_target_sha")),
+    # D9a (ARIA-HIGH-758, ARIA-MEDIUM-761): "a known defect was hit or missed, a clean commit was alarmed" is one fold
+    # over (cases, reports) with one matcher (same file, lines overlap the defect's widened by the caller's window, the
+    # class when the defect names one); the zoo scorer (D3) and the gold-corpus block (D9) are its callers (the retired
+    # matchers: role_fitness._claim_hits, ._reports_hit).
+    "discovery_scoring": Family("learning-memory", f"{_K}role_fitness.py:_score_known_defects",
+                                ("_score_known_defects", "_defect_is_hit", "_claim_hits", "_reports_hit")),
     # F3.3a: the merge index and "which merges are ARIA's" have one reader, merge_record (ARIA-MEDIUM-746).
     "merge_index": Family("planning-impl", f"{_K}merge_record.py:fold_merged_rows",
                           ("fold_merged_rows", "merged_rows_by_change", "arias_merges")),

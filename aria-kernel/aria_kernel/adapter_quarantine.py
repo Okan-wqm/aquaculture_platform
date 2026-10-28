@@ -20,15 +20,14 @@ one audited way out, and the block only ever drives the way in.
 """
 from __future__ import annotations
 
-import re
 from pathlib import Path
 from typing import Any
 
+from .finding_id_grammar import parse_finding_id
 from .report_ingestion import read_registry_view
 from .tool_registry import GovernanceError, get_tool
 
 QUARANTINE_FIELDS: tuple[str, ...] = ("finding", "reason")
-_FINDING_ID_RE = re.compile(r"^[A-Z]+(?:-[A-Z]+)*-(?:CRITICAL|HIGH|MEDIUM|LOW)-\d+$")
 MANIFEST_QUARANTINE_PREFIX = "manifest_quarantine"
 # A quarantine stands on a finding that is still unresolved.
 UNRESOLVED_FINDING_STATES = frozenset({"OPEN", "IN-PROGRESS"})
@@ -41,7 +40,7 @@ def validate_manifest_quarantine(block: Any, *, tool_id: str) -> dict[str, str]:
         raise GovernanceError(f"{where}: fields must be exactly {QUARANTINE_FIELDS}")
     finding = block["finding"]
     reason = block["reason"]
-    if not isinstance(finding, str) or not _FINDING_ID_RE.match(finding):
+    if not isinstance(finding, str) or parse_finding_id(finding) is None:
         raise GovernanceError(f"{where}: finding must be a registry finding id, got {finding!r}")
     if not isinstance(reason, str) or not reason.strip():
         raise GovernanceError(f"{where}: reason must be a non-empty string")

@@ -1810,8 +1810,9 @@ format:check`, since ARIA-HIGH-149 `node tools/quality/quality.mjs format check-
   the implementation envelope as a structured field, the prompt prints it under `## Commit contract`,
   and the pre-PR-open check `commit_contract_honoured` (`HardFailContext.commit_contract` +
   `branch_commits`, supplied by `pr_manager.open_pr_for_action`) refuses a branch whose commits carry
-  anything else. The mirrored gate rules (`REQUIRE_CLOSES_SUBJECT_RE`, `CLOSES_TRAILER_RE`) are pinned
-  against `tools/gates/commit-msg-validator.ts` by `tests/test_plan_origin_commit_contract.py`.
+  anything else. The mirrored gate rules are pinned against `tools/gates/commit-msg-validator.ts`:
+  `REQUIRE_CLOSES_SUBJECT_RE` by `tests/test_plan_origin_commit_contract.py`, `CLOSES_TRAILER_RE`
+  (whole, the grammar owner's id source in the gate's placeholder) by `tests/test_closes_trailer_frame.py`.
 - **One `must_satisfy` item shape.** `aria_kernel/must_satisfy.py`: `{id, description, kind?, ...data}`,
   built through `must_satisfy_item`, validated by `validate_must_satisfy` (which
   `agent_contract._ensure_must_satisfy` and the queue's mint both call), rendered through
@@ -2963,8 +2964,10 @@ submit-result`, the drain's `agent next-pending`, the worker lane's `worker list
   `base_branch_sha` (the staged base), `diff_hash` (over `git diff <base> <tip>`), `pr_url`,
   `pr_number`, `validation_gate_ref` and `validation_results` (the gate's recorded runs, read back
   through the ledger's verifier: command, exit code, run id, log hash, bounded output) —
-  `KERNEL_STAMPED_DELIVERY_FIELDS`. The agent contract asks for none of them; a value the agent
-  wrote is replaced and a differing one recorded (`implementation_delivery_overridden`:
+  `KERNEL_STAMPED_DELIVERY_FIELDS`. The executor also stamps `decision_stamp` (the executed
+  route and the change's numstat; shape owned by `decision_stamp.py`) by the same rule, outside
+  that tuple on purpose (the agent contract quotes the tuple). The agent contract asks for none
+  of them; a value the agent wrote is replaced and a differing one recorded (`implementation_delivery_overridden`:
   `agent_supplied`, `kernel`). Governance: `implementation_delivered` on success;
   `implementation_delivery_refused` (`stage` ∈ `DELIVERY_STAGES` = `branch_publication` /
   `commit_identity` / `admission` / `change_ledger` / `result_admissible` / `apply_gate` /

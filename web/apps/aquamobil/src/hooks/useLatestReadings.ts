@@ -12,15 +12,17 @@
 //      timestamp — the input the DataFreshness stamp needs (a value without an
 //      age is not actionable),
 //   4. polls while mounted, and serves the last-known snapshot from the
-//      encrypted tenant cache when offline (with its honest, stale timestamps)
-//      instead of rendering an empty card that reads as "no problem".
+//      encrypted offline cache when the server cannot be reached (with its
+//      honest, stale timestamps) instead of rendering an empty card that reads
+//      as "no problem"; a refusal never does (MOB-MEDIUM-031).
 
 import { useQuery } from '@tanstack/react-query';
 
 import { useAuth } from './useAuth';
+import { useOfflineCacheScope } from './useOfflineCacheScope';
 
 import { MOBILE_LATEST_READINGS_BATCH, MOBILE_TANK_SENSORS } from '@/graphql/sensor-operations';
-import { cacheData, getCachedData } from '@/pwa/offline-queue';
+import { readThroughOfflineCache } from '@/pwa/offline-cache';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
@@ -110,6 +112,7 @@ function flattenToMetrics(rows: readonly ReadingRow[]): LiveMetric[] {
 
 export function useLatestReadings(tankId: string | undefined): UseLatestReadingsResult {
   const { tenantId } = useAuth();
+  const cacheScope = useOfflineCacheScope();
   const offlineCacheKey = `readings_${tankId ?? 'none'}`;
 
   const query = useQuery({
@@ -118,32 +121,26 @@ export function useLatestReadings(tankId: string | undefined): UseLatestReadings
     refetchInterval: READINGS_REFETCH_INTERVAL_MS,
     queryFn: async (): Promise<ReadingsSnapshot> => {
       if (!tenantId || !tankId) return { metrics: [], hasSensors: false };
-      try {
-        const sensorsData = await graphqlRequest(MOBILE_TANK_SENSORS, { tankId });
-        const sensors = sensorsData.sensorRawList;
-        if (sensors.length === 0) {
-          const snapshot: ReadingsSnapshot = { metrics: [], hasSensors: false };
-          await cacheData(tenantId, offlineCacheKey, snapshot, READINGS_CACHE_TTL_MS);
-          return snapshot;
-        }
-
-        const readingsData = await graphqlRequest(MOBILE_LATEST_READINGS_BATCH, {
-          sensorIds: sensors.map((sensor) => sensor.id),
-        });
-        const snapshot: ReadingsSnapshot = {
-          metrics: flattenToMetrics(readingsData.latestReadingsBatch),
-          hasSensors: true,
-        };
-        await cacheData(tenantId, offlineCacheKey, snapshot, READINGS_CACHE_TTL_MS);
-        return snapshot;
-      } catch (error) {
-        // Offline: the last-known snapshot (with its honest, old timestamps —
-        // DataFreshness will show them red) beats an empty card that reads as
-        // "nothing to worry about".
-        const cached = await getCachedData<ReadingsSnapshot>(tenantId, offlineCacheKey);
-        if (cached) return cached;
-        throw error;
-      }
+      // Unreachable server: the last-known snapshot (with its honest, old
+      // timestamps — DataFreshness will show them red) beats an empty card that
+      // reads as "nothing to worry about".
+      const read = await readThroughOfflineCache(
+        cacheScope,
+        { key: offlineCacheKey, ttlMs: READINGS_CACHE_TTL_MS },
+        async (): Promise<ReadingsSnapshot> => {
+          const sensorsData = await graphqlRequest(MOBILE_TANK_SENSORS, { tankId });
+          const sensors = sensorsData.sensorRawList;
+          if (sensors.length === 0) return { metrics: [], hasSensors: false };
+          const readingsData = await graphqlRequest(MOBILE_LATEST_READINGS_BATCH, {
+            sensorIds: sensors.map((sensor) => sensor.id),
+          });
+          return {
+            metrics: flattenToMetrics(readingsData.latestReadingsBatch),
+            hasSensors: true,
+          };
+        },
+      );
+      return read.data;
     },
   });
 

@@ -13,6 +13,7 @@ import { JwtService } from '@nestjs/jwt';
 import { NextFunction, Request, Response } from 'express';
 
 import { TOKEN_BLACKLIST_STORE, TokenBlacklistStore } from '../guards/redis-token-blacklist.store';
+import { recordModuleAccessClaim } from '../metrics/module-access-claim.metrics';
 import { AuthenticatedRequest, JwtPayload } from '../types/index';
 
 @Injectable()
@@ -89,6 +90,8 @@ export class JwtMiddleware implements NestMiddleware {
       // Set user on request - this will be available in GraphQL context
       request.user = payload;
       request.jwtAuthenticationFailure = undefined;
+      // PKG-04 accept (RBAC-HIGH-028): count the token by its moduleAccess claim.
+      recordModuleAccessClaim(payload.moduleAccess);
 
       this.logger.debug(JSON.stringify({ event: 'gateway_jwt_authenticated' }));
     } catch (error) {

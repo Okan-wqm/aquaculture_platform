@@ -23,8 +23,9 @@ import { AppHeader } from '@/components/AppHeader';
 import { Card, Chip, EmptyState, IconButton, Spinner } from '@/components/ui';
 import { STOCK_AT_LOCATION, STORAGE_LOCATIONS } from '@/graphql/storage-operations';
 import { useAuth } from '@/hooks/useAuth';
+import { useOfflineCacheScope } from '@/hooks/useOfflineCacheScope';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
-import { cacheData, getCachedData } from '@/pwa/offline-queue';
+import { readThroughOfflineCache } from '@/pwa/offline-cache';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
@@ -96,6 +97,7 @@ function formatExpiryDate(dateStr: string): string {
 export function StockViewPage(): JSX.Element {
   const navigate = useNavigate();
   const { accessToken, tenantId, isAuthenticated } = useAuth();
+  const cacheScope = useOfflineCacheScope();
   const { isOnline } = useOfflineQueue();
   const queryClient = useQueryClient();
 
@@ -136,26 +138,21 @@ export function StockViewPage(): JSX.Element {
   } = useQuery<StockItem[]>({
     queryKey: createTenantQueryKey(tenantId, 'stock-at-location', selectedLocationId, tenantId),
     queryFn: async () => {
-      // WHY guard tenantId here: `enabled` below already gates this query on
-      // `!!tenantId`, so the query never runs without one — but the type system
-      // can't see that. Narrowing to a non-null const both satisfies the type
-      // checker for the tenant-isolated cache calls (FE-CRITICAL-002) and fails
-      // loudly if the precondition is ever broken by a future refactor.
-      if (!tenantId) {
-        throw new Error('StockViewPage: tenantId missing despite enabled gate');
-      }
-      // Attempt server fetch first
-      if (isOnline) {
-        const result = await graphqlRequest(STOCK_AT_LOCATION, { locationId: selectedLocationId });
-        const items = result.storageInventory ?? [];
-        // Cache for offline viewing (1-hour TTL, acceptable staleness for stock counts)
-        // SECURITY (FE-CRITICAL-002): tenantId required for tenant-isolated caching
-        await cacheData(tenantId, stockCacheKey(selectedLocationId), items, 1000 * 60 * 60);
-        return items;
-      }
-      // Offline: load from cache
-      const cached = await getCachedData<StockItem[]>(tenantId, stockCacheKey(selectedLocationId));
-      return cached ?? [];
+      // Server first; the offline copy (1-hour TTL, acceptable staleness for stock
+      // counts) stands in only when the server cannot be reached, and a refusal
+      // purges it (MOB-MEDIUM-031). Offline without a copy is an error — the
+      // shelf is unknown, not empty.
+      const read = await readThroughOfflineCache(
+        cacheScope,
+        { key: stockCacheKey(selectedLocationId), ttlMs: 1000 * 60 * 60 },
+        async (): Promise<StockItem[]> => {
+          const result = await graphqlRequest(STOCK_AT_LOCATION, {
+            locationId: selectedLocationId,
+          });
+          return result.storageInventory ?? [];
+        },
+      );
+      return read.data;
     },
     enabled: !!selectedLocationId && isAuthenticated && !!accessToken && !!tenantId,
     staleTime: 1000 * 60 * 5,
@@ -325,7 +322,7 @@ export function StockViewPage(): JSX.Element {
                         <p className="text-meta text-ink-3 mt-0.5">{item.itemType}</p>
                       </div>
                       <div className="text-right ml-3">
-                        <span className="text-head font-mono font-bold text-ink-1 tabular-nums">
+                        <span className="text-head font-bold text-ink-1 tabular-nums">
                           {item.quantity}
                         </span>
                         <span className="text-meta text-ink-3 ml-1">{item.unit}</span>

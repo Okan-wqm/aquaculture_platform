@@ -176,7 +176,7 @@ Memory exhaustion protection added to all PLC protocols:
 
 ## What's New in v1.2.0
 
-- **Modbus TLS/mTLS Support**: Encrypted Modbus TCP with rodbus (IEC 62443 SL2 FR4)
+- **Modbus TLS/mTLS Support**: Encrypted Modbus TCP over TLS (IEC 62443 SL2 FR4)
 - **Parallel Modbus Reads**: Concurrent device polling with `read_all_parallel()`
 - **Circuit Breaker Half-Open Permits**: Limited concurrent requests during recovery
 - **Cron Wrap-Around Ranges**: Night schedules like `22-6` now work correctly

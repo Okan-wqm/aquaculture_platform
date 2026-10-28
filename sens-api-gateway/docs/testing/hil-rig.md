@@ -4,7 +4,7 @@
 
 ## 1. Status: NO COVERAGE — plan Q3 2026
 
-- **No HIL rig exists in production today.** Every protocol claim in the integration chapter is validated by code-level mocks (`rumqttd`, `rodbus::server`, `wiremock`), not by real SBCs talking to real PLCs.
+- **No HIL rig exists in production today.** Every protocol claim in the integration chapter is validated by code-level mocks (`rumqttd`, in-process `tokio-modbus` server, `wiremock`), not by real SBCs talking to real PLCs.
 - **Owner:** edge-platform team (lead TBD).
 - **Deadline:** Q3 2026, ahead of the IEC 62443 SL2 certification window (Q4 2026).
 - **Budget:** capital + per-quarter consumables (sensors, cabling, test PLCs). Detailed BoM in §3.
@@ -26,7 +26,7 @@ The agent binary supports the following SBCs and IPCs. The HIL rig must cover ea
 
 ## 3. Peripheral simulators
 
-- **Modbus TCP/RTU server:** `libmodbus` server binary + `DSIM` PLC simulator; or the `rodbus::server` harness running on a second SBC.
+- **Modbus TCP/RTU server:** `libmodbus` server binary + `DSIM` PLC simulator; or a `tokio-modbus` server harness running on a second SBC.
 - **OPC UA server:** Prosys OPC UA Simulation Server (reference), `open62541` server (OSS), or UA Expert test server.
 - **S7 PLC simulator:** Siemens PLCSIM Advanced (licensed) or `snap7` `server` component.
 - **EtherNet/IP CIP responder:** Rockwell `RSLogix Emulate` (licensed) or OSS CIP responder.
@@ -73,7 +73,7 @@ Each scenario has an acceptance criterion. Failure to meet the criterion is a re
 ## 7. Evidence links (source-side primitives that the rig exercises)
 
 - `src/hardware_scanner.rs` — hardware probe path (10 unit tests); HIL confirms the probe against real devices.
-- `src/modbus.rs` — Modbus client (11 unit tests, `rodbus = "=1.4.0"` pinned at `Cargo.toml:70`).
+- `src/modbus.rs` — Modbus client (unit tests + in-process `tokio-modbus` server transport tests; `tokio-modbus = "~0.17"` at `Cargo.toml:88`).
 - `src/plc_programming/s7comm.rs` — S7 client (11 unit tests).
 - `src/plc_programming/ethernet_ip.rs` — CIP client (13 unit tests).
 - `src/plc_programming/opcua.rs` — OPC UA client (45 unit tests).

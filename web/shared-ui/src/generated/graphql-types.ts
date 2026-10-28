@@ -380,6 +380,7 @@ export type AlertHistoryOrder =
 /** The platform module an alarm originates in */
 export type AlertModule =
   | 'FARM'
+  | 'HR'
   | 'HYDROPONICS'
   | 'SENSOR';
 
@@ -7661,6 +7662,7 @@ export type HrDashboardStats = {
 /** Module a department belongs to; unset means company-wide */
 export type HrModuleCode =
   | 'FARM'
+  | 'HR'
   | 'HYDROPONICS'
   | 'SENSOR';
 
@@ -9280,6 +9282,7 @@ export type MattilsynetStatus = {
 };
 
 export type MePayload = {
+  moduleAccess: ModuleAccess;
   modules: Array<UserModule>;
   redirectPath: Scalars['String']['output'];
   tenantName?: Maybe<Scalars['String']['output']>;
@@ -9534,6 +9537,17 @@ export type ModelCount = {
   count: Scalars['Int']['output'];
   model: DeviceModel;
 };
+
+export type ModuleAccess = {
+  farm?: Maybe<ModuleRole>;
+  hr?: Maybe<ModuleRole>;
+  hydroponics?: Maybe<ModuleRole>;
+  sensor?: Maybe<ModuleRole>;
+};
+
+export type ModuleRole =
+  | 'MODULE_MANAGER'
+  | 'MODULE_USER';
 
 export type ModuleUsageStatResponse = {
   actionsLastMonth: Scalars['Int']['output'];
@@ -14671,6 +14685,7 @@ export type PermissionOverridesInput = {
 
 export type PermissionResource = {
   actions: Array<Scalars['String']['output']>;
+  key: Scalars['String']['output'];
   name: Scalars['String']['output'];
 };
 

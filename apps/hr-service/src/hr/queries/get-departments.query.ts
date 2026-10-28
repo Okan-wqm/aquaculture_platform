@@ -1,11 +1,11 @@
-import { HrModuleCode } from '../../common/enums';
+import type { OwnerModuleCode } from '@aquaculture/shared-contracts';
 
 export class GetDepartmentsQuery {
   constructor(
     public readonly tenantId: string,
     public readonly siteId?: string,
     public readonly isDeleted?: boolean,
-    public readonly moduleCode?: HrModuleCode,
+    public readonly moduleCode?: OwnerModuleCode,
   ) {}
 }
 

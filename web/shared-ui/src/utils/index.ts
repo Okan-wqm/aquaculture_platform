@@ -49,6 +49,8 @@ export {
   backendHealthCircuit,
   refetchWhenBackendHealthy,
 } from './backend-health-circuit';
+// FE-MEDIUM-380: the shell's build-skew check listens; the GraphQL clients report.
+export { onGraphqlValidationFailure } from './graphql-validation-signal';
 
 // Tarih Yardımcıları
 export {

@@ -25,15 +25,14 @@ import {
 import { useMemo } from 'react';
 
 import { useAuth } from './useAuth';
+import { useOfflineCacheScope } from './useOfflineCacheScope';
 
 import { GET_MESSAGES } from '@/graphql/messaging-operations';
-import { cacheUserData, getCachedUserData } from '@/pwa/offline-queue';
+import { readThroughOfflineCache } from '@/pwa/offline-cache';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import type { Message, MessagePage } from '@/types/messaging';
-import { logger } from '@/utils/logger';
 import { flattenMessagePages } from '@/utils/messaging-helpers';
 import { messagesQueryKey } from '@/utils/messaging-query-keys';
-import { userScopedCacheKey } from '@/utils/user-scoped-cache-key';
 
 /** Messages per page (cursor-based). */
 const PAGE_SIZE = 40;
@@ -105,6 +104,7 @@ export function useMessages(
   _socketRef?: React.RefObject<MessagesSocketLike | null>,
 ): UseMessagesReturn {
   const { isAuthenticated, tenantId, user } = useAuth();
+  const cacheScope = useOfflineCacheScope();
 
   const query = useInfiniteQuery({
     // WHY 2026-04-29: message pages participate in tenant-switch cleanup and
@@ -118,33 +118,21 @@ export function useMessages(
     // prefix — and thus the no-bare-tenant-query-key discipline — by construction.
     queryKey: messagesQueryKey(tenantId, user?.id, channelId),
     queryFn: async ({ pageParam }: { pageParam: string | null }) => {
-      const userId = user?.id;
       // WHY guard-throw: `enabled` gates execution on channelId but does not
       // narrow its type. An explicit throw narrows it without a non-null assertion.
       if (!channelId) throw new Error('useMessages: channelId is required');
-      try {
-        const page = await fetchMessages(channelId, pageParam);
-        // Cache first page in IndexedDB for offline. MT-CRITICAL-051: the cache
-        // namespace embeds user.id — the offline fallback below serves cached
-        // messages WITHOUT re-checking channel membership, so a tenant+channel
-        // key would let user B deep-link channel X offline and read user A's
-        // cached messages on a shared device. cacheUserData keeps tenant isolation.
-        if (!pageParam && tenantId && userId) {
-          const cacheKey = userScopedCacheKey(userId, `${CACHE_KEY_PREFIX}${channelId}`);
-          await cacheUserData(tenantId, cacheKey, page, CACHE_TTL_MS).catch((error: unknown) => {
-            logger.error('[useMessages] failed to cache message page for offline fallback', error);
-          });
-        }
-        return page;
-      } catch (error) {
-        // On first page, fall back to the per-user IndexedDB cache.
-        if (!pageParam && tenantId && userId) {
-          const cacheKey = userScopedCacheKey(userId, `${CACHE_KEY_PREFIX}${channelId}`);
-          const cached = await getCachedUserData<MessagePage>(tenantId, cacheKey);
-          if (cached) return cached;
-        }
-        throw error;
-      }
+      // Later pages are never cached: the offline copy is the first page.
+      if (pageParam) return fetchMessages(channelId, pageParam);
+      // MT-CRITICAL-051 / MOB-MEDIUM-031: the offline copy serves cached messages
+      // WITHOUT re-checking channel membership, so it lives in the caller's scope
+      // (tenant + user + grants): user B deep-linking channel X offline never
+      // reads user A's copy on a shared device, and a refusal purges it.
+      const read = await readThroughOfflineCache(
+        cacheScope,
+        { key: `${CACHE_KEY_PREFIX}${channelId}`, ttlMs: CACHE_TTL_MS },
+        () => fetchMessages(channelId, null),
+      );
+      return read.data;
     },
     initialPageParam: null as string | null,
     getNextPageParam: (lastPage: MessagePage) => (lastPage.hasMore ? lastPage.cursor : undefined),

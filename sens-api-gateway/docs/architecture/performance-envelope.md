@@ -43,7 +43,7 @@ The agent is explicitly tuned for edge hardware, not for server-class machines. 
 | Worker threads | 2 | Edge devices in the EdgeLite class have 4 cores; leaving 2 cores for OS / script engine LocalSet / logging is practical. |
 | Max blocking threads | 8 | Upper bound on concurrent SQLite blocking ops (RETAIN DB + SCADA DB + offline queue + backup). |
 | Thread stack size | 128 KB | Embedded-friendly; default Tokio stack (2 MB) would exhaust RAM on EdgeLite with 20+ tasks. |
-| `LocalSet` | 1 | Hosts non-Send drivers (rodbus 1.4 Modbus client). |
+| `LocalSet` | 1 | Hosts the I/O actors (`ModbusActor`, `GpioActor`, `I2cActor`). |
 
 These values are **load-bearing for the RAM budget** — they put a hard ceiling on thread-side memory usage (worker + blocking × 128 KB ≈ 1.3 MB stack overhead).
 
@@ -188,7 +188,7 @@ The metrics that would report these numbers at runtime are published through the
 
 ## Evidence
 
-- `sens-api-gateway/Cargo.toml:3` (version), `:70` (rodbus pin), `:94` (SQLCipher), `:110` (flate2 gzip), `:207` (libc for mlock), `:234` (tracing-journald), `:310-311` (Prometheus metrics deps, feature), `:417-419` (criterion + proptest), `:421-426` (release profile)
+- `sens-api-gateway/Cargo.toml:3` (version), `:88` (tokio-modbus pin), `:94` (SQLCipher), `:110` (flate2 gzip), `:207` (libc for mlock), `:234` (tracing-journald), `:310-311` (Prometheus metrics deps, feature), `:417-419` (criterion + proptest), `:421-426` (release profile)
 - `sens-api-gateway/src/main.rs:471-477` (Tokio runtime parameters), `:559` (`LocalSet`), `:665-709` (systemd watchdog heartbeat), `:890` (shutdown timeout), `:1118-1151` (boot safe-state), `:1414-1430` (shutdown safe-state), `:1432-1447` (offline queue checkpoint), `:1499-1502` (offline status publish)
 - `sens-api-gateway/src/scripting/engine.rs` (ExecutionResult, ScanCycleStats types)
 - `sens-api-gateway/src/scripting/limits.rs` (limit enforcement types)

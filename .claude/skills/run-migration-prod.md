@@ -1,6 +1,6 @@
 ---
 name: run-migration-prod
-description: Execute a migration against production — hard `DATABASE_MIGRATIONS_RUN=false` invariant + per-tenant runner + blue-green 3-step discipline + smoke test + rollback runbook path
+description: Execute a migration against production — hard `DATABASE_MIGRATIONS_RUN=false` invariant + per-tenant runner + Blue-green safety discipline (`docs/runbooks/migration-authoring.md`, ADR-053) + smoke test + rollback runbook path
 type: skill
 version: 1
 status: reference-only

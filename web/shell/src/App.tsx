@@ -17,6 +17,7 @@ import LoginPage from './pages/LoginPage';
 import SettingsPage from './pages/SettingsPage';
 import NotFoundPage from './pages/NotFoundPage';
 import ErrorBoundary from './components/ErrorBoundary';
+import { useBuildSkewReload } from './shell/useBuildSkewReload';
 
 // ============================================================================
 // Lazy Loaded Remote Modules
@@ -64,6 +65,9 @@ const TenantAdminModule = lazy(() => import('tenantAdmin/Module'));
 
 const App: React.FC = () => {
   const { pathname, search } = useLocation();
+  // FE-MEDIUM-380: an open tab reloads onto a newly deployed build — on navigation, on a
+  // GraphQL validation failure, and (at the next navigation) after regaining focus.
+  useBuildSkewReload();
   return (
     // FE-HIGH-017: the page's identity — the frame each route renders in
     // (ConsoleShell, AdminConsole, the auth forms) names its page through

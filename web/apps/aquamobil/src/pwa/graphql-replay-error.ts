@@ -11,8 +11,10 @@
  * with no reason a user could act on. The code is the server's own verdict;
  * the message stays for display only.
  *
- * Shared by the foreground executor (useOfflineQueue) and the service-worker
- * executor (sw-replay) so both lanes record the same `lastErrorCode`.
+ * Thrown by replay-response.ts, the one reader every replay lane (the
+ * foreground executor and its media lane, the service-worker executor) reads
+ * its answer through, so every lane records the same `lastErrorCode` — on a
+ * non-2xx answer too (PKG-42).
  */
 
 /**

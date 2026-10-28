@@ -1,7 +1,7 @@
 import type {
+  ActiveOwnerModuleCode,
   AiPersonaTier,
   AiSpecialtyId,
-  AiSpecialtyModule,
 } from '@aquaculture/shared-contracts';
 import type { ActuationPolicy } from '../../tools/core/tool.interface';
 
@@ -69,5 +69,5 @@ export interface AgentSpecialty {
   readonly toolNames: readonly string[];
   readonly promptFragment: string;
   readonly actuationCap: ActuationPolicy;
-  readonly requiresModule: AiSpecialtyModule | null;
+  readonly requiresModule: ActiveOwnerModuleCode | null;
 }

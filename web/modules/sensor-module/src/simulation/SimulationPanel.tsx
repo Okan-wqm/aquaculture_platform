@@ -140,7 +140,7 @@ const BoolDisplay: React.FC<{ value: boolean }> = ({ value }) => (
       }`}
     />
     <span
-      className={`font-mono text-xs ${value ? 'text-success-600 dark:text-success-400' : 'text-gray-500 dark:text-gray-500'}`}
+      className={`text-xs ${value ? 'text-success-600 dark:text-success-400' : 'text-gray-500 dark:text-gray-500'}`}
     >
       {value ? 'TRUE' : 'FALSE'}
     </span>
@@ -152,7 +152,7 @@ const BoolDisplay: React.FC<{ value: boolean }> = ({ value }) => (
 // ────────────────────────────────────────────────────────────────────────────
 
 const INPUT_CLASS =
-  'px-1.5 py-0.5 text-xs font-mono rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-hidden focus:ring-1 focus:ring-primary-500';
+  'px-1.5 py-0.5 text-xs tabular-nums rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-hidden focus:ring-1 focus:ring-primary-500';
 
 const VariableControl: React.FC<{
   variable: VariableInfo;
@@ -201,7 +201,7 @@ const VariableControl: React.FC<{
 
   // Fallback: read-only display
   return (
-    <span className="text-xs font-mono text-gray-600 dark:text-gray-500">{String(value)}</span>
+    <span className="text-xs tabular-nums text-gray-600 dark:text-gray-500">{String(value)}</span>
   );
 };
 
@@ -213,7 +213,7 @@ const VariableValue: React.FC<{ variable: VariableInfo }> = ({ variable }) => {
   }
 
   return (
-    <span className="text-xs font-mono text-gray-900 dark:text-gray-200">
+    <span className="text-xs tabular-nums text-gray-900 dark:text-gray-200">
       {typeof value === 'number' ? value.toFixed(isRealType(dataType) ? 3 : 0) : String(value)}
     </span>
   );
@@ -476,7 +476,7 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ code }) => {
           {/* Cycle counter */}
           <span className="text-gray-600 dark:text-gray-500">
             Cycle:{' '}
-            <span className="font-mono font-semibold text-gray-900 dark:text-gray-200">
+            <span className="tabular-nums font-semibold text-gray-900 dark:text-gray-200">
               {cycleCount}
             </span>
           </span>

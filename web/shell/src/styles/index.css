@@ -7,6 +7,11 @@
 /* Design-system tokens — Tailwind v4 CSS-first SSoT. */
 @import '../../../shared-ui/src/styles/theme.css';
 
+/* The type faces the tokens name, served from web/shell/public/fonts. The host
+   carries them because federated pages render in the host's document, and this
+   is the only font loader (FE-MEDIUM-090). */
+@import '../../../shared-ui/src/styles/fonts.css';
+
 /* The Suderra surface (FE-HIGH-313): the token scope `sd-page` / `sd-surface`,
    the tenant console's content column and the sd-* page classes. The host
    carries it because federated pages render in the host's document. */
@@ -472,7 +477,6 @@ html[data-theme='dark'] {
   border-radius: 999px;
   color: #294e65;
   background: rgb(20 58 92 / 0.045);
-  font-family: var(--font-mono);
   font-size: 9px;
   font-weight: 500;
   letter-spacing: 0.1em;
@@ -528,7 +532,6 @@ html[data-theme='dark'] {
   padding: 12px 28px 15px;
   border-top: 1px solid rgb(20 58 92 / 0.1);
   color: #294e65;
-  font-family: var(--font-mono);
   font-size: 10px;
   letter-spacing: 0.025em;
 }
@@ -543,7 +546,6 @@ html[data-theme='dark'] {
   min-height: 44px;
   padding: 8px 20px 14px;
   color: #668895;
-  font-family: var(--font-mono);
   font-size: 10px;
   letter-spacing: 0.08em;
   text-transform: uppercase;

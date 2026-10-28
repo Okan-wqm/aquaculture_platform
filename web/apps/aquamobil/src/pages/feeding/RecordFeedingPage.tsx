@@ -365,7 +365,7 @@ export function RecordFeedingPage(): JSX.Element {
           <div className="grid grid-cols-2 gap-3">
             <div className="bg-surface-2 rounded-xl p-3">
               <p className="text-meta text-ink-3 font-medium">{t('m.feeding.plannedTotal')}</p>
-              <p className="text-head font-mono font-bold text-ink-1 tabular-nums">
+              <p className="text-head font-bold text-ink-1 tabular-nums">
                 {Number(selectedPlan.plannedTotalKg).toFixed(2)} kg
               </p>
               <p className="text-meta text-ink-3">
@@ -422,7 +422,7 @@ export function RecordFeedingPage(): JSX.Element {
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      <span className="text-title font-mono font-bold text-ink-1 tabular-nums">
+                      <span className="text-title font-bold text-ink-1 tabular-nums">
                         {timeOf(meal.scheduledAt)}
                       </span>
                       <span className="text-body text-ink-3">
@@ -443,7 +443,7 @@ export function RecordFeedingPage(): JSX.Element {
                     {meal.actualKg > 0 && (
                       // Dökülen miktar "sürüyor" halidir — rozetteki
                       // PARTIALLY_FED ile aynı tonda okunur.
-                      <span className="ml-2 text-acc font-mono tabular-nums">
+                      <span className="ml-2 text-acc tabular-nums">
                         → {Number(meal.actualKg).toFixed(2)} kg
                       </span>
                     )}
@@ -482,7 +482,7 @@ export function RecordFeedingPage(): JSX.Element {
                   setPourKg(e.target.value);
                   setErrors((prev) => ({ ...prev, amount: undefined }));
                 }}
-                className="w-full text-center text-hero font-mono font-bold tabular-nums text-ink-1 bg-transparent border-none rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-acc"
+                className="w-full text-center text-hero font-bold tabular-nums text-ink-1 bg-transparent border-none rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-acc"
               />
               <p className="text-center text-meta text-ink-3 mt-1 font-medium">kg</p>
               <p id="feeding-pour-remaining" className="text-center text-meta text-ink-3 mt-1">

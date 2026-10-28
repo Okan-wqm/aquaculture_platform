@@ -3,7 +3,7 @@
  * Every tool is a NestJS @Injectable() class implementing ITool.
  */
 
-import type { AiPersonaTier, AiSpecialtyModule } from '@aquaculture/shared-contracts';
+import type { ActiveOwnerModuleCode, AiPersonaTier } from '@aquaculture/shared-contracts';
 
 /** Tool category for grouping and filtering */
 export type ToolCategory =
@@ -43,7 +43,7 @@ export interface ToolMetadata {
    * module-scoped tool is offered only by a specialty scoped to the same
    * module (RBAC-MEDIUM-016).
    */
-  requiresModule: AiSpecialtyModule | null;
+  requiresModule: ActiveOwnerModuleCode | null;
   /** Whether this tool requires human confirmation before execution (actuation safety) */
   requiresConfirmation: boolean;
 }

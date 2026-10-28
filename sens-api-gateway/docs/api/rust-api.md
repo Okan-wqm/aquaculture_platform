@@ -45,7 +45,7 @@ Today, **every** `pub` item in this crate is INTERNAL. A future v2.0 library spl
 | `health` | HTTP `/health`/`/ready`/`/metrics`/`/diagnostics` types + handlers (`src/health.rs`) | **NOT WIRED** — `start_health_server` never called from `main.rs` (ORPHAN-EDGE-007) |
 | `i2c` | I2C handle | YES |
 | `interning` | `lasso` string interner | YES |
-| `modbus` | Modbus TCP/RTU client (`rodbus =1.4.0`) | YES |
+| `modbus` | Modbus TCP/RTU client (`tokio-modbus ~0.17`; TLS via `tokio-rustls 0.26`) | YES |
 | `mqtt` | Cloud MQTT client + payload types (`src/mqtt.rs`) | YES |
 | `mqtt_failover` | FailoverManager, BrokerEndpoint (`src/mqtt.rs:16-18` — infrastructure present, `FailoverMqttClient` wiring is HARDWARE-VENDOR responsibility scheduled under Faz 2) | Infrastructure YES, failover client NOT wired |
 | `offline_queue` | Durable outbox for disconnected operation | YES |

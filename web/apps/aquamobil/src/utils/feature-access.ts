@@ -13,16 +13,18 @@
 //
 // WHAT: a declarative feature -> required-role-floor map, plus a single
 // `isFeatureAccessible` predicate composing the entitlement check with the floor
-// via the shared meetsRoleFloor SSoT. Adding/removing a role floor for any
-// feature is a one-line change here that the route guard AND all CTAs honor
-// automatically — no per-callsite string comparison, no drift.
+// through the one platform role hierarchy (`platformRoleSatisfies`,
+// @aquaculture/shared-contracts — the same hierarchy the backend RolesGuard
+// applies, RBAC-MEDIUM-024). Adding/removing a role floor for any feature is a
+// one-line change here that the route guard AND all CTAs honor automatically —
+// no per-callsite string comparison, no local rank table, no drift.
 
+import { platformRoleSatisfies } from '@aquaculture/shared-contracts';
 import { useCallback } from 'react';
 
 import { useAuth } from '@/hooks/useAuth';
 import { useMobilePermissions, type MobileFeature } from '@/hooks/useMobilePermissions';
 import type { Role } from '@/types';
-import { meetsRoleFloor } from '@/utils/role-rank';
 
 // Features whose backend resolver restricts the operation by role. The floor
 // MUST mirror the server @Roles matrix so the client never surfaces an action
@@ -61,7 +63,7 @@ export function isFeatureAccessible(
   if (!floor) {
     return true;
   }
-  return role != null && meetsRoleFloor(role, floor);
+  return role != null && platformRoleSatisfies(role, floor);
 }
 
 /**

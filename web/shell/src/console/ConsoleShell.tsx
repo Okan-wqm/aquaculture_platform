@@ -8,8 +8,9 @@
  * over it (suderra.css, FE-MEDIUM-348) — holding the
  * ConsoleHeader (sticky where it fits; eyebrow + h1, palette trigger, title
  * block, the layout's notifications and AI trigger, the user menu, the
- * annunciator under the row) and <main>, capped at 1520 px and left-aligned
- * (README §7.1). The routed page sits inside the WorkforceScopeProvider of the
+ * annunciator under the row) and <main>, which fills the column, so the page
+ * grows and shrinks with the window (no fixed pixel cap; the former 1520 px cap
+ * of README §7.1 is gone). The routed page sits inside the WorkforceScopeProvider of the
  * followed workspace's module (Team pages list that module's people). The
  * command palette is a portal beside them. The
  * SUPER_ADMIN act-as banner is not here: this console never mounts for a
@@ -245,7 +246,7 @@ function ConsoleFrame({ role, headerTools, onSignOut }: ConsoleShellProps): Reac
           ref={mainRef}
           id="main-content"
           tabIndex={-1}
-          className="sd-main w-full max-w-[1520px] flex-1 overflow-auto focus:outline-hidden"
+          className="sd-main w-full flex-1 overflow-auto focus:outline-hidden"
         >
           {/* Always mounted: its status must be in the page before the first
               switch, or the switch is not announced (ViewAsBanner). */}

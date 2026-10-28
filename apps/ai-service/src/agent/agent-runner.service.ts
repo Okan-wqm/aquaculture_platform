@@ -1,3 +1,4 @@
+import type { ModuleAccess } from '@aquaculture/shared-contracts';
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
@@ -68,6 +69,14 @@ export interface ChatRequest {
    * requested persona tier (`ai_personas:<tier>`) in AgentProfileService.
    */
   resourcePermissions: string[];
+  /**
+   * RBAC-HIGH-028 (ADR-051 §2): the caller's per-module grants and site ids, validated by the
+   * request.ai.chat responder (`{}` and `[]` when the sender sent none). Carried for the member
+   * caller the tool and persona gates build (PKG-09, PKG-12); nothing in this release decides by
+   * them.
+   */
+  moduleAccess: ModuleAccess;
+  assignedSiteIds: readonly string[];
   schemaName: string;
   correlationId: string;
   /**

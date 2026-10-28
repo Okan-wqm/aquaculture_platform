@@ -225,7 +225,7 @@ export function ScanPage(): ReactElement {
             <Card className="px-5 py-4 text-center animate-am-pop">
               <div className="text-head font-mono font-semibold text-ink-1">{state.tank.code}</div>
               <div className="text-body text-ink-3">{state.tank.name}</div>
-              <div className="text-meta font-mono text-acc mt-2">{t('m.scan.opening')}</div>
+              <div className="text-meta text-acc mt-2">{t('m.scan.opening')}</div>
             </Card>
           </div>
         )}

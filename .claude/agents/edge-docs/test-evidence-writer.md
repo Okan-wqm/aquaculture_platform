@@ -54,7 +54,7 @@ Populate from `grep -c "#\[test\]" src/**/*.rs`. Modules with 0 tests flagged.
 ### `integration-tests.md`
 Harness descriptions:
 - Mock MQTT broker (rumqttd test utility)
-- Mock Modbus server (rodbus server-side test utility)
+- Mock Modbus server (in-process `tokio-modbus` server, dev-dependency feature `tcp-server`; used by the `src/modbus.rs` transport tests)
 - SQLCipher in-memory database
 - Mock provisioning API (wiremock)
 

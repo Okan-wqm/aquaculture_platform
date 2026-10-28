@@ -8,7 +8,8 @@ import {
   Index,
 } from 'typeorm';
 import { ObjectType, Field, ID, Int } from '@nestjs/graphql';
-import { HrModuleCode } from '../../common/enums';
+import { OWNER_MODULE, type OwnerModuleCode } from '@aquaculture/shared-contracts';
+import { HR_MODULE_CODE_ENUM } from '../../common/enums';
 
 @ObjectType()
 @Entity('departments_hr')
@@ -31,9 +32,9 @@ export class DepartmentHR {
   siteId?: string;
 
   /** Owning module; null = company-wide. Employees inherit it through their department. */
-  @Field(() => HrModuleCode, { nullable: true })
-  @Column({ type: 'enum', enum: HrModuleCode, nullable: true })
-  moduleCode?: HrModuleCode;
+  @Field(() => HR_MODULE_CODE_ENUM, { nullable: true })
+  @Column({ type: 'enum', enum: OWNER_MODULE, nullable: true })
+  moduleCode?: OwnerModuleCode;
 
   @Field({ nullable: true })
   @Column({ nullable: true })

@@ -17,7 +17,8 @@ import { Resolver, Query, Mutation, Args, ID, Context, Int, ObjectType } from '@
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
-import { HrModuleCode } from '../common/enums';
+import type { OwnerModuleCode } from '@aquaculture/shared-contracts';
+import { HR_MODULE_CODE_ENUM } from '../common/enums';
 import { GqlAuthGuard } from '../common/guards/gql-auth.guard';
 import { RolesGuard } from '@aquaculture/backend-common/guards';
 import { Employee } from '../hr/entities/employee.entity';
@@ -171,7 +172,7 @@ export class AttendanceResolver {
     @Args('endDate', { nullable: true }) endDate?: string,
     @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit?: number,
     @Args('page', { type: () => Int, nullable: true, defaultValue: 1 }) page?: number,
-    @Args('moduleCode', { type: () => HrModuleCode, nullable: true }) moduleCode?: HrModuleCode,
+    @Args('moduleCode', { type: () => HR_MODULE_CODE_ENUM, nullable: true }) moduleCode?: OwnerModuleCode,
   ): Promise<IStandardPaginatedResult<AttendanceRecord>> {
     const tenantId = this.getTenantId(context);
     const result = await this.queryBus.execute<
@@ -262,7 +263,7 @@ export class AttendanceResolver {
     @Args('departmentId', { type: () => ID, nullable: true }) departmentId?: string,
     @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit?: number,
     @Args('page', { type: () => Int, nullable: true, defaultValue: 1 }) page?: number,
-    @Args('moduleCode', { type: () => HrModuleCode, nullable: true }) moduleCode?: HrModuleCode,
+    @Args('moduleCode', { type: () => HR_MODULE_CODE_ENUM, nullable: true }) moduleCode?: OwnerModuleCode,
   ): Promise<IStandardPaginatedResult<AttendanceRecord>> {
     const tenantId = this.getTenantId(context);
     const userId = this.getUserId(context);
@@ -296,7 +297,7 @@ export class AttendanceResolver {
   async getTodaysAttendance(
     @Context() context: GraphQLContext,
     @Args('employeeId', { type: () => ID, nullable: true }) employeeId?: string,
-    @Args('moduleCode', { type: () => HrModuleCode, nullable: true }) moduleCode?: HrModuleCode,
+    @Args('moduleCode', { type: () => HR_MODULE_CODE_ENUM, nullable: true }) moduleCode?: OwnerModuleCode,
   ): Promise<AttendanceRecord[]> {
     const tenantId = this.getTenantId(context);
     const userId = this.getUserId(context);
@@ -339,7 +340,7 @@ export class AttendanceResolver {
   async getDailyAttendanceOverview(
     @Context() context: GraphQLContext,
     @Args('date', { nullable: true }) date?: string,
-    @Args('moduleCode', { type: () => HrModuleCode, nullable: true }) moduleCode?: HrModuleCode,
+    @Args('moduleCode', { type: () => HR_MODULE_CODE_ENUM, nullable: true }) moduleCode?: OwnerModuleCode,
   ): Promise<DailyAttendanceOverview> {
     const tenantId = this.getTenantId(context);
     return this.queryBus.execute<GetDailyAttendanceOverviewQuery, DailyAttendanceOverview>(

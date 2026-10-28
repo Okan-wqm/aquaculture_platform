@@ -4,7 +4,7 @@ import { type Repository } from 'typeorm';
 import { AlertEvaluationService } from '../alert-evaluation.service';
 import { AlertRuleService } from '../alert-rule.service';
 import { AlertHistory } from '../../entities/alert-history.entity';
-import { AlertModule } from '../../entities/alert-module.enum';
+import { OWNER_MODULE } from '@aquaculture/shared-contracts';
 import { ActiveAlertCountDimension } from '../../dto/active-alert-count.type';
 import { AlertRule, AlertSeverity } from '../../../database/entities/alert-rule.entity';
 
@@ -72,13 +72,13 @@ describe('AlertRuleService — site and module scope', () => {
     it('narrows the list to one site and one module', async () => {
       await service.getAlertHistory(
         tenantId,
-        { siteId, module: AlertModule.FARM, resolved: false },
+        { siteId, module: OWNER_MODULE.FARM, resolved: false },
         { page: 1, limit: 20 },
       );
 
       expect(query.andWhere).toHaveBeenCalledWith('alert.siteId = :siteId', { siteId });
       expect(query.andWhere).toHaveBeenCalledWith('alert.module = :module', {
-        module: AlertModule.FARM,
+        module: OWNER_MODULE.FARM,
       });
     });
 
@@ -106,7 +106,7 @@ describe('AlertRuleService — site and module scope', () => {
         {
           severity: AlertSeverity.HIGH,
           acknowledged: false,
-          module: AlertModule.SENSOR,
+          module: OWNER_MODULE.SENSOR,
           count: '3',
         },
         { severity: AlertSeverity.HIGH, acknowledged: false, module: null, count: '1' },
@@ -117,7 +117,12 @@ describe('AlertRuleService — site and module scope', () => {
       });
 
       expect(counts).toEqual([
-        { severity: AlertSeverity.HIGH, acknowledged: false, module: AlertModule.SENSOR, count: 3 },
+        {
+          severity: AlertSeverity.HIGH,
+          acknowledged: false,
+          module: OWNER_MODULE.SENSOR,
+          count: 3,
+        },
         { severity: AlertSeverity.HIGH, acknowledged: false, module: null, count: 1 },
       ]);
       expect(query.addSelect).toHaveBeenCalledWith('alert.module', 'module');
@@ -131,7 +136,7 @@ describe('AlertRuleService — site and module scope', () => {
       ]);
 
       const counts = await service.countActiveAlerts(tenantId, {
-        module: AlertModule.FARM,
+        module: OWNER_MODULE.FARM,
         groupBy: [ActiveAlertCountDimension.SITE],
       });
 
@@ -142,7 +147,7 @@ describe('AlertRuleService — site and module scope', () => {
         resolved: false,
       });
       expect(query.andWhere).toHaveBeenCalledWith('alert.module = :module', {
-        module: AlertModule.FARM,
+        module: OWNER_MODULE.FARM,
       });
       expect(query.addSelect).toHaveBeenCalledWith('alert.siteId', 'siteId');
       expect(query.addGroupBy).toHaveBeenCalledWith('alert.siteId');

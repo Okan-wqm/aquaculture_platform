@@ -54,6 +54,7 @@ import { parseHashRefreshTokens } from '../../../config/hash-refresh-tokens';
 import { BestEffortEventPublisher } from '../../../outbox/best-effort-event-publisher';
 import { Tenant } from '../../tenant/entities/tenant.entity';
 import { AuthPayload, MePayload } from '../dto/auth-response.dto';
+import { ModuleAccessGrants } from '../dto/module-access.dto';
 import { LoginInput } from '../dto/login.dto';
 import {
   ActionToken,
@@ -1704,8 +1705,9 @@ export class AuthenticationService {
       user.tenantId = effectiveTenantId;
     }
 
-    // Get user's accessible modules
-    const modules = await this.tokenService.getUserModules(user);
+    // The user's module access: the grants and the legacy module list, the read the mint makes.
+    const access = await this.tokenService.readModuleAccess(user);
+    const modules = [...access.modules];
 
     // Determine redirect path based on role
     let redirectPath: string;
@@ -1736,6 +1738,7 @@ export class AuthenticationService {
     return {
       user,
       modules,
+      moduleAccess: ModuleAccessGrants.of(access.moduleAccess),
       redirectPath,
       tenantName: tenant === null ? null : tenant.name,
     };

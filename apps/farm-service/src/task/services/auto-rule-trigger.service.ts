@@ -4,10 +4,13 @@
  * Event-driven service that listens to domain events and automatically
  * creates tasks when conditions match active AutoRules.
  *
- * IMPORTANT: NATS event handlers run OUTSIDE HTTP request context.
- * There is NO AsyncLocalStorage context and NO TenantSchemaMiddleware.
- * All database operations MUST use a dedicated QueryRunner with explicit
- * SET search_path to the correct tenant schema.
+ * IMPORTANT: NATS event handlers and scheduled jobs run OUTSIDE HTTP request
+ * context: there is NO AsyncLocalStorage context and NO TenantSchemaMiddleware.
+ * `auto_rules` and `tasks` are under FORCE row-level security, so a runner with
+ * only a `search_path` reads zero rows and has every write refused (FARM-HIGH-481:
+ * no AutoRule ever fired). Every database operation therefore runs inside
+ * `runInTenantTransaction` / `runInTenantRead` / the tenant-bound fan-out, which
+ * pin the schema AND bind `app.current_tenant`.
  *
  * Supported trigger types:
  * - STOCK_LOW: inventory.lowStock events
@@ -30,9 +33,10 @@ import { Repository, DataSource, QueryRunner } from 'typeorm';
 import { NatsEventBus, IEventHandler, HandlerOutcome } from '@platform/event-bus';
 import { createBaseEvent } from '@platform/event-contracts';
 import {
-  listTenantSchemas,
-  getTenantSchemaName,
+  forEachVerifiedTenantSchema,
   isValidUUID,
+  runInTenantRead,
+  runInTenantTransaction,
 } from '@aquaculture/backend-common/database';
 import { AutoRule, AutoRuleTrigger } from '../entities/auto-rule.entity';
 import { Task, TaskStatus } from '../entities/task.entity';
@@ -46,6 +50,9 @@ const TRIGGER_EVENT_MAP: Record<string, AutoRuleTrigger> = {
 };
 
 // UUID validation imported from @aquaculture/backend-common (isValidUUID)
+
+/** What a rule reads from the event that fired it (a SCHEDULE rule has none). */
+type RuleTriggerEvent = { userId?: string; assignedTo?: string } & Record<string, unknown>;
 
 @Injectable()
 export class AutoRuleTriggerService implements OnModuleInit {
@@ -110,27 +117,25 @@ export class AutoRuleTriggerService implements OnModuleInit {
 
     this.logger.debug(`Processing ${eventName} for tenant ${tenantId}`);
 
-    const schemaName = getTenantSchemaName(tenantId);
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-
     try {
-      await queryRunner.query(`SET search_path TO "${schemaName}", farm, public`);
-
       // Find active rules matching this trigger type for this tenant
-      const matchingRules = await queryRunner.manager.find(AutoRule, {
-        where: {
-          tenantId,
-          trigger: triggerType,
-          isActive: true,
-        },
-      });
-
-      if (matchingRules.length === 0) return HandlerOutcome.ack();
+      const matchingRules = await runInTenantRead(
+        this.dataSource,
+        'farm',
+        tenantId,
+        (queryRunner) =>
+          queryRunner.manager.find(AutoRule, {
+            where: {
+              tenantId,
+              trigger: triggerType,
+              isActive: true,
+            },
+          }),
+      );
 
       for (const rule of matchingRules) {
         try {
-          await this.executeRuleWithQueryRunner(rule, event, queryRunner);
+          await this.executeRule(rule, event);
         } catch (err) {
           // One rule failing must not block its siblings; the failure is
           // logged per rule and the trigger is acknowledged (a rule's task is
@@ -146,21 +151,30 @@ export class AutoRuleTriggerService implements OnModuleInit {
       // The rule lookup itself failed (search_path / DB) — retry within the
       // delivery budget instead of acknowledging a lost trigger.
       return HandlerOutcome.retry(`${eventName}: auto-rule lookup failed`, err);
-    } finally {
-      await queryRunner.query('RESET search_path').catch(() => {});
-      await queryRunner.release();
     }
   }
 
   /**
-   * Execute a single AutoRule by creating a task.
-   * Uses a pre-configured QueryRunner with correct search_path.
+   * Execute one AutoRule: its task and its stats commit in ONE tenant
+   * transaction (a rule that fails leaves nothing behind and cannot poison its
+   * siblings), and the TaskCreated event is published only after that commit.
    */
-  private async executeRuleWithQueryRunner(
+  private async executeRule(rule: AutoRule, triggerEvent: RuleTriggerEvent): Promise<void> {
+    const saved = await runInTenantTransaction(
+      this.dataSource,
+      'farm',
+      rule.tenantId,
+      (queryRunner) => this.createTaskForRule(rule, triggerEvent, queryRunner),
+    );
+    await this.publishTaskCreated(rule, saved);
+  }
+
+  /** Create the rule's task and bump the rule's stats on the caller's tenant transaction. */
+  private async createTaskForRule(
     rule: AutoRule,
-    triggerEvent: any,
+    triggerEvent: RuleTriggerEvent,
     queryRunner: QueryRunner,
-  ): Promise<void> {
+  ): Promise<Task> {
     // Build task title with context from trigger event
     const taskTitle = this.interpolateTitle(rule.taskTitle, triggerEvent);
 
@@ -188,7 +202,11 @@ export class AutoRuleTriggerService implements OnModuleInit {
     rule.triggerCount += 1;
     await queryRunner.manager.save(AutoRule, rule);
 
-    // Publish TaskCreated event for notification
+    return saved;
+  }
+
+  /** Publish TaskCreated for the notification fan-out, after the task is committed. */
+  private async publishTaskCreated(rule: AutoRule, saved: Task): Promise<void> {
     if (this.eventBus && saved.assignedTo) {
       try {
         await this.eventBus.publish({
@@ -218,9 +236,9 @@ export class AutoRuleTriggerService implements OnModuleInit {
    * Interpolate trigger event data into task title
    * Supports {eventField} placeholders
    */
-  private interpolateTitle(template: string, event: any): string {
-    return template.replace(/\{(\w+)\}/g, (_, key) => {
-      return event[key]?.toString() ?? key;
+  private interpolateTitle(template: string, event: RuleTriggerEvent): string {
+    return template.replace(/\{(\w+)\}/g, (_, key: string) => {
+      return String(event[key] ?? key);
     });
   }
 
@@ -237,16 +255,14 @@ export class AutoRuleTriggerService implements OnModuleInit {
   async processScheduleRules(): Promise<void> {
     this.logger.debug('Checking SCHEDULE-type AutoRules...');
 
-    const tenantSchemas = await listTenantSchemas(this.dataSource);
     const now = new Date();
+    const dueRules: AutoRule[] = [];
 
-    for (const schema of tenantSchemas) {
-      const queryRunner = this.dataSource.createQueryRunner();
-      await queryRunner.connect();
-
-      try {
-        await queryRunner.query(`SET search_path TO "${schema}", farm, public`);
-
+    // Phase 1 — find what is due, per tenant, on the tenant-bound fan-out
+    // (read only; a tenant whose lookup fails is reported and the others go on).
+    const results = await forEachVerifiedTenantSchema(
+      this.dataSource,
+      async ({ queryRunner }) => {
         const scheduleRules = await queryRunner.manager.find(AutoRule, {
           where: {
             trigger: AutoRuleTrigger.SCHEDULE,
@@ -254,39 +270,40 @@ export class AutoRuleTriggerService implements OnModuleInit {
           },
         });
 
-        if (scheduleRules.length === 0) continue;
-
         for (const rule of scheduleRules) {
-          try {
-            // Check if enough time has passed since last trigger
-            // triggerCondition for SCHEDULE type contains interval in hours (e.g., "24", "48")
-            const intervalHours = parseInt(rule.triggerCondition, 10);
-            if (isNaN(intervalHours) || intervalHours <= 0) {
-              this.logger.warn(
-                `Invalid SCHEDULE interval for rule ${rule.id}: "${rule.triggerCondition}"`,
-              );
-              continue;
-            }
-
-            if (rule.lastTriggered) {
-              const elapsed = (now.getTime() - new Date(rule.lastTriggered).getTime()) / 3600000;
-              if (elapsed < intervalHours) continue;
-            }
-
-            await this.executeRuleWithQueryRunner(rule, { tenantId: rule.tenantId }, queryRunner);
-          } catch (err) {
-            this.logger.error(
-              `Failed to process SCHEDULE rule ${rule.id}: ${(err as Error).message}`,
+          // Check if enough time has passed since last trigger
+          // triggerCondition for SCHEDULE type contains interval in hours (e.g., "24", "48")
+          const intervalHours = parseInt(rule.triggerCondition, 10);
+          if (isNaN(intervalHours) || intervalHours <= 0) {
+            this.logger.warn(
+              `Invalid SCHEDULE interval for rule ${rule.id}: "${rule.triggerCondition}"`,
             );
+            continue;
           }
+
+          if (rule.lastTriggered) {
+            const elapsed = (now.getTime() - new Date(rule.lastTriggered).getTime()) / 3600000;
+            if (elapsed < intervalHours) continue;
+          }
+
+          dueRules.push(rule);
         }
+      },
+      { logger: this.logger },
+    );
+
+    for (const failed of results.filter((result) => result.outcome !== 'ok')) {
+      this.logger.error(
+        `SCHEDULE rules processing ${failed.outcome} for schema ${failed.schemaName}: ${failed.error?.message}`,
+      );
+    }
+
+    // Phase 2 — each due rule in its own tenant transaction.
+    for (const rule of dueRules) {
+      try {
+        await this.executeRule(rule, { tenantId: rule.tenantId });
       } catch (err) {
-        this.logger.error(
-          `SCHEDULE rules processing failed for schema ${schema}: ${(err as Error).message}`,
-        );
-      } finally {
-        await queryRunner.query('RESET search_path').catch(() => {});
-        await queryRunner.release();
+        this.logger.error(`Failed to process SCHEDULE rule ${rule.id}: ${(err as Error).message}`);
       }
     }
   }

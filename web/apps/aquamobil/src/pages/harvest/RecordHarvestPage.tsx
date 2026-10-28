@@ -154,17 +154,17 @@ export function RecordHarvestPage(): JSX.Element {
           <SummaryRow
             label="Quantity"
             value={`${quantityNum.toLocaleString()} fish`}
-            valueClass="text-head font-mono font-bold tabular-nums text-type-harvest"
+            valueClass="text-head font-bold tabular-nums text-type-harvest"
           />
           <SummaryRow label="Avg Weight" value={`${avgWeightNum}g`} />
           <SummaryRow label="Total Biomass" value={`${totalBiomass.toFixed(1)} kg`} />
-          {/* The slaughter class is a machine value on the record, so it is set
-              in mono and uppercased — the app's rule for anything a system, not
-              a person, is speaking. */}
+          {/* The slaughter class is the official grade written onto the record,
+              so it is uppercased and tracked. It is shown by its readable name,
+              not a code, so it is set in the text face like every other label. */}
           <SummaryRow
             label="Quality"
             value={classLabel}
-            valueClass="font-mono font-semibold uppercase tracking-wide text-ink-1"
+            valueClass="font-semibold uppercase tracking-wide text-ink-1"
           />
           {estimatedValue > 0 && (
             <>
@@ -172,7 +172,7 @@ export function RecordHarvestPage(): JSX.Element {
               <SummaryRow
                 label="Est. Value"
                 value={`${estimatedValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD`}
-                valueClass="text-head font-mono font-bold tabular-nums text-ink-1"
+                valueClass="text-head font-bold tabular-nums text-ink-1"
               />
             </>
           )}
@@ -213,12 +213,12 @@ export function RecordHarvestPage(): JSX.Element {
         />
       </div>
 
-      {/* Biomass readout — a computed figure, so mono and tabular: the digits
-          line up while the operator watches them change. */}
+      {/* Biomass readout — a computed figure, so tabular: the digits line up
+          while the operator watches them change. */}
       {quantityNum > 0 && avgWeightNum > 0 && (
         <div className="px-4 mt-3">
           <Card className="p-4 text-center border-type-harvest">
-            <div className="text-display font-mono font-bold tabular-nums text-type-harvest">
+            <div className="text-display font-bold tabular-nums text-type-harvest">
               {totalBiomass.toFixed(1)} kg
             </div>
             <div className="text-body text-ink-3 font-medium">Total Biomass</div>
@@ -228,8 +228,8 @@ export function RecordHarvestPage(): JSX.Element {
 
       {/* Quality class — horizontal scroll + colour dots, distinct from the
           cull/mortality 4-col emoji grid. The class is the Norwegian official
-          slaughter grade written onto the record, so the caption is set in mono
-          and uppercased like every other machine value in the app. */}
+          slaughter grade written onto the record, so the caption is uppercased
+          and tracked; it is a readable name, so it stays in the text face. */}
       <div className="px-4 mt-5">
         <h3
           id="harvest-quality-class-label"
@@ -259,7 +259,7 @@ export function RecordHarvestPage(): JSX.Element {
                 <span className={clsx('w-4 h-4 rounded-full mx-auto mb-1.5 block', g.color)} />
                 <span
                   className={clsx(
-                    'text-meta font-mono font-semibold uppercase tracking-wide',
+                    'text-meta font-semibold uppercase tracking-wide',
                     selected ? 'text-acc' : 'text-ink-2',
                   )}
                 >
@@ -309,7 +309,7 @@ export function RecordHarvestPage(): JSX.Element {
       {estimatedValue > 0 && (
         <div className="px-4 mt-3">
           <Card className="p-4 text-center">
-            <div className="text-head font-mono font-bold tabular-nums text-ink-1">
+            <div className="text-head font-bold tabular-nums text-ink-1">
               {estimatedValue.toLocaleString(undefined, {
                 minimumFractionDigits: 2,
                 maximumFractionDigits: 2,

@@ -437,16 +437,14 @@ export function LogSheet({
             <div>
               <div className="text-meta text-ink-3 mb-2">{meta.field}</div>
               <div className="flex items-baseline gap-2">
-                <span className="text-hero font-mono font-bold text-ink-1 tabular-nums">
-                  {qty || '0'}
-                </span>
+                <span className="text-hero font-bold text-ink-1 tabular-nums">{qty || '0'}</span>
                 <span className="text-title text-ink-3">{meta.unit}</span>
               </div>
             </div>
             {tank?.batchMetrics && (
               <div className="text-right">
                 <div className="text-meta text-ink-3 mb-1">{t('m.logSheet.stockInUnit')}</div>
-                <div className="text-body font-mono text-ink-2 tabular-nums">
+                <div className="text-body text-ink-2 tabular-nums">
                   {(tank.batchMetrics.pieces ?? 0).toLocaleString()}
                 </div>
               </div>
@@ -460,7 +458,7 @@ export function LogSheet({
                   key={n}
                   type="button"
                   onClick={() => setQty(String((Number(qty) || 0) + n))}
-                  className="flex-1 h-tap-add min-h-touch rounded-xl bg-surface-2 border border-line text-title font-mono font-semibold text-ink-1 touch-feedback"
+                  className="flex-1 h-tap-add min-h-touch rounded-xl bg-surface-2 border border-line text-title font-semibold tabular-nums text-ink-1 touch-feedback"
                 >
                   +{n}
                 </button>

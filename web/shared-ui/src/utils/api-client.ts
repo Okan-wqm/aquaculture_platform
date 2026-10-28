@@ -6,6 +6,7 @@
 
 import { print, type DocumentNode } from 'graphql';
 import { backendHealthCircuit } from './backend-health-circuit';
+import { reportGraphqlErrors } from './graphql-validation-signal';
 import { bumpSessionEpoch } from './session-epoch';
 import { tokenLifecycle } from './token-lifecycle';
 
@@ -150,6 +151,68 @@ function discardResponseBody(response: Response): void {
 let accessToken: string | null = null;
 let tenantId: string | null = null;
 let tokenRefreshPromise: Promise<void> | null = null;
+
+/**
+ * What a refresh attempt established about the session.
+ *
+ *  - `ok`: a new access token is in memory.
+ *  - `rejected`: the server REFUSED the refresh credential (expired, revoked,
+ *    reused): the session is over and the user must sign in again.
+ *  - `unavailable`: the refresh was throttled, hit a server fault or could not
+ *    reach the server. That says nothing about the session — it may be
+ *    perfectly valid — so the caller must NOT sign the user out.
+ */
+type RefreshOutcome =
+  | { kind: 'ok' }
+  | { kind: 'rejected' }
+  | { kind: 'unavailable'; retryAfterMs?: number };
+
+/** Server fault or no network: back off this long when the server named no wait. */
+const REFRESH_UNAVAILABLE_COOLDOWN_MS = 15_000;
+/** A page load waits out a server-named throttle up to this long before giving up on a silent restore. */
+const SILENT_REFRESH_MAX_WAIT_MS = 20_000;
+/**
+ * A token issued this recently has not expired, so an UNAUTHENTICATED answer
+ * to it is not about expiry and a refresh cannot change the answer.
+ */
+const FRESH_TOKEN_MAX_AGE_SECONDS = 30;
+
+/**
+ * Do not call the refresh endpoint again before this time. Every attempt — even
+ * a throttled one — counts against the per-IP limit and prolongs it, so a client
+ * that keeps retrying a throttled refresh keeps itself throttled.
+ */
+let refreshBlockedUntil = 0;
+
+/** The `iat` (issued-at, seconds) claim of a JWT, or null when it cannot be read. */
+function getJwtIssuedAt(token: string): number | null {
+  try {
+    const payload = token.split('.')[1];
+    if (!payload) return null;
+    const json = atob(payload.replace(/-/g, '+').replace(/_/g, '/'));
+    const iat = (JSON.parse(json) as { iat?: unknown }).iat;
+    return typeof iat === 'number' ? iat : null;
+  } catch {
+    return null;
+  }
+}
+
+/** True only when the current token is KNOWN to have been issued moments ago. */
+function isAccessTokenFresh(): boolean {
+  if (!accessToken) return false;
+  const issuedAt = getJwtIssuedAt(accessToken);
+  return issuedAt !== null && Date.now() / 1000 - issuedAt < FRESH_TOKEN_MAX_AGE_SECONDS;
+}
+
+/** Thrown when a refresh could not be attempted or answered; the session is KEPT. */
+const REFRESH_UNAVAILABLE = 'REFRESH_UNAVAILABLE';
+
+function isRefreshUnavailable(error: unknown): boolean {
+  return (
+    (error instanceof GraphQLClientError && error.code === REFRESH_UNAVAILABLE) ||
+    (error instanceof RestClientError && error.statusCode === 503)
+  );
+}
 
 /**
  * SEC-MEDIUM-113 (2026-08-23 scan №58): cross-tab refresh single-flight.
@@ -361,7 +424,29 @@ export function clearSession(): void {
  * (via 401 handler) use this function through the shared tokenRefreshPromise lock,
  * preventing concurrent refresh calls that would revoke each other's tokens.
  */
-async function performTokenRefresh(): Promise<boolean> {
+async function performTokenRefresh(): Promise<RefreshOutcome> {
+  const blockedForMs = refreshBlockedUntil - Date.now();
+  if (blockedForMs > 0) {
+    return { kind: 'unavailable', retryAfterMs: blockedForMs };
+  }
+  const outcome = await requestTokenRefresh();
+  refreshBlockedUntil =
+    outcome.kind === 'unavailable'
+      ? Date.now() + (outcome.retryAfterMs ?? REFRESH_UNAVAILABLE_COOLDOWN_MS)
+      : 0;
+  return outcome;
+}
+
+/** GraphQL error codes that mean "the server could not answer", never "your session is over". */
+const REFRESH_UNAVAILABLE_CODES = new Set([
+  'TOO_MANY_REQUESTS',
+  'RATE_LIMIT_EXCEEDED',
+  'INTERNAL_SERVER_ERROR',
+  'SERVICE_UNAVAILABLE',
+  'BACKEND_UNAVAILABLE',
+]);
+
+async function requestTokenRefresh(): Promise<RefreshOutcome> {
   const abortScope = createRequestAbortScope(TOKEN_REFRESH_TIMEOUT_MS);
   try {
     const graphqlUrl = import.meta.env.VITE_GRAPHQL_URL || '/graphql';
@@ -377,12 +462,26 @@ async function performTokenRefresh(): Promise<boolean> {
 
     if (!response.ok) {
       discardResponseBody(response);
-      return false;
+      // 429 and 5xx are the server failing to answer; 401/403/400 are it refusing.
+      return response.status === 429 || response.status >= 500
+        ? { kind: 'unavailable' }
+        : { kind: 'rejected' };
     }
 
     const result = await response.json();
-    if (result.errors || !result.data?.refreshToken?.accessToken) {
-      return false;
+    if (result.errors) {
+      const extensions = (result.errors[0] as GraphQLErrorResponse | undefined)?.extensions;
+      const code = extensions?.code;
+      if (typeof code === 'string' && REFRESH_UNAVAILABLE_CODES.has(code)) {
+        const retryAfter = extensions?.['retryAfter'];
+        return typeof retryAfter === 'number' && retryAfter > 0
+          ? { kind: 'unavailable', retryAfterMs: retryAfter * 1000 }
+          : { kind: 'unavailable' };
+      }
+      return { kind: 'rejected' };
+    }
+    if (!result.data?.refreshToken?.accessToken) {
+      return { kind: 'rejected' };
     }
 
     // CRITICAL: Use setTokens() instead of direct assignment so that
@@ -397,9 +496,10 @@ async function performTokenRefresh(): Promise<boolean> {
       setTenantId(refreshedUser.tenantId ?? null);
     }
 
-    return true;
+    return { kind: 'ok' };
   } catch {
-    return false;
+    // Timeout, abort or no network: the server never answered.
+    return { kind: 'unavailable' };
   } finally {
     abortScope.dispose();
   }
@@ -464,7 +564,20 @@ export async function silentRefresh(): Promise<boolean> {
   });
 
   try {
-    const success = await performTokenRefresh();
+    let outcome = await performTokenRefresh();
+    // A restore on page load that is merely throttled waits out the (short) wait
+    // the server named once, instead of sending a valid session to /login.
+    // A fault or a long throttle is not waited out.
+    if (
+      outcome.kind === 'unavailable' &&
+      outcome.retryAfterMs !== undefined &&
+      outcome.retryAfterMs <= SILENT_REFRESH_MAX_WAIT_MS
+    ) {
+      const waitMs = outcome.retryAfterMs;
+      await new Promise((settle) => setTimeout(settle, waitMs));
+      outcome = await performTokenRefresh();
+    }
+    const success = outcome.kind === 'ok';
     if (success) {
       relayAccessTokenToTabs(getAccessToken() ?? '');
       resolve!();
@@ -833,7 +946,10 @@ class GraphQLClient {
         abortScope.dispose();
         try {
           await this.handleUnauthorized();
-        } catch {
+        } catch (refreshError) {
+          // The refresh was only unavailable (throttled, server fault, offline):
+          // the session may be valid, keep it and say so.
+          if (isRefreshUnavailable(refreshError)) throw refreshError;
           // Refresh failed — clear full session and throw so callers can redirect to /login
           clearSession();
           throw new GraphQLClientError('Session expired', 'UNAUTHENTICATED');
@@ -867,6 +983,9 @@ class GraphQLClient {
 
       // Check for GraphQL errors
       if (result.errors && result.errors.length > 0) {
+        // FE-MEDIUM-380: a document the router refuses tells the shell's build-skew check
+        // that this tab may predate the schema (graphql-validation-signal.ts).
+        reportGraphqlErrors(result.errors as GraphQLErrorResponse[]);
         const error = result.errors[0] as GraphQLErrorResponse;
 
         // Check for user-session auth errors (HTTP 200 but token expired/invalid).
@@ -878,12 +997,21 @@ class GraphQLClient {
           (error.extensions?.code === 'FORBIDDEN' && isUserSessionAuthError(error.message)) ||
           isUserSessionAuthError(error.message);
 
-        if (isAuthError && retryCount === 0) {
+        // A token issued moments ago has not expired, so this answer is not about
+        // expiry and a refresh cannot change it. Refreshing anyway costs one
+        // refreshToken call per occurrence — against a limit of 10 per 5 minutes
+        // per IP — and a subgraph that answers UNAUTHENTICATED to a valid
+        // session (notification-service did, for every user) drained it on
+        // every page load. The operation fails on its own; the session stays.
+        if (isAuthError && retryCount === 0 && !isAccessTokenFresh()) {
           abortScope.dispose();
           try {
             await this.handleUnauthorized();
             return this.request(query, variables, options, retryCount + 1);
-          } catch {
+          } catch (refreshError) {
+            // The refresh was only unavailable (throttled, server fault, offline):
+            // the session may be valid — keep it and surface why.
+            if (isRefreshUnavailable(refreshError)) throw refreshError;
             // SECURITY: fail-closed — if token refresh fails on an auth error,
             // the session is irrecoverable. Clear it to force re-login instead
             // of leaving the user in a deadlocked state with a broken token.
@@ -943,11 +1071,15 @@ class GraphQLClient {
    * never fire concurrent refresh mutations.
    */
   private async refreshAccessToken(): Promise<void> {
-    const success = await performTokenRefresh();
-    if (!success) {
-      clearSession();
-      throw new GraphQLClientError('Token refresh failed', 'REFRESH_FAILED');
+    const outcome = await performTokenRefresh();
+    if (outcome.kind === 'ok') return;
+    if (outcome.kind === 'unavailable') {
+      // Throttled, a server fault or no network: the session may be valid. Keep
+      // it — signing the user out here is what a throttled refresh used to do.
+      throw new GraphQLClientError('Token refresh is temporarily unavailable', REFRESH_UNAVAILABLE);
     }
+    clearSession();
+    throw new GraphQLClientError('Token refresh failed', 'REFRESH_FAILED');
   }
 
   /**
@@ -1090,7 +1222,10 @@ class RestClient {
         abortScope.dispose();
         try {
           await this.handleUnauthorized();
-        } catch {
+        } catch (refreshError) {
+          // The refresh was only unavailable (throttled, server fault, offline):
+          // the session may be valid, keep it and say so.
+          if (isRefreshUnavailable(refreshError)) throw refreshError;
           // Refresh failed — clear full session and throw
           clearSession();
           throw new RestClientError('Session expired', 401);
@@ -1189,11 +1324,14 @@ class RestClient {
    * never fire concurrent refresh mutations.
    */
   private async refreshAccessToken(): Promise<void> {
-    const success = await performTokenRefresh();
-    if (!success) {
-      clearSession();
-      throw new RestClientError('Token refresh failed', 401);
+    const outcome = await performTokenRefresh();
+    if (outcome.kind === 'ok') return;
+    if (outcome.kind === 'unavailable') {
+      // The session may be valid: keep it (see GraphQLClient.refreshAccessToken).
+      throw new RestClientError('Token refresh is temporarily unavailable', 503);
     }
+    clearSession();
+    throw new RestClientError('Token refresh failed', 401);
   }
 
   // Convenience methods
@@ -1308,6 +1446,7 @@ class PublicGraphQLClient {
       backendHealthCircuit.recordSuccess();
 
       if (result.errors?.length) {
+        reportGraphqlErrors(result.errors as GraphQLErrorResponse[]);
         throw new GraphQLClientError(
           result.errors[0]?.message || 'GraphQL error',
           'GRAPHQL_ERROR',

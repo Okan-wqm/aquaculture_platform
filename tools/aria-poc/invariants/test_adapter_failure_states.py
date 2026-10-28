@@ -26,6 +26,10 @@ from unittest import mock
 # loads are one directory up.
 _POC = Path(__file__).resolve().parents[1]
 _REPO = _POC.parents[1]
+# The runner starts an adapter as `python3 <adapter>.py` in this directory, so
+# the adapters import their sibling modules (adapter_scope) from it; loading one
+# by file path needs the same directory on sys.path.
+sys.path.insert(0, str(_POC))
 
 
 def _load(name: str, path: Path):

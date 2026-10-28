@@ -23,7 +23,7 @@ This PoC answers **"do we even need ARIA?"** in one week of zero-LLM mechanical 
    - `docs/adr/[0-9][0-9][0-9]-*.md` → `ADR_PRIORS.md` (canonical only, title + status)
    - `.claude/agents/*.md` → `AGENT_PRIORS.md` (frontmatter description per agent)
 6. Run `npx nx graph` (best-effort, optional)
-7. Mechanical drift scan: TypeScript `enum`, string-literal union types, string `as const` arrays, Zod `z.enum([...])`, GraphQL SDL enums, frontend literal option groups, and PostgreSQL `CREATE TYPE ... AS ENUM`.
+7. Mechanical drift scan: TypeScript `enum`, string-literal union types, string `as const` arrays, Zod `z.enum([...])`, GraphQL SDL enums, frontend literal option groups, and PostgreSQL `CREATE TYPE ... AS ENUM` (quoted and schema-qualified names included), read from the migration directories `SCHEMA_REGISTRY` (`apps/db-migrate/src/schema-registry.ts`) declares.
 8. Promote UI option groups only when they sit on a frontend UI surface and relate to a named value-set concept. Value overlap alone is not enough.
 9. Enrich candidates with git-blame metadata, named gate/test references, and summary counts.
 10. Generate `.aria-poc/aria-poc-report.md` with the operator decision gate.
@@ -118,6 +118,7 @@ Adapters, which the kernel runs as tools:
 
 | Module                              | Role                                                                                                                                                                                                                       |
 | ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `adapter_scope.py`                  | The one predicate (`is_excluded_source`) deciding which non-production sources (specs, `__tests__`, `.test.ts`, migrations, `node_modules`, `dist`) the cqrs and outbox adapters never read.                               |
 | `agent_harness_security_adapter.py` | Plan 020 Phase 10 agent-harness security adapter: six detection rules over agent prompts, workflows, ARIA tooling and the kernel (workflow token scope is workflow-shell-safety-adapter's, ARIA-LOW-592).                  |
 | `banned_phrase_adapter.py`          | Wraps the `tools/gates/banned-phrase.ts` Node CLI and emits its result in the kernel runner's observation/finding shape.                                                                                                   |
 | `cqrs_adapter.py`                   | Plan 020 Phase 14.B: flags a controller that skips the command/query bus or injects a repository directly.                                                                                                                 |

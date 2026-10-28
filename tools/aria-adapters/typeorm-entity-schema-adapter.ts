@@ -24,6 +24,7 @@ import {
 type CheckName = 'entity_schema' | 'module_schema' | 'migration_registry' | 'db_snapshot';
 type FindingRule =
   | 'typeorm_entity_schema_required'
+  | 'typeorm_entity_schema_forbidden'
   | 'module_schema_table_missing'
   | 'migration_registry_missing_entry'
   | 'migration_registry_missing_file'
@@ -330,6 +331,10 @@ function analyzeFiles(
   const observations: AdapterObservation[] = [];
   const findings: AdapterFinding[] = [];
   const readPaths = files.map((file) => normalizePath(relative(workspaceRoot, file)));
+  const tenantScoped =
+    policy.readerErrors.length === 0 &&
+    policy.tenantScopedModules !== null &&
+    policy.tenantScopedModules.has(serviceName);
 
   for (const file of files) {
     const sourceText = readWorkspaceFile(workspaceRoot, file);
@@ -392,23 +397,22 @@ function analyzeFiles(
         });
       }
 
-      if (checks.has('entity_schema') && !allowlisted && !entity.schemaValid) {
-        // ADR-011 (E13 FP class 1): in a tenant-scoped service, omitting
-        // `schema:` is the CORRECT pattern for per-tenant tables — search_path
-        // routes them into tenant_<uuid> at runtime. A missing schema is only
-        // a violation when the table is in that service's cross-tenant
-        // infrastructureTables set (parsed from the SSoT, never hardcoded).
+      if (checks.has('entity_schema') && !allowlisted) {
+        // ADR-011 (E13 FP class 1) has two directions, both decided by the SSoT
+        // and never by a list kept here. In a tenant-scoped service a
+        // per-tenant table OMITS `schema:` so search_path routes it into
+        // tenant_<uuid>, and only the service's cross-tenant
+        // infrastructureTables must declare a literal one:
+        //   - required:  a table that must declare a schema does not;
+        //   - forbidden: a per-tenant table declares one (literal or not), which
+        //     pins every tenant's rows into the shared schema.
         // When the SSoT cannot be read, lacks TENANT_SCOPED_MODULES, or the
         // reader reported element-resolution failures (ARIA-MEDIUM-588: a
-        // partial registry cannot classify), the check fails closed and keeps
-        // the historical always-flag behaviour.
+        // partial registry cannot classify), `required` fails closed and keeps
+        // the historical always-flag behaviour while `forbidden` makes no claim.
         const effectiveTable = entity.table ?? snakeCaseIdentifier(className);
-        const tenantScoped =
-          policy.readerErrors.length === 0 &&
-          policy.tenantScopedModules !== null &&
-          policy.tenantScopedModules.has(serviceName);
         const infrastructureTable = policy.infrastructureTables.has(effectiveTable);
-        if (!tenantScoped || infrastructureTable) {
+        if (!entity.schemaValid && (!tenantScoped || infrastructureTable)) {
           findings.push({
             id: `typeorm-entity-schema-required:${relativePath}:${line}`,
             rule: 'typeorm_entity_schema_required',
@@ -426,6 +430,27 @@ function analyzeFiles(
                 : []),
             ],
             details: { table: effectiveTable, tenantScoped, infrastructureTable },
+          });
+        }
+        if (
+          entity.schemaDeclared &&
+          tenantScoped &&
+          policy.moduleSchema !== null &&
+          !infrastructureTable
+        ) {
+          findings.push({
+            id: `typeorm-entity-schema-forbidden:${relativePath}:${line}`,
+            rule: 'typeorm_entity_schema_forbidden',
+            severity: 'high',
+            path: relativePath,
+            line,
+            className,
+            message: `@Entity() for per-tenant table '${effectiveTable}' of tenant-scoped service '${serviceName}' must omit the schema option: a declared schema pins every tenant's rows into the shared schema instead of tenant_<uuid>. A cross-tenant table belongs in MODULE_SCHEMAS['${serviceName}'].infrastructureTables.`,
+            evidence: [
+              { path: relativePath, line },
+              { path: policy.moduleSchema.path, line: policy.moduleSchema.line },
+            ],
+            details: { table: effectiveTable, schema: entity.schema },
           });
         }
       }
@@ -870,6 +895,8 @@ function getEntityDecorator(node: ts.ClassDeclaration): ts.CallExpression | null
 function readEntityDecorator(call: ts.CallExpression): {
   readonly schema: string | null;
   readonly schemaValid: boolean;
+  /** The options object carries a `schema` property at all, literal or not. */
+  readonly schemaDeclared: boolean;
   readonly table: string | null;
 } {
   // NOTE: both arguments are optional — bare `@Entity()` is legal TypeORM
@@ -893,6 +920,7 @@ function readEntityDecorator(call: ts.CallExpression): {
   return {
     schema,
     schemaValid: typeof schema === 'string' && schema.trim().length > 0,
+    schemaDeclared: optionsArg !== null && declaresProperty(optionsArg, 'schema'),
     table,
   };
 }
@@ -1078,6 +1106,14 @@ function readFirstExportedClass(workspaceRoot: string, path: string): string | n
 
 function readJson(workspaceRoot: string, path: string): unknown {
   return readWorkspaceJson(workspaceRoot, path);
+}
+
+function declaresProperty(object: ts.ObjectLiteralExpression, propertyName: string): boolean {
+  return object.properties.some(
+    (property) =>
+      (ts.isPropertyAssignment(property) || ts.isShorthandPropertyAssignment(property)) &&
+      isPropertyNamed(property.name, propertyName),
+  );
 }
 
 function readStringProperty(

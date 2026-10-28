@@ -72,6 +72,24 @@
         "The runtime validator dispatcher does not reference the cited catalog, directly or through an import.",
         "The catalog holds schemas for events that cross a trust boundary at runtime."
       ]
+    },
+    "event_schema_field_drift": {
+      "claim_type": "wrong_code",
+      "severity_cap": "HIGH",
+      "defect_claim": "An event's runtime wire schema and its contract interface name different members, so the validator rejects a member the producer sets or expects one the contract never carries.",
+      "premises": [
+        "The cited schema is a variable typed JSONSchemaType<W> that an event-schema catalog registers under the same event type the cited contract interface defines.",
+        "After the BaseEvent members are set aside, one side declares a member the other side does not."
+      ]
+    },
+    "event_schema_required_drift": {
+      "claim_type": "wrong_code",
+      "severity_cap": "HIGH",
+      "defect_claim": "An event's runtime wire schema and its contract interface disagree on whether a member is required, so the validator rejects events the contract allows or accepts events the contract forbids.",
+      "premises": [
+        "The cited schema is a variable typed JSONSchemaType<W> that an event-schema catalog registers under the same event type the cited contract interface defines.",
+        "A member both sides declare is required on one side and optional on the other."
+      ]
     }
   },
   "owner": "platform",

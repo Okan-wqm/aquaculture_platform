@@ -1100,6 +1100,20 @@ def push_prepared_branch(
     _validate_aria_branch(branch)
     if branch in ("snowball", "main", "master"):
         raise GovernanceError("base branch push is forbidden")
+    # ARIA-MEDIUM-1109 — the push is the GitHub-facing half of `pr_create`, so
+    # it is a governed action of the same table: a profile that may not open a
+    # pull request may not put its branch on the remote. The approval is
+    # re-read at the moment of the push, as prepare_branch and
+    # commit_prepared_branch do, so a proposal whose approval changed after the
+    # commit does not push on the decision the commit was made under. A planned
+    # push has no GitHub effect and stays as it was. Both refusals come before
+    # the git rev-parse and the intent row: a refused push runs no git command
+    # and leaves no external-effects row for recovery to chase.
+    if not dry_run:
+        enforce_profile_for_action("pr_push", base_dir=base_dir)
+        require_operator_approval(
+            get_proposal(proposal_id=proposal_id, base_dir=base_dir), action="push_prepared_branch",
+        )
     root = Path(workspace_root).resolve()
     row = {
         "schema_version": 1,
@@ -1113,7 +1127,7 @@ def push_prepared_branch(
     if not dry_run:
         from .recovery import record_intent, record_receipt
 
-        head_sha = _git(root, ["rev-parse", branch]) if True else None
+        head_sha = _git(root, ["rev-parse", branch])
         intent = record_intent(
             request_id=_effect_request_id(proposal_id), effect_kind="git_push", target=f"{remote}/{branch}",
             intended_postcondition={"branch": branch, "remote": remote, "head_sha": head_sha, "proposal_id": proposal_id},

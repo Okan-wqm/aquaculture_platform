@@ -3104,7 +3104,7 @@ def _phase_metrics(context: PhaseContext) -> dict[str, Any]:
         _ran_result(context, "experiment_night"),
         ("planned_problem", "planned_regression", "reproduced", "refuted",
          "regressions", "still_fixed", "skipped_problem", "skipped_regression",
-         "unresolvable_bindings", "errors"),
+         "unresolvable_bindings", "cut_problem", "unknown_exemptions", "errors"),
     )
     if night is not None:
         phase_digests["experiment_night"] = night

@@ -200,6 +200,47 @@ class TheJudgeFanoutFamiliesAreDeclared(AtlasCase):
         for family_id, owner in JUDGE_FANOUT_FAMILIES.items():
             with self.subTest(family=family_id):
                 self.assertEqual({path_of(site) for site in self.family(family_id)["writers"]}, {path_of(owner)})
+class TheF31FamiliesAreDeclaredWithOneOwnerEach(AtlasCase):
+    """F3.1 (ARIA-LOW-741 / ARIA-MEDIUM-742): the stamp's four concepts are single-owner families from the commit they land.
+
+    Declared, not folded: none carries a finding (one owner today), and the round cap family that names package F3.1 keeps
+    its finding, because this slice measures nothing about rounds and unifies none of the five literals (ARIA-LOW-743).
+    """
+
+    OWNERS = {
+        "executed_route": f"{KERNEL}independence_check.py:executed_route",
+        "change_churn": f"{KERNEL}change_paths.py:parse_change_z",
+        "decision_stamp": f"{KERNEL}decision_stamp.py:build_decision_stamp",
+        "change_in_flight": f"{KERNEL}finding_grounding.py:_in_flight_state",
+    }
+    COMPUTERS = {
+        "executed_route": {"executed_route", "executed_route_of", "stamp_dispatch_model"},
+        "change_churn": {"parse_change_z"},
+        "decision_stamp": {"build_decision_stamp", "validate_decision_stamp", "stamp_churn", "stamp_route_key"},
+        "change_in_flight": {"_in_flight_state"},
+    }
+
+    def test_each_family_names_its_owner_exactly_and_has_no_finding(self) -> None:
+        for family_id, owner in self.OWNERS.items():
+            with self.subTest(family=family_id):
+                facts = self.family(family_id)
+                self.assertEqual(facts["owner"], owner)
+                self.assertIsNone(facts["finding"], "one owner today: no copy finding")
+                self.assertEqual({path_of(site) for site in facts["writers"]}, {path_of(owner)})
+
+    def test_each_family_computes_under_exactly_the_names_the_owner_defines(self) -> None:
+        families = generator().FAMILIES
+        for family_id, computers in self.COMPUTERS.items():
+            with self.subTest(family=family_id):
+                self.assertTrue(family_id in families, f"the atlas declares no family {family_id!r}")
+                self.assertEqual(set(families[family_id].computers), computers)
+
+    def test_the_round_cap_keeps_its_finding_and_its_package_beside_them(self) -> None:
+        # The four families above exist (the assertion in family()), and the cap is still the open copy family.
+        for family_id in self.OWNERS:
+            self.family(family_id)
+        cap = self.family("plan_round_cap")
+        self.assertEqual((cap["finding"], cap["plan_package"]), ("ARIA-LOW-743", "F3.1"))
 
 
 class EveryCopyIsATrackedFinding(AtlasCase):

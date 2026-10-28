@@ -101,6 +101,11 @@ POLICY_KEYS = {
     # from defaults — by service_expertise_policy / change_review_policy.
     "service_expertise",
     "change_review",
+    # F0.6 (ARIA-MEDIUM-731) — how many non-matching observations of one
+    # experiment end its night run, and the operator-written exempt experiment
+    # ids. Parsed strictly — never filled from defaults — by
+    # hypothesis_cut_policy; read by experiment_night.plan_night_experiments.
+    "hypothesis_cut",
 }
 
 JUDGMENT_PIPELINE_DEFAULTS: dict[str, Any] = {
@@ -1091,6 +1096,17 @@ CHANGE_REVIEW_SCHEMA: dict[str, Any] = {
         "overflow": _prereg.one_of("hold"),
     },
 }
+# F0.6 (ARIA-MEDIUM-731, PLAN-v2 principle 3) — the refuted-hypothesis cut.
+# max_nonmatching_observations: the streak at which the night stops running an
+# experiment (experiment_night.nonmatching_streaks). exempt_experiments: ids
+# the operator keeps running anyway; aria-config/ is read-only to ARIA, so ARIA
+# cannot exempt its own hypothesis. There is no ``enabled`` key on purpose: a
+# switch that turns the cut off brings the repeated run back; the operator
+# raises the limit or names an id.
+HYPOTHESIS_CUT_SCHEMA: dict[str, Any] = {
+    "max_nonmatching_observations": _prereg.whole(2, 50),
+    "exempt_experiments": _prereg.labels(max_len=64),
+}
 
 
 def _parsed_change_review(merged: dict[str, Any]) -> dict[str, Any]:
@@ -1104,6 +1120,16 @@ def change_review_policy(repo_root: str | Path | None = None) -> dict[str, Any]:
     raise. A missing, unknown or out-of-range key is refused by its dotted path.
     """
     return _parsed_change_review(load_policy(repo_root) if repo_root is not None else default_policy())
+
+
+def hypothesis_cut_policy(repo_root: str | Path | None = None) -> dict[str, Any]:
+    """F0.6 — the refuted-hypothesis cut's limit and exemptions, parsed strictly.
+
+    A missing, unknown or out-of-range key is refused by its dotted path; the
+    night planner lets that refusal stop the night, never read it as "no cut".
+    """
+    merged = load_policy(repo_root) if repo_root is not None else default_policy()
+    return _prereg.parse_block("hypothesis_cut", merged.get("hypothesis_cut"), HYPOTHESIS_CUT_SCHEMA)
 
 
 def service_expertise_policy(repo_root: str | Path | None = None) -> dict[str, Any]:

@@ -37,9 +37,9 @@ import { VfdDataReaderService } from './vfd-data-reader.service';
  * unscoped repository query would resolve against the empty source-schema
  * template and silently find nothing.
  *
- * It uses `forEachVerifiedTenantSchema` rather than `forEachTenantSchema`: this
- * job makes a drive move, so it is exactly the "security-sensitive cross-tenant
- * job" the verified fan-out documents itself as required for. The tenant id comes
+ * It uses `forEachVerifiedTenantSchema`: this job makes a drive move, so it is
+ * exactly the "security-sensitive cross-tenant job" the verified fan-out documents
+ * itself as required for. The tenant id comes
  * from the provisioning ledger instead of a `tenant_id` column read out of the
  * schema being swept, and suspended, migrating and pending-deletion tenants — who
  * legitimately still have a schema — are not polled.

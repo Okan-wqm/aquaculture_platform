@@ -179,6 +179,12 @@ class GenesisPolicyTests(unittest.TestCase):
                 # change_review_policy.
                 "service_expertise",
                 "change_review",
+                # F0.6 (ARIA-MEDIUM-731) — hypothesis_cut: how many
+                # non-matching observations end a night hypothesis, and the
+                # operator-written exempt experiment ids. Parsed strictly (no
+                # default fill) by hypothesis_cut_policy; read by
+                # experiment_night.plan_night_experiments.
+                "hypothesis_cut",
             },
         )
 

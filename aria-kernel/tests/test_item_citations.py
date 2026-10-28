@@ -310,5 +310,44 @@ class TierZeroKeepsItsRefusalNames(unittest.TestCase):
         )
 
 
+class NoFifthReaderNamesAnotherLine(unittest.TestCase):
+    """R11 of the conformance audit - ``system_one_points._cited_line`` disagreed with the owner.
+
+    The shadow Jev asks (the fan-out's J1 and the funnel's tier-1 J2) are about a
+    ``(path, line)`` the item cites. ``system_one_points._cited_line`` read it by
+    itself, strings only: for ``{"path": P, "evidence": [{"path": P, "line": 120}]}``
+    it returns ``(P, 1)`` while ``item_citations.cited_line`` says 120, so a SHADOW
+    reflex was asked about the head of the file. The two caller paths are pinned through
+    their public behaviour (tests/test_system_one_points.py, tests/test_judgment_funnel.py);
+    this pins the private reader itself while it exists, so a retained second spelling
+    of the rule is red whatever its callers do.
+    """
+
+    def test_the_audits_own_probe_names_line_120_not_line_1(self) -> None:
+        import aria_kernel.system_one_points as points
+
+        _owner()
+        reader = getattr(points, "_cited_line", None)
+        if reader is None:
+            return  # retired: the reader is gone and the public caller paths are the pin
+        item = {"path": P, "evidence": [{"path": P, "line": 120}]}
+        self.assertEqual(_owner().cited_line(item), 120)
+        self.assertEqual(reader(item), (P, 120))
+
+    def test_a_retained_private_reader_names_the_owners_line_on_every_table_row_that_has_one(self) -> None:
+        import aria_kernel.system_one_points as points
+
+        owner = _owner()
+        reader = getattr(points, "_cited_line", None)
+        if reader is None:
+            return
+        for name, item, _refs_expected, line in _TABLE:
+            if line is None:
+                continue  # the owner names no line (legacy ``path:line`` shape, other files): not pinned here
+            with self.subTest(name):
+                self.assertEqual(owner.cited_line(item), line)
+                self.assertEqual(reader(item), (str(item["path"]).strip(), line))
+
+
 if __name__ == "__main__":
     unittest.main()

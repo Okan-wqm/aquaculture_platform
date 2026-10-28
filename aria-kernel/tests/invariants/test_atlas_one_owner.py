@@ -203,5 +203,32 @@ class TheCitationsOwnerIsAFoundationModule(unittest.TestCase):
         self.assertEqual(module_level, [])
 
 
+class AFifthReaderOfTheCitedLineIsRed(unittest.TestCase):
+    """R11 of the J4 conformance audit - the atlas must name the retired fifth reader.
+
+    ``system_one_points._cited_line`` read what an item cites (strings only, line 1 as the
+    fallback) beside the owner, so the shadow Jev asks were about another line than the
+    one the judges are handed. The ``item_citations`` family listed ``cited_line`` but
+    not that private name, so a second reader under it was invisible to the one-owner
+    scan. Planted the way every other forgery is: a forged module outside the owner that
+    defines ``_cited_line`` must be the one offender, of the ``item_citations`` family.
+    """
+
+    _SHAPES = (
+        "def _cited_line(item):\n    return None\n",
+        "def _cited_line(item: dict) -> tuple[str, int] | None:\n    return (item.get('path') or '', 1)\n",
+    )
+
+    def test_a_second_reader_named_cited_line_outside_the_owner_is_an_offender(self) -> None:
+        gen = _generator()
+        for shape in self._SHAPES:
+            with self.subTest(shape=shape.splitlines()[0]):
+                offenders = gen.one_owner_offenders({**_owner_sources(), _FORGED: shape})
+                self.assertEqual(
+                    [o for o in offenders if o.startswith(f"{_FORGED}:")],
+                    [f"{_FORGED}:1:item_citations"],
+                )
+
+
 if __name__ == "__main__":
     unittest.main()

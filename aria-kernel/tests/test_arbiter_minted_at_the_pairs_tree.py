@@ -68,6 +68,8 @@ from aria_kernel.judge_fanout import (
     dispatch_arbiter_for_anchor_groups,
     dispatch_arbiter_for_belief,
     dispatch_arbiter_for_split_verdicts,
+    dispatch_judges_for_sample,
+    dispatch_rebuttal_for_dissent,
     require_current_arbiter_inputs,
 )
 from aria_kernel.ledger import load_declared_jsonl
@@ -562,6 +564,124 @@ class TheOtherArbiterLanesAreUnchanged(_Ledger):
         [request] = self.arbiters()
         self.assertEqual(request["judgment_group_id"], "belief:B-1")
         self.assertIsNone(request["target_sha"])
+
+
+class TheRebuttalArmMintsAtTheRequestsOwnTree(_Ledger):
+    """R17 of the conformance audit - GREEN at the base on purpose: the rebuttal arm keeps the dissenter's own tree.
+
+    A settled group with a dissent re-mints the DISSENTER's seat once, "in the same
+    judgment group, under the same role it originally held" (``dispatch_rebuttal_for_dissent``):
+    its tree is the one the seat's own request named (``request.get("target_sha")``),
+    the precedent the arbiter arms now follow for their seats. The audit's mutant m34
+    (the rebuttal minted with ``target_sha=None``) survived every test, so a rebuttal
+    could lose the tree its dissenter judged and be graded against another. Driven
+    through the production mints, so the dissenter's request really carries its tree.
+    """
+
+    WEIGHTS = {EVIDENCE: 0.9, ADVERSARIAL: 0.9, ARBITER: 0.9}
+
+    def _rebuttals(self) -> list[dict[str, Any]]:
+        return [
+            row for row in list_agent_invocation_requests(base_dir=self.tools)
+            if judge_fanout.REBUTTAL_MARKER in str(row.get("suggested_prompt") or "")
+        ]
+
+    def _settle_over(self, *, dissenter: str, dissenter_request_id: str, finding: str = "F-1") -> None:
+        """Two weighted seats settle one verdict; ``dissenter`` voted the other way, recorded with the request it answered."""
+        verdicts = {EVIDENCE: "false_positive", ADVERSARIAL: "false_positive", ARBITER: "false_positive"}
+        verdicts[dissenter] = "true_positive"
+        for judge_id, verdict in verdicts.items():
+            self.seat(judge_id, verdict=verdict, finding=finding, target_sha=A,
+                      request_ids=[dissenter_request_id] if judge_id == dissenter else None)
+        settled = generate_ai_consensus(tool_id=TOOL, base_dir=self.tools, judge_weights=self.WEIGHTS)
+        [row] = settled["consensus"]
+        self.assertEqual((row["verdict"], row["judge_count"], row["judges_voted"]), ("false_positive", 2, 3))
+
+    def test_a_dissenting_arbiter_is_re_asked_at_the_tree_its_own_request_named(self) -> None:
+        self.seat(EVIDENCE, verdict="false_positive", target_sha=A)
+        self.seat(ADVERSARIAL, verdict="false_positive", target_sha=A)
+        dispatch_arbiter_for_anchor_groups(tool_id=TOOL, base_dir=self.tools, cycle_id="cyc-1")
+        [arbiter] = self.arbiters()
+        self.assertEqual(arbiter["target_sha"], A, "the arbiter was minted at the pair's tree (C3)")
+        self._settle_over(dissenter=ARBITER, dissenter_request_id=arbiter["request_id"])
+
+        minted = dispatch_rebuttal_for_dissent(tool_id=TOOL, base_dir=self.tools, cycle_id="cyc-2")
+        self.assertEqual(minted["minted_count"], 1, minted["skipped"])
+        [rebuttal] = self._rebuttals()
+        self.assertEqual(rebuttal["target_agent"], ARBITER)
+        self.assertEqual(rebuttal["target_sha"], A)
+
+    def test_a_dissenting_judge_seat_is_re_asked_at_the_tree_its_own_request_named(self) -> None:
+        register_contracted_tool(self.tools, TOOL)
+        item = {
+            "tool_id": TOOL, "run_id": "run-F-1", "cycle_id": "c1", "finding_id": "F-1", "rule": "rule-a",
+            "severity": "high", "path": "src/f-1.ts", "message": "suspicious", "evidence": ["src/f-1.ts:10"],
+            "finding_fingerprint": "fp-F-1",
+        }
+        fanout = dispatch_judges_for_sample(
+            sample={"cycle_id": "c1", "items": [item]}, base_dir=self.tools, target_sha=A)
+        by_agent = {row["target_agent"]: row["request_id"] for row in fanout["minted"]}
+        requests = {row["request_id"]: row for row in list_agent_invocation_requests(base_dir=self.tools)}
+        self.assertEqual(requests[by_agent[EVIDENCE]]["target_sha"], A, "the seat was minted at its tree")
+        self._settle_over(dissenter=EVIDENCE, dissenter_request_id=by_agent[EVIDENCE])
+
+        minted = dispatch_rebuttal_for_dissent(tool_id=TOOL, base_dir=self.tools, cycle_id="cyc-2")
+        self.assertEqual(minted["minted_count"], 1, minted["skipped"])
+        [rebuttal] = self._rebuttals()
+        self.assertEqual(rebuttal["target_agent"], EVIDENCE)
+        self.assertEqual(rebuttal["target_sha"], A)
+
+
+class TheHoldDisclosureNamesAtMostTheFirstTwentyGroupsSorted(_Ledger):
+    """R20 of the conformance audit - GREEN at the base on purpose: the disclosed id list is capped at 20, sorted.
+
+    The hold is disclosed once per claim on the governance ledger, a standing fact
+    about the ledger and not about one cycle (``_disclose_tree_holds``). Its claim
+    carries ``held_count`` (all the groups held) and ``judgment_group_ids`` (at most the
+    first twenty, sorted), so a ledger with hundreds of mixed groups discloses one
+    bounded row, not one of unbounded size. The audit's mutant m31 (the cap 200)
+    survived: the existing tests hold one or two groups. Here 25 groups are held and
+    the arm meets them in the REVERSE of their name order (the arm walks
+    ``(run_id, finding_id, group_id)``; the run ids descend as the findings ascend), so
+    the first twenty met are not the first twenty by name and both the cap and the
+    sort are pinned.
+    """
+
+    HELD = 25
+    DISCLOSED = 20
+
+    def _hold_groups(self, verdicts: tuple[str, str]) -> list[str]:
+        groups = []
+        for index in range(1, self.HELD + 1):
+            finding = f"F-{index:02d}"
+            run_id = f"run-{self.HELD + 1 - index:02d}"
+            for judge_id, verdict, sha in ((EVIDENCE, verdicts[0], A), (ADVERSARIAL, verdicts[1], C)):
+                record_operator_feedback(
+                    tool_id=TOOL, run_id=run_id, finding_id=finding, verdict=verdict, severity="high",
+                    note=f"{judge_id} independent reading of {finding}", source_type="ai_judge", judge_id=judge_id,
+                    model=_MODELS[judge_id], confidence=0.95, evidence_refs=[f"src/{finding.lower()}.ts:10"],
+                    judgment_group_id=_group(finding), finding_fingerprint=f"fp-{finding}", target_sha=sha,
+                    base_dir=self.tools,
+                )
+            groups.append(_group(finding))
+        return groups
+
+    def _assert_the_claim_is_bounded(self, dispatch: Any, verdicts: tuple[str, str]) -> None:
+        groups = self._hold_groups(verdicts)
+        result = dispatch(tool_id=TOOL, base_dir=self.tools, cycle_id="cyc-1")
+        self.assertEqual(result["minted_count"], 0)
+        self.assertEqual(len(result["skipped"]), self.HELD, "every held group is named in the per-decision skips")
+        [row] = self.holds()
+        details = row["details"]
+        self.assertEqual(details["held_count"], self.HELD, "the count is of every group held, not of the ids listed")
+        self.assertEqual(details["judgment_group_ids"], sorted(groups)[: self.DISCLOSED])
+        self.assertEqual(len(details["judgment_group_ids"]), self.DISCLOSED)
+
+    def test_the_anchor_arm_discloses_the_first_twenty_of_many_held_groups_sorted(self) -> None:
+        self._assert_the_claim_is_bounded(dispatch_arbiter_for_anchor_groups, ("true_positive", "true_positive"))
+
+    def test_the_split_arm_discloses_the_first_twenty_of_many_held_groups_sorted(self) -> None:
+        self._assert_the_claim_is_bounded(dispatch_arbiter_for_split_verdicts, ("true_positive", "false_positive"))
 
 
 if __name__ == "__main__":

@@ -9,6 +9,9 @@ on:
     branches: [main, develop, agentic]
     paths:
       - "sens-api-gateway/**"
+      - "crates/alarm-core/**"
+      - "crates/local-rumqttc/**"
+      - "Cargo.toml"
       - ".github/workflows/sens-api-gateway-ci.yml"
       - ".github/workflows/edge-agent-release.yml"
       - ".github/workflows/ci-edge.yml"
@@ -18,6 +21,9 @@ on:
     branches: [main, develop, agentic]
     paths:
       - "sens-api-gateway/**"
+      - "crates/alarm-core/**"
+      - "crates/local-rumqttc/**"
+      - "Cargo.toml"
       - ".github/workflows/sens-api-gateway-ci.yml"
       - ".github/workflows/edge-agent-release.yml"
       - ".github/workflows/ci-edge.yml"
@@ -64,7 +70,7 @@ jobs:
           grep -q "cargo-metadata.sbom.json" .github/workflows/edge-agent-release.yml
           grep -q "intoto.jsonl" .github/workflows/edge-agent-release.yml
           grep -q "NOTICE.md" .github/workflows/edge-agent-release.yml
-          grep -q 'version = "2.0.0-rc.6"' sens-api-gateway/Cargo.toml
+          grep -q 'version = "2.0.0-rc.7"' sens-api-gateway/Cargo.toml
           if grep -q "apps/admin-api-service/src/edge" docs/evidence/sens-api-gateway-edge-v2.0.0-rc4.md; then
             grep -q "Excluded" docs/evidence/sens-api-gateway-edge-v2.0.0-rc4.md
           fi
@@ -141,6 +147,46 @@ jobs:
       - name: Check gateway release feature profile
         working-directory: ${{ env.SENS_API_GATEWAY_DIR }}
         run: cargo check --locked --features "$SENS_API_GATEWAY_RELEASE_FEATURES"
+
+  # The release workflow cross-compiles inside a container that only sees the
+  # directories cross mounts. No PR job exercised that path, so a path
+  # dependency that inherits from the root workspace (alarm-core, 2026-07-13)
+  # broke every release build unnoticed until the agent-v2.0.0-rc.6 tag.
+  # This job runs the release invocation for one target; the three targets
+  # share the mount logic.
+  cross-build-smoke:
+    name: cross build release (x86_64)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CARGO_TARGET_DIR: ${{ github.workspace }}/sens-api-gateway/target
+      CROSS_REPO_ROOT: ${{ github.workspace }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # stable
+        with:
+          toolchain: 1.88.0
+          targets: x86_64-unknown-linux-gnu
+
+      - name: Cache cross binary
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cargo/bin/cross
+          key: ${{ runner.os }}-cross-0.2.5
+
+      - name: Install cross (if not cached)
+        run: |
+          if [ ! -f "$HOME/.cargo/bin/cross" ]; then
+            cargo install cross --version 0.2.5 --locked
+          fi
+
+      - name: Cross build the release binary
+        working-directory: ${{ env.SENS_API_GATEWAY_DIR }}
+        env:
+          LIBCLANG_PATH: /usr/lib/llvm-12/lib
+        run: cross build --target-dir "$CARGO_TARGET_DIR" --release --target x86_64-unknown-linux-gnu --features "$SENS_API_GATEWAY_RELEASE_FEATURES"
 
   check-ci-features:
     name: cargo check --release --all-targets --features curated
@@ -394,6 +440,7 @@ jobs:
       - format
       - check-default
       - check-release-features
+      - cross-build-smoke
       - check-ci-features
       - clippy
       - test
@@ -412,6 +459,7 @@ jobs:
             "${{ needs.format.result }}" \
             "${{ needs.check-default.result }}" \
             "${{ needs.check-release-features.result }}" \
+            "${{ needs.cross-build-smoke.result }}" \
             "${{ needs.check-ci-features.result }}" \
             "${{ needs.clippy.result }}" \
             "${{ needs.test.result }}" \

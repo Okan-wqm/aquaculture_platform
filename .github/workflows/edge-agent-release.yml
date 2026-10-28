@@ -237,6 +237,7 @@ jobs:
         # in Cross.toml — the documented cross integration pattern.
         env:
           LIBCLANG_PATH: /usr/lib/llvm-12/lib
+          CROSS_REPO_ROOT: ${{ github.workspace }}
         run: cross build --target-dir "$CARGO_TARGET_DIR" --release --target ${{ matrix.target }} --features "$EDGE_RELEASE_FEATURES"
 
       - name: Resolve release binary path

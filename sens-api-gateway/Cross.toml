@@ -20,6 +20,15 @@ passthrough = [
     "RUST_LOG",
     "LIBCLANG_PATH",
 ]
+# The gateway is its own Cargo workspace, but its path dependency
+# ../crates/alarm-core inherits `edition`, `version`, ... from the repository-root
+# workspace manifest. cross mounts the gateway and each path dependency, not
+# the root manifest, so cargo inside the container failed with "failed to find
+# a workspace root" and no release binary could be built after alarm-core was
+# added (2026-07-13). `volumes` mounts the directories named by these
+# environment variables at the same path; the release workflow and the PR
+# cross smoke job both set CROSS_REPO_ROOT to the checkout.
+volumes = ["CROSS_REPO_ROOT"]
 
 # Shared pre-build across all 3 cross targets:
 #   1. perl + make: rusqlite bundled-sqlcipher-vendored-openssl builds OpenSSL

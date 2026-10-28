@@ -118,7 +118,13 @@ export class RateLimitGuard implements CanActivate {
       const key = this.buildKey(decoratorConfig, identity);
       const entry = await this.countWindow(key, decoratorConfig.windowMs, decoratorConfig.name);
       this.setInformationalHeaders(ctx.request, decoratorConfig, entry);
-      this.rejectIfOver(ctx.request, decoratorConfig, entry, false);
+      // WHY ctx.isGraphql: a GraphQL resolver that throws an HttpException reaches
+      // the client as INTERNAL_SERVER_ERROR. Every @RateLimit'ed operation
+      // (login, refresh, MFA, password reset) is GraphQL, so a client over its
+      // limit was told "the server broke" — and a web client that reads a failed
+      // refresh as a dead session logged the user out. GraphQL gets a coded
+      // GraphQLError (TOO_MANY_REQUESTS + retryAfter); REST keeps its HTTP 429.
+      this.rejectIfOver(ctx.request, decoratorConfig, entry, ctx.isGraphql);
       return true;
     }
 

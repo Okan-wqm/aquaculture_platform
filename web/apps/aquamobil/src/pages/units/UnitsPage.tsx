@@ -80,7 +80,7 @@ export function UnitsPage(): ReactElement {
           <section key={group.siteId} className="flex flex-col gap-2">
             <div className="flex items-baseline justify-between px-1">
               <h2 className="text-body font-semibold text-ink-3">{group.label}</h2>
-              <span className="text-meta font-mono text-ink-3">{group.units.length}</span>
+              <span className="text-meta text-ink-3 tabular-nums">{group.units.length}</span>
             </div>
             {group.units.map((tank) => {
               // One status means one colour on every unit surface — see
@@ -108,7 +108,7 @@ export function UnitsPage(): ReactElement {
                   }
                   trailing={
                     tank.currentBiomass > 0 ? (
-                      <span className="font-mono tabular-nums">
+                      <span className="tabular-nums">
                         {(tank.currentBiomass / 1000).toFixed(1)}
                         <span className="text-ink-3 font-sans"> t</span>
                       </span>

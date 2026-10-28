@@ -3060,10 +3060,10 @@ def _build_envelope_from_claude_output(
     # overwrites whatever the agent wrote under the key, and a route that
     # named nothing REMOVES the key rather than leaving the agent's spelling
     # in place (ORPHAN-HIGH-781 pinned "no stale stamp" for the absent case).
-    if dispatch_model:
-        details["agent_dispatch_model"] = dispatch_model
-    else:
-        details.pop("agent_dispatch_model", None)
+    # The one writer of the key is the route owner (independence_check).
+    from aria_kernel.independence_check import stamp_dispatch_model
+
+    stamp_dispatch_model(details, dispatch_model)
     details["agent_confidence_source"] = confidence_source
     # ARIA-HIGH-194 — FORCE-set from the parse of the FULL reply, like the
     # stamps above: the agent's own spelling of the key is never trusted.

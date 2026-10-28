@@ -36,6 +36,7 @@ import {
   StripInternalHeadersMiddleware,
   TenantContextMiddleware,
   UserContextMiddleware,
+  VerifiedUserAssertionMiddleware,
 } from '@aquaculture/backend-common/middleware';
 import { RedisModule, buildRedisOptions } from '@aquaculture/backend-common/redis';
 import { CircuitBreakerModule } from '@aquaculture/backend-common/resilience';
@@ -336,6 +337,11 @@ export class AppModule implements NestModule {
       .apply(
         // SEC-CRITICAL-002 sweep — strip forged internal headers.
         StripInternalHeadersMiddleware,
+        // SEC-HIGH-156: resolve req.user/req.tenantId from the gateway-signed
+        // verified-user assertion (runs after Strip sets req.verifiedIdentity,
+        // before UserContext/TenantContext). Without it the TenantGuard sees no
+        // user and answers every authenticated operation with UNAUTHENTICATED.
+        VerifiedUserAssertionMiddleware,
         CorrelationIdMiddleware,
         RequestContextMiddleware, // Populate AsyncLocalStorage for structured logging
         UserContextMiddleware,

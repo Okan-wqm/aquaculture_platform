@@ -9,7 +9,7 @@
 import { Inject, BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, EntityManager } from 'typeorm';
-import { listTenantSchemas } from '@aquaculture/backend-common/database';
+import { forEachVerifiedTenantSchema } from '@aquaculture/backend-common/database';
 import {
   ScheduledJob,
   ScheduledJobRunner,
@@ -726,99 +726,71 @@ export class TaskService {
 
   /**
    * Gecikmiş görevleri her 30 dakikada bir tespit eder.
-   * Iterates ALL tenant schemas to ensure no tenant is missed.
+   * Fans out over every ACTIVE tenant, each pass bound to its own tenant.
+   *
+   * FARM-HIGH-481: the job used to list `tenant_*` schemas and open a bare
+   * QueryRunner with only a `search_path`. `tasks` is under FORCE row-level
+   * security, so that session saw zero rows for every tenant and the job
+   * "ran" without ever finding an overdue task. The fan-out owns the runner,
+   * the transaction and the tenant binding, so this body is only the work.
    */
   @ScheduledJob({ name: 'task.detect-overdue', cron: '0 */30 * * * *' })
   async detectOverdueTasks(): Promise<void> {
-    this.logger.log('Running overdue task detection across all tenant schemas...');
+    this.logger.log('Running overdue task detection across all active tenants...');
     const now = new Date();
 
-    const tenantSchemas = await listTenantSchemas(this.dataSource);
-    if (tenantSchemas.length === 0) {
-      this.logger.debug('No tenant schemas found, skipping overdue detection');
-      return;
-    }
-
-    this.logger.log(`Processing overdue detection for ${tenantSchemas.length} tenant schemas`);
-
-    for (const schema of tenantSchemas) {
-      const queryRunner = this.dataSource.createQueryRunner();
-      await queryRunner.connect();
-
-      try {
-        await queryRunner.query(`SET search_path TO "${schema}", farm, public`);
-
+    const results = await forEachVerifiedTenantSchema(
+      this.dataSource,
+      async ({ tenantId, schemaName, queryRunner }) => {
         // Atomic: the SELECT FOR UPDATE lock, the OVERDUE write and every
-        // TaskOverdue outbox enqueue all live in ONE transaction. Without it
-        // the FOR UPDATE lock would release under autocommit and the events
-        // would be fire-and-forget; now the row flip and its events commit or
-        // roll back together (at-least-once delivery).
-        await queryRunner.startTransaction();
-        try {
-          const overdueTasks: Task[] = await queryRunner.query(
-            `SELECT * FROM tasks
-             WHERE status IN ($1, $2)
-             AND "dueDate" < $3
-             AND "deletedAt" IS NULL
-             FOR UPDATE SKIP LOCKED`,
-            [TaskStatus.PENDING, TaskStatus.IN_PROGRESS, now],
-          );
-
-          if (overdueTasks.length === 0) {
-            await queryRunner.commitTransaction();
-            continue;
-          }
-
-          const ids = overdueTasks.map((t) => t.id);
-          await queryRunner.query(
-            `UPDATE tasks SET status = $1, "updatedAt" = NOW() WHERE id = ANY($2::uuid[])`,
-            [TaskStatus.OVERDUE, ids],
-          );
-
-          // Group by tenant for event publishing
-          const tasksByTenant = new Map<string, Task[]>();
-          for (const task of overdueTasks) {
-            const tenantTasks = tasksByTenant.get(task.tenantId) || [];
-            tenantTasks.push(task);
-            tasksByTenant.set(task.tenantId, tenantTasks);
-          }
-
-          for (const [tenantId, tasks] of tasksByTenant) {
-            for (const task of tasks) {
-              const hoursOverdue = Math.round(
-                (now.getTime() - new Date(task.dueDate).getTime()) / 3600000,
-              );
-              await this.outboxPublisher.enqueue(
-                {
-                  ...createBaseEvent('TaskOverdue', tenantId),
-                  taskId: task.id,
-                  title: task.title,
-                  assignedTo: task.assignedTo,
-                  dueDate: new Date(task.dueDate).toISOString(),
-                  priority: task.priority,
-                  hoursOverdue,
-                },
-                queryRunner.manager,
-              );
-            }
-            this.logger.log(
-              `Marked ${tasks.length} tasks as overdue for tenant ${tenantId} (schema: ${schema})`,
-            );
-          }
-
-          await queryRunner.commitTransaction();
-        } catch (txErr) {
-          await queryRunner.rollbackTransaction();
-          throw txErr;
-        }
-      } catch (err) {
-        this.logger.error(
-          `Overdue detection failed for schema ${schema}: ${(err as Error).message}`,
+        // TaskOverdue outbox enqueue all live in the fan-out's ONE transaction
+        // for this tenant. Without it the FOR UPDATE lock would release under
+        // autocommit and the events would be fire-and-forget; now the row flip
+        // and its events commit or roll back together (at-least-once delivery).
+        const overdueTasks: Task[] = await queryRunner.query(
+          `SELECT * FROM tasks
+           WHERE status IN ($1, $2)
+           AND "dueDate" < $3
+           AND "deletedAt" IS NULL
+           FOR UPDATE SKIP LOCKED`,
+          [TaskStatus.PENDING, TaskStatus.IN_PROGRESS, now],
         );
-      } finally {
-        await queryRunner.query('RESET search_path').catch(() => {});
-        await queryRunner.release();
-      }
+
+        if (overdueTasks.length === 0) return;
+
+        await queryRunner.query(
+          `UPDATE tasks SET status = $1, "updatedAt" = NOW() WHERE id = ANY($2::uuid[])`,
+          [TaskStatus.OVERDUE, overdueTasks.map((task) => task.id)],
+        );
+
+        for (const task of overdueTasks) {
+          const hoursOverdue = Math.round(
+            (now.getTime() - new Date(task.dueDate).getTime()) / 3600000,
+          );
+          await this.outboxPublisher.enqueue(
+            {
+              ...createBaseEvent('TaskOverdue', tenantId),
+              taskId: task.id,
+              title: task.title,
+              assignedTo: task.assignedTo,
+              dueDate: new Date(task.dueDate).toISOString(),
+              priority: task.priority,
+              hoursOverdue,
+            },
+            queryRunner.manager,
+          );
+        }
+        this.logger.log(
+          `Marked ${overdueTasks.length} tasks as overdue for tenant ${tenantId} (schema: ${schemaName})`,
+        );
+      },
+      { logger: this.logger },
+    );
+
+    for (const failed of results.filter((result) => result.outcome !== 'ok')) {
+      this.logger.error(
+        `Overdue detection ${failed.outcome} for schema ${failed.schemaName}: ${failed.error?.message}`,
+      );
     }
   }
 }

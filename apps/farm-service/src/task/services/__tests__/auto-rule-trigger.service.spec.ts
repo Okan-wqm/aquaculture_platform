@@ -1,15 +1,22 @@
 /**
- * AutoRuleTriggerService — NATS Handler Tenant Isolation Tests
+ * AutoRuleTriggerService — tenant boundaries (FARM-HIGH-481)
  *
- * Verifies tenant isolation in NATS event handlers that run OUTSIDE
- * HTTP request context (no AsyncLocalStorage, no TenantSchemaMiddleware).
+ * The service runs OUTSIDE HTTP request context (NATS handler + hourly job):
+ * no AsyncLocalStorage, no TenantSchemaMiddleware. `auto_rules` and `tasks` are
+ * under FORCE row-level security, so every database operation must go through
+ * the tenant boundary (`runInTenantRead` / `runInTenantTransaction` / the
+ * tenant-bound fan-out). A runner with only a `search_path` reads zero rows —
+ * no AutoRule ever fired. These specs pin WHICH boundary carries WHICH tenant;
+ * that the boundary really admits the rows is proven on real Postgres by
+ * `task-crons.rls.postgres.spec.ts`.
  *
- * Critical security paths tested:
- * - Events without tenantId are silently dropped (logged as warning)
- * - Events with invalid UUID format are rejected (logged as error)
- * - Schema name is correctly derived from UUID (16 hex chars)
- * - QueryRunner lifecycle: connect -> SET search_path -> work -> RESET -> release
- * - processScheduleRules iterates all tenant schemas independently
+ * Paths tested:
+ * - Events without tenantId / with a malformed one never reach the database
+ * - The rule lookup is a read for the EVENT's tenant
+ * - Each rule runs in its own transaction for ITS tenant; a failing rule does
+ *   not stop its siblings; TaskCreated is published only after the commit
+ * - processScheduleRules finds due rules per tenant, then runs each in its own
+ *   tenant transaction
  *
  * @module Task/Tests
  */
@@ -68,410 +75,340 @@ jest.mock('@platform/event-bus', () => ({
   ).HandlerOutcome,
 }));
 
+jest.mock('@aquaculture/backend-common/database', () => ({
+  ...jest.requireActual<Record<string, unknown>>('@aquaculture/backend-common/database'),
+  runInTenantRead: jest.fn(),
+  runInTenantTransaction: jest.fn(),
+  forEachVerifiedTenantSchema: jest.fn(),
+}));
+
 import {
-  createMockDataSourceWithQueryRunner,
-  TEST_TENANT_ID,
-  TEST_TENANT_SCHEMA,
-  INVALID_UUIDS,
-  expectQueryRunnerCleanedUp,
-  expectSearchPathSet,
-} from '../../../../../../libs/backend-common/src/database/__tests__/nats-handler-test.helpers';
-import { AutoRuleTriggerService } from '../auto-rule-trigger.service';
+  forEachVerifiedTenantSchema,
+  runInTenantRead,
+  runInTenantTransaction,
+} from '@aquaculture/backend-common/database';
 import { createScheduledJobTestExecutor } from '@aquaculture/backend-common/scheduling/testing';
+import { stub } from '@aquaculture/testing';
+import type { NatsEventBus } from '@platform/event-bus';
+import type { DataSource, EntityManager, QueryRunner, Repository } from 'typeorm';
+
+import type { AutoRule } from '../../entities/auto-rule.entity';
+import type { Task } from '../../entities/task.entity';
+import { AutoRuleTriggerService } from '../auto-rule-trigger.service';
 
 const scheduledJobs = createScheduledJobTestExecutor();
 
-// ---------------------------------------------------------------------------
-// Mock NatsEventBus (provided via @Inject('EVENT_BUS'))
-// ---------------------------------------------------------------------------
+const TENANT_A = '4b529829-ea79-48da-982c-cd6fbec8ffb7';
+const TENANT_B = '8f1d2c3b-5a6e-4f70-9b8c-1d2e3f4a5b6c';
+const INVALID_TENANT_IDS = ['not-a-uuid', '', '1234', "'; DROP SCHEMA public; --", 'tenant_abc'];
+
+const readMock = jest.mocked(runInTenantRead);
+const transactionMock = jest.mocked(runInTenantTransaction);
+const fanOutMock = jest.mocked(forEachVerifiedTenantSchema);
+
+/** An AutoRule as the boundary returns it: only what the service reads and writes. */
+const rule = (over: Partial<AutoRule> = {}): AutoRule =>
+  stub<AutoRule>({
+    id: 'rule-1',
+    tenantId: TENANT_A,
+    name: 'Low stock',
+    taskTitle: 'Reorder {item}',
+    triggerCondition: '24',
+    lastTriggered: undefined,
+    triggerCount: 0,
+    assignTo: 'user-1',
+    ...over,
+  });
+
 const mockEventBus = {
   subscribe: jest.fn().mockResolvedValue(undefined),
   publish: jest.fn().mockResolvedValue(undefined),
 };
 
-/**
- * Factory: creates a fresh service instance with fully-mocked dependencies.
- */
 function createService() {
-  const { mockDataSource, mockQueryRunner, mockManager } = createMockDataSourceWithQueryRunner();
-
-  const mockAutoRuleRepo = {
-    find: jest.fn().mockResolvedValue([]),
-    findOne: jest.fn().mockResolvedValue(null),
-    save: jest.fn().mockResolvedValue({ id: 'rule-1' }),
-    create: jest.fn().mockImplementation((data: any) => data),
-  } as any;
-
-  const mockTaskRepo = {
-    find: jest.fn().mockResolvedValue([]),
-    findOne: jest.fn().mockResolvedValue(null),
-    save: jest.fn().mockResolvedValue({ id: 'task-1' }),
-    create: jest.fn().mockImplementation((data: any) => data),
-  } as any;
-
   const service = new AutoRuleTriggerService(
-    mockAutoRuleRepo,
-    mockTaskRepo,
-    mockDataSource as any,
+    stub<Repository<AutoRule>>({}),
+    stub<Repository<Task>>({}),
+    stub<DataSource>({}),
     scheduledJobs.executor,
-    mockEventBus as any,
+    stub<NatsEventBus>({ subscribe: mockEventBus.subscribe, publish: mockEventBus.publish }),
   );
-
-  return {
-    service,
-    mockDataSource,
-    mockQueryRunner,
-    mockManager,
-    mockAutoRuleRepo,
-    mockTaskRepo,
+  // The queryRunner the boundary hands the work: a manager that creates and saves.
+  const manager = {
+    find: jest.fn().mockResolvedValue([]),
+    create: jest.fn().mockImplementation((_entity: unknown, data: unknown) => data),
+    save: jest
+      .fn()
+      .mockImplementation((_entity: unknown, data: Record<string, unknown>) =>
+        Promise.resolve({ id: 'task-1', ...data, dueDate: new Date('2026-10-27T00:00:00Z') }),
+      ),
   };
+  const queryRunner = stub<QueryRunner>({ manager: stub<EntityManager>(manager) });
+  return { service, manager, queryRunner };
 }
 
-// ===========================================================================
-// Tests
-// ===========================================================================
 describe('AutoRuleTriggerService', () => {
   beforeEach(() => {
-    jest.clearAllMocks();
+    // Only the boundaries are reset: the entity and event-contract mocks above keep their implementations.
+    for (const mock of [readMock, transactionMock, fanOutMock, mockEventBus.publish])
+      mock.mockReset();
+    mockEventBus.publish.mockResolvedValue(undefined);
   });
 
-  // -------------------------------------------------------------------------
-  // 1. Reject events without tenantId
-  // -------------------------------------------------------------------------
-  describe('handleEvent — tenant isolation', () => {
-    it('should reject events without tenantId', async () => {
-      const { service, mockDataSource } = createService();
+  describe('handleEvent — what never reaches the database', () => {
+    it.each([
+      ['no tenantId', {}],
+      ['a null tenantId', { tenantId: null }],
+      ['an undefined tenantId', { tenantId: undefined }],
+    ])('terminates an event with %s', async (_name, event) => {
+      const { service } = createService();
 
-      await service.handleEvent('inventory.lowStock', {});
+      const outcome = await service.handleEvent('inventory.lowStock', event);
 
-      // No DB interaction should occur
-      expect(mockDataSource.createQueryRunner).not.toHaveBeenCalled();
+      expect(outcome.kind).toBe('terminate');
+      expect(readMock).not.toHaveBeenCalled();
+      expect(transactionMock).not.toHaveBeenCalled();
     });
 
-    it('should reject events with null tenantId', async () => {
-      const { service, mockDataSource } = createService();
+    it.each(INVALID_TENANT_IDS)(
+      'terminates an event with the malformed tenantId %p',
+      async (id) => {
+        const { service } = createService();
 
-      await service.handleEvent('inventory.lowStock', { tenantId: null });
+        const outcome = await service.handleEvent('inventory.lowStock', { tenantId: id });
 
-      expect(mockDataSource.createQueryRunner).not.toHaveBeenCalled();
-    });
-
-    it('should reject events with undefined tenantId', async () => {
-      const { service, mockDataSource } = createService();
-
-      await service.handleEvent('inventory.lowStock', {
-        tenantId: undefined,
-      });
-
-      expect(mockDataSource.createQueryRunner).not.toHaveBeenCalled();
-    });
-
-    // -----------------------------------------------------------------------
-    // 2. Reject events with invalid UUID format
-    // -----------------------------------------------------------------------
-    it.each(INVALID_UUIDS)(
-      'should reject events with invalid UUID: %s ("%s")',
-      async (_label, invalidId) => {
-        const { service, mockDataSource } = createService();
-
-        await service.handleEvent('inventory.lowStock', {
-          tenantId: invalidId,
-        });
-
-        // Invalid UUID should be caught before QueryRunner creation
-        expect(mockDataSource.createQueryRunner).not.toHaveBeenCalled();
+        expect(outcome.kind).toBe('terminate');
+        expect(readMock).not.toHaveBeenCalled();
       },
     );
+
+    it('acknowledges an event name no rule listens for, without touching the database', async () => {
+      const { service } = createService();
+
+      const outcome = await service.handleEvent('unknown.event.type', { tenantId: TENANT_A });
+
+      expect(outcome.kind).toBe('ack');
+      expect(readMock).not.toHaveBeenCalled();
+    });
   });
 
-  // -------------------------------------------------------------------------
-  // 3. Correct 16-char schema name derivation
-  // -------------------------------------------------------------------------
-  describe('handleEvent — schema name derivation', () => {
-    it('should compute correct 16-char schema name', async () => {
-      const { service, mockQueryRunner } = createService();
+  describe('handleEvent — the lookup and the execution', () => {
+    it("looks the rules up as a read for the EVENT's tenant in the farm source schema", async () => {
+      const { service, queryRunner, manager } = createService();
+      readMock.mockImplementation((_ds, _schema, _tenant, work) => work(queryRunner));
 
-      await service.handleEvent('inventory.lowStock', {
-        tenantId: TEST_TENANT_ID,
-      });
+      await service.handleEvent('inventory.lowStock', { tenantId: TENANT_A });
 
-      // Verify SET search_path uses the correct schema:
-      //   "4b529829-ea79-48da-982c-cd6fbec8ffb7"
-      //   -> remove dashes -> "4b529829ea7948da982ccd6fbec8ffb7"
-      //   -> first 16 chars -> "4b529829ea7948da"
-      //   -> "tenant_4b529829ea7948da"
-      expectSearchPathSet(mockQueryRunner, TEST_TENANT_SCHEMA, 'farm');
-    });
-
-    it('should handle uppercase UUID and produce lowercase schema name', async () => {
-      const { service, mockQueryRunner } = createService();
-
-      await service.handleEvent('inventory.lowStock', {
-        tenantId: TEST_TENANT_ID.toUpperCase(),
-      });
-
-      // Schema name must always be lowercase
-      expectSearchPathSet(mockQueryRunner, TEST_TENANT_SCHEMA, 'farm');
-    });
-
-    it('should produce schema name of exactly 23 chars (tenant_ + 16 hex)', async () => {
-      const { service, mockQueryRunner } = createService();
-
-      await service.handleEvent('inventory.lowStock', {
-        tenantId: TEST_TENANT_ID,
-      });
-
-      const setCall = mockQueryRunner.query.mock.calls.find(
-        (c: any[]) => typeof c[0] === 'string' && c[0].startsWith('SET'),
+      expect(readMock).toHaveBeenCalledTimes(1);
+      expect(readMock.mock.calls[0]?.[1]).toBe('farm');
+      expect(readMock.mock.calls[0]?.[2]).toBe(TENANT_A);
+      expect(manager.find).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          where: expect.objectContaining({
+            tenantId: TENANT_A,
+            trigger: 'STOCK_LOW',
+            isActive: true,
+          }),
+        }),
       );
-      expect(setCall).toBeDefined();
+    });
 
-      // Extract schema name from SET search_path TO "tenant_xxx", farm, public
-      const match = (setCall![0] as string).match(/"(tenant_[0-9a-f]+)"/);
-      expect(match).not.toBeNull();
-      expect(match![1]).toHaveLength(23); // 'tenant_' (7) + 16 hex chars
+    it('acknowledges when no rule matches and opens no transaction', async () => {
+      const { service } = createService();
+      readMock.mockResolvedValue([]);
+
+      const outcome = await service.handleEvent('inventory.lowStock', { tenantId: TENANT_A });
+
+      expect(outcome.kind).toBe('ack');
+      expect(transactionMock).not.toHaveBeenCalled();
+    });
+
+    it("runs EACH matching rule in its own transaction for the RULE's tenant", async () => {
+      const { service, queryRunner } = createService();
+      readMock.mockResolvedValue([rule({ id: 'r1' }), rule({ id: 'r2', tenantId: TENANT_B })]);
+      transactionMock.mockImplementation((_ds, _schema, _tenant, work) => work(queryRunner));
+
+      const outcome = await service.handleEvent('inventory.lowStock', {
+        tenantId: TENANT_A,
+        item: 'feed',
+      });
+
+      expect(outcome.kind).toBe('ack');
+      expect(transactionMock).toHaveBeenCalledTimes(2);
+      expect(transactionMock.mock.calls.map((call) => [call[1], call[2]])).toEqual([
+        ['farm', TENANT_A],
+        ['farm', TENANT_B],
+      ]);
+    });
+
+    it('creates the task from the event (placeholders filled) and bumps the rule in the same transaction', async () => {
+      const { service, queryRunner, manager } = createService();
+      const matching = rule({ id: 'r1' });
+      readMock.mockResolvedValue([matching]);
+      transactionMock.mockImplementation((_ds, _schema, _tenant, work) => work(queryRunner));
+
+      await service.handleEvent('inventory.lowStock', { tenantId: TENANT_A, item: 'feed' });
+
+      expect(manager.create).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          tenantId: TENANT_A,
+          title: 'Reorder feed',
+          isAutoGenerated: true,
+        }),
+      );
+      expect(manager.save).toHaveBeenCalledTimes(2); // the task, then the rule's stats
+      expect(matching.triggerCount).toBe(1);
+      expect(matching.lastTriggered).toBeInstanceOf(Date);
+    });
+
+    it('publishes TaskCreated only AFTER the transaction committed', async () => {
+      const { service, queryRunner } = createService();
+      readMock.mockResolvedValue([rule()]);
+      const order: string[] = [];
+      transactionMock.mockImplementation(async (_ds, _schema, _tenant, work) => {
+        const result = await work(queryRunner);
+        order.push('commit');
+        return result;
+      });
+      mockEventBus.publish.mockImplementation(() => {
+        order.push('publish');
+        return Promise.resolve();
+      });
+
+      await service.handleEvent('inventory.lowStock', { tenantId: TENANT_A, item: 'feed' });
+
+      expect(order).toEqual(['commit', 'publish']);
+      expect(mockEventBus.publish).toHaveBeenCalledWith(
+        expect.objectContaining({ eventType: 'TaskCreated', tenantId: TENANT_A }),
+      );
+    });
+
+    it('a failing rule leaves nothing published, does not stop its siblings, and the trigger is still acknowledged', async () => {
+      const { service, queryRunner } = createService();
+      readMock.mockResolvedValue([rule({ id: 'bad' }), rule({ id: 'good' })]);
+      let call = 0;
+      transactionMock.mockImplementation((_ds, _schema, _tenant, work) => {
+        call += 1;
+        return call === 1 ? Promise.reject(new Error('rule 1 exploded')) : work(queryRunner);
+      });
+
+      const outcome = await service.handleEvent('inventory.lowStock', {
+        tenantId: TENANT_A,
+        item: 'feed',
+      });
+
+      expect(outcome.kind).toBe('ack');
+      expect(transactionMock).toHaveBeenCalledTimes(2);
+      expect(mockEventBus.publish).toHaveBeenCalledTimes(1); // the good rule only
+    });
+
+    it('asks for a redelivery when the rule lookup itself fails', async () => {
+      const { service } = createService();
+      readMock.mockRejectedValue(new Error('connection reset'));
+
+      const outcome = await service.handleEvent('inventory.lowStock', { tenantId: TENANT_A });
+
+      expect(outcome.kind).toBe('retry');
+      expect(transactionMock).not.toHaveBeenCalled();
     });
   });
 
-  // -------------------------------------------------------------------------
-  // 4. SET search_path before querying auto_rules
-  // -------------------------------------------------------------------------
-  describe('handleEvent — search_path ordering', () => {
-    it('should SET search_path before querying auto_rules', async () => {
-      const { service, mockQueryRunner, mockManager } = createService();
-
-      // Track call order
-      const callOrder: string[] = [];
-      mockQueryRunner.query.mockImplementation(async (sql: string) => {
-        callOrder.push(`query:${sql.substring(0, 20)}`);
-        return [];
-      });
-      mockManager.find.mockImplementation(async () => {
-        callOrder.push('manager.find');
-        return [];
-      });
-
-      await service.handleEvent('inventory.lowStock', {
-        tenantId: TEST_TENANT_ID,
-      });
-
-      // SET search_path must come before manager.find
-      const setPathIndex = callOrder.findIndex((c) => c.startsWith('query:SET search_path'));
-      const findIndex = callOrder.findIndex((c) => c === 'manager.find');
-
-      expect(setPathIndex).toBeGreaterThanOrEqual(0);
-      expect(findIndex).toBeGreaterThanOrEqual(0);
-      expect(setPathIndex).toBeLessThan(findIndex);
-    });
-  });
-
-  // -------------------------------------------------------------------------
-  // 5. RESET search_path and release QueryRunner on success
-  // -------------------------------------------------------------------------
-  describe('handleEvent — QueryRunner lifecycle (success)', () => {
-    it('should RESET search_path and release QueryRunner on success', async () => {
-      const { service, mockQueryRunner } = createService();
-
-      await service.handleEvent('inventory.lowStock', {
-        tenantId: TEST_TENANT_ID,
-      });
-
-      expect(mockQueryRunner.connect).toHaveBeenCalled();
-      expectQueryRunnerCleanedUp(mockQueryRunner);
-    });
-
-    it('should call connect before SET search_path', async () => {
-      const { service, mockQueryRunner } = createService();
-
-      const callOrder: string[] = [];
-      mockQueryRunner.connect.mockImplementation(async () => {
-        callOrder.push('connect');
-      });
-      mockQueryRunner.query.mockImplementation(async () => {
-        callOrder.push('query');
-        return [];
-      });
-
-      await service.handleEvent('inventory.lowStock', {
-        tenantId: TEST_TENANT_ID,
-      });
-
-      expect(callOrder[0]).toBe('connect');
-    });
-  });
-
-  // -------------------------------------------------------------------------
-  // 6. RESET search_path and release QueryRunner on error
-  // -------------------------------------------------------------------------
-  describe('handleEvent — QueryRunner lifecycle (error)', () => {
-    it('should RESET search_path and release QueryRunner on error', async () => {
-      const { service, mockQueryRunner, mockManager } = createService();
-
-      // Force manager.find to throw
-      mockManager.find.mockRejectedValueOnce(new Error('DB connection lost'));
-
-      await service.handleEvent('inventory.lowStock', {
-        tenantId: TEST_TENANT_ID,
-      });
-
-      // Despite the error, cleanup MUST happen
-      expectQueryRunnerCleanedUp(mockQueryRunner);
-    });
-
-    it('should release QueryRunner even if RESET search_path fails', async () => {
-      const { service, mockQueryRunner } = createService();
-
-      // Make RESET search_path itself throw
-      mockQueryRunner.query.mockImplementation(async (sql: string) => {
-        if (sql === 'RESET search_path') {
-          throw new Error('RESET failed');
-        }
-        return [];
-      });
-
-      await service.handleEvent('inventory.lowStock', {
-        tenantId: TEST_TENANT_ID,
-      });
-
-      // release() should still be called even if RESET throws
-      expect(mockQueryRunner.release).toHaveBeenCalled();
-    });
-  });
-
-  // -------------------------------------------------------------------------
-  // 7. processScheduleRules should iterate all tenant schemas
-  // -------------------------------------------------------------------------
   describe('processScheduleRules', () => {
-    it('should iterate all tenant schemas', async () => {
-      const { service, mockDataSource, mockManager } = createService();
+    /** Run the fan-out handler once per supplied tenant, with the rules that tenant holds. */
+    function fanOutWith(perTenant: Record<string, AutoRule[]>, failing: string[] = []): void {
+      fanOutMock.mockImplementation(async (_ds, handler) => {
+        const results = [];
+        for (const [tenantId, rules] of Object.entries(perTenant)) {
+          const schemaName = `tenant_${tenantId.replace(/-/g, '').slice(0, 16)}`;
+          if (failing.includes(tenantId)) {
+            results.push({
+              schemaName,
+              tenantId,
+              outcome: 'error' as const,
+              error: new Error('lookup failed'),
+            });
+            continue;
+          }
+          await handler({
+            schemaName,
+            tenantId,
+            queryRunner: stub<QueryRunner>({
+              manager: stub<EntityManager>({ find: jest.fn().mockResolvedValue(rules) }),
+            }),
+            signal: new AbortController().signal,
+          });
+          results.push({ schemaName, tenantId, outcome: 'ok' as const });
+        }
+        return results;
+      });
+    }
 
-      // Mock getTenantSchemas() — returns list from information_schema
-      mockDataSource.query.mockResolvedValueOnce([
-        { schema_name: 'tenant_aaaa111122223333' },
-        { schema_name: 'tenant_bbbb444455556666' },
-      ]);
-
-      // No active schedule rules for any schema
-      mockManager.find.mockResolvedValue([]);
-
-      await service.processScheduleRules();
-
-      // Should create a QueryRunner for each tenant schema
-      expect(mockDataSource.createQueryRunner).toHaveBeenCalledTimes(2);
-    });
-
-    it('should SET search_path for each tenant schema independently', async () => {
-      const { service, mockDataSource } = createService();
-
-      const schema1 = 'tenant_aaaa111122223333';
-      const schema2 = 'tenant_bbbb444455556666';
-
-      mockDataSource.query.mockResolvedValueOnce([
-        { schema_name: schema1 },
-        { schema_name: schema2 },
-      ]);
-
-      // Create separate QueryRunners for each call
-      const qr1 = {
-        connect: jest.fn().mockResolvedValue(undefined),
-        query: jest.fn().mockResolvedValue([]),
-        release: jest.fn().mockResolvedValue(undefined),
-        manager: {
-          find: jest.fn().mockResolvedValue([]),
-          create: jest.fn(),
-          save: jest.fn(),
-        },
-      };
-      const qr2 = {
-        connect: jest.fn().mockResolvedValue(undefined),
-        query: jest.fn().mockResolvedValue([]),
-        release: jest.fn().mockResolvedValue(undefined),
-        manager: {
-          find: jest.fn().mockResolvedValue([]),
-          create: jest.fn(),
-          save: jest.fn(),
-        },
-      };
-
-      mockDataSource.createQueryRunner
-        .mockReturnValueOnce(qr1 as any)
-        .mockReturnValueOnce(qr2 as any);
+    it('finds the due rules on the tenant-bound fan-out, then runs each in ITS tenant transaction', async () => {
+      const { service, queryRunner } = createService();
+      fanOutWith({
+        [TENANT_A]: [rule({ id: 'a1' })],
+        [TENANT_B]: [rule({ id: 'b1', tenantId: TENANT_B })],
+      });
+      transactionMock.mockImplementation((_ds, _schema, _tenant, work) => work(queryRunner));
 
       await service.processScheduleRules();
 
-      // Verify each schema got its own SET search_path
-      expect(qr1.query).toHaveBeenCalledWith(`SET search_path TO "${schema1}", farm, public`);
-      expect(qr2.query).toHaveBeenCalledWith(`SET search_path TO "${schema2}", farm, public`);
+      expect(fanOutMock).toHaveBeenCalledTimes(1);
+      expect(transactionMock.mock.calls.map((call) => call[2])).toEqual([TENANT_A, TENANT_B]);
     });
 
-    it('should release all QueryRunners even if one schema fails', async () => {
-      const { service, mockDataSource } = createService();
-
-      mockDataSource.query.mockResolvedValueOnce([
-        { schema_name: 'tenant_aaaa111122223333' },
-        { schema_name: 'tenant_bbbb444455556666' },
-      ]);
-
-      // First QR: SET search_path succeeds but find throws
-      const qr1 = {
-        connect: jest.fn().mockResolvedValue(undefined),
-        query: jest.fn().mockResolvedValue([]),
-        release: jest.fn().mockResolvedValue(undefined),
-        manager: {
-          find: jest.fn().mockRejectedValue(new Error('Schema does not exist')),
-          create: jest.fn(),
-          save: jest.fn(),
-        },
-      };
-      // Second QR: works normally
-      const qr2 = {
-        connect: jest.fn().mockResolvedValue(undefined),
-        query: jest.fn().mockResolvedValue([]),
-        release: jest.fn().mockResolvedValue(undefined),
-        manager: {
-          find: jest.fn().mockResolvedValue([]),
-          create: jest.fn(),
-          save: jest.fn(),
-        },
-      };
-
-      mockDataSource.createQueryRunner
-        .mockReturnValueOnce(qr1 as any)
-        .mockReturnValueOnce(qr2 as any);
+    it('skips a rule with an invalid interval and one still inside its interval', async () => {
+      const { service, queryRunner } = createService();
+      fanOutWith({
+        [TENANT_A]: [
+          rule({ id: 'bad-interval', triggerCondition: 'soon' }),
+          rule({ id: 'zero', triggerCondition: '0' }),
+          rule({ id: 'recent', lastTriggered: new Date(Date.now() - 60 * 60 * 1000) }),
+          rule({ id: 'due', lastTriggered: new Date(Date.now() - 30 * 60 * 60 * 1000) }),
+        ],
+      });
+      transactionMock.mockImplementation((_ds, _schema, _tenant, work) => work(queryRunner));
 
       await service.processScheduleRules();
 
-      // Both QueryRunners must be released
-      expect(qr1.release).toHaveBeenCalled();
-      expect(qr2.release).toHaveBeenCalled();
+      expect(transactionMock).toHaveBeenCalledTimes(1);
     });
 
-    it('should handle empty tenant schemas list gracefully', async () => {
-      const { service, mockDataSource } = createService();
-
-      mockDataSource.query.mockResolvedValueOnce([]);
+    it("reports a tenant whose lookup failed and still runs the other tenants' rules", async () => {
+      const { service, queryRunner } = createService();
+      fanOutWith({ [TENANT_A]: [rule()], [TENANT_B]: [] }, [TENANT_A]);
+      transactionMock.mockImplementation((_ds, _schema, _tenant, work) => work(queryRunner));
+      const logged = jest.spyOn(service['logger'], 'error').mockImplementation();
 
       await service.processScheduleRules();
 
-      // No QueryRunners should be created
-      expect(mockDataSource.createQueryRunner).not.toHaveBeenCalled();
+      expect(logged).toHaveBeenCalledWith(expect.stringContaining('lookup failed'));
+      expect(transactionMock).not.toHaveBeenCalled(); // tenant A failed, tenant B had nothing
     });
-  });
 
-  // -------------------------------------------------------------------------
-  // Edge: unknown event types are silently ignored
-  // -------------------------------------------------------------------------
-  describe('handleEvent — unknown event types', () => {
-    it('should ignore events with unknown event names', async () => {
-      const { service, mockQueryRunner } = createService();
-
-      await service.handleEvent('unknown.event.type', {
-        tenantId: TEST_TENANT_ID,
+    it('one failing rule does not stop the next', async () => {
+      const { service, queryRunner } = createService();
+      fanOutWith({ [TENANT_A]: [rule({ id: 'bad' }), rule({ id: 'good' })] });
+      let call = 0;
+      transactionMock.mockImplementation((_ds, _schema, _tenant, work) => {
+        call += 1;
+        return call === 1 ? Promise.reject(new Error('boom')) : work(queryRunner);
       });
 
-      // Unknown event type has no TRIGGER_EVENT_MAP entry, so nothing happens
-      // The service checks the trigger map and returns early when no match.
-      expect(mockQueryRunner.manager.find).not.toHaveBeenCalled();
+      await expect(service.processScheduleRules()).resolves.toBeUndefined();
+
+      expect(transactionMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('does nothing when no tenant has a due rule', async () => {
+      const { service } = createService();
+      fanOutWith({ [TENANT_A]: [] });
+
+      await service.processScheduleRules();
+
+      expect(transactionMock).not.toHaveBeenCalled();
     });
   });
 });

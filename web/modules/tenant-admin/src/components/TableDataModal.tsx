@@ -90,7 +90,7 @@ export const TableDataModal: React.FC<TableDataModalProps> = ({
           key: '__row',
           header: '#',
           render: (_value, _row, index) => (
-            <span className="font-mono text-xs text-gray-500 dark:text-gray-400">
+            <span className="tabular-nums text-xs text-gray-500 dark:text-gray-400">
               {data.offset + index + 1}
             </span>
           ),

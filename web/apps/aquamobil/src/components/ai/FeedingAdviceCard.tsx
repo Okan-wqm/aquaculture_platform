@@ -58,7 +58,7 @@ export function FeedingAdviceCard({ tankId }: FeedingAdviceCardProps): ReactElem
             are the three parameters operators need to execute a feeding event. */}
         <div className="grid grid-cols-3 gap-3 mb-3">
           <div className="text-center">
-            <div className="text-head font-mono font-bold text-ink-1 tabular-nums">
+            <div className="text-head font-bold text-ink-1 tabular-nums">
               <Approx />
               {advice.recommendedAmount.toFixed(1)}
             </div>
@@ -69,7 +69,7 @@ export function FeedingAdviceCard({ tankId }: FeedingAdviceCardProps): ReactElem
             <div className="text-meta text-ink-3 font-semibold">Feed Type</div>
           </div>
           <div className="text-center">
-            <div className="text-head font-mono font-bold text-ink-1 tabular-nums">
+            <div className="text-head font-bold text-ink-1 tabular-nums">
               {advice.feedingFrequency}x
             </div>
             <div className="text-meta text-ink-3 font-semibold">Per Day</div>

@@ -158,7 +158,7 @@ export const ExpressionBindingSection: React.FC<ExpressionBindingSectionProps> =
                     key={ex.label}
                     type="button"
                     onClick={() => handleQuickExample(ex)}
-                    className="px-2 py-0.5 text-[10px] font-mono text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded hover:bg-info-50 hover:border-info-300 hover:text-info-700 transition-colors"
+                    className="px-2 py-0.5 text-[10px] text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded hover:bg-info-50 hover:border-info-300 hover:text-info-700 transition-colors"
                     title={ex.expression}
                     data-testid={`quick-example-${ex.label.toLowerCase()}`}
                   >

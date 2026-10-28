@@ -348,7 +348,7 @@ export const TouchKeyboard = memo<TouchKeyboardProps>(
             <div className="flex items-center gap-2">
               {/* Live value display */}
               <div
-                className="bg-gray-900 border border-gray-600 rounded px-2 py-0.5 text-xs text-gray-100 font-mono min-w-[80px] text-right truncate"
+                className="bg-gray-900 border border-gray-600 rounded px-2 py-0.5 text-xs text-gray-100 tabular-nums min-w-[80px] text-right truncate"
                 aria-live="polite"
               >
                 {internalValue || '\u00A0'}

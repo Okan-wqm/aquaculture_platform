@@ -176,7 +176,7 @@ export function AttendancePage(): JSX.Element {
       <div className="px-4 flex flex-col gap-4">
         {/* Clock In/Out */}
         <Card className="p-6 text-center">
-          <div className="text-hero font-mono font-bold text-ink-1 tabular-nums mb-2">
+          <div className="text-hero font-bold text-ink-1 tabular-nums mb-2">
             {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </div>
           <p className="text-body text-ink-3 mb-5">
@@ -257,19 +257,19 @@ export function AttendancePage(): JSX.Element {
             <div className="grid grid-cols-3 gap-3 text-center">
               <div>
                 <p className="text-meta text-ink-3">Clock In</p>
-                <p className="text-title font-mono font-semibold text-ink-1 tabular-nums">
+                <p className="text-title font-semibold text-ink-1 tabular-nums">
                   {formatTime(todayRecord.clockIn)}
                 </p>
               </div>
               <div>
                 <p className="text-meta text-ink-3">Clock Out</p>
-                <p className="text-title font-mono font-semibold text-ink-1 tabular-nums">
+                <p className="text-title font-semibold text-ink-1 tabular-nums">
                   {formatTime(todayRecord.clockOut)}
                 </p>
               </div>
               <div>
                 <p className="text-meta text-ink-3">Worked</p>
-                <p className="text-title font-mono font-semibold text-ink-1 tabular-nums">
+                <p className="text-title font-semibold text-ink-1 tabular-nums">
                   {todayRecord.workedMinutes > 0 ? formatMinutes(todayRecord.workedMinutes) : '--'}
                 </p>
               </div>
@@ -287,25 +287,25 @@ export function AttendancePage(): JSX.Element {
             <div className="grid grid-cols-2 gap-2">
               <Card className="p-3">
                 <p className="text-meta text-ink-3">Total Worked</p>
-                <p className="text-head font-mono font-bold text-ink-1 tabular-nums">
+                <p className="text-head font-bold text-ink-1 tabular-nums">
                   {formatMinutes(summary.totalWorkedMinutes)}
                 </p>
               </Card>
               <Card className="p-3">
                 <p className="text-meta text-ink-3">Overtime</p>
-                <p className="text-head font-mono font-bold text-warn tabular-nums">
+                <p className="text-head font-bold text-warn tabular-nums">
                   {formatMinutes(summary.totalOvertimeMinutes)}
                 </p>
               </Card>
               <Card className="p-3">
                 <p className="text-meta text-ink-3">Present Days</p>
-                <p className="text-head font-mono font-bold text-ok tabular-nums">
+                <p className="text-head font-bold text-ok tabular-nums">
                   {summary.presentDays}/{summary.totalWorkingDays}
                 </p>
               </Card>
               <Card className="p-3">
                 <p className="text-meta text-ink-3">Attendance</p>
-                <p className="text-head font-mono font-bold text-acc tabular-nums">
+                <p className="text-head font-bold text-acc tabular-nums">
                   {summary.attendanceRate}%
                 </p>
               </Card>

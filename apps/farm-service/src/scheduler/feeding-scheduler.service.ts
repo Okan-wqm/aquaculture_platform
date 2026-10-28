@@ -22,7 +22,7 @@ import {
   DataSource,
   QueryRunner,
 } from 'typeorm';
-import { TenantContextError, TenantScopedRepository, listTenantSchemas, numberOrUndefined, tenantManagerRepo } from '@aquaculture/backend-common/database';
+import { TenantContextError, TenantScopedRepository, forEachVerifiedTenantSchema, numberOrUndefined, tenantManagerRepo } from '@aquaculture/backend-common/database';
 import {
   clearManagedTimer,
   createManagedInterval,
@@ -259,6 +259,22 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
    * Load tenant configurations for feeding scheduler
    * Updates existing configs with fresh lastAccessed time, adds new ones
    */
+  /**
+   * One line per tenant pass the fan-out could not complete. The fan-out
+   * isolates a failing tenant (the rest still run) and reports it here so the
+   * failure is not only a metric.
+   */
+  private logFailedTenantPasses(
+    label: string,
+    results: ReadonlyArray<{ schemaName: string; outcome: string; error?: Error }>,
+  ): void {
+    for (const failed of results.filter((result) => result.outcome !== 'ok')) {
+      this.logger.error(
+        `${label} ${failed.outcome} for schema ${failed.schemaName}: ${failed.error?.message}`,
+      );
+    }
+  }
+
   private async loadTenantConfigs(): Promise<void> {
     try {
       // Get all unique tenants from active batches
@@ -317,7 +333,6 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
     return config;
   }
 
-  // getTenantSchemas replaced by listTenantSchemas from @aquaculture/backend-common
 
   // -------------------------------------------------------------------------
   // CORE METHODS (User requested)
@@ -775,47 +790,24 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
     const startTime = Date.now();
 
     await this.loadTenantConfigs();
-    const tenantSchemas = await listTenantSchemas(this.dataSource);
 
-    for (const schema of tenantSchemas) {
-      const queryRunner = this.dataSource.createQueryRunner();
-      await queryRunner.connect();
+    const results = await forEachVerifiedTenantSchema(
+      this.dataSource,
+      async ({ schemaName: schema, tenantId, queryRunner }) => {
+        const config = this.getTenantConfig(tenantId);
+        if (config && !config.feedingEnabled) return;
 
-      try {
-        await queryRunner.query(`SET search_path TO "${schema}", farm, public`);
-
-        /**
-         * Discover tenantIds within this schema.
-         * Table name must match the Batch entity mapping: @Entity('batches_v2').
-         * Previously referenced the legacy 'batches' table, which lacks columns
-         * like "isActive" that were introduced in the batches_v2 migration.
-         */
-        const tenantRows: { tenantId: string }[] = await queryRunner.query(
-          `SELECT DISTINCT "tenantId" AS "tenantId" FROM "batches_v2"
-           WHERE "isActive" = true LIMIT 100`,
-        );
-
-        for (const { tenantId } of tenantRows) {
-          const config = this.getTenantConfig(tenantId);
-          if (config && !config.feedingEnabled) continue;
-
-          try {
-            await this.generateTenantFeedingPlan(tenantId, new Date(), queryRunner);
-          } catch (error) {
-            this.logger.error(
-              `Failed to generate feeding plan for tenant ${tenantId} in schema ${schema}: ${error}`,
-            );
-          }
+        try {
+          await this.generateTenantFeedingPlan(tenantId, new Date(), queryRunner);
+        } catch (error) {
+          this.logger.error(
+            `Failed to generate feeding plan for tenant ${tenantId} in schema ${schema}: ${error}`,
+          );
         }
-      } catch (err) {
-        this.logger.error(
-          `Daily feeding plan generation failed for schema ${schema}: ${(err as Error).message}`,
-        );
-      } finally {
-        await queryRunner.query('RESET search_path').catch(() => {});
-        await queryRunner.release();
-      }
-    }
+      },
+      { logger: this.logger },
+    );
+    this.logFailedTenantPasses('Daily feeding plan generation failed', results);
 
     const duration = Date.now() - startTime;
     this.logger.log(`Daily feeding plan generation completed in ${duration}ms`);
@@ -838,62 +830,39 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
     this.logger.log('Checking for feeding reminders');
 
     await this.loadTenantConfigs();
-    const tenantSchemas = await listTenantSchemas(this.dataSource);
     const now = new Date();
 
-    for (const schema of tenantSchemas) {
-      const queryRunner = this.dataSource.createQueryRunner();
-      await queryRunner.connect();
+    const results = await forEachVerifiedTenantSchema(
+      this.dataSource,
+      async ({ schemaName: schema, tenantId, queryRunner }) => {
+        const config = this.getTenantConfig(tenantId);
+        if (config && !config.feedingEnabled) return;
 
-      try {
-        await queryRunner.query(`SET search_path TO "${schema}", farm, public`);
+        try {
+          const upcomingFeedings = await this.getUpcomingFeedingsWithQR(tenantId, 1, queryRunner);
 
-        /**
-         * Discover tenantIds within this schema.
-         * Table name must match the Batch entity mapping: @Entity('batches_v2').
-         * Previously referenced the legacy 'batches' table, which lacks columns
-         * like "isActive" that were introduced in the batches_v2 migration.
-         */
-        const tenantRows: { tenantId: string }[] = await queryRunner.query(
-          `SELECT DISTINCT "tenantId" AS "tenantId" FROM "batches_v2"
-           WHERE "isActive" = true LIMIT 100`,
-        );
+          for (const feeding of upcomingFeedings) {
+            this.eventEmitter.emit('feeding.reminder', {
+              tenantId,
+              ...feeding,
+              reminderTime: now,
+            });
+          }
 
-        for (const { tenantId } of tenantRows) {
-          const config = this.getTenantConfig(tenantId);
-          if (config && !config.feedingEnabled) continue;
-
-          try {
-            const upcomingFeedings = await this.getUpcomingFeedingsWithQR(tenantId, 1, queryRunner);
-
-            for (const feeding of upcomingFeedings) {
-              this.eventEmitter.emit('feeding.reminder', {
-                tenantId,
-                ...feeding,
-                reminderTime: now,
-              });
-            }
-
-            if (upcomingFeedings.length > 0) {
-              this.logger.log(
-                `Sent ${upcomingFeedings.length} feeding reminders for tenant ${tenantId} (schema: ${schema})`,
-              );
-            }
-          } catch (error) {
-            this.logger.error(
-              `Failed to send feeding reminders for tenant ${tenantId} in schema ${schema}: ${error}`,
+          if (upcomingFeedings.length > 0) {
+            this.logger.log(
+              `Sent ${upcomingFeedings.length} feeding reminders for tenant ${tenantId} (schema: ${schema})`,
             );
           }
+        } catch (error) {
+          this.logger.error(
+            `Failed to send feeding reminders for tenant ${tenantId} in schema ${schema}: ${error}`,
+          );
         }
-      } catch (err) {
-        this.logger.error(
-          `Feeding reminders failed for schema ${schema}: ${(err as Error).message}`,
-        );
-      } finally {
-        await queryRunner.query('RESET search_path').catch(() => {});
-        await queryRunner.release();
-      }
-    }
+      },
+      { logger: this.logger },
+    );
+    this.logFailedTenantPasses('Feeding reminders failed', results);
   }
 
   /**
@@ -914,52 +883,29 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
     const startTime = Date.now();
 
     await this.loadTenantConfigs();
-    const tenantSchemas = await listTenantSchemas(this.dataSource);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    for (const schema of tenantSchemas) {
-      const queryRunner = this.dataSource.createQueryRunner();
-      await queryRunner.connect();
+    const results = await forEachVerifiedTenantSchema(
+      this.dataSource,
+      async ({ schemaName: schema, tenantId, queryRunner }) => {
+        try {
+          const summary = await this.generateFeedingSummary(tenantId, today, queryRunner);
 
-      try {
-        await queryRunner.query(`SET search_path TO "${schema}", farm, public`);
-
-        /**
-         * Discover tenantIds within this schema.
-         * Table name must match the Batch entity mapping: @Entity('batches_v2').
-         * Previously referenced the legacy 'batches' table, which lacks columns
-         * like "isActive" that were introduced in the batches_v2 migration.
-         */
-        const tenantRows: { tenantId: string }[] = await queryRunner.query(
-          `SELECT DISTINCT "tenantId" AS "tenantId" FROM "batches_v2"
-           WHERE "isActive" = true LIMIT 100`,
-        );
-
-        for (const { tenantId } of tenantRows) {
-          try {
-            const summary = await this.generateFeedingSummary(tenantId, today, queryRunner);
-
-            this.eventEmitter.emit('feeding.dailySummary', {
-              tenantId,
-              date: today,
-              summary,
-            });
-          } catch (error) {
-            this.logger.error(
-              `Failed to generate feeding summary for tenant ${tenantId} in schema ${schema}: ${error}`,
-            );
-          }
+          this.eventEmitter.emit('feeding.dailySummary', {
+            tenantId,
+            date: today,
+            summary,
+          });
+        } catch (error) {
+          this.logger.error(
+            `Failed to generate feeding summary for tenant ${tenantId} in schema ${schema}: ${error}`,
+          );
         }
-      } catch (err) {
-        this.logger.error(
-          `Daily feeding summary failed for schema ${schema}: ${(err as Error).message}`,
-        );
-      } finally {
-        await queryRunner.query('RESET search_path').catch(() => {});
-        await queryRunner.release();
-      }
-    }
+      },
+      { logger: this.logger },
+    );
+    this.logFailedTenantPasses('Daily feeding summary failed', results);
 
     const duration = Date.now() - startTime;
     this.logger.log(`Daily feeding summary completed in ${duration}ms`);
@@ -987,56 +933,35 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
     const startTime = Date.now();
 
     await this.loadTenantConfigs();
-    const tenantSchemas = await listTenantSchemas(this.dataSource);
 
-    for (const schema of tenantSchemas) {
-      const queryRunner = this.dataSource.createQueryRunner();
-      await queryRunner.connect();
+    const results = await forEachVerifiedTenantSchema(
+      this.dataSource,
+      async ({ schemaName: schema, tenantId, queryRunner }) => {
+        const config = this.getTenantConfig(tenantId);
+        if (config && !config.fcrAlertsEnabled) return;
 
-      try {
-        await queryRunner.query(`SET search_path TO "${schema}", farm, public`);
+        try {
+          const alerts = await this.checkFCRAlerts(tenantId, queryRunner);
 
-        /**
-         * Discover tenantIds within this schema.
-         * Table name must match the Batch entity mapping: @Entity('batches_v2').
-         * Previously referenced the legacy 'batches' table, which lacks columns
-         * like "isActive" that were introduced in the batches_v2 migration.
-         */
-        const tenantRows: { tenantId: string }[] = await queryRunner.query(
-          `SELECT DISTINCT "tenantId" AS "tenantId" FROM "batches_v2"
-           WHERE "isActive" = true LIMIT 100`,
-        );
-
-        for (const { tenantId } of tenantRows) {
-          const config = this.getTenantConfig(tenantId);
-          if (config && !config.fcrAlertsEnabled) continue;
-
-          try {
-            const alerts = await this.checkFCRAlerts(tenantId, queryRunner);
-
-            if (alerts.length > 0) {
-              this.logger.warn(
-                `Found ${alerts.length} FCR alerts for tenant ${tenantId} (schema: ${schema})`,
-              );
-
-              this.eventEmitter.emit('feeding.fcrAlerts', {
-                tenantId,
-                alerts,
-              });
-            }
-          } catch (error) {
-            this.logger.error(
-              `Failed to analyze FCR for tenant ${tenantId} in schema ${schema}: ${error}`,
+          if (alerts.length > 0) {
+            this.logger.warn(
+              `Found ${alerts.length} FCR alerts for tenant ${tenantId} (schema: ${schema})`,
             );
+
+            this.eventEmitter.emit('feeding.fcrAlerts', {
+              tenantId,
+              alerts,
+            });
           }
+        } catch (error) {
+          this.logger.error(
+            `Failed to analyze FCR for tenant ${tenantId} in schema ${schema}: ${error}`,
+          );
         }
-      } catch (err) {
-        this.logger.error(`FCR analysis failed for schema ${schema}: ${(err as Error).message}`);
-      } finally {
-        await queryRunner.query('RESET search_path').catch(() => {});
-        await queryRunner.release();
-      }
-    }
+      },
+      { logger: this.logger },
+    );
+    this.logFailedTenantPasses('FCR analysis failed', results);
 
     const duration = Date.now() - startTime;
     this.logger.log(`FCR analysis completed in ${duration}ms`);
@@ -1064,67 +989,44 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
     const startTime = Date.now();
 
     await this.loadTenantConfigs();
-    const tenantSchemas = await listTenantSchemas(this.dataSource);
 
-    for (const schema of tenantSchemas) {
-      const queryRunner = this.dataSource.createQueryRunner();
-      await queryRunner.connect();
+    const results = await forEachVerifiedTenantSchema(
+      this.dataSource,
+      async ({ schemaName: schema, tenantId, queryRunner }) => {
+        const config = this.getTenantConfig(tenantId);
+        if (config && !config.stockAlertsEnabled) return;
 
-      try {
-        await queryRunner.query(`SET search_path TO "${schema}", farm, public`);
+        try {
+          const lowStockFeeds = await this.getLowStockFeeds(tenantId, queryRunner);
 
-        /**
-         * Discover tenantIds within this schema.
-         * Table name must match the Batch entity mapping: @Entity('batches_v2').
-         * Previously referenced the legacy 'batches' table, which lacks columns
-         * like "isActive" that were introduced in the batches_v2 migration.
-         */
-        const tenantRows: { tenantId: string }[] = await queryRunner.query(
-          `SELECT DISTINCT "tenantId" AS "tenantId" FROM "batches_v2"
-           WHERE "isActive" = true LIMIT 100`,
-        );
-
-        for (const { tenantId } of tenantRows) {
-          const config = this.getTenantConfig(tenantId);
-          if (config && !config.stockAlertsEnabled) continue;
-
-          try {
-            const lowStockFeeds = await this.getLowStockFeeds(tenantId, queryRunner);
-
-            if (lowStockFeeds.length > 0) {
-              this.logger.warn(
-                `Found ${lowStockFeeds.length} low stock feeds for tenant ${tenantId} (schema: ${schema})`,
-              );
-
-              this.eventEmitter.emit('feeding.lowStock', {
-                tenantId,
-                feeds: lowStockFeeds,
-              });
-            }
-
-            const expiringFeeds = await this.getExpiringFeeds(tenantId, 7, queryRunner);
-            if (expiringFeeds.length > 0) {
-              this.eventEmitter.emit('feeding.expiryWarning', {
-                tenantId,
-                feeds: expiringFeeds,
-                daysUntilExpiry: 7,
-              });
-            }
-          } catch (error) {
-            this.logger.error(
-              `Failed to check feed stock for tenant ${tenantId} in schema ${schema}: ${error}`,
+          if (lowStockFeeds.length > 0) {
+            this.logger.warn(
+              `Found ${lowStockFeeds.length} low stock feeds for tenant ${tenantId} (schema: ${schema})`,
             );
+
+            this.eventEmitter.emit('feeding.lowStock', {
+              tenantId,
+              feeds: lowStockFeeds,
+            });
           }
+
+          const expiringFeeds = await this.getExpiringFeeds(tenantId, 7, queryRunner);
+          if (expiringFeeds.length > 0) {
+            this.eventEmitter.emit('feeding.expiryWarning', {
+              tenantId,
+              feeds: expiringFeeds,
+              daysUntilExpiry: 7,
+            });
+          }
+        } catch (error) {
+          this.logger.error(
+            `Failed to check feed stock for tenant ${tenantId} in schema ${schema}: ${error}`,
+          );
         }
-      } catch (err) {
-        this.logger.error(
-          `Feed stock check failed for schema ${schema}: ${(err as Error).message}`,
-        );
-      } finally {
-        await queryRunner.query('RESET search_path').catch(() => {});
-        await queryRunner.release();
-      }
-    }
+      },
+      { logger: this.logger },
+    );
+    this.logFailedTenantPasses('Feed stock check failed', results);
 
     const duration = Date.now() - startTime;
     this.logger.log(`Feed stock check completed in ${duration}ms`);
@@ -1150,49 +1052,26 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
     const startTime = Date.now();
 
     await this.loadTenantConfigs();
-    const tenantSchemas = await listTenantSchemas(this.dataSource);
 
-    for (const schema of tenantSchemas) {
-      const queryRunner = this.dataSource.createQueryRunner();
-      await queryRunner.connect();
+    const results = await forEachVerifiedTenantSchema(
+      this.dataSource,
+      async ({ schemaName: schema, tenantId, queryRunner }) => {
+        try {
+          const forecast = await this.generateFeedForecast(tenantId, 7, queryRunner);
 
-      try {
-        await queryRunner.query(`SET search_path TO "${schema}", farm, public`);
-
-        /**
-         * Discover tenantIds within this schema.
-         * Table name must match the Batch entity mapping: @Entity('batches_v2').
-         * Previously referenced the legacy 'batches' table, which lacks columns
-         * like "isActive" that were introduced in the batches_v2 migration.
-         */
-        const tenantRows: { tenantId: string }[] = await queryRunner.query(
-          `SELECT DISTINCT "tenantId" AS "tenantId" FROM "batches_v2"
-           WHERE "isActive" = true LIMIT 100`,
-        );
-
-        for (const { tenantId } of tenantRows) {
-          try {
-            const forecast = await this.generateFeedForecast(tenantId, 7, queryRunner);
-
-            this.eventEmitter.emit('feeding.weeklyForecast', {
-              tenantId,
-              forecast,
-            });
-          } catch (error) {
-            this.logger.error(
-              `Failed to generate feed forecast for tenant ${tenantId} in schema ${schema}: ${error}`,
-            );
-          }
+          this.eventEmitter.emit('feeding.weeklyForecast', {
+            tenantId,
+            forecast,
+          });
+        } catch (error) {
+          this.logger.error(
+            `Failed to generate feed forecast for tenant ${tenantId} in schema ${schema}: ${error}`,
+          );
         }
-      } catch (err) {
-        this.logger.error(
-          `Weekly feed forecast failed for schema ${schema}: ${(err as Error).message}`,
-        );
-      } finally {
-        await queryRunner.query('RESET search_path').catch(() => {});
-        await queryRunner.release();
-      }
-    }
+      },
+      { logger: this.logger },
+    );
+    this.logFailedTenantPasses('Weekly feed forecast failed', results);
 
     const duration = Date.now() - startTime;
     this.logger.log(`Weekly feed forecast completed in ${duration}ms`);

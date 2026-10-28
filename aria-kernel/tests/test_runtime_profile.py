@@ -38,6 +38,7 @@ from aria_kernel.runtime_profile import (
     PROFILE_HISTORY_FILENAME,
     PROFILE_STATE_FILENAME,
     PROFILES,
+    ProfileActionRefused,
     enforce_profile_for_action,
     enforce_profile_for_write,
     get_profile,
@@ -91,9 +92,13 @@ class ProfileTaxonomyTests(unittest.TestCase):
         # `pr_create` selects, and every live `standard` run therefore
         # disclosed needs_signing into a knowledge ledger that never got
         # created. Learning is a store mutation, not a GitHub one.
+        # ARIA-MEDIUM-1109 — `pr_push` joins the table: the branch push of the
+        # manual PR lane is the GitHub-facing half of `pr_create`, and a profile
+        # that may not open a pull request may not put its branch on the remote.
         self.assertEqual(set(ACTION_PERMISSIONS.keys()), {
             "agent_claim", "change_committed", "change_validated", "pr_create",
             "pr_open", "pr_merge", "plan_stage", "apply_gate", "knowledge_record",
+            "pr_push",
         })
         self.assertEqual(
             ACTION_PERMISSIONS["agent_claim"],
@@ -135,6 +140,10 @@ class ProfileTaxonomyTests(unittest.TestCase):
         self.assertEqual(
             ACTION_PERMISSIONS["knowledge_record"],
             frozenset({"standard", "strict", "autonomous"}),
+        )
+        self.assertEqual(
+            ACTION_PERMISSIONS["pr_push"],
+            frozenset({"strict", "autonomous"}),
         )
 
     def test_the_table_is_the_only_definition_of_who_may_record_knowledge(self) -> None:
@@ -270,6 +279,74 @@ class ProfileTaxonomyTests(unittest.TestCase):
             PLAN_020_WRITE_SURFACES
             | OBSERVE_PERMITTED_SURFACES
             | DIAGNOSTIC_ALLOWLIST,
+        )
+
+
+class PrPushIsEnrolledInTheTable(unittest.TestCase):
+    """ARIA-MEDIUM-1109 — the branch push is a cell of the table, not a second list.
+
+    `pr_manager.push_prepared_branch` is the GitHub-facing half of `pr_create`.
+    Everything the table derives follows from the one cell: who may push
+    (`enforce_profile_for_action`), who holds action authority, what a profile
+    may add under a ceiling. None of it is edited by hand.
+    """
+
+    def setUp(self) -> None:
+        self.tools = _seed_tools()
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.tools.parent, ignore_errors=True)
+
+    def test_pr_push_is_held_by_the_profiles_that_may_open_a_pull_request(self) -> None:
+        self.assertIn("pr_push", ACTION_PERMISSIONS)
+        self.assertEqual(ACTION_PERMISSIONS["pr_push"], frozenset({"strict", "autonomous"}))
+        self.assertEqual(
+            ACTION_PERMISSIONS["pr_push"], ACTION_PERMISSIONS["pr_create"],
+            "a profile that may not open a pull request may not put its branch on the remote",
+        )
+
+    def test_the_gate_answers_for_every_profile_from_the_cell(self) -> None:
+        self.assertIn("pr_push", ACTION_PERMISSIONS)
+        for profile in PROFILES:
+            with self.subTest(profile=profile):
+                operator_set_profile(profile, base_dir=self.tools)
+                if profile in {"strict", "autonomous"}:
+                    self.assertEqual(
+                        enforce_profile_for_action("pr_push", base_dir=self.tools), profile,
+                    )
+                    continue
+                with self.assertRaises(ProfileActionRefused) as refused:
+                    enforce_profile_for_action("pr_push", base_dir=self.tools)
+                message = str(refused.exception)
+                self.assertIn("profile_violation", message)
+                self.assertIn("'pr_push'", message)
+                self.assertIn(f"'{profile}'", message)
+                self.assertIn("strict", message)
+                self.assertIn("autonomous", message)
+
+    def test_the_derived_views_follow_the_cell(self) -> None:
+        from aria_kernel.runtime_profile import PROFILES_WITH_ACTION_AUTHORITY, permitted_actions
+
+        self.assertIn("pr_push", ACTION_PERMISSIONS)
+        for profile in ("strict", "autonomous"):
+            self.assertIn("pr_push", permitted_actions(profile), profile)
+        for profile in ("observe", "standard", "frozen"):
+            self.assertNotIn("pr_push", permitted_actions(profile), profile)
+        # Containment is by subset of permitted actions: the cell is part of what
+        # `strict` may do and `standard` may not, so a ceiling of `standard`
+        # keeps a scheduled lane from pushing without a rank edited anywhere.
+        self.assertIn("pr_push", permitted_actions("strict") - permitted_actions("standard"))
+        # The authority set is the union of the cells (read from the module, not
+        # guessed): `standard` stays in it through its other cells, `observe` and
+        # `frozen` hold no cell at all, and the new cell moves none of them.
+        for profile in PROFILES:
+            self.assertEqual(
+                profile in PROFILES_WITH_ACTION_AUTHORITY,
+                any(profile in cell for cell in ACTION_PERMISSIONS.values()),
+                profile,
+            )
+        self.assertEqual(
+            PROFILES_WITH_ACTION_AUTHORITY, frozenset({"standard", "strict", "autonomous"}),
         )
 
 
@@ -805,6 +882,21 @@ class ProfileDocsMatchTheTables(unittest.TestCase):
             "NOT covered" in (runtime_profile.__doc__ or ""),
             "the docstring still says frozen does NOT cover surfaces it blocks",
         )
+
+    def test_the_wiring_lists_name_the_branch_push(self) -> None:
+        """ARIA-MEDIUM-1109 — both lists of enrolled dispatch sites carry the push."""
+        import aria_kernel.runtime_profile as runtime_profile
+
+        for where, text in (
+            ("the module docstring", runtime_profile.__doc__ or ""),
+            ("enforce_profile_for_action", enforce_profile_for_action.__doc__ or ""),
+        ):
+            with self.subTest(where=where):
+                lines = [line for line in text.splitlines() if "pr_manager.push_prepared_branch" in line]
+                self.assertTrue(
+                    any("'pr_push'" in line for line in lines),
+                    f"{where} does not list pr_manager.push_prepared_branch -> 'pr_push'",
+                )
 
     def test_profile_docs_carry_no_surface_count(self) -> None:
         import inspect

@@ -350,6 +350,15 @@ jobs:
       # SEC-CI-022: Install cosign for artifact signing
       - name: Install cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          # The signing steps below write `.sig` and `.pem` files with --output-signature and
+          # --output-certificate, which the release manifest, the Sens enterprise release gate and the
+          # operator runbooks consume. cosign v3 (the installer v4 default, v3.0.6) writes a Sigstore
+          # bundle and IGNORES those flags ("create bundle file: open : no such file"): agent-v2.0.0-rc.7
+          # built all three archives and then failed here. Pinned to the last v2 line, which keeps the
+          # contract, until the signatures move to the bundle format (PROC-MEDIUM in
+          # docs/reviews/claude/2026-10-28-edge-release-cosign-contract.md).
+          cosign-release: v2.6.5
 
       # SEC-CI-022: Sign all release tarballs with cosign keyless signing (OIDC-backed)
       # This creates .sig and .pem files alongside each artifact so edge devices can

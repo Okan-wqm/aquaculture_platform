@@ -1,0 +1,28 @@
+{
+  "name": "semantic-marker-words-stay-claims",
+  "lane": "semantic_regression",
+  "input": {
+    "roots": [
+      "tools/aria-adapters/fixtures/doc-staleness-adapter/workspaces/marker-words-stay-claims/docs"
+    ]
+  },
+  "expected": {
+    "status": "ok",
+    "required_findings": ["doc_references_missing_path"],
+    "findings_count": 5
+  },
+  "curation": {
+    "curator": "claude/ARIA-MEDIUM-1108 doc-staleness marker words are not roles (a living runbook with planned, pending, not yet or (R2) within three lines of a missing path stays flagged)",
+    "gold_set": {
+      "true_positive_count": 5,
+      "known_false_positive_count": 0,
+      "true_positive_shapes": [
+        "marker_planned",
+        "marker_pending",
+        "marker_not_yet",
+        "marker_release_tag",
+        "marker_on_the_same_line"
+      ]
+    }
+  }
+}

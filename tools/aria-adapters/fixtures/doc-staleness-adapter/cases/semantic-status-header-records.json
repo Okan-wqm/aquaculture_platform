@@ -1,0 +1,30 @@
+{
+  "name": "semantic-status-header-records",
+  "lane": "semantic_regression",
+  "input": {
+    "roots": [
+      "tools/aria-adapters/fixtures/doc-staleness-adapter/workspaces/status-header-records/docs"
+    ]
+  },
+  "expected": {
+    "status": "ok",
+    "required_findings": ["doc_references_missing_path"],
+    "findings_count": 1
+  },
+  "curation": {
+    "curator": "claude/ARIA-MEDIUM-1108 doc-staleness document status header (a document whose first 40 lines say Proposed, Draft, Superseded, Deprecated or Rejected is a record)",
+    "gold_set": {
+      "true_positive_count": 1,
+      "known_false_positive_count": 6,
+      "true_positive_shapes": ["live_document_status_accepted"],
+      "false_positive_classes": [
+        "status_proposed",
+        "status_draft_bold",
+        "status_table_row",
+        "status_list_item",
+        "status_rejected_with_date",
+        "status_on_line_40"
+      ]
+    }
+  }
+}

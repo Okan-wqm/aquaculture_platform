@@ -21,6 +21,6 @@
   "expected": {
     "status": "ok",
     "required_observations": ["doc_staleness_document"],
-    "max_findings": 400
+    "max_findings": 250
   }
 }

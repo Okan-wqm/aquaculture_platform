@@ -1,0 +1,29 @@
+{
+  "name": "semantic-record-near-misses",
+  "lane": "semantic_regression",
+  "input": {
+    "roots": [
+      "tools/aria-adapters/fixtures/doc-staleness-adapter/workspaces/record-near-misses/docs"
+    ]
+  },
+  "expected": {
+    "status": "ok",
+    "required_findings": ["doc_references_missing_path"],
+    "findings_count": 6
+  },
+  "curation": {
+    "curator": "claude/ARIA-MEDIUM-1108 doc-staleness near misses of the record roles (a living document stays flagged under a dated or historical header, Status: Accepted, a qualified status, and a Status line past line 40)",
+    "gold_set": {
+      "true_positive_count": 6,
+      "known_false_positive_count": 0,
+      "true_positive_shapes": [
+        "status_accepted",
+        "status_on_line_41",
+        "status_qualified",
+        "dated_header",
+        "historical_header",
+        "status_historical"
+      ]
+    }
+  }
+}

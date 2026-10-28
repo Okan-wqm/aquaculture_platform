@@ -7,7 +7,13 @@ import { makeFixtureTree } from '../gates/fixture-tree';
 import { hermeticGitEnv } from '../gates/hermetic-git';
 
 import { ADAPTER_EXCLUDED_DIRS, containedWorkspace } from './adapter-fs';
-import { analyzeDocStaleness, isPointInTimeRecord } from './doc-staleness-adapter';
+import {
+  analyzeDocStaleness,
+  isPointInTimeRecord,
+  referenceRole,
+  scanDocReferences,
+  type UnclaimedRole,
+} from './doc-staleness-adapter';
 
 const workspace = makeFixtureTree('aria-doc-staleness-');
 mkdirSync(join(workspace, 'docs/runbooks'), { recursive: true });
@@ -352,9 +358,625 @@ scenario('the real repository: the scan reads what the roots hold', () => {
   assert.deepEqual(unread, [], 'a tracked document under a root is not read');
 });
 
+// ---------------------------------------------------------------------------
+// DOCROLES (ARIA-MEDIUM-1108): the roles that made the adapter's false alarms.
+// Three rules, all inside the adapter that owns the roles:
+//   1. a document whose first 40 lines carry a Status of Proposed, Draft,
+//      Superseded, Deprecated or Rejected is a point-in-time record;
+//   2. a document whose base name holds the token report, review, audit,
+//      verification, spec, plan, inventory, findings or retro is a record;
+//   3. a table row with a cell that is exactly Create or New claims nothing
+//      about the reference in it.
+// A GUARD below is green at the base on purpose (the base claims no role at
+// all): it holds a near miss that must stay flagged, and fails the day a rule
+// claims more than its three sentences. The peer's measurement is a hypothesis
+// explored on its own sample; no fixture here is a copy of that sample.
+// ---------------------------------------------------------------------------
+const STATUS_WORDS = ['Proposed', 'Draft', 'Superseded', 'Deprecated', 'Rejected'];
+const FILE_NAME_TOKENS = [
+  'report',
+  'review',
+  'audit',
+  'verification',
+  'spec',
+  'plan',
+  'inventory',
+  'findings',
+  'retro',
+];
+// A document no other role reaches: not an archive, not under reviews/ or
+// audits/, no date in a segment, no token in its base name.
+const LIVE_DOC = 'docs/adr/020-storage.md';
+
+// A document of `position` lines whose last line is `text`: a heading, then
+// background notes, so `text` sits on line `position` and nothing follows it.
+const docEndingWith = (position: number, text: string): string[] => [
+  '# ADR',
+  ...Array.from({ length: position - 2 }, (_, index) => `Background note ${index + 1}.`),
+  text,
+];
+const failing = <T>(items: readonly T[], holds: (item: T) => boolean): T[] =>
+  items.filter((item) => !holds(item));
+
+scenario('a Status of Proposed, Draft, Superseded, Deprecated or Rejected makes a record', () => {
+  const spellings = [
+    ...STATUS_WORDS.map((status) => `Status: ${status}`),
+    '**Status:** Draft',
+    '- Status: Superseded',
+    '- **Status:** Deprecated',
+    '* Status: Rejected',
+    '| Status | Superseded |',
+    '| Status | Proposed |',
+    'status: proposed',
+    'STATUS: DRAFT',
+    'Status: Proposed (2026-04-21)',
+    'Status: Draft 2026-04-21',
+    // The qualifier inside the parenthesis may name another status.
+    '**Status:** Proposed (opened 2026-04-19; target Accepted 2026-05-03)',
+  ];
+  assert.deepEqual(
+    failing(spellings, (text) => isPointInTimeRecord(LIVE_DOC, docEndingWith(3, text))),
+    [],
+    'these Status spellings are not read as a record',
+  );
+});
+
+// GUARD: the value must be exactly one of the five words (the mutants: a sixth
+// word, Accepted, added; the word read as a prefix or inside a longer value).
+scenario('any other Status value is not a record', () => {
+  const notStatuses = [
+    'Status: Accepted',
+    '**Status:** Accepted',
+    '- Status: Accepted',
+    '| Status | Accepted |',
+    'Status: Approved',
+    'Status: Implemented',
+    'Status: Active',
+    'Status: Proposed-then-accepted-by-the-board',
+    'Status: Drafting',
+    'Status: Accepted (previously Draft)',
+    'Status: Historical',
+    'Status: Snapshot',
+  ];
+  assert.deepEqual(
+    failing(notStatuses, (text) => !isPointInTimeRecord(LIVE_DOC, docEndingWith(3, text))),
+    [],
+    'these Status values make a record, and none of them is one of the five words',
+  );
+});
+
+scenario('the Status header is read in the first 40 lines: line 40 is in, line 41 is out', () => {
+  const statuses = ['Status: Draft', '**Status:** Proposed', '| Status | Superseded |'];
+  assert.equal(docEndingWith(40, statuses[0]).length, 40);
+  assert.deepEqual(
+    failing(statuses, (text) => isPointInTimeRecord(LIVE_DOC, docEndingWith(40, text))),
+    [],
+    'a Status on line 40 is inside the window',
+  );
+  assert.deepEqual(
+    failing(statuses, (text) => !isPointInTimeRecord(LIVE_DOC, docEndingWith(41, text))),
+    [],
+    'a Status on line 41 is outside the window',
+  );
+  assert.deepEqual(
+    failing(statuses, (text) => !isPointInTimeRecord(LIVE_DOC, docEndingWith(80, text))),
+    [],
+    'a Status deep in the body is prose about a status, not the document header',
+  );
+});
+
+scenario('a base name holding a point-in-time token makes a record', () => {
+  const separators = (token: string): string[] => [
+    `${token}.md`,
+    `ops-${token}.md`,
+    `ops_${token}_notes.md`,
+    `ops.${token}.md`,
+    `ops ${token} notes.md`,
+  ];
+  const names = FILE_NAME_TOKENS.flatMap(separators).map((name) => `docs/guides/${name}`);
+  assert.deepEqual(
+    failing(names, (name) => isPointInTimeRecord(name, ['# Guide', '', 'Body.'])),
+    [],
+    'these base names are not read as a record',
+  );
+});
+
+// GUARD: a token, not a substring; and the token rule reads the base name, so a
+// directory named for a token (or `reviews`/`audits`/dated/archive, as before)
+// keeps the rule it had.
+scenario('a token is not a substring, and a directory name keeps its own rule', () => {
+  const substrings = [
+    'planning-guide.md',
+    'explainer.md',
+    'inspector.md',
+    'explanation.md',
+    'reviewer-guide.md',
+    'auditing.md',
+    'retrospective.md',
+    'specification-guide.md',
+    'ops-guide.md',
+    'README.md',
+  ].map((name) => `docs/guides/${name}`);
+  assert.deepEqual(
+    failing(substrings, (name) => !isPointInTimeRecord(name, ['# Guide', '', 'Body.'])),
+    [],
+    'a name that only contains a token as a substring is read as a record',
+  );
+  const tokenDirectories = [...FILE_NAME_TOKENS, 'plans', 'specs', 'reports', 'rollback-plan'].map(
+    (directory) => `docs/${directory}/ops-guide.md`,
+  );
+  assert.deepEqual(
+    failing(tokenDirectories, (name) => !isPointInTimeRecord(name, ['# Guide', '', 'Body.'])),
+    [],
+    'a directory named for a token makes its documents a record',
+  );
+  const recordDirectories = [
+    'docs/reviews/ops-guide.md',
+    'docs/audits/ops-guide.md',
+    'docs/plans/2026-04-21-refactor/ops-guide.md',
+    'docs/plans/_archive/ops-guide.md',
+  ];
+  assert.deepEqual(
+    failing(recordDirectories, (name) => isPointInTimeRecord(name, ['# Guide', '', 'Body.'])),
+    [],
+    'the directory names that were records are still records',
+  );
+});
+
+// GUARD: the peer's measurement shows these cost real findings (old documents
+// still cited as current): a date, or the word historical, is not a role.
+scenario('a dated or historical header does not make a record', () => {
+  const headers = [
+    ['# Sensor runbook', '', 'Date: 2026-03-14'],
+    ['# Sensor runbook (2026-03-14)'],
+    ['# 2026-03-14 sensor runbook'],
+    ['Last updated: 2026-03-14', '', '# Sensor runbook'],
+    ['# Sensor runbook', '', 'Historical notes, kept as they were.'],
+    ['# Historical sensor runbook'],
+    ['# Tarihsel sensör belgesi'],
+    ['# Sensor runbook', '', 'A point-in-time snapshot of the setup.'],
+    ['# Sensor runbook', '', 'Status: Historical'],
+  ];
+  assert.deepEqual(
+    failing(headers, (lines) => !isPointInTimeRecord('docs/runbooks/ops.md', lines)),
+    [],
+    'a dated or historical header makes a record',
+  );
+});
+
+// DOCROLES review point: the repo names its live authority itself. A document
+// that carries ARIA-LIVE-AUTHORITY within its first 5 lines (MARKER_HEAD_LINES)
+// says it supersedes stale statements, yet docs/aria/SPEC.md is named SPEC.md,
+// so the file-name token rule made it a record and none of its references was
+// checked. The banner outranks ONLY that rule: a record directory, a dated
+// name, an archive path, an ARIA-HISTORICAL or ARIA-SUPERSEDED marker and a
+// Status header stay record causes, banner or not.
+const LIVE_AUTHORITY_BANNER =
+  '<!-- ARIA-LIVE-AUTHORITY: docs/aria/CURRENT_STATE.md and executable contracts supersede stale runtime/provider/branch statements in this document. -->';
+// A document of 45 lines: heading, background notes, and `placed` on its lines
+// (1-based). Line 45 is past both the 5-line marker head and the 40-line status head.
+const docWith = (placed: Readonly<Record<number, string>>): string[] =>
+  Array.from(
+    { length: 45 },
+    (_, index) => placed[index + 1] ?? (index === 0 ? '# Guide' : `Background note ${index + 1}.`),
+  );
+const bannerOnLine = (position: number): string[] => docWith({ [position]: LIVE_AUTHORITY_BANNER });
+const NAMED_LIKE_THE_REAL_ONES = [
+  'docs/aria/SPEC.md',
+  'docs/aria/PLAN.md',
+  'docs/aria/audit-tables.md',
+];
+// The three names above, then every token in every spelling the token rule
+// reads, under docs/guides/, libs/ and the root: the banner is read in the
+// document, never in a path.
+const TOKEN_NAMED_DOCS = [
+  ...NAMED_LIKE_THE_REAL_ONES,
+  'SPEC.md',
+  'libs/shared/docs/plan.md',
+  ...FILE_NAME_TOKENS.flatMap((token) => [
+    `${token}.md`,
+    `${token.toUpperCase()}.md`,
+    `ops-${token}.md`,
+    `ops_${token}_notes.md`,
+    `ops.${token}.md`,
+    `ops ${token} notes.md`,
+  ]).map((name) => (name.includes('/') ? name : `docs/guides/${name}`)),
+];
+
+scenario('the live-authority banner on line 1 keeps a document named for a token live', () => {
+  assert.deepEqual(
+    failing(TOKEN_NAMED_DOCS, (name) => !isPointInTimeRecord(name, bannerOnLine(1))),
+    [],
+    'these documents carry the banner on line 1 and are still read as a record',
+  );
+  // The real shape: banner, blank line, heading (docs/aria/SPEC.md).
+  assert.equal(
+    isPointInTimeRecord('docs/aria/SPEC.md', [LIVE_AUTHORITY_BANNER, '', '# ARIA Snowball']),
+    false,
+  );
+});
+
+// GUARD: the banner is what rescues the name; no path, and no name, does. The
+// mutant: documents under docs/aria/ (or named SPEC) are exempt without a banner.
+scenario('without the banner the same names are still records', () => {
+  assert.deepEqual(
+    failing(TOKEN_NAMED_DOCS, (name) => isPointInTimeRecord(name, docWith({}))),
+    [],
+    'a token-named document without the banner is not read as a record',
+  );
+});
+
+scenario('the banner is read in the first 5 lines: line 5 counts, line 6 does not', () => {
+  const inside = [1, 2, 3, 4, 5].flatMap((position) =>
+    failing(
+      NAMED_LIKE_THE_REAL_ONES,
+      (name) => !isPointInTimeRecord(name, bannerOnLine(position)),
+    ).map((name) => `${name} with the banner on line ${position}`),
+  );
+  assert.deepEqual(inside, [], 'the banner is inside the head and is not read');
+  const outside = [6, 7, 10, 40, 45].flatMap((position) =>
+    failing(NAMED_LIKE_THE_REAL_ONES, (name) =>
+      isPointInTimeRecord(name, bannerOnLine(position)),
+    ).map((name) => `${name} with the banner on line ${position}`),
+  );
+  assert.deepEqual(outside, [], 'the banner is below the head and keeps the document live');
+});
+
+// GUARD (the ruling's mutant): a token, not a substring of another word.
+scenario('a word that merely starts with the banner is not the banner', () => {
+  const lookalikes = [
+    '<!-- ARIA-LIVE-AUTHORITY-NOT: this document is not live authority -->',
+    '<!-- ARIA-LIVE-AUTHORITY-NOT -->',
+    'ARIA-LIVE-AUTHORITY-NOT',
+  ];
+  const wrong = lookalikes.flatMap((lookalike) =>
+    failing(NAMED_LIKE_THE_REAL_ONES, (name) =>
+      isPointInTimeRecord(name, docWith({ 1: lookalike })),
+    ).map((name) => `${name} with ${lookalike}`),
+  );
+  assert.deepEqual(wrong, [], 'a lookalike was read as the banner');
+});
+
+// The banner is a whole token on both sides: a letter or a digit after it, or a
+// word glued before it, makes another word. The `-NOT` suffix above is the case
+// the lead's ruling names; this one extends it, and is kept apart so it can be
+// relaxed alone.
+scenario('the banner is a whole token: letters and digits around it are another word', () => {
+  const lookalikes = [
+    '<!-- ARIA-LIVE-AUTHORITYS: docs/aria/CURRENT_STATE.md -->',
+    '<!-- ARIA-LIVE-AUTHORITY2: docs/aria/CURRENT_STATE.md -->',
+    '<!-- XARIA-LIVE-AUTHORITY: docs/aria/CURRENT_STATE.md -->',
+    '<!-- NOT-ARIA-LIVE-AUTHORITY: docs/aria/CURRENT_STATE.md -->',
+  ];
+  const wrong = lookalikes.flatMap((lookalike) =>
+    failing(NAMED_LIKE_THE_REAL_ONES, (name) =>
+      isPointInTimeRecord(name, docWith({ 2: lookalike })),
+    ).map((name) => `${name} with ${lookalike}`),
+  );
+  assert.deepEqual(wrong, [], 'a longer word was read as the banner');
+});
+
+// The bare spellings of the token the repo's markers use: a comment with a
+// colon (the real one), a comment without one, a bold word, the word alone.
+scenario('the banner is read in a comment with or without a colon, and as a bold word', () => {
+  const spellings = [
+    '<!-- ARIA-LIVE-AUTHORITY -->',
+    '<!-- ARIA-LIVE-AUTHORITY: docs/aria/CURRENT_STATE.md -->',
+    '**ARIA-LIVE-AUTHORITY** — docs/aria/CURRENT_STATE.md supersedes this document.',
+    'ARIA-LIVE-AUTHORITY',
+  ];
+  const wrong = spellings.flatMap((spelling) =>
+    failing(
+      NAMED_LIKE_THE_REAL_ONES,
+      (name) => !isPointInTimeRecord(name, docWith({ 1: spelling })),
+    ).map((name) => `${name} with ${spelling}`),
+  );
+  assert.deepEqual(wrong, [], 'a spelling of the banner is not read');
+});
+
+// GUARD: the five causes the banner does not touch. Each scenario puts the
+// banner on line 1 of a document that holds exactly one other cause, under a
+// token name (the banner rescues the name, the cause remains) and under a name
+// with no token (the banner has nothing to rescue). The mutants: the banner
+// overrides this cause, on every name or on only one kind of name; the banner
+// overrides every cause.
+const readAsLive = (names: readonly string[], lines: readonly string[]): string[] =>
+  failing(names, (name) => isPointInTimeRecord(name, lines));
+
+scenario('a banner document in a reviews or audits directory is still a record', () => {
+  const names = [
+    'docs/reviews/SPEC.md',
+    'docs/audits/PLAN.md',
+    'docs/reviews/claude/audit-tables.md',
+    'docs/reviews/live-notes.md',
+    'docs/audits/aria/ops-guide.md',
+  ];
+  assert.deepEqual(
+    readAsLive(names, bannerOnLine(1)),
+    [],
+    'the banner made a review a live document',
+  );
+});
+
+scenario('a banner document with a date in its name is still a record', () => {
+  const names = [
+    'docs/aria/2026-10-28-SPEC.md',
+    'docs/aria/SPEC-2026-10-28.md',
+    'docs/plans/2026-04-24-queue-rework/PLAN.md',
+    'docs/plans/2026-04-24-queue-rework/ops-guide.md',
+    'docs/aria/2026-10-28-ops-guide.md',
+  ];
+  assert.deepEqual(readAsLive(names, bannerOnLine(1)), [], 'the banner made a dated document live');
+});
+
+scenario('a banner document under an archive path is still a record', () => {
+  const names = [
+    'docs/_archive/SPEC.md',
+    'docs/archive/aria/PLAN.md',
+    'docs/aria/SPEC.archived.md',
+    'docs/plans/_archive/ops-guide.md',
+    'docs/archived/ops-guide.md',
+  ];
+  assert.deepEqual(
+    readAsLive(names, bannerOnLine(1)),
+    [],
+    'the banner made an archived document live',
+  );
+});
+
+scenario('a banner document headed ARIA-HISTORICAL or ARIA-SUPERSEDED is still a record', () => {
+  const names = ['docs/aria/SPEC.md', 'docs/aria/PLAN.md', 'docs/aria/ops-guide.md'];
+  const headers = [
+    docWith({ 1: LIVE_AUTHORITY_BANNER, 3: '<!-- ARIA-HISTORICAL: Historical plan document. -->' }),
+    docWith({ 1: '<!-- ARIA-HISTORICAL: Historical plan document. -->', 2: LIVE_AUTHORITY_BANNER }),
+    docWith({
+      1: LIVE_AUTHORITY_BANNER,
+      5: '<!-- ARIA-SUPERSEDED: replaced by docs/aria/SPEC.md -->',
+    }),
+  ];
+  assert.deepEqual(
+    headers.flatMap((lines) => readAsLive(names, lines)),
+    [],
+    'the banner made a document that says it is historical live',
+  );
+});
+
+scenario('a banner document headed Status: Draft is still a record', () => {
+  const names = ['docs/aria/SPEC.md', 'docs/aria/PLAN.md', 'docs/aria/ops-guide.md'];
+  const headers = [
+    docWith({ 1: LIVE_AUTHORITY_BANNER, 3: 'Status: Draft' }),
+    docWith({ 1: LIVE_AUTHORITY_BANNER, 3: '**Status:** Proposed' }),
+    docWith({ 1: LIVE_AUTHORITY_BANNER, 4: '| Status | Superseded |' }),
+    docWith({ 1: LIVE_AUTHORITY_BANNER, 40: 'Status: Rejected' }),
+  ];
+  assert.deepEqual(
+    headers.flatMap((lines) => readAsLive(names, lines)),
+    [],
+    'the banner made a document with a Status header live',
+  );
+});
+
+const ROW_REF = 'apps/farm-service/src/fx-handler.ts';
+const ROW_SPAN = `\`${ROW_REF}\``;
+const rowRole = (row: string): UnclaimedRole | undefined =>
+  referenceRole([row], 0, new Set<string>(), ROW_REF);
+
+scenario('a Create or New table cell makes the reference in its row a file to create', () => {
+  const rows = [
+    `| Create | ${ROW_SPAN} |`,
+    `| New | ${ROW_SPAN} | handler |`,
+    `| ${ROW_SPAN} | Create |`,
+    `| ${ROW_SPAN} | New | handler |`,
+    `|   Create   | ${ROW_SPAN} |`,
+    // Read with the backtick spans removed: this cell is New and nothing else.
+    `| New \`v2\` | ${ROW_SPAN} |`,
+    `| Oluştur | ${ROW_SPAN} |`,
+    `| YENİ | ${ROW_SPAN} |`,
+  ];
+  assert.deepEqual(
+    rows.filter((row) => rowRole(row) !== 'creation'),
+    [],
+    'these rows do not claim the reference as a file to create',
+  );
+  // The row owns the role: the neighbouring row of the same table is not new.
+  const table = [
+    '| Action | Path |',
+    '| --- | --- |',
+    `| Create | ${ROW_SPAN} |`,
+    `| Modify | \`apps/farm-service/src/fx-legacy.ts\` |`,
+  ];
+  const scan = scanDocReferences(table, () => false);
+  assert.deepEqual(
+    scan.stale.map((item) => item.line),
+    [4],
+    'only the Modify row is a stale claim',
+  );
+  assert.equal(scan.unclaimed.creation, 1);
+});
+
+// GUARD: the cell is exactly the word (the mutant: a contains rule), read with
+// the backtick spans removed.
+scenario('a cell that merely contains the word claims nothing', () => {
+  const rows = [
+    `| Renewal | ${ROW_SPAN} |`,
+    `| Created | ${ROW_SPAN} |`,
+    `| Newsletter | ${ROW_SPAN} |`,
+    `| Recreate | ${ROW_SPAN} |`,
+    `| Create index | ${ROW_SPAN} |`,
+    `| New tenant | ${ROW_SPAN} |`,
+    `| Modify | ${ROW_SPAN} | create a new row |`,
+    `| \`Create\` | ${ROW_SPAN} |`,
+    `| Modify | ${ROW_SPAN} |`,
+  ];
+  assert.deepEqual(
+    rows.filter((row) => rowRole(row) !== undefined),
+    [],
+    'these rows claim the reference, and none of them has a Create or New cell',
+  );
+});
+
+// GUARD: `planned`, `pending`, `not yet` and `(R2)` are not roles, on the
+// cited line, in its table row, or in a window of three lines around it (one
+// such rule hid a living rollback runbook).
+scenario('a marker word near a reference claims nothing', () => {
+  const markerRef = 'apps/farm-service/src/fx-switch.sh';
+  const span = `\`${markerRef}\``;
+  const markers = ['planned', 'pending', 'not yet wired', '(R2)'];
+  const layouts = (marker: string): { name: string; lines: string[]; index: number }[] => {
+    const sentence = `The switch is ${marker}.`;
+    const run = `Run ${span}.`;
+    const found = [
+      { name: 'same line', lines: [`Run ${span} ${marker}.`], index: 0 },
+      { name: 'same row', lines: [`| Modify | ${span} | ${marker} |`], index: 0 },
+    ];
+    for (const distance of [1, 2, 3]) {
+      const gap = Array.from({ length: distance - 1 }, () => '');
+      found.push({ name: `${distance} above`, lines: [sentence, ...gap, run], index: distance });
+      found.push({ name: `${distance} below`, lines: [run, ...gap, sentence], index: 0 });
+    }
+    return found;
+  };
+  const claimed = markers.flatMap((marker) =>
+    layouts(marker)
+      .filter(({ lines, index }) => {
+        const stale = scanDocReferences(lines, () => false).stale;
+        return stale.length !== 1 || stale[0].line !== index + 1;
+      })
+      .map(({ name }) => `${marker}: ${name}`),
+  );
+  assert.deepEqual(claimed, [], 'a marker word made a reference a claim of no one');
+});
+
+// The curated cases the nightly fixture lane runs, replayed here: each names the
+// findings that must remain (path and line under the workspace's docs/), the
+// documents read as records and the references read as files to create. The
+// counts a case declares must agree with what the adapter reports.
+const FIXTURE_DIR = 'tools/aria-adapters/fixtures/doc-staleness-adapter';
+interface RoleCase {
+  readonly lane: string;
+  readonly input: Parameters<typeof analyzeDocStaleness>[0];
+  readonly expected: { readonly findings_count: number };
+  readonly curation: {
+    readonly gold_set: {
+      readonly true_positive_count: number;
+      readonly known_false_positive_count: number;
+    };
+  };
+}
+const ROLE_CASES: readonly {
+  readonly name: string;
+  readonly workspace: string;
+  readonly flagged: readonly string[];
+  readonly recordDocs: number;
+  readonly creation: number;
+}[] = [
+  {
+    // Five status spellings and a Status on line 40 are records; the document
+    // that says Accepted is the one live claim left.
+    name: 'semantic-status-header-records',
+    workspace: 'status-header-records',
+    flagged: ['docs/adr/006-edge.md:5'],
+    recordDocs: 6,
+    creation: 0,
+  },
+  {
+    // Nine tokens make records; a name that only contains one, and a document
+    // under a directory named for one, are live.
+    name: 'semantic-file-name-records',
+    workspace: 'file-name-records',
+    flagged: [
+      'docs/guides/explainer.md:3',
+      'docs/guides/inspector.md:3',
+      'docs/guides/planning-guide.md:3',
+      'docs/plan/ops-guide.md:3',
+    ],
+    recordDocs: 9,
+    creation: 0,
+  },
+  {
+    // Four cells claim their row's file as to be created; Modify, Renewal and
+    // Created do not.
+    name: 'semantic-create-table-rows',
+    workspace: 'create-table-rows',
+    flagged: ['docs/guides/surface.md:9', 'docs/guides/surface.md:10', 'docs/guides/surface.md:11'],
+    recordDocs: 0,
+    creation: 4,
+  },
+  {
+    // GUARD: Accepted, a Status on line 41, a qualified status, a dated header,
+    // a historical header and Status: Historical are all live documents.
+    name: 'semantic-record-near-misses',
+    workspace: 'record-near-misses',
+    flagged: [
+      'docs/adr/010-accepted.md:5',
+      'docs/adr/011-late-status.md:43',
+      'docs/adr/012-qualified.md:5',
+      'docs/adr/013-dated-header.md:7',
+      'docs/adr/014-historical-header.md:5',
+      'docs/adr/015-status-historical.md:5',
+    ],
+    recordDocs: 0,
+    creation: 0,
+  },
+  {
+    // GUARD: planned, pending, not yet and (R2) within three lines of a missing
+    // path, and planned on the cited line, leave all five paths flagged.
+    name: 'semantic-marker-words-stay-claims',
+    workspace: 'marker-words-stay-claims',
+    flagged: [
+      'docs/runbooks/rollback.md:7',
+      'docs/runbooks/rollback.md:13',
+      'docs/runbooks/rollback.md:19',
+      'docs/runbooks/rollback.md:25',
+      'docs/runbooks/rollback.md:29',
+    ],
+    recordDocs: 0,
+    creation: 0,
+  },
+  {
+    // The live-authority banner on line 1 keeps SPEC.md live although its name
+    // holds a token, so its missing path is flagged. PLAN.md without the banner,
+    // a banner on line 7 (below the 5-line head) and a banner above a
+    // Status: Draft header are records.
+    name: 'semantic-live-authority-banner',
+    workspace: 'live-authority-banner',
+    flagged: ['docs/aria/SPEC.md:5'],
+    recordDocs: 3,
+    creation: 0,
+  },
+];
+for (const roleCase of ROLE_CASES) {
+  scenario(`fixture case ${roleCase.name}`, () => {
+    const fixture = JSON.parse(
+      readFileSync(join(REPO_ROOT, FIXTURE_DIR, 'cases', `${roleCase.name}.json`), 'utf8'),
+    ) as RoleCase;
+    const output = analyzeDocStaleness(fixture.input, REPO_ROOT);
+    const under = `${FIXTURE_DIR}/workspaces/${roleCase.workspace}/`;
+    assert.deepEqual(
+      output.findings.map((item) => `${item.path}:${item.line}`).sort(),
+      roleCase.flagged.map((flagged) => `${under}${flagged}`).sort(),
+      'the findings that remain',
+    );
+    assert.equal(output.metadata.recordDocs, roleCase.recordDocs, 'the documents read as records');
+    assert.deepEqual(
+      output.metadata.unclaimedRefs,
+      { creation: roleCase.creation, proposal: 0, absence: 0, change_target: 0 },
+      'the references read as a role',
+    );
+    // The case file says the same: its count, its lane and its gold set.
+    assert.equal(fixture.lane, 'semantic_regression');
+    assert.equal(fixture.expected.findings_count, roleCase.flagged.length);
+    assert.equal(fixture.curation.gold_set.true_positive_count, roleCase.flagged.length);
+    assert.equal(
+      fixture.curation.gold_set.known_false_positive_count,
+      roleCase.recordDocs + roleCase.creation,
+    );
+  });
+}
+
 assert.ok(
   scopeFailures.length === 0,
-  `${scopeFailures.length} DET scope-5 scenario(s) failed:\n\n${scopeFailures.join('\n\n')}`,
+  `${scopeFailures.length} doc-staleness scenario(s) failed:\n\n${scopeFailures.join('\n\n')}`,
 );
 
 process.stdout.write('doc-staleness-adapter tests passed\n');

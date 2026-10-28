@@ -1,0 +1,27 @@
+{
+  "name": "semantic-live-authority-banner",
+  "lane": "semantic_regression",
+  "input": {
+    "roots": [
+      "tools/aria-adapters/fixtures/doc-staleness-adapter/workspaces/live-authority-banner/docs"
+    ]
+  },
+  "expected": {
+    "status": "ok",
+    "required_findings": ["doc_references_missing_path"],
+    "findings_count": 1
+  },
+  "curation": {
+    "curator": "claude/ARIA-MEDIUM-1108 doc-staleness live-authority banner (a document that carries ARIA-LIVE-AUTHORITY in its first 5 lines is not made a record by a point-in-time file name; the banner overrides no other record cause)",
+    "gold_set": {
+      "true_positive_count": 1,
+      "known_false_positive_count": 3,
+      "true_positive_shapes": ["live_authority_banner_on_token_named_document"],
+      "false_positive_classes": [
+        "name_token_plan_without_banner",
+        "banner_on_line_7_below_the_head",
+        "banner_above_a_status_draft_header"
+      ]
+    }
+  }
+}

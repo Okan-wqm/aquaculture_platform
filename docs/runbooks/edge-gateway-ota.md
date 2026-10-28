@@ -36,8 +36,7 @@ BASE=suderra-agent-${VERSION}-${ARCH}
 
 sha256sum -c ${BASE}.tar.gz.sha256
 cosign verify-blob \
-  --certificate ${BASE}.tar.gz.pem \
-  --signature ${BASE}.tar.gz.sig \
+  --bundle ${BASE}.tar.gz.sigstore.json \
   --certificate-identity "https://github.com/Okan-wqm/aquaculture_platform/.github/workflows/edge-agent-release.yml@refs/tags/${TAG}" \
   --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
   ${BASE}.tar.gz

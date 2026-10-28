@@ -352,8 +352,12 @@ jobs:
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
 
       # SEC-CI-022: Sign all release tarballs with cosign keyless signing (OIDC-backed)
-      # This creates .sig and .pem files alongside each artifact so edge devices can
-      # verify binary provenance: cosign verify-blob --certificate-identity ...
+      # This creates a .sigstore.json bundle (signature, certificate and transparency-log
+      # entry) alongside each artifact so edge devices can verify binary provenance:
+      # cosign verify-blob --bundle ... --certificate-identity ...
+      # cosign 3 (the cosign-installer default) writes only the bundle and ignores
+      # --output-signature / --output-certificate, so the legacy flags produced no
+      # .sig/.pem and failed 2.0.0-rc.7 at "create bundle file: open : no such file".
       - name: Sign release artifacts with cosign
         run: |
           set -euo pipefail
@@ -364,8 +368,7 @@ jobs:
             echo "Signing ${file}..."
             cosign sign-blob \
               --yes \
-              --output-certificate "${file}.pem" \
-              --output-signature "${file}.sig" \
+              --bundle "${file}.sigstore.json" \
               "${file}"
             echo "Signed: ${file}"
           done
@@ -408,29 +411,25 @@ jobs:
               archive: {
                 ...archive,
                 checksum: requireFile(`${base}.tar.gz.sha256`),
-                signature: requireFile(`${base}.tar.gz.sig`),
-                certificate: requireFile(`${base}.tar.gz.pem`),
+                bundle: requireFile(`${base}.tar.gz.sigstore.json`),
               },
               sbom: {
                 ...requireFile(`${base}.cargo-metadata.sbom.json`),
-                signature: requireFile(`${base}.cargo-metadata.sbom.json.sig`),
-                certificate: requireFile(`${base}.cargo-metadata.sbom.json.pem`),
+                bundle: requireFile(`${base}.cargo-metadata.sbom.json.sigstore.json`),
               },
               provenance: {
                 ...requireFile(`${base}.intoto.jsonl`),
-                signature: requireFile(`${base}.intoto.jsonl.sig`),
-                certificate: requireFile(`${base}.intoto.jsonl.pem`),
+                bundle: requireFile(`${base}.intoto.jsonl.sigstore.json`),
               },
               notice: {
                 ...requireFile(`${base}.NOTICE.md`),
-                signature: requireFile(`${base}.NOTICE.md.sig`),
-                certificate: requireFile(`${base}.NOTICE.md.pem`),
+                bundle: requireFile(`${base}.NOTICE.md.sigstore.json`),
               },
             };
           });
 
           const manifest = {
-            schema_version: 1,
+            schema_version: 2,
             kind: 'suderra.edge.release.manifest',
             generated_at: new Date().toISOString(),
             release: {
@@ -463,8 +462,7 @@ jobs:
           set -euo pipefail
           cosign sign-blob \
             --yes \
-            --output-certificate artifacts/edge-release-manifest.json.pem \
-            --output-signature artifacts/edge-release-manifest.json.sig \
+            --bundle artifacts/edge-release-manifest.json.sigstore.json \
             artifacts/edge-release-manifest.json
 
       - name: Create GitHub Release
@@ -494,7 +492,7 @@ jobs:
             - `.cargo-metadata.sbom.json` dependency SBOM
             - `.intoto.jsonl` provenance statement
             - `.NOTICE.md` third-party notices
-            - `.sig` and `.pem` cosign keyless signature material
+            - `.sigstore.json` cosign keyless bundle (signature, certificate, transparency-log entry)
             - `edge-release-manifest.json` signed release manifest
 
             ### Verify checksums
@@ -509,8 +507,7 @@ jobs:
 
             ```bash
             cosign verify-blob \
-              --certificate suderra-agent-${{ steps.version.outputs.version }}-x86_64-linux.tar.gz.pem \
-              --signature suderra-agent-${{ steps.version.outputs.version }}-x86_64-linux.tar.gz.sig \
+              --bundle suderra-agent-${{ steps.version.outputs.version }}-x86_64-linux.tar.gz.sigstore.json \
               --certificate-identity "https://github.com/${{ github.repository }}/.github/workflows/edge-agent-release.yml@refs/tags/${{ steps.version.outputs.tag }}" \
               --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
               suderra-agent-${{ steps.version.outputs.version }}-x86_64-linux.tar.gz
@@ -526,9 +523,8 @@ jobs:
           files: |
             artifacts/*.tar.gz
             artifacts/*.sha256
-            artifacts/*.sig
+            artifacts/*.sigstore.json
             artifacts/*.cargo-metadata.sbom.json
             artifacts/*.intoto.jsonl
             artifacts/edge-release-manifest.json
             artifacts/*.NOTICE.md
-            artifacts/*.pem

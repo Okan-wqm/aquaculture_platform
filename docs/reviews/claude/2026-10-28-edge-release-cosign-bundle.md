@@ -37,6 +37,10 @@ no such file or directory`. No release was created.
   `schema_version` 2 and lists one `bundle` per signed artifact in place of `signature` and
   `certificate`. The release notes and `docs/runbooks/edge-gateway-ota.md` verify with
   `cosign verify-blob --bundle`. The release uploads `artifacts/*.sigstore.json`.
+- **One definition of the contract:** the `edge_release_signed_manifest_contract` check of
+  `tools/gates/sens-enterprise-validation.ts` (evidence of the closed claim
+  `edge-release-enterprise-gated`) pinned the `.sig`/`.pem` markers and failed this change; it
+  now pins `schema_version: 2` and the bundle markers.
 - **Make it detectable:** `tests/invariants/edge-release-cosign-bundle.spec.ts` fails when a
   `cosign sign-blob` of the release workflow lacks `--bundle` or uses the legacy flags, when the
   manifest stops requiring the bundle of a signed artifact, or when the bundles are not uploaded.

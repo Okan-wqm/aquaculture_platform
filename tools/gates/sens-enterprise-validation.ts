@@ -716,10 +716,9 @@ const CHECKS: Record<string, () => CheckResult> = {
       'edge-release-manifest.json',
       "kind: 'suderra.edge.release.manifest'",
       "targets = ['x86_64-linux', 'aarch64-linux', 'armv7-linux']",
-      'signature: requireFile(`${base}.tar.gz.sig`)',
-      'certificate: requireFile(`${base}.tar.gz.pem`)',
-      'artifacts/edge-release-manifest.json.sig',
-      'artifacts/edge-release-manifest.json.pem',
+      'schema_version: 2',
+      'bundle: requireFile(`${base}.tar.gz.sigstore.json`)',
+      'artifacts/edge-release-manifest.json.sigstore.json',
       'artifacts/edge-release-manifest.json',
     ];
     const missing = hasAll(release, required);

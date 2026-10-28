@@ -35,6 +35,10 @@ import {
 } from '../graphql/feedingProtocolV2.operations';
 import { buildCommandEnvelope } from '../utils/command-envelope';
 import type { PaginationResultV1 } from '@platform/pagination-contracts';
+import type {
+  ProtocolFcrSource as ProtocolFcrSourceWire,
+  ProtocolSettingsInput,
+} from '@platform/shared-ui/generated/graphql-types';
 
 // ============================================================================
 // TYPES — backend entity jsonb aynaları
@@ -95,6 +99,39 @@ export interface ProtocolSettings {
   minDissolvedOxygen?: number;
   minFeedingRatePercent?: number;
   maxFeedingRatePercent?: number;
+}
+
+/**
+ * The ONE wire boundary for protocol settings (FARM-HIGH-482).
+ *
+ * `settings` is jsonb: it is stored and read back with the lowercase value
+ * ('band'), while the GraphQL input field `fcrSource` is an ENUM whose wire
+ * value is the enum NAME ('BAND'). Sending the stored value made every
+ * create AND every edit die at variable coercion ("Value \"band\" does not
+ * exist in \"ProtocolFcrSource\" enum"), because the form echoes what it read.
+ *
+ * The map is keyed by the whole {@link ProtocolFcrSource} union, so a new source
+ * fails to compile until it is mapped; the result is typed as the generated
+ * input, so a lowercase literal cannot be returned. Only the keys the input
+ * declares are sent: the jsonb may carry entity-only keys the whitelist rejects.
+ */
+const FCR_SOURCE_WIRE: Record<ProtocolFcrSource, ProtocolFcrSourceWire> = {
+  band: 'BAND',
+  matrix: 'MATRIX',
+  feed: 'FEED',
+};
+
+export function toProtocolSettingsInput(settings: ProtocolSettings): ProtocolSettingsInput {
+  return {
+    autoTransition: settings.autoTransition,
+    transitionBufferG: settings.transitionBufferG,
+    growthApplicationMode: settings.growthApplicationMode,
+    underfeedAlertThresholdPercent: settings.underfeedAlertThresholdPercent,
+    fcrSource: FCR_SOURCE_WIRE[settings.fcrSource],
+    minDissolvedOxygen: settings.minDissolvedOxygen,
+    minFeedingRatePercent: settings.minFeedingRatePercent,
+    maxFeedingRatePercent: settings.maxFeedingRatePercent,
+  };
 }
 
 export interface FeedingProtocolV2 {
@@ -321,7 +358,7 @@ export function useCreateFeedingProtocolV2() {
     mutationFn: async (input: CreateFeedingProtocolV2Input) => {
       const data = await graphqlClient.request<{ createFeedingProtocolV2: FeedingProtocolV2 }>(
         CREATE_FEEDING_PROTOCOL_V2_MUTATION,
-        { input },
+        { input: { ...input, settings: toProtocolSettingsInput(input.settings) } },
       );
       return data.createFeedingProtocolV2;
     },
@@ -335,7 +372,7 @@ export function useUpdateFeedingProtocolV2() {
     mutationFn: async (input: UpdateFeedingProtocolV2Input) => {
       const data = await graphqlClient.request<{ updateFeedingProtocolV2: FeedingProtocolV2 }>(
         UPDATE_FEEDING_PROTOCOL_V2_MUTATION,
-        { input },
+        { input: { ...input, settings: toProtocolSettingsInput(input.settings) } },
       );
       return data.updateFeedingProtocolV2;
     },

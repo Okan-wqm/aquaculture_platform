@@ -22,6 +22,26 @@ import {
 } from '@nestjs/graphql';
 import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
 import { UseGuards } from '@nestjs/common';
+import { Type } from 'class-transformer';
+import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  IsArray,
+  IsBoolean,
+  IsDate,
+  IsEnum,
+  IsIn,
+  IsInt,
+  IsNumber,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Matches,
+  Max,
+  MaxLength,
+  Min,
+  ValidateNested,
+} from 'class-validator';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { runInTenantRead } from '@aquaculture/backend-common/database';
@@ -56,105 +76,193 @@ import { GetLatestMeasurementQuery } from '../queries/get-latest-measurement.que
 // INPUT TYPES
 // ============================================================================
 
+/** What the operator reports about the fish's feeding before the weighing. */
+const FEEDING_STATUSES: ReadonlyArray<MeasurementConditions['feedingStatus']> = [
+  'fed',
+  'fasted_12h',
+  'fasted_24h',
+  'unknown',
+];
+
+// Every property below carries a validator: the global ValidationPipe runs with
+// whitelist + forbidNonWhitelisted, so a `@Field`-only property is "not
+// whitelisted" and ANY request that sends it is rejected (FARM-HIGH-482,
+// PLAT-HIGH-922). The bounds mirror the physical limits the entity already
+// assumes (growth/dto/create-growth-measurement.input.ts).
+
 @InputType()
 export class IndividualMeasurementInput {
   @Field(() => Int)
+  @IsInt()
+  @Min(1)
   sampleNumber!: number;
 
   @Field(() => Float)
+  @IsNumber()
+  @Min(0.01)
+  @Max(100000)
   weight!: number;
 
   @Field(() => Float, { nullable: true })
+  @IsOptional()
+  @IsNumber()
+  @Min(0.1)
+  @Max(500)
   length?: number;
 
   @Field(() => Float, { nullable: true })
+  @IsOptional()
+  @IsNumber()
+  @Min(0.1)
+  @Max(100)
   width?: number;
 
   @Field({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
   notes?: string;
 }
 
 @InputType()
 export class MeasurementConditionsInput {
   @Field(() => Float, { nullable: true })
+  @IsOptional()
+  @IsNumber()
+  @Min(-5)
+  @Max(45)
   waterTemp?: number;
 
   @Field(() => Float, { nullable: true })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(20)
   dissolvedOxygen?: number;
 
   @Field()
+  @IsIn(FEEDING_STATUSES)
   feedingStatus!: string;
 
   @Field()
+  @Matches(/^([01]\d|2[0-3]):[0-5]\d$/, { message: 'timeOfDay must be HH:mm' })
   timeOfDay!: string;
 
   @Field({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
   weatherConditions?: string;
 }
 
 @InputType()
 export class RecordGrowthSampleInput {
   @Field(() => ID)
+  @IsUUID()
   batchId!: string;
 
   @Field(() => ID, { nullable: true })
+  @IsOptional()
+  @IsUUID()
   tankId?: string;
 
   @Field()
+  @IsDate()
+  @Type(() => Date)
   measurementDate!: Date;
 
   @Field(() => MeasurementType, { defaultValue: MeasurementType.ROUTINE })
+  @IsEnum(MeasurementType)
   measurementType!: MeasurementType;
 
   @Field(() => MeasurementMethod, { defaultValue: MeasurementMethod.MANUAL_SCALE })
+  @IsEnum(MeasurementMethod)
   measurementMethod!: MeasurementMethod;
 
   @Field(() => Int)
+  @IsInt()
+  @Min(1)
+  @Max(10000)
   sampleSize!: number;
 
   @Field(() => Int)
+  @IsInt()
+  @Min(1)
   populationSize!: number;
 
   @Field(() => [IndividualMeasurementInput])
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(10000)
+  @ValidateNested({ each: true })
+  @Type(() => IndividualMeasurementInput)
   individualMeasurements!: IndividualMeasurementInput[];
 
   @Field(() => MeasurementConditionsInput, { nullable: true })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => MeasurementConditionsInput)
   conditions?: MeasurementConditionsInput;
 
+  /** The user who took the measurement: a user id (the column is a uuid), never a display name. */
   @Field(() => ID)
+  @IsUUID()
   measuredBy!: string;
 
   @Field({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
   notes?: string;
 
   @Field({ defaultValue: true })
+  @IsBoolean()
   updateBatchWeight!: boolean;
 }
 
 @InputType()
 export class GrowthMeasurementFilterInput {
   @Field(() => ID, { nullable: true })
+  @IsOptional()
+  @IsUUID()
   batchId?: string;
 
   @Field(() => ID, { nullable: true })
+  @IsOptional()
+  @IsUUID()
   tankId?: string;
 
   @Field(() => MeasurementType, { nullable: true })
+  @IsOptional()
+  @IsEnum(MeasurementType)
   measurementType?: MeasurementType;
 
   @Field({ nullable: true })
+  @IsOptional()
+  @IsDate()
+  @Type(() => Date)
   startDate?: Date;
 
   @Field({ nullable: true })
+  @IsOptional()
+  @IsDate()
+  @Type(() => Date)
   endDate?: Date;
 
   @Field({ nullable: true })
+  @IsOptional()
+  @IsBoolean()
   verifiedOnly?: boolean;
 
   @Field(() => [String], { nullable: true })
+  @IsOptional()
+  @IsArray()
+  @IsEnum(GrowthPerformance, { each: true })
   performance?: string[];
 
   @Field({ nullable: true })
+  @IsOptional()
+  @IsUUID()
   measuredBy?: string;
 }
 

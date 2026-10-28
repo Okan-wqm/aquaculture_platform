@@ -1,11 +1,13 @@
 import { DataSource, QueryRunner } from 'typeorm';
 
+import { withTenantContext } from '../context/with-tenant-context';
+
 import {
   listActiveTenantSchemaIdentities,
   listRetainedTenantSchemaIdentities,
-  listTenantSchemas,
   type TenantSchemaIdentity,
 } from './tenant-schema.utils';
+import { bindTenantRlsContext } from './tenant-transaction';
 
 /**
  * Fair, bounded per-tenant-schema iteration for cron/scheduler fan-out
@@ -31,11 +33,19 @@ import {
  *  - ROTATION: the start offset rotates by `rotateBy`, so the tenant served
  *    last changes each run (no perpetual starvation). Order stays deterministic
  *    within a run.
+ *  - TENANT CONTEXT: every pass is bound to ITS tenant — `app.current_tenant`
+ *    (transaction-local, read back) and the AsyncLocalStorage frame — because the
+ *    tenant tables sit under FORCE row-level security: a runner with only a
+ *    `search_path` is deny-by-default and reads ZERO rows / has every write
+ *    refused, so a cron that discovers "nothing to do" is silent, not failing
+ *    (FARM-HIGH-481). The fan-out therefore takes only canonical tenant
+ *    identities; a schema name alone cannot be bound.
  *  - LIFECYCLE: connect → transaction → SET LOCAL statement_timeout →
- *    transaction-local search_path → handler → commit/rollback → release.
+ *    transaction-local search_path + tenant → handler → commit/rollback → release.
  *
- * The handler receives the tenant's `schema` and a ready `QueryRunner` whose
- * search_path is already set to `"<schema>", <searchPathSuffix>`.
+ * The handler receives the tenant's `schemaName` / `tenantId` and a ready
+ * `QueryRunner` whose search_path is already set to `"<schema>", <searchPathSuffix>`
+ * and whose transaction is bound to the tenant.
  */
 export interface ForEachTenantSchemaOptions {
   /** Max tenants processed concurrently. Keep <= pool headroom. Default 4. */
@@ -58,12 +68,6 @@ export interface ForEachTenantSchemaOptions {
 
 export type TenantSchemaOutcome = 'ok' | 'error' | 'timeout';
 
-export interface TenantSchemaResult {
-  schema: string;
-  outcome: TenantSchemaOutcome;
-  error?: Error;
-}
-
 /**
  * Canonical identity supplied to cross-tenant work that must bind a physical
  * schema to the full UUID proven by the db-migrate commit ledger.
@@ -80,9 +84,8 @@ export interface VerifiedTenantSchemaResult extends TenantSchemaIdentity {
   error?: Error;
 }
 
-interface TenantFanoutTarget {
-  schemaName: string;
-}
+/** Every fan-out target is a canonical identity: the tenant is what the pass is bound to. */
+type TenantFanoutTarget = TenantSchemaIdentity;
 
 interface TenantFanoutExecutionContext {
   queryRunner: QueryRunner;
@@ -115,29 +118,6 @@ function assertSafeSearchPathSuffix(searchPathSuffix: string): string {
     throw new Error(`Unsafe search_path suffix: ${searchPathSuffix}`);
   }
   return parts.join(', ');
-}
-
-export async function forEachTenantSchema(
-  dataSource: DataSource,
-  handler: (ctx: {
-    schema: string;
-    queryRunner: QueryRunner;
-    signal: AbortSignal;
-  }) => Promise<void>,
-  options: ForEachTenantSchemaOptions = {},
-): Promise<TenantSchemaResult[]> {
-  const targets = (await listTenantSchemas(dataSource)).map((schemaName) => ({ schemaName }));
-  const results = await runTenantFanout(
-    dataSource,
-    targets,
-    ({ schemaName, queryRunner, signal }) => handler({ schema: schemaName, queryRunner, signal }),
-    options,
-  );
-  return results.map(({ schemaName, outcome, error }) => ({
-    schema: schemaName,
-    outcome,
-    ...(error === undefined ? {} : { error }),
-  }));
 }
 
 /**
@@ -189,6 +169,9 @@ async function runTenantFanout<TTarget extends TenantFanoutTarget>(
     options.statementTimeoutMs ??
     (perTenantTimeoutMs > 0 ? Math.min(60_000, perTenantTimeoutMs) : 60_000);
   const searchPathSuffix = assertSafeSearchPathSuffix(options.searchPathSuffix ?? 'public');
+  // The first schema after the tenant's is the service's source schema: the
+  // boundary names it when a binding fails to take.
+  const sourceSchema = (searchPathSuffix.split(',')[0] ?? 'public').trim().toLowerCase();
   const logger = options.logger;
 
   const targets = rotate(unrotatedTargets, options.rotateBy ?? 0);
@@ -211,10 +194,17 @@ async function runTenantFanout<TTarget extends TenantFanoutTarget>(
       await queryRunner.query(`SELECT pg_catalog.set_config('search_path', $1, true)`, [
         `"${schemaName}", ${searchPathSuffix}`,
       ]);
+      // search_path alone routes the tables; the tenant is what the row-level
+      // security policy reads. Bind it on THIS transaction and read it back.
+      await bindTenantRlsContext(queryRunner, target.tenantId, sourceSchema);
 
       let timer: ReturnType<typeof setTimeout> | undefined;
       let deadlineExceeded = false;
-      const work = handler({ ...target, queryRunner, signal: abortController.signal });
+      // Work that leaves this runner (a service call, a repository) checks out
+      // its own connection: the frame is what the pool patch binds it from.
+      const work = withTenantContext(target.tenantId, () =>
+        handler({ ...target, queryRunner, signal: abortController.signal }),
+      );
       if (perTenantTimeoutMs > 0) {
         const deadline = new Promise<never>((_, reject) => {
           timer = setTimeout(() => {

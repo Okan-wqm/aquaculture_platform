@@ -114,19 +114,19 @@ export function TankCard({ tank }: TankCardProps): ReactElement {
         <div className="px-4 py-3.5">
           <div className="grid grid-cols-3 gap-3">
             <div className="bg-surface-2 rounded-xl p-2.5 text-center">
-              <div className="text-head font-mono font-bold text-ink-1 tabular-nums">
+              <div className="text-head font-bold text-ink-1 tabular-nums">
                 {formatNumber(metrics.pieces ?? 0)}
               </div>
               <div className="text-meta text-ink-3 font-semibold">Fish</div>
             </div>
             <div className="bg-surface-2 rounded-xl p-2.5 text-center">
-              <div className="text-head font-mono font-bold text-ink-1 tabular-nums">
+              <div className="text-head font-bold text-ink-1 tabular-nums">
                 {(metrics.avgWeight ?? 0).toFixed(0)}g
               </div>
               <div className="text-meta text-ink-3 font-semibold">Avg Wt</div>
             </div>
             <div className="bg-surface-2 rounded-xl p-2.5 text-center">
-              <div className="text-head font-mono font-bold text-ink-1 tabular-nums">
+              <div className="text-head font-bold text-ink-1 tabular-nums">
                 {(metrics.biomass ?? tank.currentBiomass ?? 0).toFixed(0)}
                 <span className="text-meta text-ink-3 font-medium font-sans">kg</span>
               </div>
@@ -140,7 +140,7 @@ export function TankCard({ tank }: TankCardProps): ReactElement {
             <div className="mt-3">
               <div className="flex items-center justify-between mb-1">
                 <span className="text-meta font-semibold text-ink-3">Capacity</span>
-                <span className={clsx('text-meta font-mono font-bold tabular-nums', capacityText)}>
+                <span className={clsx('text-meta font-bold tabular-nums', capacityText)}>
                   {capacityPercent.toFixed(0)}%
                 </span>
               </div>
@@ -160,7 +160,7 @@ export function TankCard({ tank }: TankCardProps): ReactElement {
         <div className="px-4 py-3.5">
           <div className="grid grid-cols-2 gap-3">
             <div className="bg-surface-2 rounded-xl p-2.5 text-center">
-              <div className="text-head font-mono font-bold text-ink-1 tabular-nums">
+              <div className="text-head font-bold text-ink-1 tabular-nums">
                 {tank.currentBiomass > 0 ? `${tank.currentBiomass.toFixed(0)}kg` : '--'}
               </div>
               <div className="text-meta text-ink-3 font-semibold">
@@ -168,7 +168,7 @@ export function TankCard({ tank }: TankCardProps): ReactElement {
               </div>
             </div>
             <div className="bg-surface-2 rounded-xl p-2.5 text-center">
-              <div className="text-head font-mono font-bold text-ink-1 tabular-nums">
+              <div className="text-head font-bold text-ink-1 tabular-nums">
                 {tank.maxBiomass > 0 ? `${formatNumber(tank.maxBiomass)}kg` : '--'}
               </div>
               <div className="text-meta text-ink-3 font-semibold">

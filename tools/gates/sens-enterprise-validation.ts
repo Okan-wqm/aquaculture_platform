@@ -1650,6 +1650,21 @@ function resolveReleaseProfile(manifest: ClaimManifest, options: RunOptions): Re
   return profile;
 }
 
+/**
+ * A release profile names the claims its artifact stands behind. A blocked claim
+ * outside `blocking_claims` is classified non-blocking for that profile (the
+ * manifest carries the rationale) and must not stop that release; without a
+ * profile every blocked claim does.
+ */
+function releaseBlockingClaims(
+  blockedClaims: EvaluatedClaim[],
+  releaseProfile: ReleaseProfile | null,
+): EvaluatedClaim[] {
+  return releaseProfile
+    ? blockedClaims.filter((claim) => releaseProfile.blocking_claims.includes(claim.id))
+    : blockedClaims;
+}
+
 function runGate(options: RunOptions): { exitCode: number; artifactDir: string | null; claims: EvaluatedClaim[] } {
   const manifestRaw = readFile(MANIFEST_PATH);
   const manifest = loadManifestObject(JSON.parse(manifestRaw));
@@ -1706,7 +1721,15 @@ function runGate(options: RunOptions): { exitCode: number; artifactDir: string |
     return { exitCode: 1, artifactDir, claims };
   }
 
-  const blockedReleaseClaims = blockedClaims;
+  const blockedReleaseClaims = releaseBlockingClaims(blockedClaims, releaseProfile);
+
+  if (options.releaseMode) {
+    for (const claim of blockedClaims.filter((blocked) => !blockedReleaseClaims.includes(blocked))) {
+      writeStdout(
+        `NON-BLOCKING release claim ${claim.id} (profile ${releaseProfile?.id ?? 'none'}): ${claim.blocker ?? 'no blocker detail'}`,
+      );
+    }
+  }
 
   if (options.releaseMode && blockedReleaseClaims.length > 0) {
     for (const claim of blockedReleaseClaims) {
@@ -1818,6 +1841,25 @@ function runSelfTest(): void {
   const evaluated = manifest.claims.map((claim) => evaluateClaim(claim, checks, 'self-test'));
   assert.equal(evaluated[0]?.evaluated_status, 'pass');
   assert.equal(evaluated[1]?.evaluated_status, 'blocked');
+
+  const [profile] = manifest.release_profiles;
+  assert.ok(profile, 'self-test manifest declares a release profile');
+  const blockedEvaluated = evaluated.filter((claim) => claim.evaluated_status === 'blocked');
+  assert.deepEqual(
+    releaseBlockingClaims(blockedEvaluated, profile),
+    [],
+    'a blocked claim classified non-blocking must not stop a profile release',
+  );
+  assert.equal(
+    releaseBlockingClaims(blockedEvaluated, null).length,
+    1,
+    'without a profile every blocked claim stops a release',
+  );
+  assert.equal(
+    releaseBlockingClaims(blockedEvaluated, { ...profile, blocking_claims: ['blocked-claim'], non_blocking_claims: [] }).length,
+    1,
+    'a blocked claim listed in blocking_claims stops the release',
+  );
   writeStdout('sens-enterprise-validation self-test: ok');
 }
 

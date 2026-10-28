@@ -63,7 +63,7 @@ export function DataFreshness({ timestamp, label, className }: DataFreshnessProp
     <span
       title={exact}
       aria-label={`${label ? `${label} ` : ''}${ageText} (${exact})`}
-      className={clsx('text-meta font-medium font-mono tabular-nums', tierClass, className)}
+      className={clsx('text-meta font-medium tabular-nums', tierClass, className)}
     >
       {label ? `${label} ` : ''}
       {ageText}

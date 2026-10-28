@@ -14,6 +14,7 @@ import {
   AuditedOperationModule,
 } from '@aquaculture/backend-common/audit';
 import { TenantErasureTargetModule } from '@aquaculture/backend-common/compliance';
+import { TenantEventHandlerScope } from '@aquaculture/backend-common/context';
 import {
   AuditColumnsModule,
   createSchemaVersionGate,
@@ -35,6 +36,7 @@ import {
   StripInternalHeadersMiddleware,
   TenantContextMiddleware,
   UserContextMiddleware,
+  VerifiedUserAssertionMiddleware,
 } from '@aquaculture/backend-common/middleware';
 import { RedisModule, buildRedisOptions } from '@aquaculture/backend-common/redis';
 import { CircuitBreakerModule } from '@aquaculture/backend-common/resilience';
@@ -217,6 +219,12 @@ const GRAPHQL_MAX_COMPLEXITY = 1000;
         useFactory: (repository: Repository<NotificationLog>) =>
           new NotificationLogDeadLetterSink(repository),
       },
+      // PLAT-HIGH-936: a NATS handler has no HTTP request behind it, so the
+      // RLS pool patch read an empty frame and every write to notification_logs
+      // (TaskOverdue, TaskCreated, ...) was refused and redelivered. The bus
+      // runs every handler, and the dead-letter record of its event, inside
+      // the event tenant's frame, bound here once.
+      handlerScope: { useFactory: () => new TenantEventHandlerScope() },
     }),
     NotificationOutboxModule,
     TenantErasureTargetModule.forService('notification-service'),
@@ -329,6 +337,11 @@ export class AppModule implements NestModule {
       .apply(
         // SEC-CRITICAL-002 sweep — strip forged internal headers.
         StripInternalHeadersMiddleware,
+        // SEC-HIGH-156: resolve req.user/req.tenantId from the gateway-signed
+        // verified-user assertion (runs after Strip sets req.verifiedIdentity,
+        // before UserContext/TenantContext). Without it the TenantGuard sees no
+        // user and answers every authenticated operation with UNAUTHENTICATED.
+        VerifiedUserAssertionMiddleware,
         CorrelationIdMiddleware,
         RequestContextMiddleware, // Populate AsyncLocalStorage for structured logging
         UserContextMiddleware,

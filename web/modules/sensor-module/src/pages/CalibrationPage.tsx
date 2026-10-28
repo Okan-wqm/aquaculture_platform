@@ -192,7 +192,7 @@ const SensorCalibrationGroup: React.FC<SensorGroupProps> = ({
             onChange={(e) => patchDraft({ calibrationMultiplier: parseFloat(e.target.value) || 1 })}
           />
         ) : (
-          <span className="text-sm text-gray-700 dark:text-gray-300 font-mono">
+          <span className="text-sm text-gray-700 dark:text-gray-300 tabular-nums">
             {channel.calibrationMultiplier}
           </span>
         ),
@@ -212,7 +212,7 @@ const SensorCalibrationGroup: React.FC<SensorGroupProps> = ({
             onChange={(e) => patchDraft({ calibrationOffset: parseFloat(e.target.value) || 0 })}
           />
         ) : (
-          <span className="text-sm text-gray-700 dark:text-gray-300 font-mono">
+          <span className="text-sm text-gray-700 dark:text-gray-300 tabular-nums">
             {channel.calibrationOffset}
           </span>
         ),
@@ -240,7 +240,7 @@ const SensorCalibrationGroup: React.FC<SensorGroupProps> = ({
             }
           />
         ) : (
-          <span className="text-sm text-gray-700 dark:text-gray-300 font-mono">
+          <span className="text-sm text-gray-700 dark:text-gray-300 tabular-nums">
             {channel.calibrationIntervalDays ?? '-'}
           </span>
         ),

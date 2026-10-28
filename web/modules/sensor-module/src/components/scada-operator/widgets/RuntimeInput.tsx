@@ -211,7 +211,7 @@ const RuntimeInput: React.FC<RuntimeWidgetProps> = ({
           {label}
         </span>
         <span className="flex items-center gap-1">
-          <span className="text-xs font-mono text-gray-600 dark:text-gray-400">{unit}</span>
+          <span className="text-xs text-gray-600 dark:text-gray-400">{unit}</span>
           <QualityIndicator quality={quality} size="xs" showLabel={quality !== 'good'} />
         </span>
       </div>

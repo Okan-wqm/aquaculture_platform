@@ -49,7 +49,7 @@ const recipeValueColumns: DataTableColumn<RecipeValueEntry>[] = [
     header: 'Value',
     align: 'right',
     render: (_value, [, val]) => (
-      <span className="font-mono text-gray-600 dark:text-gray-400">{String(val)}</span>
+      <span className="tabular-nums text-gray-600 dark:text-gray-400">{String(val)}</span>
     ),
   },
 ];

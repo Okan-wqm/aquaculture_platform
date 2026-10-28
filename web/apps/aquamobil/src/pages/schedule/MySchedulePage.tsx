@@ -107,7 +107,7 @@ function DayCard({ entry }: { entry: WeeklyPlanEntry }): JSX.Element {
             {DAY_NAMES_FULL[adjustedIndex]}
           </span>
         </div>
-        <span className="text-meta text-ink-3 font-mono">
+        <span className="text-meta text-ink-3 tabular-nums">
           {new Date(entry.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
         </span>
       </div>
@@ -119,7 +119,7 @@ function DayCard({ entry }: { entry: WeeklyPlanEntry }): JSX.Element {
             {entry.entryType === 'WORK' && entry.shift ? entry.shift.name : config.label}
           </div>
           {entry.entryType === 'WORK' && startTime && endTime && (
-            <div className="text-meta text-ink-3 mt-0.5 font-mono">
+            <div className="text-meta text-ink-3 mt-0.5 tabular-nums">
               {startTime.slice(0, 5)} - {endTime.slice(0, 5)}
               {entry.plannedMinutes > 0 && (
                 <span className="ml-2">({formatMinutesAsHours(entry.plannedMinutes)})</span>
@@ -200,13 +200,13 @@ export function MySchedulePage(): JSX.Element {
         {plan && (
           <div className="grid grid-cols-3 gap-2">
             <Card className="p-2.5 text-center">
-              <div className="text-head font-mono font-bold text-ink-1 tabular-nums">
+              <div className="text-head font-bold text-ink-1 tabular-nums">
                 {plan.plannedWorkDays}
               </div>
               <div className="text-meta text-ink-3 font-medium">Work Days</div>
             </Card>
             <Card className="p-2.5 text-center">
-              <div className="text-head font-mono font-bold text-ink-1 tabular-nums">
+              <div className="text-head font-bold text-ink-1 tabular-nums">
                 {formatMinutesAsHours(plan.plannedTotalMinutes)}
               </div>
               <div className="text-meta text-ink-3 font-medium">Total Hours</div>
@@ -219,7 +219,7 @@ export function MySchedulePage(): JSX.Element {
             >
               <div
                 className={clsx(
-                  'text-head font-mono font-bold tabular-nums',
+                  'text-head font-bold tabular-nums',
                   plan.plannedOvertimeMinutes > 0 ? 'text-warn' : 'text-ink-1',
                 )}
               >

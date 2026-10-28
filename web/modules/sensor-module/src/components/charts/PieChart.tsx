@@ -242,7 +242,7 @@ export const PieChart: React.FC<PieChartProps> = ({
               style={{ background: entry.color }}
             />
             <span className="font-medium">{entry.name}:</span>
-            <span className="font-mono">{entry.value.toFixed(2)}</span>
+            <span className="tabular-nums">{entry.value.toFixed(2)}</span>
           </span>
         ))}
       </div>

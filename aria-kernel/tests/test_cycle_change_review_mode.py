@@ -196,20 +196,22 @@ class ChangeReviewRunTests(_ChangeReviewFixture):
         """(v) end to end: the room's subject is not held at the door."""
         self._run("cr-admit")
         requests = self._subject_requests()
-        self.assertEqual(len(requests), 1, "one change-intelligence request for the operator's subject")
-        self.assertEqual(requests[0].get("target_sha"), self.head, "the change is reviewed at its head")
-        minted = [
-            row for row in load_declared_jsonl(admissions_path(self.tools), expected_surface=ADMISSIONS_SURFACE)
-            if row.get("row_type") == "minted" and row.get("request_id") == requests[0].get("request_id")
-        ]
-        self.assertEqual([(row.get("producer"), row.get("purpose_class")) for row in minted],
-                         [(OPERATOR_PRODUCER, CRITICAL_PATH)])
+        # SE-5 — the change touches one service (apps/orders): its service seat and the lens, both for the subject.
+        self.assertEqual(len(requests), 2, "two change-intelligence requests (service seat, lens) for the operator's subject")
+        for request in requests:
+            self.assertEqual(request.get("target_sha"), self.head, "the change is reviewed at its head")
+            minted = [
+                row for row in load_declared_jsonl(admissions_path(self.tools), expected_surface=ADMISSIONS_SURFACE)
+                if row.get("row_type") == "minted" and row.get("request_id") == request.get("request_id")
+            ]
+            self.assertEqual([(row.get("producer"), row.get("purpose_class")) for row in minted],
+                             [(OPERATOR_PRODUCER, CRITICAL_PATH)])
 
     def test_a_second_invocation_on_the_same_subject_mints_nothing_new(self) -> None:
         """(iv) cycle → drain → cycle: the second cycle re-asks nothing."""
         self._run("cr-first")
         first = [row.get("request_id") for row in list_agent_invocation_requests(base_dir=self.tools)]
-        self.assertEqual(len(self._subject_requests()), 1, "the first invocation mints the subject's request")
+        self.assertEqual(len(self._subject_requests()), 2, "the first invocation mints the subject's two seats")
         self._run("cr-second")
         second = [row.get("request_id") for row in list_agent_invocation_requests(base_dir=self.tools)]
         self.assertEqual(second, first, "a second invocation on the same subject minted new requests")

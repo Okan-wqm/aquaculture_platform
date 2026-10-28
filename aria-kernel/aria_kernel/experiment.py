@@ -47,16 +47,25 @@ row behind. It refuses to run rather than fabricate provenance.
 from __future__ import annotations
 
 import re
+import secrets
 from pathlib import Path
 from typing import Any
 
 from .ledger import append_declared_jsonl, load_declared_jsonl
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
-from .validation import _canonical_input_scope, _input_metadata_within_limit, run_validation_commands
+from .validation import (
+    PROOF_VERDICTS,
+    _canonical_input_scope,
+    _input_metadata_within_limit,
+    admit_red_first,
+    prove_red_first,
+    run_validation_commands,
+)
 from .validation_runs_ledger import (
     VALIDATION_RUN_STATUSES,
     classify_validation_run_status,
     find_validation_run_by_id,
+    verified_validation_run_output,
 )
 from .digest import is_sha256_digest
 
@@ -65,19 +74,37 @@ EXPERIMENTS_DIRNAME = "experiments"
 
 # Closed comparator vocabulary. Each one speaks about a PROCESS OUTCOME,
 # never about a domain: that is what keeps the bench portable across the
-# repositories it will be pointed at.
+# repositories it will be pointed at. ``proof_verdict_equals`` speaks about a
+# PAIR of runs — the red-first prover's verdict (``validation.PROOF_VERDICTS``)
+# — so only ``prove_candidate_pin`` observes it; ``run_experiment`` runs one
+# command and refuses it.
+PROOF_VERDICT_COMPARATOR = "proof_verdict_equals"
 OBSERVATION_COMPARATORS: tuple[str, ...] = (
     "exit_code_equals",
     "status_equals",
     "log_sha256_equals",
     "log_contains",
+    PROOF_VERDICT_COMPARATOR,
 )
+
+# How long each side of a candidate's pin proof may run.
+PIN_PROOF_TIMEOUT_MS = 120_000
 
 _ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$")
 
 # Upper bound on a recipe's own timeout. A recipe that may run for an
 # unbounded time is not a deterministic experiment, it is a hang.
 MAX_RECIPE_TIMEOUT_MS = 3_600_000
+
+# D6-R1-SEC-B1 — the recipe ``prove_candidate_pin`` registers for a
+# reproduction seat's pin carries ``origin: "seat_pin"``: its command is
+# seat-chosen text the kernel runs for that one proof, so it is never
+# plan-declarable (``plan_contract.validation_command_catalog``) and never
+# rendered into a prompt's trusted contract section. A recipe declared through
+# ``register_recipe`` (the operator, the kernel's own authoring) keeps the row
+# shape it always had, without the field (§12.12: an omitted option keeps the
+# previous row shape). ``is_seat_pin_recipe`` is the one reader.
+SEAT_PIN_RECIPE_ORIGIN = "seat_pin"
 
 
 def recipes_path(base_dir: str | Path | None = None) -> Path:
@@ -117,6 +144,35 @@ def register_recipe(
     time by ``validation.run_validation_commands``, which is the only
     place that decides what may execute.
     """
+    return _append_recipe(
+        seat_pin=False, recipe_id=recipe_id, command=command, timeout_ms=timeout_ms,
+        deterministic=deterministic, description=description, base_dir=base_dir,
+        cycle_id=cycle_id, input_scope=input_scope,
+    )
+
+
+def is_seat_pin_recipe(row: dict[str, Any]) -> bool:
+    """Whether the recipe row is a seat pin's (``SEAT_PIN_RECIPE_ORIGIN``);
+    a row carrying any other ``origin`` is a named refusal."""
+    if "origin" not in row:
+        return False
+    if row["origin"] != SEAT_PIN_RECIPE_ORIGIN:
+        raise GovernanceError(f"experiment_recipe_origin_invalid: {row.get('recipe_id')!r} origin={row['origin']!r}")
+    return True
+
+
+def _append_recipe(
+    *,
+    seat_pin: bool,
+    recipe_id: str,
+    command: str,
+    timeout_ms: int,
+    deterministic: bool,
+    description: str | None,
+    base_dir: str | Path | None,
+    cycle_id: str | None,
+    input_scope: dict[str, Any] | None,
+) -> dict[str, Any]:
     _assert_identifier("recipe_id", recipe_id)
     if not isinstance(command, str) or not command.strip():
         raise GovernanceError("experiment_recipe_command_required")
@@ -147,6 +203,8 @@ def register_recipe(
     }
     if input_scope is not None:
         row["input_scope"] = _validated_recipe_input_scope(input_scope)
+    if seat_pin:
+        row["origin"] = SEAT_PIN_RECIPE_ORIGIN
     return append_declared_jsonl(
         recipes_path(base_dir), row, expected_surface="experiment_recipes",
     )
@@ -250,6 +308,7 @@ def register_experiment(
     recipe_ref: str,
     observation_contract: dict[str, Any],
     finding_ref: str | None = None,
+    candidate_ref: str | None = None,
     base_dir: str | Path | None = None,
     cycle_id: str | None = None,
 ) -> dict[str, Any]:
@@ -270,12 +329,18 @@ def register_experiment(
     domain-blindness invariant pins that), so binding validity is owned
     entirely by the bridge and the night planner DISCLOSES refs that
     resolve to no finding instead of silently skipping them.
+
+    D6 — ``candidate_ref`` binds the experiment, the same way and at the
+    same moment, to the candidate claim a seat judged (opaque data here
+    too): the observation ``prove_candidate_pin`` records answers for that
+    candidate and is never stapled to another after the fact.
     """
     _assert_identifier("experiment_id", experiment_id)
     if not isinstance(hypothesis, str) or not hypothesis.strip():
         raise GovernanceError("experiment_hypothesis_required")
-    if finding_ref is not None and (not isinstance(finding_ref, str) or not finding_ref.strip()):
-        raise GovernanceError("experiment_finding_ref_must_be_nonempty_string")
+    for name, ref in (("finding_ref", finding_ref), ("candidate_ref", candidate_ref)):
+        if ref is not None and (not isinstance(ref, str) or not ref.strip()):
+            raise GovernanceError(f"experiment_{name}_must_be_nonempty_string")
     recipe = get_recipe(recipe_ref, base_dir=base_dir)
     contract = _validated_observation_contract(observation_contract)
     row = {
@@ -287,6 +352,7 @@ def register_experiment(
         "recipe_ref": recipe["recipe_id"],
         "observation_contract": contract,
         "finding_ref": finding_ref,
+        "candidate_ref": candidate_ref,
     }
     return append_declared_jsonl(
         experiments_path(base_dir), row,
@@ -346,6 +412,11 @@ def run_experiment(
     finding.
     """
     experiment = get_experiment(experiment_id, base_dir=base_dir)
+    if experiment["observation_contract"]["comparator"] == PROOF_VERDICT_COMPARATOR:
+        raise GovernanceError(
+            f"experiment_pin_proof_not_a_single_run: experiment {experiment_id!r} "
+            f"observes a red-first verdict over two runs; prove_candidate_pin owns it"
+        )
     recipe = get_recipe(str(experiment["recipe_ref"]), base_dir=base_dir)
     if not recipe.get("deterministic"):
         raise GovernanceError(
@@ -407,11 +478,103 @@ def run_experiment(
         "comparator": contract["comparator"],
         "expected": contract["expected"],
         "observed": observed,
-        "matched": _compare(contract["comparator"], contract["expected"], run),
+        "matched": _compare(contract["comparator"], contract["expected"], run, base_dir=base_dir),
         "run_status": classify_validation_run_status(run),
     }
     if selection is not None:
         row["validation_input_selection"] = selection
+    return append_declared_jsonl(
+        observations_path(base_dir), row,
+        expected_surface="experiment_observations",
+    )
+
+
+def prove_candidate_pin(
+    *,
+    candidate_ref: str,
+    pin: dict[str, Any],
+    red_at: str,
+    green_at: str,
+    workspace_root: str | Path,
+    runner_identity: str,
+    base_dir: str | Path | None = None,
+    cycle_id: str | None = None,
+) -> dict[str, Any]:
+    """D6 — the kernel proves a seat's pin and records it for its candidate.
+
+    A reproduction seat never certifies its own red (DESIGN-discovery row
+    D6). The kernel admits the proof first (``validation.admit_red_first``:
+    test files only, an allowlisted command, two distinct commits it resolves
+    itself — a refusal registers nothing), then registers a ``seat_pin``
+    recipe for the pin's command (``SEAT_PIN_RECIPE_ORIGIN``: never
+    plan-declarable, never in a prompt's contract section) and an
+    experiment bound to ``candidate_ref`` AT REGISTRATION, runs
+    ``validation.prove_red_first`` at those resolved commits, and appends one
+    observation carrying ``candidate_ref``, the verdict, both SHAs and both
+    run ids. The observation is ``matched`` only when the verdict is
+    ``proven``, and its ``run_status`` and ``validation_run_id`` are the
+    red side's: the shape every reader of the observation ledger already
+    reads (``evidence_validator``'s R4 binding, the finding bridge, memory),
+    so a seat's R4 row naming this recipe is backed by the kernel's run and
+    by nothing the seat said.
+
+    What D6 relies on, and what it does not (ARIA-MEDIUM-938 stands): the
+    kernel ran the pin itself, in its own worktrees of ``red_at`` and
+    ``green_at`` under the validation sandbox, with the pin's admission —
+    so a seat cannot change the code under proof, choose the SHAs, pick an
+    unlisted command, or report a run that did not happen. It does NOT rely
+    on ``failure_reason``: that class is read from text the pin itself
+    prints, so a hostile pin can print its way into ``assertion``.
+    ``proven`` here catches honest mistakes (an import or collection red is
+    ``wrong_reason``); it is not an adversarial boundary, and no promotion
+    may treat a seat-written pin's ``proven`` as one on its own.
+    """
+    if not isinstance(candidate_ref, str) or not candidate_ref.strip():
+        raise GovernanceError("experiment_candidate_ref_required")
+    _files, command, _signature, shas = admit_red_first(red_at, green_at, pin, workspace_root=workspace_root)
+    token = secrets.token_hex(8)
+    recipe = _append_recipe(
+        seat_pin=True, recipe_id=f"pin-{token}", command=command, timeout_ms=PIN_PROOF_TIMEOUT_MS,
+        deterministic=True, description=f"red-first pin for candidate {candidate_ref}",
+        base_dir=base_dir, cycle_id=cycle_id, input_scope=None,
+    )
+    contract = {"comparator": PROOF_VERDICT_COMPARATOR, "expected": "proven"}
+    experiment = register_experiment(
+        experiment_id=f"pin-proof-{token}",
+        hypothesis=(f"the pin is red at {shas['red_at']} and green at {shas['green_at']},"
+                    f" as {pin['expectation_ref']} expects"),
+        recipe_ref=recipe["recipe_id"], observation_contract=contract,
+        candidate_ref=candidate_ref, base_dir=base_dir, cycle_id=cycle_id,
+    )
+    proof = prove_red_first(
+        shas["red_at"], shas["green_at"], pin, workspace_root=workspace_root, runner_identity=runner_identity,
+        base_dir=base_dir, timeout_ms=PIN_PROOF_TIMEOUT_MS,
+    )
+    red = find_validation_run_by_id(proof["red_run_id"], base_dir=base_dir)
+    if red is None:
+        raise GovernanceError(f"experiment_validation_run_missing: {proof['red_run_id']!r}")
+    row = {
+        "schema_version": 1,
+        "recorded_at": utc_now(),
+        "cycle_id": cycle_id,
+        "experiment_id": experiment["experiment_id"],
+        "recipe_ref": recipe["recipe_id"],
+        "hypothesis": experiment["hypothesis"],
+        "candidate_ref": candidate_ref,
+        "proof_id": proof["proof_id"],
+        "commit_sha": proof["red_at"],
+        "runner_identity": runner_identity,
+        "validation_run_id": proof["red_run_id"],
+        "comparator": contract["comparator"],
+        "expected": contract["expected"],
+        "verdict": proof["verdict"],
+        "matched": proof["verdict"] == contract["expected"],
+        "run_status": classify_validation_run_status(red),
+        "red_at": proof["red_at"],
+        "green_at": proof["green_at"],
+        "red_run_id": proof["red_run_id"],
+        "green_run_id": proof["green_run_id"],
+    }
     return append_declared_jsonl(
         observations_path(base_dir), row,
         expected_surface="experiment_observations",
@@ -468,6 +631,12 @@ def _validated_observation_contract(
                 f"experiment_observation_expected_must_be_sha256: got "
                 f"{expected!r}"
             )
+    elif comparator == PROOF_VERDICT_COMPARATOR:
+        if expected not in PROOF_VERDICTS:
+            raise GovernanceError(
+                f"experiment_observation_expected_must_be_proof_verdict: got "
+                f"{expected!r}, allowed {PROOF_VERDICTS}"
+            )
     elif comparator == "log_contains":
         if not isinstance(expected, str) or not expected:
             raise GovernanceError(
@@ -501,11 +670,14 @@ def _observe(comparator: str, run: dict[str, Any]) -> Any:
     )
 
 
-def _compare(comparator: str, expected: Any, run: dict[str, Any]) -> bool:
+def _compare(comparator: str, expected: Any, run: dict[str, Any], *, base_dir: str | Path | None) -> bool:
+    """ARIA-MEDIUM-936 — ``log_contains`` judges what the run PRINTED, read
+    through the one reader the red-first prover's signature check uses
+    (``validation_runs_ledger.verified_validation_run_output``): the
+    runner's header is not output, and one red row is never a hit for the
+    bench and ``wrong_reason`` for the prover."""
     if comparator == "log_contains":
-        return expected in Path(str(run.get("log_path"))).read_text(
-            encoding="utf-8",
-        )
+        return expected in verified_validation_run_output(str(run["validation_run_id"]), base_dir=base_dir)
     return expected == _observe(comparator, run)
 
 
@@ -515,10 +687,12 @@ __all__ = [
     "experiments_path",
     "get_experiment",
     "get_recipe",
+    "is_seat_pin_recipe",
     "list_experiment_observations",
     "list_experiments",
     "list_recipes",
     "observations_path",
+    "prove_candidate_pin",
     "recipes_path",
     "register_experiment",
     "register_recipe",

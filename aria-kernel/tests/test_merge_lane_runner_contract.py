@@ -117,7 +117,7 @@ class _Adapter:
 
     def merge_pr(self, pr_number: int, **kwargs) -> dict:
         self.merged.append(pr_number)
-        return {"merged": True}
+        return {"merged": True, "merge_commit_sha": "c" * 40}
 
 
 class NonOpenPrTests(unittest.TestCase):

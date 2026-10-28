@@ -98,19 +98,23 @@ class ValidationCommandCatalog:
 
 
 def validation_command_catalog(base_dir: str | Path | None) -> ValidationCommandCatalog:
-    """The canonical suite plus the store's registered recipes (latest row per id).
+    """The canonical suite plus the store's declared recipes (latest row per id).
 
     A READ: the store is resolved, never bootstrapped, so judging a plan on a
     store that does not exist yet reads as "no recipes" rather than minting a
-    tools root as a side effect of a validation.
+    tools root as a side effect of a validation. A seat pin's recipe
+    (``experiment.is_seat_pin_recipe``) is never plan-declarable: its
+    command is seat-chosen text, and this catalog is what the trusted
+    contract section renders as the operator-declared set.
     """
-    from .experiment import EXPERIMENTS_DIRNAME, list_recipes
+    from .experiment import EXPERIMENTS_DIRNAME, is_seat_pin_recipe, list_recipes
     from .tool_registry import tools_dir
 
     latest: dict[str, dict[str, Any]] = {}
     recipes_file = tools_dir(base_dir) / EXPERIMENTS_DIRNAME / "recipes.jsonl"
     for row in list_recipes(base_dir=base_dir) if recipes_file.is_file() else []:
         latest[str(row.get("recipe_id"))] = row
+    latest = {key: row for key, row in latest.items() if not is_seat_pin_recipe(row)}
     return ValidationCommandCatalog(
         canonical=tuple(CANONICAL_VALIDATION_COMMANDS_EXECUTABLE),
         recipes=tuple(latest[key] for key in sorted(latest)),

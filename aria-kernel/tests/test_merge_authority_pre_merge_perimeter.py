@@ -60,7 +60,7 @@ class _Adapter:
 
     def merge_pr(self, pr_number: int, **kwargs) -> dict:
         self.merged.append(pr_number)
-        return {"merged": True}
+        return {"merged": True, "merge_commit_sha": "c" * 40}
 
     def get_pr_diff(self, pr_number: int) -> tuple[str | None, str | None]:
         # The Protocol's required read (ARIA-MEDIUM-581); this fixture's PR

@@ -15,9 +15,19 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from aria_kernel import cycle as cycle_mod
+from aria_kernel.auto_merge import record_pr_lifecycle
+from aria_kernel.merge_record import (
+    LINEAGE_DELIVERED,
+    MERGED_BY_OBSERVED,
+    lifecycle_rows,
+    opened_row,
+    record_merge,
+)
 from aria_kernel.own_pr_ci import (
     is_own_pr_head,
     load_open_own_pr_reds,
+    load_post_merge_reds,
+    scan_merged_own_prs,
     scan_own_prs,
 )
 from aria_kernel.tool_registry import ensure_tools_dir
@@ -115,6 +125,91 @@ class ScanTest(unittest.TestCase):
 
         self.assertEqual(result["status"], "unreadable")
         self.assertEqual(result["reason"], "gh_token_absent")
+
+
+class _MergedReader:
+    """The checks reader's merged-PR surface: GitHub's merged tail and main's runs per commit."""
+
+    def __init__(self, merged, runs_by_sha):
+        self._merged = merged
+        self._runs_by_sha = runs_by_sha
+
+    def readable(self):
+        return (True, "ok")
+
+    def list_merged_own_prs(self, *, limit=20):
+        return list(self._merged)
+
+    def runs_for_commit(self, sha):
+        return list(self._runs_by_sha.get(sha, []))
+
+
+_PERSON_MERGED_PR = 1906
+_DELIVERED_HEAD = "e" * 40
+_MERGE_SHA = "f" * 40
+
+
+def _red_on_main(name):
+    return [{"name": name, "status": "completed", "conclusion": "failure", "headBranch": "main"}]
+
+
+class MergedOwnPrAttributionTest(unittest.TestCase):
+    """F3.3a — a merged PR is ARIA's when merge_record says so, never by its head branch.
+
+    #1906 was ARIA's change on a branch a person named and a person merged:
+    merge_record recorded it as ARIA's by lineage, and the post-merge scan
+    never looked at it because its head carried no ``aria/`` prefix.
+    """
+
+    def _scan(self, tools, reader):
+        return scan_merged_own_prs(cycle_id="cyc-merged", base_dir=tools, reader=reader)
+
+    def _person_merged_aria_pr(self, tools):
+        record_pr_lifecycle(
+            {"number": _PERSON_MERGED_PR, "base_branch": "main", "head_sha": _DELIVERED_HEAD,
+             "change_id": "chg-f015", "changed_files": ["docs/runbooks/guide.md"]},
+            event="opened", base_dir=tools,
+        )
+        record_merge(
+            pr=opened_row(lifecycle_rows(tools), pr_number=_PERSON_MERGED_PR), merged_by=MERGED_BY_OBSERVED,
+            base_dir=tools, merge_sha=_MERGE_SHA, merged_at="2026-10-10T01:03:00Z",
+            merged_head_sha=_DELIVERED_HEAD, head_lineage=LINEAGE_DELIVERED,
+        )
+
+    def test_a_person_merged_aria_pr_on_a_person_named_branch_is_attributed(self) -> None:
+        with TemporaryDirectory() as tmp:
+            tools = Path(tmp) / "aria-tools"
+            ensure_tools_dir(tools)
+            self._person_merged_aria_pr(tools)
+            reader = _MergedReader(
+                merged=[{"number": _PERSON_MERGED_PR, "headRefName": "fix/f015-converge-the-chain",
+                         "headRefOid": _DELIVERED_HEAD, "mergeCommit": {"oid": _MERGE_SHA}}],
+                runs_by_sha={_MERGE_SHA: _red_on_main("CI - Affected")},
+            )
+
+            result = self._scan(tools, reader)
+            reds = load_post_merge_reds(base_dir=tools)
+
+        self.assertEqual(result["red"], [_PERSON_MERGED_PR])
+        self.assertEqual([(row["pr_number"], row["merge_sha"]) for row in reds], [(_PERSON_MERGED_PR, _MERGE_SHA)])
+
+    def test_an_aria_prefixed_branch_merge_record_never_recorded_is_not_attributed(self) -> None:
+        # The head-branch prefix is not a second rule of authorship: a merged
+        # PR merge_record holds no ARIA merge for is not ARIA's to watch.
+        with TemporaryDirectory() as tmp:
+            tools = Path(tmp) / "aria-tools"
+            ensure_tools_dir(tools)
+            reader = _MergedReader(
+                merged=[{"number": 42, "headRefName": "aria/fix-thing",
+                         "headRefOid": "a" * 40, "mergeCommit": {"oid": "b" * 40}}],
+                runs_by_sha={"b" * 40: _red_on_main("CI - Affected")},
+            )
+
+            result = self._scan(tools, reader)
+            reds = load_post_merge_reds(base_dir=tools)
+
+        self.assertEqual((result["scanned"], result["red"]), ([], []))
+        self.assertEqual(reds, [])
 
 
 class PressureProducerTest(unittest.TestCase):

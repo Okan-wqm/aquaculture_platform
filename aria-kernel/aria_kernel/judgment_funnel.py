@@ -79,6 +79,7 @@ TIER0_REJECTED_KIND: str = "judgment_funnel_tier0_rejected"
 CHANGE_CLAIM_HELD_KIND: str = "change_review_budget_held"
 CHANGE_CLAIM_ADMITTED_KIND: str = "change_review_claim_admitted"
 CLAIMS_PER_CHANGE_CAP: str = "claims_per_change_cap"
+SERVICE_SEATS_PER_CHANGE_CAP: str = "service_seats_per_change_cap"
 
 # The funnel's producer at the request-admission door ("judgment_funnel.tiers",
 # spelled as a literal at the call site): the tiered judge seats it plans to
@@ -797,6 +798,23 @@ def admit_change_claims(
     return {"admitted": [claim for claim in ranked if claim["claim_id"] not in held_ids], "held": held}
 
 
+def hold_change_seat(subject_ref: str, seat: str, *, cap: int, base_dir: str | Path) -> None:
+    """Hold a touched service's seat past ``service_seats_per_change`` with ONE ``change_review_budget_held`` row (SE-5).
+
+    The seat is held, not dropped: the row names the change, the seat, the
+    reason and the cap, written once however often the change is dispatched
+    again (the same disclosure rule ``admit_change_claims`` applies to a held
+    claim, on the same kind). The caller holds the seats the cap leaves out
+    only after the change's seats were admitted at the door, so a change the
+    door refused leaves no row for a seat that was never decided.
+    """
+    append_tools_governance_once(
+        ensure_tools_dir(base_dir), CHANGE_CLAIM_HELD_KIND,
+        {"subject_ref": subject_ref, "seat": seat, "reason": SERVICE_SEATS_PER_CHANGE_CAP, "cap": cap},
+        claim_keys=("subject_ref", "seat", "reason"),
+    )
+
+
 __all__ = [
     "BUDGET_HELD_KIND",
     "CHANGE_CLAIM_ADMITTED_KIND",
@@ -805,6 +823,7 @@ __all__ = [
     "ROUTING_RELPATH",
     "ROUTING_SURFACE",
     "admit_change_claims",
+    "hold_change_seat",
     "route_judgment_sample",
     "routing_path",
 ]

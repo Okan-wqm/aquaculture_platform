@@ -37,9 +37,6 @@ services' roots, and the twin slice (``twin.twin_slice_files``).
 from __future__ import annotations
 
 import argparse
-import base64
-import binascii
-import html
 import json
 import re
 import shutil
@@ -47,7 +44,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 from aria_kernel import pr_tracking
 from aria_kernel.agent_invocations import list_agent_invocation_requests, render_invocation_prompt
@@ -59,6 +56,7 @@ from aria_kernel.pr_tracking import CHANGE_INTELLIGENCE_ROLE, dispatch_change_in
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
 from aria_kernel.twin import TWIN_MAP_RELPATH, twin_context_for_files
 from tests._helpers.service_facts import NO_CONTRACT_FACTS, facts_without_contract_edges
+from tests._helpers.untrusted_blocks import _DATA_BLOCKS, _UNTRUSTED, _inside, _outside, _readings
 
 CHANGED = "libs/zz-core/src/i.ts"
 # Dependency order differs from name order on purpose: zz-core <- mm-mid <- aa-edge.
@@ -92,33 +90,11 @@ TWIN = {
 }
 TWIN_SLICE = ["libs/zz-core/src/i.spec.ts", "libs/zz-core/src/i.ts", "tools/legacy/z.ts"]
 
-_UNTRUSTED = re.compile(r"<(untrusted_[a-z_]+)\b[^>]*(?<!/)>(.*?)</\1>", re.S)
 _DATA = re.compile(r"<(untrusted_[a-z_]+|derived_context)\b[^>]*(?<!/)>(.*?)</\1>", re.S)
-# Every block the prompt declares as data, read the way an agent reads it: it opens where the
-# kernel opens one (a tag at the start of a line; the data notice only NAMES the tags, mid-line)
-# and ends at the FIRST closing tag of its name, wherever that sits.
-_DATA_BLOCKS = re.compile(r"(?m)^<(untrusted_[a-z_]+|derived_context|evidence_payload)\b[^>]*(?<!/)>(.*?)</\1>", re.S)
 
 
 def _git(repo: Path, *args: str) -> str:
     return subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True, text=True).stdout.strip()
-
-
-def _readings(body: str) -> Iterator[str]:
-    yield body
-    yield html.unescape(body)
-    try:
-        yield base64.b64decode("".join(body.split()), validate=True).decode("utf-8")
-    except (binascii.Error, UnicodeDecodeError, ValueError):
-        return
-
-
-def _inside(prompt: str, needle: str) -> bool:
-    return any(needle in text for _, body in _UNTRUSTED.findall(prompt) for text in _readings(body))
-
-
-def _outside(prompt: str) -> str:
-    return _UNTRUSTED.sub("", prompt)
 
 
 def _outside_data(prompt: str) -> str:
@@ -205,7 +181,9 @@ class ChangeEnvelopeTests(_Fixture):
 
     def _one_prompt(self) -> str:
         prompts = self._review(self.repo, self.base, self.head)
-        self.assertEqual(len(prompts), 1, "one change-intelligence envelope for the operator's subject")
+        # SE-5 — the change touches one service (zz-core) and a code root: its service seat and the lens. Every seat
+        # is handed the same change data, so what these tests read is the service seat's prompt.
+        self.assertEqual(len(prompts), 2, "two change-intelligence envelopes (service seat, lens) for the operator's subject")
         return prompts[0]
 
     def test_the_hunks_render_inside_untrusted_diff(self) -> None:
@@ -308,8 +286,10 @@ class MergeFeedTests(_Fixture):
         return paths
 
     def _the_merge_prompt(self) -> str:
-        [row] = list_agent_invocation_requests(base_dir=self.tools, role=CHANGE_INTELLIGENCE_ROLE)
-        return render_invocation_prompt(row)
+        # SE-5 — the merge's two seats (service seat, lens) carry the same change data: read the first.
+        rows = list_agent_invocation_requests(base_dir=self.tools, role=CHANGE_INTELLIGENCE_ROLE)
+        self.assertEqual(len(rows), 2, "the merge's service seat (zz-core) and the lens")
+        return render_invocation_prompt(rows[0])
 
     @staticmethod
     def _diff_text(prompt: str) -> str:
@@ -322,7 +302,7 @@ class MergeFeedTests(_Fixture):
         paths = self._record(repo, merge_sha=merge_sha, head_sha=feature_head)
         with facts_without_contract_edges():
             dispatch = dispatch_change_intelligence(cycle_id="d2-merge", base_dir=self.tools, workspace=paths)
-        self.assertEqual(len(dispatch["minted"]), 1)
+        self.assertEqual(len(dispatch["minted"]), 2, "the merge's service seat (zz-core) and the lens")
         diff = self._diff_text(self._the_merge_prompt())
         self.assertIn("+export const x = 2;", diff, "the hunk the merge brought is not in <untrusted_diff>")
         self.assertNotIn("main-side-only", diff, "the diff is not merge^1..merge: it holds the mainline's own change")
@@ -334,11 +314,13 @@ class MergeFeedTests(_Fixture):
         paths = self._record(repo, merge_sha=merge_sha, head_sha=feature_head)
         with facts_without_contract_edges():
             dispatch_change_intelligence(cycle_id="d2-merge", base_dir=self.tools, workspace=paths)
-        [row] = list_agent_invocation_requests(base_dir=self.tools, role=CHANGE_INTELLIGENCE_ROLE)
-        self.assertIn("change_context", row, "the merge feed's envelope carries no change_context")
+        rows = list_agent_invocation_requests(base_dir=self.tools, role=CHANGE_INTELLIGENCE_ROLE)
+        self.assertEqual(len(rows), 2, "the merge's service seat (zz-core) and the lens")
         self.assertTrue(hasattr(pt, "envelope_file_set"), "pr_tracking.envelope_file_set does not exist")
-        self.assertEqual(row["change_context"]["impacted_roots"], ["libs/zz-core", "libs/mm-mid", "apps/aa-edge"])
-        self.assertEqual(pt.envelope_file_set(row), sorted({CHANGED, "libs/zz-core", "libs/mm-mid", "apps/aa-edge"}))
+        for row in rows:
+            self.assertIn("change_context", row, "the merge feed's envelope carries no change_context")
+            self.assertEqual(row["change_context"]["impacted_roots"], ["libs/zz-core", "libs/mm-mid", "apps/aa-edge"])
+            self.assertEqual(pt.envelope_file_set(row), sorted({CHANGED, "libs/zz-core", "libs/mm-mid", "apps/aa-edge"}))
 
     def test_a_merged_row_without_a_merge_sha_says_why_no_hunks_are_attached(self) -> None:
         repo, _merge_sha, feature_head = _merged_change_repo(self.tmp)
@@ -362,7 +344,7 @@ class MergeFeedTests(_Fixture):
         self.assertIsNone(context.change, "the standard cycle names no change: it takes the merge feed")
         with facts_without_contract_edges():
             outcome = phase.runner(context)
-        self.assertEqual(outcome["change_intelligence_requests_minted"], 1)
+        self.assertEqual(outcome["change_intelligence_requests_minted"], 2, "the merge's service seat (zz-core) and the lens")
         prompt = self._the_merge_prompt()
         self.assertIn("+export const x = 2;", self._diff_text(prompt))
         self.assertTrue(
@@ -383,9 +365,10 @@ class ChangedPathTrustTests(_Fixture):
             # Refused by name before the mint: nothing reaches an agent.
             self.assertFalse(list_agent_invocation_requests(base_dir=self.tools, role=CHANGE_INTELLIGENCE_ROLE))
             return
-        self.assertEqual(len(prompts), 1)
-        self.assertNotIn(PATH_MARK, _outside(prompts[0]), "path content planted a line outside every untrusted tag")
-        self.assertTrue(_inside(prompts[0], PATH_MARK), "the changed path is neither rendered as data nor refused")
+        self.assertEqual(len(prompts), 2, "the service seat (zz-core) and the lens")
+        for prompt in prompts:
+            self.assertNotIn(PATH_MARK, _outside(prompt), "path content planted a line outside every untrusted tag")
+            self.assertTrue(_inside(prompt, PATH_MARK), "the changed path is neither rendered as data nor refused")
 
     def test_a_merge_feed_path_cannot_plant_lines(self) -> None:
         from aria_kernel.merge_record import MERGED_BY_MERGE_LANE, record_merge
@@ -418,8 +401,9 @@ class ChangedPathTrustTests(_Fixture):
                 except GovernanceError:
                     self.assertFalse(list_agent_invocation_requests(base_dir=self.tools, role=CHANGE_INTELLIGENCE_ROLE))
                     continue
-                self.assertEqual(len(prompts), 1)
-                self._assert_the_path_is_data(prompts[0], marks)
+                self.assertEqual(len(prompts), 2, "the service seat (zz-core) and the lens")
+                for prompt in prompts:
+                    self._assert_the_path_is_data(prompt, marks)
 
     def test_a_space_free_markup_path_stays_inside_its_blocks_through_the_merge_feed(self) -> None:
         from aria_kernel.merge_record import MERGED_BY_MERGE_LANE, record_merge
@@ -461,17 +445,22 @@ class EnvelopeFileSetTests(_Fixture):
         (self.tools / TWIN_MAP_RELPATH).parent.mkdir(parents=True)
         (self.tools / TWIN_MAP_RELPATH).write_text(json.dumps(TWIN), encoding="utf-8")
         self._review(repo, base, head)
-        [row] = [
+        rows = [
             row for row in list_agent_invocation_requests(base_dir=self.tools, role=CHANGE_INTELLIGENCE_ROLE)
             if row.get("subject_ref") == f"change:{base}..{head}"
         ]
         self.assertTrue(hasattr(pr_tracking, "envelope_file_set"), "pr_tracking.envelope_file_set does not exist")
-        self.assertEqual(
-            row.get("change_context"),
-            {"changed_files": [CHANGED], "impacted_roots": ["libs/zz-core", "libs/mm-mid", "apps/aa-edge"]},
-            "the envelope carries the change's files and the impacted roots as data, in dependency order",
-        )
-        files = pr_tracking.envelope_file_set(row)
+        # SE-5 — the service seat (zz-core) and the lens: each carries the change's data, plus its own seat.
+        self.assertEqual(len(rows), 2, "the service seat (zz-core) and the lens")
+        for row, seat in zip(rows, ("service:zz-core", "lens")):
+            self.assertEqual(
+                row.get("change_context"),
+                {"changed_files": [CHANGED], "impacted_roots": ["libs/zz-core", "libs/mm-mid", "apps/aa-edge"],
+                 "seat": seat},
+                "the envelope carries the change's files and the impacted roots as data, in dependency order",
+            )
+        files = pr_tracking.envelope_file_set(rows[0])
+        self.assertEqual(pr_tracking.envelope_file_set(rows[1]), files, "the file set differs between seats")
         # The change, every impacted service's root, and the twin slice: nothing parsed from the prose.
         self.assertEqual(files, sorted({
             CHANGED, "libs/zz-core", "libs/mm-mid", "apps/aa-edge", *TWIN_SLICE,

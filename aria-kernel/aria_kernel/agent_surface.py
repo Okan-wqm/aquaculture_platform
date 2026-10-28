@@ -8,7 +8,12 @@ surface but remains unreachable or unbridged elsewhere.
 """
 from __future__ import annotations
 
-from typing import FrozenSet
+from dataclasses import dataclass
+from pathlib import Path
+from typing import TYPE_CHECKING, FrozenSet
+
+if TYPE_CHECKING:
+    from .genesis_lifecycle import ReplayedChain
 
 
 REQUEST_ROLES: tuple[str, ...] = (
@@ -353,8 +358,136 @@ def role_requires_bridge(role: str | None) -> bool:
     return role in BRIDGE_REQUIRED_ROLES
 
 
-def allowed_targets_for_role(role: str) -> tuple[str, ...] | None:
-    return ROLE_TARGET_PAIRING.get(role)
+# The roles whose seat can be held by a per-service agent instead of the generic
+# one (``ROLE_TARGET_PAIRING[role][0]``). Closed: for every other role the
+# answer to "which agents may serve it" is the static pairing and reads no ledger.
+SERVICE_SEAT_ROLES: FrozenSet[str] = frozenset({"change_intelligence"})
+
+
+@dataclass(frozen=True)
+class SeatResolution:
+    """The agent a seat is asked of, and why a per-service agent for it was not.
+
+    ``declined`` is ``None`` when the agent is the one the service has (or no
+    agent claims the service); otherwise it names each claimant the service
+    has and the reason it did not serve, as ``<agent>:<reason>`` joined by
+    commas in sorted order.
+    """
+
+    agent: str
+    declined: str | None
+
+
+def _grant_refusal(role: str, agent: str, chain: ReplayedChain) -> str | None:
+    """Why ``agent`` (a claimant of a service seat) may not serve it in production, or ``None`` when it may.
+
+    Closed world: only a chain that replays and ends exactly at ACTIVE grants,
+    so a state added to the lifecycle later (SE-12's QUARANTINED, TOMBSTONED)
+    is declined here without a rule for it. The ACTIVE row must be production
+    scope: a room- or trial-scoped agent never takes production traffic. The
+    role's provider routing must be able to route the agent.
+    """
+    # Imported where used: this module is the leaf every other surface imports.
+    from .genesis_lifecycle import InvalidLifecycleChain
+    from .runtime_profiles import load_provider_routing
+    from .tool_registry import GovernanceError
+
+    state = chain.state
+    if isinstance(state, InvalidLifecycleChain):
+        return state.reason
+    if state != "ACTIVE":
+        return f"state:{state}"
+    scope = chain.latest_evidence.get("scope")
+    if scope not in (None, "production"):
+        return f"scope:{scope}"
+    try:
+        load_provider_routing().ladder_for(role, agent)
+    except GovernanceError:
+        return "provider_routing_target_unrouted"
+    return None
+
+
+def _seat_claims(role: str, base_dir: str | Path) -> dict[str, dict[str, str | None]]:
+    """``{service: {agent: refusal}}`` for every lifecycle agent whose workspace file claims ``(role, service)``.
+
+    An agent claims a seat when its file (found by the lifecycle entity's own
+    name in the workspace the store is bound to) says ``replaces_role: <role>``
+    and ``service: <name>`` in its frontmatter. ``refusal`` is
+    ``_grant_refusal``'s answer: ``None`` for an agent that may serve it.
+    """
+    from .agent_resolver import resolve_agent_md_path
+    from .agent_runtime_profile import parse_frontmatter_field
+    from .genesis_lifecycle import lifecycle_chains
+    from .tool_registry import bound_workspace_root
+
+    workspace = bound_workspace_root(base_dir)
+    claims: dict[str, dict[str, str | None]] = {}
+    for agent, chain in lifecycle_chains(base_dir).items():
+        path = resolve_agent_md_path(agent, workspace)
+        if path is None:
+            continue
+        text = path.read_text(encoding="utf-8")
+        service = parse_frontmatter_field(text, "service")
+        if not service or parse_frontmatter_field(text, "replaces_role") != role:
+            continue
+        claims.setdefault(service, {})[agent] = _grant_refusal(role, agent, chain)
+    return claims
+
+
+def _eligible(agents: dict[str, str | None]) -> list[str]:
+    return sorted(agent for agent, refusal in agents.items() if refusal is None)
+
+
+def service_seat_agents(role: str, *, base_dir: str | Path | None) -> tuple[str, ...]:
+    """The per-service agents that may serve ``role`` besides its static pairing, sorted.
+
+    Empty for a role outside ``SERVICE_SEAT_ROLES`` and for a caller that
+    holds no store (the grant is read from the store's lifecycle ledger). A
+    service two agents are eligible for grants neither: which of them answers
+    would be a coin toss.
+    """
+    if role not in SERVICE_SEAT_ROLES or base_dir is None:
+        return ()
+    granted: list[str] = []
+    for agents in _seat_claims(role, base_dir).values():
+        eligible = _eligible(agents)
+        if len(eligible) == 1:
+            granted.append(eligible[0])
+    return tuple(sorted(granted))
+
+
+def resolve_seat_agent(role: str, service: str | None, *, base_dir: str | Path) -> SeatResolution:
+    """The agent ``role``'s seat for ``service`` is asked of: the service's own agent when it has one it may use.
+
+    The generic agent (``ROLE_TARGET_PAIRING[role][0]``) answers every other
+    seat (``service`` is ``None`` for a whole-change or cross-cutting seat).
+    When the service has claimants and none may serve, the generic agent is
+    returned with every claimant's reason in ``declined``, so a refused
+    specialist is named in the result instead of dropped.
+    """
+    generic = ROLE_TARGET_PAIRING[role][0]
+    if service is None or role not in SERVICE_SEAT_ROLES:
+        return SeatResolution(generic, None)
+    agents = _seat_claims(role, base_dir).get(service.lower())
+    if not agents:
+        return SeatResolution(generic, None)
+    eligible = _eligible(agents)
+    if len(eligible) == 1:
+        return SeatResolution(eligible[0], None)
+    declined = ",".join(f"{agent}:{agents[agent] or 'ambiguous_service'}" for agent in sorted(agents))
+    return SeatResolution(generic, declined)
+
+
+def allowed_targets_for_role(role: str, *, base_dir: str | Path | None = None) -> tuple[str, ...] | None:
+    """The one answer to "which agents may serve ``role``": the static pairing, plus the granted per-service agents.
+
+    ``None`` for a role with no pairing. The per-service agents are read from
+    the store ``base_dir`` names; a caller without one gets the static pairing.
+    """
+    static = ROLE_TARGET_PAIRING.get(role)
+    if static is None or base_dir is None:
+        return static
+    return (*static, *service_seat_agents(role, base_dir=base_dir))
 
 
 __all__ = [
@@ -372,8 +505,12 @@ __all__ = [
     "PLANNER_BRIDGE_ROLES",
     "REQUEST_ROLES",
     "ROLE_TARGET_PAIRING",
+    "SERVICE_SEAT_ROLES",
     "SUPPORTING_ROLES",
+    "SeatResolution",
     "TERMINAL_REQUEST_STATES",
     "allowed_targets_for_role",
+    "resolve_seat_agent",
     "role_requires_bridge",
+    "service_seat_agents",
 ]

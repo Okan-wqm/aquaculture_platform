@@ -59,6 +59,7 @@ def generate_fitness_report(
     # ARIA-MEDIUM-129 — whether the conventions ARIA handed its agents helped:
     # each convention's success rate against matched convention-free work.
     # Observational; nothing reads it back into decay or prompt selection.
+    from .agent_eval import performance_kpis
     from .convention_usefulness import measure_convention_lift
     from .role_fitness import measure_role_fitness
 
@@ -81,6 +82,10 @@ def generate_fitness_report(
         # against the promoted gold corpus (after the night's judge replay);
         # the autonomous promotion lanes read it (role_fitness).
         "role_fitness": measure_role_fitness(base_dir=root, runs=runs),
+        # PLAN-v2 F1.2 — the implementation-quality lens (autonomy_evidence's
+        # scorecard names its fields): agent_eval's own KPIs over the recorded
+        # episodes, a ratio over none unmeasured (None), never restated here.
+        "implementation_quality": performance_kpis(base_dir=root),
         "evidence": {
             "adapter_runs": len(runs),
             "validation_plans": len(validation_plans),

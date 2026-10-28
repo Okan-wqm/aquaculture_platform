@@ -20,6 +20,14 @@ cycle, with the plan left CONVERGED: the mint scanned obligation text it had
 copied from the plan for a rule the plan contract never applied. The words
 are read from the SSoT the scan reads, never spelled here; the runner has to
 DISPATCH on them.
+
+The plan names a finding, so the apply gate (F3.5a) promotes the branch only
+on a red-first proof of the test the agent committed beside its change. This
+file is about the commit-trailer perimeter, not the proof, and the fixture has
+no TypeScript toolchain (``setUp``): the agent commits a spec file and
+declares how to run it, and the one prover is stood in for by a ``proven``
+verdict that records what the gate asked it. The proof itself is pinned, real,
+in ``test_apply_gate_red_first``.
 """
 from __future__ import annotations
 
@@ -31,6 +39,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from aria_kernel import apply_engine
 from aria_kernel import validation as validation_module
 from aria_kernel.agent_contract import validate_request
 from aria_kernel.agent_invocations import (
@@ -63,6 +72,10 @@ from tests._helpers.service_facts import facts_without_contract_edges
 _PATH_WORD, _WORDING_WORD = BANNED_PHRASES_DEFAULT[2], BANNED_PHRASES_DEFAULT[8]
 SOURCE = f"apps/farm-service/src/{_PATH_WORD}-sample-interval.ts"
 KEY_CHANGE_TEXT = f"halve the {_WORDING_WORD}-shipment sample interval"
+# The test the agent commits beside the change, and how it declares to run it.
+SPEC_SOURCE = f"apps/farm-service/src/{_PATH_WORD}-sample-interval.spec.ts"
+SPEC_TEXT = "expect(sampleIntervalMs).toBe(30000);\n"
+RED_FIRST_DECLARED = {"command": f"npx jest {SPEC_SOURCE}", "failure_signature": "Expected: 30000"}
 PLAN_ID = "plan-aria-high-104"
 CYCLE_ID = "cyc-aria-high-104"
 FINDING = "ORPHAN-HIGH-104"
@@ -127,18 +140,38 @@ class ImplementerMergeSeamTests(unittest.TestCase):
         self.assertEqual(len(rows), 1, rows)
         return rows[0]
 
+    def _gate(self, ids: dict) -> dict:
+        """The real gate, its red-first proof answered by the stand-in prover.
+        Asserts what the gate asked it (the finding-origin change was classified
+        and the TIP's own spec was lifted) and that the decision is on the row."""
+        asked: list[tuple] = []
+
+        def prover(red_at, green_at, pin, **_kwargs):
+            asked.append((red_at, green_at, pin))
+            return {"proof_id": "red-first-fixture", "verdict": "proven", "red_at": red_at, "green_at": green_at,
+                    "red_run_id": "run-fixture-red", "green_run_id": "run-fixture-green"}
+
+        with _fake_child_process(validation_module), patch.object(apply_engine, "prove_red_first", prover):
+            gated = run_apply_gate(proposal_id=ids["proposal_id"], change_id=ids["change_id"], base_dir=self.tools,
+                                   runner_identity="ci-executor:gha-test", red_first_declared=RED_FIRST_DECLARED)
+        self.assertEqual(gated["status"], "ready_for_pr", gated["blocked_by"])
+        self.assertEqual(gated["red_first"]["status"], "proven")
+        [(red_at, green_at, pin)] = asked
+        self.assertEqual((red_at, green_at), (ids["base_sha"], self._git("rev-parse", "HEAD")))
+        self.assertEqual(pin["files"], {SPEC_SOURCE: SPEC_TEXT})
+        self.assertEqual(pin["expectation_ref"], FINDING)
+        return gated
+
     def _implement(self, row: dict, *, trailer: str | None, subject: str) -> str:
         ids = row["implementation_ids"]
         self._git("switch", "-q", "-c", ids["branch"], ids["base_sha"])
         (self.repo / SOURCE).write_text("export const sampleIntervalMs = 30000;\n", encoding="utf-8")
-        self._git("add", SOURCE)
+        (self.repo / SPEC_SOURCE).write_text(SPEC_TEXT, encoding="utf-8")
+        self._git("add", SOURCE, SPEC_SOURCE)
         message = subject + "\n\nWHY: the plan says so.\n" + (f"\n{trailer}\n" if trailer else "")
         # The implementer's commit, as the hold's identity (ARIA-HIGH-387).
         self._git(*implementer_identity_args(), "commit", "-q", "-m", message)
-        with _fake_child_process(validation_module):
-            gated = run_apply_gate(proposal_id=ids["proposal_id"], change_id=ids["change_id"],
-                                   base_dir=self.tools, runner_identity="ci-executor:gha-test")
-        self.assertEqual(gated["status"], "ready_for_pr")
+        self._gate(ids)
         return ids["proposal_id"]
 
     def test_the_minted_envelope_honours_every_seam_contract(self) -> None:
@@ -229,9 +262,7 @@ class ImplementerMergeSeamTests(unittest.TestCase):
         # diff, the trailer the contract printed, and the perimeter opens it.
         self._git(*implementer_identity_args(), "commit", "-q", "--amend", "--reset-author", "-m",
                   "fix(farm-service): halve the sample interval\n\nWHY: the plan says so.\n\n" + row["commit_contract"]["trailer"])
-        with _fake_child_process(validation_module):
-            run_apply_gate(proposal_id=proposal_id, change_id=row["implementation_ids"]["change_id"],
-                           base_dir=self.tools, runner_identity="ci-executor:gha-test")
+        self._gate(row["implementation_ids"])
         opened = open_pr_for_action(proposal_id=proposal_id, workspace_root=self.repo, base_dir=self.tools, dry_run=True)
         self.assertEqual(opened["head_sha"], self._git("rev-parse", "HEAD"))
 

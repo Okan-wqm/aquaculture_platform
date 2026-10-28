@@ -111,8 +111,10 @@ def _ended_prs(lifecycle: list[dict[str, Any]]) -> set[int]:
     (review of #1910, L1) — and an unreadable merged head is retried
     (review of #1910, N2).
     """
-    return {row["pr_number"] for row in lifecycle if type(row.get("pr_number")) is int
-            and row.get("event") in {"merged", EVENT_MERGE_UNPROVEN}}
+    merged = {row["pr_number"] for row in fold_merged_rows(lifecycle) if type(row.get("pr_number")) is int}
+    refused = {row["pr_number"] for row in lifecycle if type(row.get("pr_number")) is int
+               and row.get("event") == EVENT_MERGE_UNPROVEN}
+    return merged | refused
 
 
 def _unreadable_head(

@@ -685,6 +685,19 @@ def record_anti_pattern(
     return path
 
 
+def convention_rows(tools_root: Path) -> list[dict[str, Any]]:
+    """Every row of the conventions ledger under ``tools_root``, in file order: the owner's read-only reader.
+
+    F0.9p — a census of what the ledger holds must not change it. ``lookup_pattern`` verifies the chain first and
+    QUARANTINES (renames) a file that fails, and ``_observation_rows`` projects every row onto the current schema and
+    refuses a legacy one; this reads the rows as written. An absent ledger is no rows; a non-JSON line raises
+    ``KnowledgeGraphTamper``. Tamper evidence stays with ``integrity verify``.
+    """
+    from .state_manifest import resolve_surface_path, surface_by_name
+
+    return list(_read_jsonl_strict(resolve_surface_path(tools_root, surface_by_name(CONVENTIONS_SURFACE))))
+
+
 def lookup_pattern(
     pattern_id: str,
     *,

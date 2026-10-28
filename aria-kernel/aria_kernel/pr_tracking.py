@@ -16,6 +16,7 @@ from .ledger import (
     append_declared_jsonl,
     load_declared_jsonl,
 )
+from .agent_surface import ROLE_TARGET_PAIRING
 from .memory import latest_beliefs, record_learning_event
 from .tool_registry import FIXTURE_SET_FIELD, GovernanceError, ensure_tools_dir, list_tools, utc_now
 
@@ -30,7 +31,9 @@ if TYPE_CHECKING:
 # evidence moved file). That reading is what the agent is for, and the merge
 # commit is when it is worth paying for.
 CHANGE_INTELLIGENCE_ROLE = "change_intelligence"
-CHANGE_INTELLIGENCE_AGENT = "aria-change-intelligence"
+# The generic agent of the role is the role's first pairing: one owner of
+# "which agent serves a role" (agent_surface), never a second spelling here.
+CHANGE_INTELLIGENCE_AGENT = ROLE_TARGET_PAIRING[CHANGE_INTELLIGENCE_ROLE][0]
 
 # Evidence-ref budget for one change-intelligence envelope. A merge of 400
 # files must not be pasted whole into a prompt; the agent is told the full
@@ -227,22 +230,49 @@ def _change_hunks(workspace_root: Path, offer: _ChangeOffer) -> str:
     return diff.stdout.decode("utf-8", errors="replace")
 
 
+@dataclass(frozen=True, slots=True)
+class _ChangeImpact:
+    """What the closure says of one change: the prose the agent reads, and the same facts as data."""
+
+    prose: str
+    # The roots of the services the change reaches, in closure order (none when the closure is held).
+    impacted_roots: list[str]
+    # The services the change itself touches as ``(project, root)``: closure order, or name order when held.
+    touched: list[tuple[str, str]]
+    # The map the paths are attributed against (``impact_graph.project_for_path``).
+    project_roots: Mapping[str, str]
+    routing: str
+
+
 def _change_impact(
     workspace_root: Path, changed_files: list[str], *, root: Path, service_facts: Mapping[str, Any],
-) -> tuple[str, list[str]]:
+) -> _ChangeImpact:
     """WP-D2 step 3 — the services the change reaches, upstream first, from
     ``impact_graph.cycle_service_examination`` (the one closure owner): the
     prose the agent reads (a held closure is its named hold) and, as data, the
     services' roots in the same order, from ``impact_graph.project_map`` (the
-    one name-to-root accessor); a held closure reaches no root."""
+    one name-to-root accessor); a held closure reaches no root.
+
+    SE-5 — the touched services are the entries the change's own files landed
+    in (``reason == "changed"``), in the closure's order, so a seat plan walks
+    them upstream first. A held closure has no order to give: its touched
+    services are the ``changed_projects`` it still reports, sorted by name, and
+    the routing says so (``closure_held``) rather than reaching zero services.
+    """
     from .impact_graph import cycle_service_examination, project_map
 
     examination = cycle_service_examination(
         workspace_root=workspace_root, changed_files=changed_files, service_facts=service_facts, base_dir=root,
     )
-    if "hold" in examination:
-        return "impact closure held: " + json.dumps(examination["hold"], sort_keys=True, ensure_ascii=False), []
     roots = project_map(base_dir=root, workspace_root=workspace_root)
+    if "hold" in examination:
+        return _ChangeImpact(
+            prose="impact closure held: " + json.dumps(examination["hold"], sort_keys=True, ensure_ascii=False),
+            impacted_roots=[],
+            touched=[(name, roots[name]) for name in examination["changed_projects"]],
+            project_roots=roots,
+            routing="closure_held",
+        )
     lines = ["Impacted services in dependency order (upstream first):"]
     for entry in examination["examination_order"]:
         detail = f"layer {entry['layer']}; {entry['reason']}"
@@ -251,7 +281,80 @@ def _change_impact(
         if entry["evidence"]:
             detail += "; edge evidence " + json.dumps(entry["evidence"], sort_keys=True, ensure_ascii=False)
         lines.append(f"- {entry['project']} ({detail})")
-    return "\n".join(lines), [roots[entry["project"]] for entry in examination["examination_order"]]
+    return _ChangeImpact(
+        prose="\n".join(lines),
+        impacted_roots=[roots[entry["project"]] for entry in examination["examination_order"]],
+        touched=[
+            (entry["project"], roots[entry["project"]])
+            for entry in examination["examination_order"] if entry["reason"] == "changed"
+        ],
+        project_roots=roots,
+        routing="closure",
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class SeatPlan:
+    """The seats one change is asked about, and the touched services past the cap that are held."""
+
+    seats: tuple[str, ...]
+    held: tuple[tuple[str, str], ...]
+
+
+def plan_change_seats(touched: list[tuple[str, str]], *, service_cap: int, lens_cap: int) -> SeatPlan:
+    """The seats of one change from its touched services ``[(project, root)]`` in closure order. Pure.
+
+    One ``service:<project>`` seat per touched service, the first ``service_cap``
+    of them in the order given; the rest are ``held``, not dropped. A
+    cross-cutting ``lens`` seat follows when ``lens_cap`` allows one and any
+    touched service's root is a code root (``impact_graph.is_code_root``) —
+    a held service counts, a web-only or tooling-only change does not. A change
+    with neither a service seat nor a lens gets the whole-change seat: a change
+    is never left unreviewed because routing could not name a seat.
+    """
+    from .agent_invocations import LENS_SEAT, WHOLE_CHANGE_SEAT, service_seat
+    from .impact_graph import is_code_root
+
+    seats = [service_seat(project) for project, _ in touched[:service_cap]]
+    if lens_cap >= 1 and any(is_code_root(root) for _, root in touched):
+        seats.append(LENS_SEAT)
+    return SeatPlan(tuple(seats) or (WHOLE_CHANGE_SEAT,), tuple(touched[service_cap:]))
+
+
+# What the lens seat is asked to look across (DESIGN-discovery f.2.3).
+_LENS_CONCERNS = ["security", "tenant_isolation", "contracts"]
+_SEAT_SENTENCE = (
+    "You are one seat of this change's review: the seat block below names the one service, or the "
+    "cross-cutting lens, you are asked about. Answer for the whole change as above; weigh the seat first.\n"
+)
+
+
+def _seat_block(seat: str, *, changed_files: list[str], impact: _ChangeImpact) -> str:
+    """What a routed seat adds to the prompt: one fixed sentence and its identity block; nothing for the whole-change seat.
+
+    A project name comes from the repository (``project.json``) and a path from
+    the change, so neither is ever written outside the ``untrusted_`` block
+    ``text_safety.untrusted_block`` escapes. The sentence names no project.
+    The service's files are the changed files ``impact_graph.project_for_path``
+    attributes to it (the one path -> project rule), capped like the files
+    listed for the whole change.
+    """
+    from .agent_invocations import LENS_SEAT, seat_service
+    from .impact_graph import project_for_path
+    from .text_safety import untrusted_block
+
+    service = seat_service(seat)
+    if service is not None:
+        service_files = [path for path in changed_files if project_for_path(path, impact.project_roots) == service]
+        identity = {
+            "seat": seat, "service": service,
+            "service_files": service_files[:_MAX_CHANGED_FILE_REFS], "service_file_count": len(service_files),
+        }
+    elif seat == LENS_SEAT:
+        identity = {"seat": seat, "lens": _LENS_CONCERNS}
+    else:
+        return ""
+    return _SEAT_SENTENCE + untrusted_block("untrusted_change_seat", json.dumps(identity, ensure_ascii=False)) + "\n"
 
 
 def dispatch_change_intelligence(
@@ -262,7 +365,7 @@ def dispatch_change_intelligence(
     workspace: WorkspacePaths | None = None,
     max_requests: int = DEFAULT_MAX_CHANGE_INTELLIGENCE_REQUESTS,
 ) -> dict[str, Any]:
-    """Mint ONE change-intelligence envelope per subject. Idempotent.
+    """Mint the change-intelligence envelopes of each subject, one per seat. Idempotent.
 
     Two feeds, one mint. With ``subject`` (WP-D1, mode ``change_review``) the
     one change the operator named is the only subject, admitted as
@@ -274,8 +377,9 @@ def dispatch_change_intelligence(
     question is what THAT change invalidated, and evidence grading must
     resolve against the tree the agent is asked about.
 
-    Newest merge first, and at most ``max_requests`` per run: the first run
-    after this producer lands sees every merge ever recorded in
+    Newest merge first, and at most ``max_requests`` CHANGES per run (a change
+    is never cut short by the run budget: its seats are minted together): the
+    first run after this producer lands sees every merge ever recorded in
     ``pr-lifecycle.jsonl``, and an unbounded mint would turn a backlog into one
     night's LLM bill. The remainder is not lost — it is minted by later runs,
     oldest surviving last, which is also the order in which the answers still
@@ -294,28 +398,52 @@ def dispatch_change_intelligence(
     ride on the row as data (``change_context``: the listed files and the
     impacted services' roots), from which ``envelope_file_set`` derives the
     context-recall file set.
+
+    SE-5 — a change is asked once per SEAT (``plan_change_seats``): one per
+    touched service up to ``change_review.seats.service_seats_per_change`` in
+    closure order, one cross-cutting lens, or the whole change when routing
+    names neither. Every seat holds the same change data; a routed seat adds
+    its identity (``_seat_block``) and is asked of the agent
+    ``agent_surface.resolve_seat_agent`` names. The door decides the change's
+    seats in ONE call (``count``), so a change is admitted or refused whole;
+    the touched services past the cap are held by name after that
+    (``judgment_funnel.hold_change_seat``). The dedup is per seat and
+    independent of the agent (``agent_invocations.minted_subject_seats``): a
+    dispatch that stopped between seats mints only the missing ones, and a seat
+    is not asked again because its agent changed. A ``minted`` entry names its
+    seat, its agent, the reason a per-service agent was not used
+    (``agent_state``) and how the seat was routed (``routing``).
     """
-    from .agent_invocations import create_agent_invocation_request, minted_subject_refs
+    from .agent_invocations import (
+        WHOLE_CHANGE_SEAT,
+        create_agent_invocation_request,
+        minted_subject_seats,
+        seat_service,
+        service_seat,
+    )
+    from .agent_surface import resolve_seat_agent
     from .change_review import CLAIMS_KEY
+    from .genesis_policy import change_review_policy
+    from .judgment_funnel import SERVICE_SEATS_PER_CHANGE_CAP, hold_change_seat
     from .pressure_evidence import split_citable_refs
     from .request_admission import admit_request
     from .text_safety import untrusted_block
+    from .tool_registry import bound_workspace_root
 
     root = ensure_tools_dir(base_dir)
+    seat_caps = change_review_policy(bound_workspace_root(root))["seats"]
+    service_cap, lens_cap = seat_caps["service_seats_per_change"], seat_caps["lens_seats_per_change"]
     # One ledger pass for the whole merge backlog: the merge list only grows,
     # so a per-merge lookup would re-verify the request chain once per merge
     # per cycle.
-    already_asked = minted_subject_refs(
-        role=CHANGE_INTELLIGENCE_ROLE,
-        target_agent=CHANGE_INTELLIGENCE_AGENT,
-        base_dir=root,
-    )
+    seats_asked = minted_subject_seats(role=CHANGE_INTELLIGENCE_ROLE, base_dir=root)
     minted: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
     offers: list[_ChangeOffer] = []
-    # The workspace's code facts, computed once per dispatch and only when an
-    # envelope is minted: they are the closure's contract edges (SE-3/SE-4).
+    # The workspace's code facts, computed once per dispatch and only when a
+    # change needs its seats planned: they are the closure's contract edges (SE-3/SE-4).
     service_facts: Mapping[str, Any] | None = None
+    changes_minted = 0
     if subject is not None:
         offers.append(_operator_offer(subject))
     else:
@@ -328,13 +456,34 @@ def dispatch_change_intelligence(
                 continue
             offers.append(_merge_offer(merge))
     for offer in offers:
-        if offer.subject_ref in already_asked:
-            skipped.append({"pr_number": offer.pr_number, "subject_ref": offer.subject_ref,
-                            "reason": "already_dispatched"})
+        already = seats_asked.get(offer.subject_ref, frozenset())
+        change_entry = {"pr_number": offer.pr_number, "subject_ref": offer.subject_ref}
+        if WHOLE_CHANGE_SEAT in already:
+            skipped.append({**change_entry, "reason": "already_dispatched"})
             continue
-        if len(minted) >= max_requests:
-            skipped.append({"pr_number": offer.pr_number, "subject_ref": offer.subject_ref,
-                            "reason": "mint_budget_exhausted"})
+        # A change nothing was asked of needs no plan to be left for a later run.
+        if changes_minted >= max_requests and not already:
+            skipped.append({**change_entry, "reason": "mint_budget_exhausted"})
+            continue
+        changed_files = offer.changed_files
+        impact: _ChangeImpact | None = None
+        if workspace is None:
+            plan, routing = SeatPlan((WHOLE_CHANGE_SEAT,), ()), "unrouted:no_workspace"
+        else:
+            if service_facts is None:
+                from .plan_coverage import compute_service_facts_at_head
+
+                service_facts = compute_service_facts_at_head(workspace_root=workspace.repo_root)
+            impact = _change_impact(workspace.repo_root, changed_files, root=root, service_facts=service_facts)
+            plan = plan_change_seats(impact.touched, service_cap=service_cap, lens_cap=lens_cap)
+            routing = impact.routing if plan.seats != (WHOLE_CHANGE_SEAT,) else "unrouted:no_touched_service"
+        missing = [seat for seat in plan.seats if seat not in already]
+        if not missing:
+            skipped.append({**change_entry, "reason": "already_dispatched"})
+            continue
+        # Completing a change some of whose seats were asked still takes a run's slot.
+        if changes_minted >= max_requests:
+            skipped.append({**change_entry, "reason": "mint_budget_exhausted"})
             continue
         # ARIA-HIGH-364 — impact analysis of a merge starts new work:
         # discretionary. A refused merge stays unasked and is walked again
@@ -343,98 +492,104 @@ def dispatch_change_intelligence(
         # WP-D4 — either way the mint names its change, so the door counts the
         # change's seats and refuses the one past the registered seats. That
         # refusal is the change's own: it is skipped by name and the walk goes on.
+        # SE-5 — one decision for the seats still to ask, so the change is
+        # admitted whole or not at all.
         admission = (
             admit_request(
                 "change_review.operator_subject", CHANGE_INTELLIGENCE_ROLE, base_dir=root, cycle_id=cycle_id,
-                subject_ref=offer.subject_ref,
+                subject_ref=offer.subject_ref, count=len(missing),
             )
             if subject is not None
             else admit_request(
                 "change_review.merge_feed", CHANGE_INTELLIGENCE_ROLE, base_dir=root, cycle_id=cycle_id,
-                subject_ref=offer.subject_ref,
+                subject_ref=offer.subject_ref, count=len(missing),
             )
         )
         if not admission.admitted:
-            skipped.append({"pr_number": offer.pr_number, "subject_ref": offer.subject_ref,
-                            "reason": admission.refusal})
+            skipped.append({**change_entry, "reason": admission.refusal})
             if admission.refuses_this_change_only:
                 continue
             break
-        already_asked.add(offer.subject_ref)
-        changed_files = offer.changed_files
-        impacted_roots: list[str] = []
-        if workspace is None:
+        if impact is None:
             hunks = "hunks not attached: this dispatch was given no workspace to read the change from"
-            impact = "impact not computed: this dispatch was given no workspace to read the change from"
+            impact_prose = "impact not computed: this dispatch was given no workspace to read the change from"
+            impacted_roots: list[str] = []
         else:
-            if service_facts is None:
-                from .plan_coverage import compute_service_facts_at_head
-
-                service_facts = compute_service_facts_at_head(workspace_root=workspace.repo_root)
             hunks = _change_hunks(workspace.repo_root, offer)
-            impact, impacted_roots = _change_impact(
-                workspace.repo_root, changed_files, root=root, service_facts=service_facts,
-            )
+            impact_prose, impacted_roots = impact.prose, impact.impacted_roots
         listed_files = changed_files[:_MAX_CHANGED_FILE_REFS]
         listed = json.dumps(listed_files, ensure_ascii=False)
-        prompt = (
-            offer.header
-            + f"changed_file_count: {len(changed_files)}\n\n"
-            "The change itself follows as data: its paths (the first "
-            f"{_MAX_CHANGED_FILE_REFS}) and hunks in the diff block, the services "
-            "it reaches in the change impact block.\n\n"
-            + untrusted_block("untrusted_diff", f"changed_files: {listed}\n\n{hunks}")
-            + "\n"
-            + untrusted_block("untrusted_change_impact", impact)
-            + "\nReturn details.impact_map with beliefs_needs_revalidation, "
-            "findings_needs_revalidation, fixtures_requires_rerun and "
-            "confirmed_unchanged. Ground every entry in the change's commits, "
-            "not in its description.\n"
-            f"Also return details.{CLAIMS_KEY}: every defect this change introduces "
-            "that the repository at the change's head shows, each with its "
-            "evidence_refs, an expectation_ref outside the changed lines, a "
-            "verbatim quote and a confidence; an empty list says you found none. "
-            "The claim shape and the claim families are in your delivered "
-            "contract. A claim is a hypothesis the kernel measures, not a finding."
-        )
-        request = create_agent_invocation_request(
-            target_agent=CHANGE_INTELLIGENCE_AGENT,
-            role=CHANGE_INTELLIGENCE_ROLE,
-            suggested_prompt=prompt,
-            must_satisfy=[{
-                "id": "impact-map",
-                "description": (
-                    "details.impact_map classifies every impacted belief, "
-                    "finding and fixture with evidence from the change's commits"
-                ),
-            }],
-            allowed_scope=["**"],
-            # ARIA-MEDIUM-385 — the change is the subject, never a citation;
-            # a changed path the agent law cannot admit stays in the prompt.
-            evidence_refs=split_citable_refs(listed_files)[0] or None,
-            subject_ref=offer.subject_ref,
-            cycle_id=cycle_id,
-            target_sha=offer.head_sha,
-            base_dir=root,
-            admission=admission,
-            change_review_workspace=workspace,
-            change_context={"changed_files": listed_files, "impacted_roots": impacted_roots},
-        )
-        minted.append({
-            "pr_number": offer.pr_number, "subject_ref": offer.subject_ref, "request_id": request.get("request_id"),
-        })
+        for seat in missing:
+            resolution = resolve_seat_agent(CHANGE_INTELLIGENCE_ROLE, seat_service(seat), base_dir=root)
+            prompt = (
+                offer.header
+                + f"changed_file_count: {len(changed_files)}\n\n"
+                "The change itself follows as data: its paths (the first "
+                f"{_MAX_CHANGED_FILE_REFS}) and hunks in the diff block, the services "
+                "it reaches in the change impact block.\n\n"
+                + untrusted_block("untrusted_diff", f"changed_files: {listed}\n\n{hunks}")
+                + "\n"
+                + untrusted_block("untrusted_change_impact", impact_prose)
+                + "\n"
+                + (_seat_block(seat, changed_files=changed_files, impact=impact) if impact is not None else "")
+                + "Return details.impact_map with beliefs_needs_revalidation, "
+                "findings_needs_revalidation, fixtures_requires_rerun and "
+                "confirmed_unchanged. Ground every entry in the change's commits, "
+                "not in its description.\n"
+                f"Also return details.{CLAIMS_KEY}: every defect this change introduces "
+                "that the repository at the change's head shows, each with its "
+                "evidence_refs, an expectation_ref outside the changed lines, a "
+                "verbatim quote and a confidence; an empty list says you found none. "
+                "The claim shape and the claim families are in your delivered "
+                "contract. A claim is a hypothesis the kernel measures, not a finding."
+            )
+            request = create_agent_invocation_request(
+                target_agent=resolution.agent,
+                role=CHANGE_INTELLIGENCE_ROLE,
+                suggested_prompt=prompt,
+                must_satisfy=[{
+                    "id": "impact-map",
+                    "description": (
+                        "details.impact_map classifies every impacted belief, "
+                        "finding and fixture with evidence from the change's commits"
+                    ),
+                }],
+                allowed_scope=["**"],
+                # ARIA-MEDIUM-385 — the change is the subject, never a citation;
+                # a changed path the agent law cannot admit stays in the prompt.
+                evidence_refs=split_citable_refs(listed_files)[0] or None,
+                subject_ref=offer.subject_ref,
+                cycle_id=cycle_id,
+                target_sha=offer.head_sha,
+                base_dir=root,
+                admission=admission,
+                change_review_workspace=workspace,
+                change_context={"changed_files": listed_files, "impacted_roots": impacted_roots, "seat": seat},
+            )
+            minted.append({
+                **change_entry, "request_id": request.get("request_id"),
+                "seat": seat, "agent": resolution.agent, "agent_state": resolution.declined, "routing": routing,
+            })
+        # The services past the cap are held by name once their change was admitted and asked.
+        for project, _ in plan.held:
+            held_seat = service_seat(project)
+            hold_change_seat(offer.subject_ref, held_seat, cap=service_cap, base_dir=root)
+            skipped.append({**change_entry, "seat": held_seat, "reason": SERVICE_SEATS_PER_CHANGE_CAP})
+        seats_asked[offer.subject_ref] = already | frozenset(missing)
+        changes_minted += 1
     return {"schema_version": 1, "minted": minted, "skipped": skipped}
 
 
 def subject_open_request_ids(subject: ChangeSubject, *, base_dir: str | Path | None = None) -> list[str]:
     """The subject's change-intelligence requests that have not reached a
-    terminal state — what a settle loop waits on before it stops."""
+    terminal state — what a settle loop waits on before it stops: every seat of
+    the change, whichever agent holds it."""
     from .agent_invocations import derive_request_states, list_agent_invocation_requests
     from .agent_surface import TERMINAL_REQUEST_STATES
 
     rows = [
         row for row in list_agent_invocation_requests(
-            base_dir=base_dir, role=CHANGE_INTELLIGENCE_ROLE, target_agent=CHANGE_INTELLIGENCE_AGENT,
+            base_dir=base_dir, role=CHANGE_INTELLIGENCE_ROLE,
         )
         if row.get("subject_ref") == subject.ref
     ]

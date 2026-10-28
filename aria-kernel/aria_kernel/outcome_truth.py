@@ -13,7 +13,7 @@ already exist, each in its own ledger with its own owner:
     ``finding_fix_verified`` (the SAME recipe re-runs green,
     ``finding.record_finding_fix_verification``);
   * ``change-ledger`` + ``pr-lifecycle.jsonl`` — the fix's change chain and
-    its merge lineage (change_outcome._merge_index folds the attestation);
+    its merge lineage (merge_record.merged_rows_by_change folds the attestation);
   * ``enterprise/self-reverts.jsonl`` — ARIA reverting its own merge.
 
 Nothing joined them onto the judgment group that promoted the finding, so
@@ -79,20 +79,20 @@ def _merged_not_reverted(tools_root: Path, finding_id: str) -> str | None:
 
     One law per owner, imported not copied: the change chain from
     ``change_ledger``, the merged row (with its lineage attestation folded)
-    from ``change_outcome._merge_index``, the revert record from the
+    from ``merge_record.merged_rows_by_change``, the revert record from the
     ``self_revert`` ledger. Any self-revert row on the merge's key —
     terminal OR retried — disqualifies: a revert in flight is not a fix
     that held.
     """
     from .change_ledger import list_change_chains
-    from .change_outcome import _merge_index
     from .ledger import load_declared_jsonl
+    from .merge_record import merged_rows_by_change
     from .self_revert import SELF_REVERTS_SURFACE, self_reverts_path
 
     chains = list_change_chains(finding_id=finding_id, base_dir=tools_root)
     if not chains:
         return "not_merged"
-    index = _merge_index(tools_root)
+    index = merged_rows_by_change(tools_root)
     revert_rows = (
         load_declared_jsonl(self_reverts_path(tools_root), expected_surface=SELF_REVERTS_SURFACE)
         if self_reverts_path(tools_root).exists() else []

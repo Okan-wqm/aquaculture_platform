@@ -118,7 +118,7 @@ class MergeLineageUnverified(MergeNotProven):
     """A merge GitHub reports whose head could not be read this time: retried, not refused (review of #1910, N2)."""
 
 
-def lifecycle_rows(base_dir: str | Path) -> list[dict[str, Any]]:
+def lifecycle_rows(base_dir: str | Path | None) -> list[dict[str, Any]]:
     from .ledger import load_declared_jsonl
     from .tool_registry import ensure_tools_dir_readonly
 
@@ -353,6 +353,56 @@ def fold_merged_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
                                                        "attested_at", "ledger_hash")}}
         folded.append(row)
     return folded
+
+
+# ARIA-MEDIUM-746 (F3.3a) — "which merges happened, and which are ARIA's" is
+# read here and nowhere else. The F0.9 atlas found three readers with three
+# rules: change_outcome's own index of the merged rows, self_revert's merge
+# lane decisions, own_pr_ci's head-branch prefix. They disagreed on PR #1906
+# (ARIA's change on a person-named branch, merged by a person): this module
+# held it as ARIA's by lineage, the other two did not see it.
+# tests/invariants/test_merge_index_single_owner.py pins the one reader.
+
+
+def merged_rows_by_change(base_dir: str | Path | None) -> dict[str, dict[str, Any]]:
+    """change_id → its latest folded ``merged`` row, the one merge index.
+
+    The ``merged`` row carries the PR number; the change it delivered is the
+    one the PR's ``opened`` row binds (:func:`pr_change_binding`,
+    merge-delivery-1): every change an ``opened`` row of the PR named, and no
+    other row's. So the join is change → PR → merged row, the same ledger
+    ``auto_merge.change_for_pr`` reads in the opposite direction.
+
+    One pass, because the nightly outcome selection asks once per validated
+    chain: a per-change scan would re-read the whole PR ledger for every chain.
+    """
+    rows = lifecycle_rows(base_dir)
+    rows_by_pr: dict[int, list[dict[str, Any]]] = {}
+    for row in rows:
+        if type(row.get("pr_number")) is int:
+            rows_by_pr.setdefault(row["pr_number"], []).append(row)
+    bound_changes: dict[int, tuple[str, ...]] = {}
+    for pr_number, pr_rows in rows_by_pr.items():
+        binding = pr_change_binding(pr_rows, pr_number=pr_number)
+        if binding is not None:
+            bound_changes[pr_number] = binding.bound_change_ids
+    index: dict[str, dict[str, Any]] = {}
+    for row in fold_merged_rows(rows):
+        for change_id in bound_changes.get(row.get("pr_number"), ()):
+            index[change_id] = row  # a later merged row wins
+    return index
+
+
+def arias_merges(base_dir: str | Path | None) -> dict[int, dict[str, Any]]:
+    """PR number → its folded ``merged`` row, for every merge whose head is ARIA's change.
+
+    The one rule of ARIA authorship of a merge (F3.3a / F3.4): the merged
+    row's lineage (:func:`merged_row_is_arias`), whoever merged it — the
+    merge lane, or a person observed on GitHub (PR #1906). Neither the head
+    branch's name nor the merge lane's decision makes a merge ARIA's.
+    """
+    return {row["pr_number"]: row for row in fold_merged_rows(lifecycle_rows(base_dir))
+            if type(row.get("pr_number")) is int and merged_row_is_arias(row)}
 
 
 def attested_plan_lineages(events: list[dict[str, Any]]) -> dict[str, str]:
@@ -720,6 +770,7 @@ __all__ = [
     "PR_STATE_OPEN",
     "classify_merged_head",
     "closed_recheck_due",
+    "arias_merges",
     "attest_merge_lineage",
     "attestation_binds",
     "attested_plan_lineages",
@@ -731,6 +782,7 @@ __all__ = [
     "lineage_credits_aria",
     "merged_row_instant",
     "merged_row_is_arias",
+    "merged_rows_by_change",
     "observed_merge",
     "opened_row",
     "pr_change_binding",

@@ -919,10 +919,13 @@ def _recorded_reproduction_run_status(
 
     ONE binding, the same one ``finding.record_finding_reproduction``
     applies at the outcome fold: the experiment-observation ledger (written
-    by ``experiment.run_experiment``) carries ``recipe_ref`` and
+    by ``experiment.run_experiment`` and, for a reproduction seat's pin, by
+    the kernel's ``experiment.prove_candidate_pin`` — matched only when the
+    red-first verdict is ``proven``) carries ``recipe_ref`` and
     ``run_status`` per recorded run, and only an observation that MATCHED
-    its contract proves anything. Latest first — a re-recorded run
-    supersedes, exactly as the finding-side resolver reads it back.
+    its contract proves anything. The seat's own word on red or green is
+    never read. Latest first — a re-recorded run supersedes, exactly as the
+    finding-side resolver reads it back.
     """
     from .experiment import list_experiment_observations
 

@@ -79,6 +79,50 @@ class WeightTests(unittest.TestCase):
         self.assertTrue(all(seconds >= 0 for seconds in weights.values()))
 
 
+class WeightRefreshTests(unittest.TestCase):
+    """The refresh plans for the slowest run it was shown, not for one run's luck.
+
+    Module seconds swing by up to 2x between runners (tests.test_enterprise_cycle
+    took 293 s, 324 s and 570 s in three runs of one tree), and a shard that
+    holds several such modules overran the 30-minute job cap on one run while
+    a refresh from another run had predicted every shard at the same length.
+    """
+
+    @staticmethod
+    def _run(directory: Path, seconds: dict[str, float]) -> Path:
+        directory.mkdir(parents=True)
+        report = {
+            "partition": shards.HERMETIC,
+            "shard": 1,
+            "run_attempt": 1,
+            "modules": {name: {"seconds": value} for name, value in seconds.items()},
+        }
+        (directory / "shard-1.attempt-1.json").write_text(json.dumps(report), encoding="utf-8")
+        return directory
+
+    def _refresh(self, runs: list[Path], out: Path) -> dict[str, float]:
+        argv = ["weights", "--out", str(out)]
+        for run in runs:
+            argv += ["--reports-dir", str(run)]
+        self.assertEqual(shards.main(argv), 0)
+        return json.loads(out.read_text(encoding="utf-8"))["seconds"]
+
+    def test_a_module_weighs_its_slowest_measurement_whatever_the_order_of_the_runs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            first = self._run(root / "first", {"tests.a": 10.0, "tests.b": 5.0})
+            second = self._run(root / "second", {"tests.a": 30.0, "tests.c": 7.0})
+            expected = {"tests.a": 30.0, "tests.b": 5.0, "tests.c": 7.0}
+            self.assertEqual(self._refresh([first, second], root / "one.json"), expected)
+            self.assertEqual(self._refresh([second, first], root / "two.json"), expected)
+
+    def test_one_run_refreshes_to_exactly_what_it_measured(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            only = self._run(root / "only", {"tests.a": 10.0, "tests.b": 5.04})
+            self.assertEqual(self._refresh([only], root / "out.json"), {"tests.a": 10.0, "tests.b": 5.0})
+
+
 class SuiteLayoutTests(unittest.TestCase):
     def test_no_test_module_sits_at_the_kernel_root(self) -> None:
         # Discovery walks KERNEL_ROOT itself, so a stray root-level module

@@ -43,6 +43,7 @@ from aria_kernel.merge_record import (
     lifecycle_rows,
     lineage_checks,
     merged_row_is_arias,
+    merged_rows_by_change,
     opened_row,
     record_merge,
 )
@@ -191,10 +192,8 @@ class TheLiveShape(_LegacyMerge):
         self.assertNotEqual(promotion.get("status"), "not_credited", promotion)
         # agent_eval: the merge event's one episode.
         self.assertEqual(len(_merged_episodes(self.tools)), 1)
-        # change_outcome's merge anchor.
-        from aria_kernel.change_outcome import _merge_index
-
-        self.assertTrue(merged_row_is_arias(_merge_index(ensure_tools_dir(self.tools))["chg-r"]))
+        # change_outcome's merge anchor: merge_record's one merge index.
+        self.assertTrue(merged_row_is_arias(merged_rows_by_change(self.tools)["chg-r"]))
         # pr_tracking: the merge is planned once, keyed on the merged row's own
         # head — the attestation is no second merge (ARIA-LOW-424).
         from aria_kernel.pr_tracking import plan_new_merge_impact

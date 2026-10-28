@@ -61,6 +61,17 @@ SINGLE_OWNER = {
     "item_citations": f"{_KERNEL}item_citations.py",
     # J4 — one mixed-tree predicate (the retired private spellings: feedback_store._target_shas, ._common_target_sha).
     "closing_tree": f"{_KERNEL}feedback_store.py",
+    # SE-5 — the lifecycle state of an entity: current_lifecycle_state replays the entity's chain and is the only
+    # reader of the lifecycle ledger; agent_invocations._target_is_shadow, a second unverified replay, is deleted.
+    "lifecycle_state": f"{_KERNEL}genesis_lifecycle.py",
+    # SE-5 — which agents may serve a role: allowed_targets_for_role (the static pairing plus the per-service seat
+    # agents the ledger and the workspace grant) and resolve_seat_agent, in one module.
+    "role_agent_targets": f"{_KERNEL}agent_surface.py",
+    # F0.9p — the provenance census: no second computer of "which learned rows have no source".
+    "row_provenance": f"{_KERNEL}row_provenance.py",
+    # F1.2 — a learning mechanism's contribution over a window of cycles: autonomy_evidence computes it, the scorecard
+    # and every other reader (fitness included) take it from there.
+    "mechanism_contribution": f"{_KERNEL}autonomy_evidence.py",
     # F0.6 — the non-matching streak of an experiment: experiment_night.nonmatching_streaks, no other computer.
     "experiment_hypothesis_cut": f"{_KERNEL}experiment_night.py",
     # F3.1 (ARIA-LOW-741, ARIA-MEDIUM-742) — the decision stamp's concepts, one owner each from the commit they land.
@@ -117,6 +128,19 @@ _PLANTED = {
         "def common_target_sha(rows):\n    return None\n",
         "def _target_shas(rows):\n    return set()\n",
         "def _common_target_sha(rows):\n    return None\n",
+    # SE-5 — the claim-side SHADOW predicate agent_invocations carried (a second, unverified replay of the ledger),
+    # and a second writer of the lifecycle ledger under its declared surface.
+    "lifecycle_state": (
+        "def _target_is_shadow(root, target):\n    return False\n",
+        "append_declared_jsonl(path, row, expected_surface='genesis_lifecycle_events')\n",
+    ),
+    # SE-5 — a second answer to 'which agents may serve this role', under the owner's name.
+    "role_agent_targets": ("def allowed_targets_for_role(role):\n    return ()\n",),
+    "row_provenance": ("def provenance_census(root):\n    return {}\n",),
+    # A second computation under the owner's name, in the signature the owner has and in a keyword-only one.
+    "mechanism_contribution": (
+        "def mechanism_contribution(rows, cycle_ids):\n    return {}\n",
+        "def mechanism_contribution(*, base_dir, cycle_ids):\n    return {}\n",
     ),
     # F0.6 — a second computer of the streak under the owner's name.
     "experiment_hypothesis_cut": ("def nonmatching_streaks(observations):\n    return {}\n",),

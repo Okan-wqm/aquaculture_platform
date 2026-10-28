@@ -16,6 +16,11 @@ today; ``one_owner_offenders`` reports every writer or computer of it outside
 the owner's module (tests/invariants/test_atlas_one_owner.py, digest.py's
 pattern), so a second copy is red the commit it appears. Families with copies
 are not folded here: each names the package and the registered finding that do.
+
+PROVENANCE (F0.9p). The same parse says which ledgers' rows cite which: ``ROW_SCOPES`` declares the top-level
+statement that BUILDS each ledger's row, the keys that scope writes (``source_facts`` ``keys``) that are in the citation
+vocabulary of ``row_provenance`` are the row's citations, and ``provenance_offenders`` is red when a declared scope or a
+written id or a learned source field is gone. Keys are read at scope granularity, as every symbol fact is.
 """
 from __future__ import annotations
 
@@ -25,6 +30,7 @@ from pathlib import Path
 from typing import Any
 
 from .genesis_policy import judgment_pipeline_policy
+from .row_provenance import LEARNED_KINDS, REF_FIELDS
 from .state_manifest import iter_surfaces
 from .source_facts import MODULE_SCOPE, deepest_module, extract, iter_modules, module_name, path_parts
 
@@ -60,11 +66,24 @@ FAMILIES: dict[str, Family] = {
     # F1.1: goldset and pr_tracking record through the owner, whose event kinds are a closed vocabulary.
     "learning_log": Family("learning-memory", f"{_K}memory.py:record_learning_event",
                            ledgers=(("memory_learning_events", "memory/learning-events.jsonl"),)),
+    # SE-5: the lifecycle state of an entity is its replayed chain, read in one place. `_target_is_shadow` is the
+    # name of the second, unverified reading that was deleted; listing it makes its return an offender.
+    "lifecycle_state": Family("learning-memory", f"{_K}genesis_lifecycle.py:current_lifecycle_state",
+                              ("current_lifecycle_state", "_target_is_shadow"),
+                              (("genesis_lifecycle_events", "genesis-lifecycle/events.jsonl"),)),
+    # SE-5: which agents may serve a role (the static pairing plus the granted per-service agents) is answered here.
+    "role_agent_targets": Family("judgment", f"{_K}agent_surface.py:allowed_targets_for_role",
+                                 ("allowed_targets_for_role", "resolve_seat_agent")),
     # F0.6: the non-matching streak that cuts a refuted night hypothesis; no other computer of it.
     "experiment_hypothesis_cut": Family("learning-memory", f"{_K}experiment_night.py:nonmatching_streaks",
                                         ("nonmatching_streaks",)),
     "fitness_report": Family("learning-memory", f"{_K}fitness.py:generate_fitness_report",
                              ("generate_fitness_report",), (("fitness_reports", "fitness/fitness-reports.jsonl"),)),
+    # F0.9p: the one census of learned rows that name no source; the doctor's `provenance` organ is its reader.
+    "row_provenance": Family("learning-memory", f"{_K}row_provenance.py:provenance_census", ("provenance_census",)),
+    # F1.2 — what a learning mechanism contributed over a window of cycles: the scorecard and every reader take it from here.
+    "mechanism_contribution": Family("learning-memory", f"{_K}autonomy_evidence.py:mechanism_contribution",
+                                     ("mechanism_contribution",)),
     "calibration_gate": Family("judgment", f"{_K}genesis_policy.py:effective_calibration_gate",
                                ("effective_calibration_gate",)),
     "verbatim_quote_law": Family("judgment", f"{_K}evidence_trust.py:quote_matches_at", ("quote_matches_at",)),
@@ -97,6 +116,9 @@ FAMILIES: dict[str, Family] = {
     # (judge_fanout._group_tree) both ask it (the retired private spellings: feedback_store._target_shas, ._common_target_sha).
     "closing_tree": Family("judgment", f"{_K}feedback_store.py:tree_is_mixed",
                            ("tree_is_mixed", "target_shas", "common_target_sha", "_target_shas", "_common_target_sha")),
+    # F3.3a: the merge index and "which merges are ARIA's" have one reader, merge_record (ARIA-MEDIUM-746).
+    "merge_index": Family("planning-impl", f"{_K}merge_record.py:fold_merged_rows",
+                          ("fold_merged_rows", "merged_rows_by_change", "arias_merges")),
     # Dormant by design: routed every cycle, acts only with funnel_enabled (genesis_policy).
     "judgment_funnel": Family("judgment", f"{_K}judgment_funnel.py:route_judgment_sample", ("route_judgment_sample",),
                               (("judgment_funnel_routing", "judgment-funnel/routing.jsonl"),), gate="funnel_enabled"),
@@ -104,14 +126,12 @@ FAMILIES: dict[str, Family] = {
     "finding_acceptance_bar": Family("judgment", f"{_K}finding_promotion.py:promote_consensus_findings",
                                      ("promote_consensus_findings", "is_ground_truth_row"),
                                      plan_package="F2.3", finding="ARIA-HIGH-737"),
-    "red_first_prover": Family("planning-impl", None, ("prove_red_first",), plan_package="F3.2", finding="ARIA-MEDIUM-744"),
+    "red_first_prover": Family("planning-impl", f"{_K}validation.py:prove_red_first", ("prove_red_first",),
+                               plan_package="F3.2", finding="ARIA-MEDIUM-744"),
     "change_outcome": Family("planning-impl", f"{_K}change_outcome.py:evaluate_change_outcomes",
                              ("evaluate_change_outcomes", "_attributed_reverts"),
                              (("change_outcome", "change-ledger/outcome.jsonl"),),
                              plan_package="F3.3", finding="ARIA-HIGH-745"),
-    "merge_index": Family("planning-impl", f"{_K}merge_record.py:fold_merged_rows",
-                          ("fold_merged_rows", "_merge_index", "_aria_merged_prs", "scan_merged_own_prs"),
-                          plan_package="F3.4", finding="ARIA-MEDIUM-746"),
     "rule_contract": Family("judgment", f"{_K}rule_contract.py:resolve_rule_contract",
                             ("resolve_rule_contract", "_canary_contract"), plan_package="F2.4", finding="ARIA-LOW-738"),
     "seat_law": Family("judgment", f"{_K}feedback_store.py:distinct_judge_seats",
@@ -123,6 +143,20 @@ FAMILIES: dict[str, Family] = {
     "impact_analysis": Family("planning-impl", f"{_K}impact_graph.py:plan_downstream_impact",
                               ("plan_downstream_impact", "plan_impact", "compute_recursive_impact", "plan_new_merge_impact"),
                               plan_package="SE-4", finding="ARIA-MEDIUM-903"),
+}
+
+
+# Where each ledger's row is BUILT: "<repo path>:<top-level scope>". The ledger's own file comes from the manifest
+# (``state_manifest.surface_by_name``), so no (surface, relpath) pair is repeated here (ARIA-MEDIUM-926).
+ROW_SCOPES: dict[str, tuple[str, ...]] = {
+    "plan_convergence_events": (f"{_K}plan_convergence.py:_append_event",),
+    "change_planned": (f"{_K}change_ledger.py:emit_change_planned",),
+    "change_committed": (f"{_K}change_ledger.py:emit_change_committed",),
+    "change_validated": (f"{_K}change_ledger.py:emit_change_validated",),
+    "change_outcome": (f"{_K}change_outcome.py:emit_change_outcome",),
+    "memory_procedural": (f"{_K}agent_eval.py:_episode",),
+    "kg_conventions": (f"{_K}knowledge_graph.py:Pattern", f"{_K}knowledge_graph.py:reconcile_convention_promotion"),
+    "memory_beliefs": (f"{_K}memory.py:_record_belief",),
 }
 
 
@@ -178,6 +212,62 @@ def one_owner_offenders(sources: dict[str, str]) -> list[str]:
     return sorted(offenders)
 
 
+def _written_keys(facts: dict[str, dict[str, Any]], surface: str) -> set[str]:
+    """The keys the scopes that build ``surface``'s row write."""
+    keys: set[str] = set()
+    for scope in ROW_SCOPES[surface]:
+        path, _, name = scope.rpartition(":")
+        keys.update(key for owner, key in (facts[path]["keys"] if path in facts else ()) if owner == name)
+    return keys
+
+
+def _cites(facts: dict[str, dict[str, Any]], surface: str) -> dict[str, str]:
+    """{field: cited surface} for the citation-vocabulary keys ``surface``'s row writes; its own id is no citation."""
+    keys = _written_keys(facts, surface)
+    return {field: ref.surface for field, ref in sorted(REF_FIELDS.items())
+            if field in keys and (ref.surface, ref.id_field) != (surface, field)}
+
+
+def _provenance(facts: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    kinds = {learned.surface: (kind, list(learned.sources)) for kind, learned in LEARNED_KINDS.items()}
+    entries: dict[str, dict[str, Any]] = {}
+    for surface, scopes in sorted(ROW_SCOPES.items()):
+        kind, sources = kinds.get(surface, (None, []))
+        entries[surface] = {"row_scopes": list(scopes), "cites": _cites(facts, surface), "kind": kind, "sources": sources}
+    return entries
+
+
+def provenance_edges(sources: dict[str, str]) -> dict[str, dict[str, str]]:
+    """``{surface: {field: cited surface}}`` for every ledger in ``ROW_SCOPES``, from the code that builds its row."""
+    facts, _ = _all_facts(sources)
+    return {surface: entry["cites"] for surface, entry in _provenance(facts).items()}
+
+
+def provenance_offenders(sources: dict[str, str]) -> list[str]:
+    """Every place the provenance declarations and the code disagree (``[]`` on the real tree), sorted:
+    ``<surface>:stale_row_scope:<path>:<scope>`` (a declared scope, or its module, is gone),
+    ``<field>:id_field_not_written:<surface>.<id_field>`` (a citation names a ledger whose row no longer writes the id),
+    ``<kind>:source_field_not_written:<field>`` (a learned kind's row builder no longer writes a source field) and
+    ``<kind>:no_row_scope``. A ledger that is only cited (the finding mint) has no row scope and nothing to check."""
+    facts, _ = _all_facts(sources)
+    offenders: set[str] = set()
+    for surface, scopes in ROW_SCOPES.items():
+        for scope in scopes:
+            path, _, name = scope.rpartition(":")
+            if path not in facts or not any(def_name == def_scope == name for def_name, _, def_scope in facts[path]["defs"]):
+                offenders.add(f"{surface}:stale_row_scope:{scope}")
+    for field, ref in REF_FIELDS.items():
+        if ref.surface in ROW_SCOPES and ref.id_field not in _written_keys(facts, ref.surface):
+            offenders.add(f"{field}:id_field_not_written:{ref.surface}.{ref.id_field}")
+    for kind, learned in LEARNED_KINDS.items():
+        if learned.surface not in ROW_SCOPES:
+            offenders.add(f"{kind}:no_row_scope")
+            continue
+        written = _written_keys(facts, learned.surface)
+        offenders.update(f"{kind}:source_field_not_written:{source}" for source in learned.sources if source not in written)
+    return sorted(offenders)
+
+
 def build_atlas(repo_root: Path) -> dict[str, Any]:
     facts, constants = _all_facts(production_sources(repo_root))
     path_of = {module_name(path): path for path in facts}
@@ -208,7 +298,7 @@ def build_atlas(repo_root: Path) -> dict[str, Any]:
             "liveness": liveness, "liveness_via": via,
             "plan_package": family.plan_package, "finding": family.finding,
         }
-    return {"families": families}
+    return {"families": families, "provenance": _provenance(facts)}
 
 
 def _roots(repo_root: Path, path_of: dict[str, str]) -> dict[tuple[str, str], tuple[int, str]]:
@@ -266,6 +356,22 @@ def render_atlas(atlas: dict[str, Any]) -> str:
             f"| {family_id}", f["subsystem"], cell(f["owner"]), cell(f["writers"]), cell(f["ledgers_written"]),
             cell(f["ledgers_read"]), cell(f["callers"]), liveness, f["plan_package"] or "—", f["finding"] or "—",
         ]) + " |")
+    lines += [
+        "",
+        "## Provenance",
+        "",
+        "Which ledgers' rows cite which, read from the code that builds each row (`ownership_atlas.ROW_SCOPES`). The",
+        "citation vocabulary and the learned memory kinds are declared once in `row_provenance`; a ledger's own id",
+        "field is not a citation. Keys are read at scope granularity: a scope that writes two ledgers (as",
+        "`emit_change_planned` also writes a governance row) attributes its keys to both.",
+        "",
+        "| Ledger | Row built at | Cites | Learned kind (source fields) |",
+        "|---|---|---|---|",
+    ]
+    for surface, entry in sorted(atlas["provenance"].items()):
+        cites = "<br>".join(f"`{field}` → `{cited}`" for field, cited in sorted(entry["cites"].items())) or "—"
+        learned = f"`{entry['kind']}` ({', '.join(f'`{source}`' for source in entry['sources'])})" if entry["kind"] else "—"
+        lines.append(f"| {surface} | {cell(entry['row_scopes'])} | {cites} | {learned} |")
     lines += ["", "---", "", f"Regenerate: `{REGEN_COMMAND}`", "",
               "Pinned byte-for-byte by `aria-kernel/tests/test_ownership_atlas_ssot.py`."]
     return "\n".join(lines) + "\n"

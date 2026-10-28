@@ -13,7 +13,7 @@ held-out id is read; the DEV split is a function of its inputs):
 
   * the block: per known defect a hit or a miss, per clean commit a false alarm
     or not, each with ``n`` and a Wilson interval from the one Wilson owner
-    (``judge_calibration.wilson_lower``). The matcher is the gold hunk window
+    (``judge_calibration.wilson_interval``). The matcher is the gold hunk window
     plus the defect class, per change subject, whatever mechanism reported;
   * ``measure_role_fitness`` carries the block as ``discovery_recall`` and the
     adapter's own recall is worded "adapter retention rate";
@@ -64,7 +64,7 @@ from unittest import mock
 from aria_kernel import role_fitness
 from aria_kernel.evidence_validator import agent_ref_shape_refusal
 from aria_kernel.feedback import FEEDBACK_SOURCES, list_feedback
-from aria_kernel.judge_calibration import wilson_lower
+from aria_kernel.judge_calibration import wilson_interval, wilson_lower
 from aria_kernel.ledger import read_jsonl
 from aria_kernel.tool_registry import ensure_tools_dir
 from aria_kernel.workspace import ensure_workspace, workspace_paths
@@ -118,9 +118,9 @@ def _attr(test: unittest.TestCase, name: str) -> Any:
 
 
 def _wilson_upper(successes: int, trials: int) -> float | None:
-    """The Wilson interval's upper bound through the one lower-bound owner."""
-    lower = wilson_lower(trials - successes, trials)
-    return None if lower is None else round(1 - lower, 4)
+    """The Wilson interval's upper bound as the one owner states it (``judge_calibration.wilson_interval``)."""
+    interval = wilson_interval(successes, trials)
+    return None if interval is None else interval[1]
 
 
 def _tmp_case(prefix: str) -> Path:

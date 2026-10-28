@@ -60,6 +60,9 @@ FAMILIES: dict[str, Family] = {
     # F1.1: goldset and pr_tracking record through the owner, whose event kinds are a closed vocabulary.
     "learning_log": Family("learning-memory", f"{_K}memory.py:record_learning_event",
                            ledgers=(("memory_learning_events", "memory/learning-events.jsonl"),)),
+    # F0.6: the non-matching streak that cuts a refuted night hypothesis; no other computer of it.
+    "experiment_hypothesis_cut": Family("learning-memory", f"{_K}experiment_night.py:nonmatching_streaks",
+                                        ("nonmatching_streaks",)),
     "fitness_report": Family("learning-memory", f"{_K}fitness.py:generate_fitness_report",
                              ("generate_fitness_report",), (("fitness_reports", "fitness/fitness-reports.jsonl"),)),
     "calibration_gate": Family("judgment", f"{_K}genesis_policy.py:effective_calibration_gate",

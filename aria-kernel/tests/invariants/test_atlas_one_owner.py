@@ -45,6 +45,8 @@ SINGLE_OWNER = {
     "python_source_facts": f"{_KERNEL}source_facts.py",
     # F1.1 — the learning journal: memory.record_learning_event, no other writer (goldset and pr_tracking routed).
     "learning_log": f"{_KERNEL}memory.py",
+    # F0.6 — the non-matching streak of an experiment: experiment_night.nonmatching_streaks, no other computer.
+    "experiment_hypothesis_cut": f"{_KERNEL}experiment_night.py",
     # F3.1 (ARIA-LOW-741, ARIA-MEDIUM-742) — the decision stamp's concepts, one owner each from the commit they land.
     # Which (provider, model) executed a sealed response, and the one writer of the executor's route key.
     "executed_route": f"{_KERNEL}independence_check.py",
@@ -85,6 +87,8 @@ _PLANTED = {
         "append_jsonl(root / 'memory' / 'learning-events.jsonl', row)\n",
         "append_declared_jsonl(path, row, expected_surface='memory_learning_events')\n",
     ),
+    # F0.6 — a second computer of the streak under the owner's name.
+    "experiment_hypothesis_cut": ("def nonmatching_streaks(observations):\n    return {}\n",),
     # F3.1 — a second function under each computer name of a new family: the resolver, its caller-side wrapper and the
     # key writer; the numstat parse; the stamp's constructor, validator and two readers; the in-flight fold.
     "executed_route": (

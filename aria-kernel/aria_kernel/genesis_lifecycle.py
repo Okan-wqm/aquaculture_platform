@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -96,10 +95,16 @@ class InvalidLifecycleChain:
 
 @dataclass(frozen=True)
 class ReplayedChain:
-    """One entity's replayed lifecycle: its state and the last row's evidence."""
+    """One entity's replayed lifecycle: its state, the last row's evidence and when each state was entered.
+
+    ``entered_at`` maps a state to the ``recorded_at`` stamp of the row that entered it. A lawful chain enters
+    every state at most once (``ALLOWED_TRANSITIONS`` has no cycle), so the stamp is the entry of the entity's
+    one stay. A chain the replay refuses carries none: a row the replay refused never dates anything.
+    """
 
     state: GenesisState | None | InvalidLifecycleChain
     latest_evidence: Mapping[str, Any]
+    entered_at: Mapping[str, str]
 
 
 def _replay(entity_id: str, rows: list[dict[str, Any]], policy_root: Path) -> ReplayedChain:
@@ -110,10 +115,13 @@ def _replay(entity_id: str, rows: list[dict[str, Any]], policy_root: Path) -> Re
     ``to_state`` is not a known state, a recorded from-state that differs, an
     illegal transition or an ACTIVE row without the kernel-computed proof each
     make the chain invalid. A state later added to ``GENESIS_LIFECYCLE_STATES``
-    is read here without another rule.
+    is read here without another rule. The stamp of the row that entered each
+    state is kept for a lawful chain (``ReplayedChain.entered_at``), so no
+    reader walks the rows again to date an entry.
     """
     state: GenesisState | None = None
     reasons: list[str] = []
+    entered_at: dict[str, str] = {}
     for row in rows:
         to_state = row.get("to_state")
         if to_state not in GENESIS_LIFECYCLE_STATES:
@@ -125,9 +133,12 @@ def _replay(entity_id: str, rows: list[dict[str, Any]], policy_root: Path) -> Re
             from_state=state, to_state=to_state, evidence=row.get("evidence") or {}, repo_root=policy_root,
         )
         reasons.extend(verdict.reasons)
+        entered_at[to_state] = str(row.get("recorded_at", ""))
         state = to_state
     latest_evidence = (rows[-1].get("evidence") or {}) if rows else {}
-    return ReplayedChain(InvalidLifecycleChain(entity_id, tuple(reasons)) if reasons else state, latest_evidence)
+    if reasons:
+        return ReplayedChain(InvalidLifecycleChain(entity_id, tuple(reasons)), latest_evidence, {})
+    return ReplayedChain(state, latest_evidence, entered_at)
 
 
 def _rows_by_entity(base_dir: str | Path | None) -> dict[str, list[dict[str, Any]]]:
@@ -143,14 +154,18 @@ def lifecycle_chains(base_dir: str | Path | None = None) -> dict[str, ReplayedCh
     return {entity: _replay(entity, rows, policy_root) for entity, rows in _rows_by_entity(base_dir).items()}
 
 
+def _replayed_chain(entity_id: str, base_dir: str | Path | None) -> ReplayedChain:
+    """One entity's chain, replayed: the one walk of the events file and the one replay a single-entity reader takes."""
+    return _replay(entity_id, _rows_by_entity(base_dir).get(entity_id, []), bound_workspace_root(base_dir))
+
+
 def current_lifecycle_state(
     *,
     entity_id: str,
     base_dir: str | Path | None = None,
 ) -> GenesisState | None | InvalidLifecycleChain:
     """The entity's state as its own rows replay, ``None`` when it has none (see ``InvalidLifecycleChain``)."""
-    rows = _rows_by_entity(base_dir).get(entity_id, [])
-    return _replay(entity_id, rows, bound_workspace_root(base_dir)).state
+    return _replayed_chain(entity_id, base_dir).state
 
 
 def production_block_reason(entity_id: str, *, base_dir: str | Path | None = None) -> str | None:
@@ -179,13 +194,20 @@ def eval_window_entered_at(
     F1.8(a) — the anchor of the paired gain test. The test is valid at every
     look only if the evidence it counts accumulates, so its comparison starts
     at one fixed instant per entity, recorded once in this append-only ledger,
-    rather than sliding with the clock. None when the entity has no
-    EVAL_WINDOW row or its stamp cannot be read; the caller must not invent one.
+    rather than sliding with the clock.
+
+    F1.8a — the anchor is read through the replay (``_replayed_chain``), the
+    same walk ``current_lifecycle_state`` takes, so a row the replay refuses
+    never dates anything. It is the stamp of the row that entered EVAL_WINDOW
+    in a lawful chain whose replayed state is EVAL_WINDOW; None for a chain the
+    replay refuses (``production_block_reason`` blocks it the same way), an
+    entity with no chain, one that is not in EVAL_WINDOW now, and a stamp that
+    cannot be read. The caller must not invent an anchor.
     """
-    for row in _entity_rows(entity_id=entity_id, base_dir=base_dir):
-        if row.get("to_state") == "EVAL_WINDOW":
-            return parse_utc_stamp(str(row.get("recorded_at", "")))
-    return None
+    chain = _replayed_chain(entity_id, base_dir)
+    if chain.state != "EVAL_WINDOW":
+        return None
+    return parse_utc_stamp(chain.entered_at["EVAL_WINDOW"])
 
 
 def validate_transition(

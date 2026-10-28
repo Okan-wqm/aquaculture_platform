@@ -18,6 +18,18 @@ NEW API pinned here (red at the branch base on an assertion that names the missi
 Pinned on behaviour that exists at the base (red on the defect): the paired mode without an
 anchor, the gate's A/A rate when looked at every cycle, the gate's anchor.
 
+F1.8a — THE ANCHOR IS READ THROUGH SE-5. ``eval_window_entered_at`` is a second reader of the lifecycle ledger
+and has no ledger walk of its own: it reads the entity through the replay owner (``_rows_by_entity`` and ``_replay``,
+or ``lifecycle_chains``), so a row the replay refuses never moves the anchor. The anchor exists only for a LAWFUL
+chain whose replayed state is EVAL_WINDOW; an invalid chain, an entity with no chain, or one that has left
+EVAL_WINDOW has none, and the comparison does not run on it (fail closed, as ``production_block_reason`` blocks).
+The fixtures write the chains SE-5's law accepts (``tests/_helpers/lifecycle_chain.py``: every rung from PRESSURE,
+each row carrying the evidence ``validate_transition`` asks of it); the cases that fed it a chain it refuses
+(a lone EVAL_WINDOW row without proof evidence, an ignored unknown ``to_state``, an ACTIVE row without the
+kernel-computed proof) are rewritten to pin the refusal, not dropped (``LifecycleAnchorTests``, ``ForgedChainTests``,
+``ReadsThroughTheReplayTests``). ``_entity_rows`` (F1.8's private iterator) is gone: ``_rows_by_entity`` is the
+one loop.
+
 ASSUMPTIONS the guarantee rests on, one test each:
   A1 nesting      later looks see the earlier pairs unchanged plus new ones
                   (``NestingTests``, ``AnchoredPairingTests``).
@@ -36,6 +48,7 @@ that the in-memory reader and the real ledger read give identical results.
 from __future__ import annotations
 
 import ast
+import dataclasses
 import functools
 import inspect
 import json
@@ -60,8 +73,8 @@ from aria_kernel.agent_eval import EVAL_RUNS_PATH, compare_eval_windows
 from aria_kernel.genesis_policy import default_policy, superiority_policy
 from aria_kernel.genesis_superiority import compute_eval_window_superiority
 from aria_kernel.judge_calibration import wilson_lower
-from aria_kernel.ledger import append_declared_jsonl
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
+from tests._helpers.lifecycle_chain import LADDER, chain, evidence_for, forged_row
 
 SEED = 1729
 # The pre-registered decision values, read from the shipped policy, never typed.
@@ -112,6 +125,11 @@ def _verdict(
 
 def _stamp(at: datetime) -> str:
     return at.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _days_ago(days: int) -> str:
+    """The stamp of an instant ``days`` before the suite's clock."""
+    return _stamp(_NOW - timedelta(days=days))
 
 
 def _parse(stamp: str) -> datetime:
@@ -183,19 +201,31 @@ def _fixed_n_improved(candidate_only: int, incumbent_only: int) -> bool:
     return pairs >= MIN_PAIRS and _tail(candidate_only, pairs) <= Fraction(ALPHA)
 
 
+def _ladder_stamps(last: datetime, through: str) -> dict[str, str]:
+    """A stamp for every rung of the ladder up to ``through``, an hour apart, ``through`` at ``last``."""
+    rungs = LADDER[: LADDER.index(through) + 1]
+    return {state: _stamp(last - timedelta(hours=len(rungs) - 1 - index)) for index, state in enumerate(rungs)}
+
+
 def _enter_eval_window(
-    tools: Path, entity_id: str, at: datetime | None, *, stamp: str | None = None, to_state: str = "EVAL_WINDOW"
+    tools: Path, entity_id: str, at: datetime | None, *, stamp: str | None = None, shadow_at: datetime | None = None
 ) -> None:
-    row: dict[str, Any] = {
-        "schema_version": 1, "entity_id": entity_id, "entity_kind": "agent",
-        "from_state": None, "to_state": to_state, "evidence": {}, "operator_approval_ref": None,
-    }
-    if stamp is not None:
-        row["recorded_at"] = stamp
-    elif at is not None:
-        row["recorded_at"] = at.replace(microsecond=0).isoformat()
-    append_declared_jsonl(
-        genesis_lifecycle.lifecycle_events_path(tools), row, expected_surface="genesis_lifecycle_events"
+    """The LAWFUL chain of an entity that entered EVAL_WINDOW at ``at`` (or at the literal ``stamp``).
+
+    SE-5 replays an entity's rows from nothing, so the entry is the last rung of a chain that replays: every rung
+    from PRESSURE to SHADOW (``shadow_at``, by default an hour before the entry) and an EVAL_WINDOW row that
+    carries the proof evidence ``validate_transition`` demands (``eval_harness_id``, ``fixture_run_id``,
+    ``transcript_hash``, ``operator_provenance_ref``). The F1.8 helper wrote a lone EVAL_WINDOW row with empty
+    evidence and no predecessor: a chain SE-5 refuses, so it can no longer anchor anything.
+    """
+    if stamp is None:
+        assert at is not None, "an entry needs an instant or a literal stamp"
+        stamp = at.replace(microsecond=0).isoformat()
+    if shadow_at is None:
+        shadow_at = (at if at is not None else _NOW - timedelta(days=30)) - timedelta(hours=1)
+    chain(tools, entity_id, "SHADOW", recorded_at=_ladder_stamps(shadow_at, "SHADOW"))
+    forged_row(
+        tools, entity_id, "EVAL_WINDOW", from_state="SHADOW", evidence=evidence_for("EVAL_WINDOW"), recorded_at=stamp
     )
 
 
@@ -777,32 +807,76 @@ class PeekedEffectTests(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# 9. the lifecycle anchor
+# 9. the lifecycle anchor, read through SE-5's replay
 # ---------------------------------------------------------------------------
 
+def _state(tools: Path, entity_id: str) -> Any:
+    return genesis_lifecycle.current_lifecycle_state(entity_id=entity_id, base_dir=tools)
+
+
 class LifecycleAnchorTests(_LedgerCase):
+    """The anchor is the entry stamp of a LAWFUL chain whose replayed state is EVAL_WINDOW, and nothing else."""
+
     def _entered(self, entity_id: str) -> datetime | None:
         return _api(genesis_lifecycle, "eval_window_entered_at")(entity_id=entity_id, base_dir=self.tools)
 
     def test_it_returns_the_instant_the_entity_entered_eval_window(self) -> None:
         entered = _NOW - timedelta(days=3)
-        _enter_eval_window(self.tools, "cand", None, to_state="SHADOW", stamp=_stamp(_NOW - timedelta(days=9)))
-        _enter_eval_window(self.tools, "cand", entered)
+        _enter_eval_window(self.tools, "cand", entered, shadow_at=_NOW - timedelta(days=9))
+        self.assertEqual(_state(self.tools, "cand"), "EVAL_WINDOW", "the fixture is not a lawful chain in EVAL_WINDOW")
         result = self._entered("cand")
         self.assertIsNotNone(result)
         assert result is not None
         self.assertIsNotNone(result.tzinfo)
         self.assertEqual(result, entered)
 
-    def test_a_later_state_does_not_move_the_anchor(self) -> None:
+    def test_the_anchor_is_the_entry_stamp_and_the_rows_of_other_entities_do_not_move_it(self) -> None:
+        # The lawful twin of F1.8's "an unknown to_state row is ignored": the entry stamp is the anchor, and rows
+        # written after it (here another entity's, to ACTIVE, stamped later) do not move it.
         entered = _NOW - timedelta(days=3)
-        _enter_eval_window(self.tools, "cand", entered)
-        _enter_eval_window(self.tools, "cand", _NOW - timedelta(days=1), to_state="ACTIVE")
+        _enter_eval_window(self.tools, "cand", entered, shadow_at=_NOW - timedelta(days=9))
+        chain(self.tools, "other", "ACTIVE", recorded_at=_ladder_stamps(_NOW - timedelta(days=1), "ACTIVE"))
+        self.assertEqual(_state(self.tools, "cand"), "EVAL_WINDOW")
+        self.assertEqual(_state(self.tools, "other"), "ACTIVE")
+        self.assertIsNone(_state(self.tools, "nobody"))
         self.assertEqual(self._entered("cand"), entered)
 
-    def test_an_entity_that_never_entered_has_no_anchor(self) -> None:
-        _enter_eval_window(self.tools, "cand", _NOW - timedelta(days=3), to_state="SHADOW")
+    def test_an_unknown_to_state_makes_the_chain_invalid_so_there_is_no_anchor(self) -> None:
+        # F1.8 asserted that the unknown row is IGNORED (state EVAL_WINDOW, anchor kept). SE-5's rule: a row naming
+        # a state the vocabulary does not know breaks the chain, so the entity has no state and no anchor.
+        _enter_eval_window(self.tools, "cand", _NOW - timedelta(days=3), shadow_at=_NOW - timedelta(days=9))
+        forged_row(
+            self.tools, "cand", "NOT-A-STATE", from_state="EVAL_WINDOW", recorded_at=_days_ago(2)
+        )
+        chain(self.tools, "other", "ACTIVE", recorded_at=_ladder_stamps(_NOW - timedelta(days=1), "ACTIVE"))
+        self.assertIsInstance(_state(self.tools, "cand"), genesis_lifecycle.InvalidLifecycleChain)
+        self.assertEqual(_state(self.tools, "other"), "ACTIVE")
+        self.assertIsNone(_state(self.tools, "nobody"))
         self.assertIsNone(self._entered("cand"))
+
+    def test_an_entity_that_left_eval_window_has_no_anchor(self) -> None:
+        # Ruling 1: the anchor belongs to the entity that is in EVAL_WINDOW now. F1.8 kept it after ACTIVE, but its
+        # ACTIVE row carried no kernel-computed proof, a chain SE-5 refuses; the lawful chain has left the window.
+        chain(self.tools, "promoted", "ACTIVE", recorded_at=_ladder_stamps(_NOW - timedelta(days=1), "ACTIVE"))
+        _enter_eval_window(self.tools, "rejected", _NOW - timedelta(days=3))
+        forged_row(
+            self.tools, "rejected", "REJECTED", from_state="EVAL_WINDOW", evidence={},
+            recorded_at=_days_ago(1),
+        )
+        for entity, state in (("promoted", "ACTIVE"), ("rejected", "REJECTED")):
+            with self.subTest(entity=entity):
+                self.assertEqual(_state(self.tools, entity), state, "the fixture is not a lawful chain")
+                self.assertIsNone(self._entered(entity))
+
+    def test_an_entity_that_never_entered_has_no_anchor(self) -> None:
+        # Every lawful chain that stops before EVAL_WINDOW (and a rejected draft) has rows with readable stamps; the
+        # last row's stamp is not an anchor.
+        for through in (*LADDER[: LADDER.index("SHADOW") + 1], "REJECTED"):
+            with self.subTest(through=through):
+                entity = f"before-{through.lower()}"
+                chain(self.tools, entity, through)
+                self.assertEqual(_state(self.tools, entity), through, "the fixture is not a lawful chain")
+                self.assertIsNone(self._entered(entity))
         self.assertIsNone(self._entered("nobody"))
 
     def test_another_entitys_row_is_not_the_anchor(self) -> None:
@@ -812,38 +886,270 @@ class LifecycleAnchorTests(_LedgerCase):
 
     def test_an_unreadable_stamp_is_no_anchor_and_a_naive_stamp_is_read_as_utc(self) -> None:
         _enter_eval_window(self.tools, "garbled", None, stamp="not-a-stamp")
+        self.assertEqual(_state(self.tools, "garbled"), "EVAL_WINDOW", "the fixture is not a lawful chain")
         self.assertIsNone(self._entered("garbled"))
         _enter_eval_window(self.tools, "naive", None, stamp=(_NOW - timedelta(days=2)).replace(tzinfo=None).isoformat())
         self.assertEqual(self._entered("naive"), _NOW - timedelta(days=2))
 
-    def test_the_current_state_reader_still_answers_from_the_same_ledger(self) -> None:
-        _enter_eval_window(self.tools, "cand", _NOW - timedelta(days=9), to_state="SHADOW")
-        _enter_eval_window(self.tools, "cand", _NOW - timedelta(days=3))
-        _enter_eval_window(self.tools, "cand", _NOW - timedelta(days=2), to_state="NOT-A-STATE")
-        _enter_eval_window(self.tools, "other", _NOW - timedelta(days=1), to_state="ACTIVE")
-        self.assertEqual(genesis_lifecycle.current_lifecycle_state(entity_id="cand", base_dir=self.tools), "EVAL_WINDOW")
-        self.assertEqual(genesis_lifecycle.current_lifecycle_state(entity_id="other", base_dir=self.tools), "ACTIVE")
-        self.assertIsNone(genesis_lifecycle.current_lifecycle_state(entity_id="nobody", base_dir=self.tools))
-        self.assertEqual(self._entered("cand"), _NOW - timedelta(days=3))
 
-    def test_both_readers_share_one_private_iterator_over_the_entity_rows(self) -> None:
-        functions = {
-            node.name: node for node in ast.parse(inspect.getsource(genesis_lifecycle)).body
-            if isinstance(node, ast.FunctionDef)
-        }
-        _api(genesis_lifecycle, "eval_window_entered_at")
+class ForgedChainTests(_LedgerCase):
+    """SE-5: a forged row cannot move an entity, so it cannot anchor one either (fail closed).
 
-        def calls(function: ast.FunctionDef) -> set[str]:
-            return {c.func.id for c in ast.walk(function) if isinstance(c, ast.Call) and isinstance(c.func, ast.Name)}
+    Every forgery carries a perfectly readable EVAL_WINDOW stamp, so a reader that does not ask the replay
+    returns it. Three of them are the inputs F1.8's own fixtures used: the lone entry row, the unknown state that
+    was ignored, and the ACTIVE row without the kernel-computed proof."""
 
-        readers = [functions["current_lifecycle_state"], functions["eval_window_entered_at"]]
-        for reader in readers:
-            self.assertNotIn("load_declared_jsonl", calls(reader), f"{reader.name} loops over the events file itself")
-        shared = calls(readers[0]) & calls(readers[1]) & {name for name in functions if name.startswith("_")}
-        self.assertTrue(
-            any("load_declared_jsonl" in calls(functions[name]) for name in shared),
-            "the two readers do not share one private iterator over the entity's rows",
+    def _forge_unknown_state_after_the_entry(self, entity: str) -> None:
+        _enter_eval_window(self.tools, entity, _NOW - timedelta(days=3))
+        forged_row(self.tools, entity, "NOT-A-STATE", from_state="EVAL_WINDOW", recorded_at=_days_ago(2))
+
+    def _forge_entry_without_proof_evidence(self, entity: str) -> None:
+        chain(self.tools, entity, "SHADOW", recorded_at=_ladder_stamps(_NOW - timedelta(days=4), "SHADOW"))
+        forged_row(self.tools, entity, "EVAL_WINDOW", from_state="SHADOW", evidence={}, recorded_at=_days_ago(3))
+
+    def _forge_lone_entry_row(self, entity: str) -> None:
+        forged_row(self.tools, entity, "EVAL_WINDOW", from_state=None, evidence={}, recorded_at=_days_ago(3))
+
+    def _forge_lone_entry_row_with_proof_evidence(self, entity: str) -> None:
+        forged_row(
+            self.tools, entity, "EVAL_WINDOW", from_state=None, evidence=evidence_for("EVAL_WINDOW"),
+            recorded_at=_days_ago(3),
         )
+
+    def _forge_skipped_state(self, entity: str) -> None:
+        chain(self.tools, entity, "DRAFT", recorded_at=_ladder_stamps(_NOW - timedelta(days=4), "DRAFT"))
+        forged_row(
+            self.tools, entity, "EVAL_WINDOW", from_state="DRAFT", evidence=evidence_for("EVAL_WINDOW"),
+            recorded_at=_days_ago(3),
+        )
+
+    def _forge_a_recorded_from_state_that_differs(self, entity: str) -> None:
+        chain(self.tools, entity, "SHADOW", recorded_at=_ladder_stamps(_NOW - timedelta(days=4), "SHADOW"))
+        forged_row(
+            self.tools, entity, "EVAL_WINDOW", from_state="DRAFT", evidence=evidence_for("EVAL_WINDOW"),
+            recorded_at=_days_ago(3),
+        )
+
+    def _forge_active_without_the_kernel_proof(self, entity: str) -> None:
+        _enter_eval_window(self.tools, entity, _NOW - timedelta(days=3))
+        forged_row(
+            self.tools, entity, "ACTIVE", from_state="EVAL_WINDOW", evidence=evidence_for("ACTIVE", with_proof=False),
+            recorded_at=_days_ago(1),
+        )
+
+    def _forge_a_second_entry(self, entity: str) -> None:
+        # EVAL_WINDOW -> EVAL_WINDOW is no transition: an entity cannot enter the window twice.
+        _enter_eval_window(self.tools, entity, _NOW - timedelta(days=3))
+        forged_row(
+            self.tools, entity, "EVAL_WINDOW", from_state="EVAL_WINDOW", evidence=evidence_for("EVAL_WINDOW"),
+            recorded_at=_days_ago(1),
+        )
+
+    def _forge_a_re_entry_through_shadow(self, entity: str) -> None:
+        # The replay ends in EVAL_WINDOW, but the way back to SHADOW is no transition: neither entry is the
+        # anchor of a stay (the first row and the last row are both readable stamps).
+        _enter_eval_window(self.tools, entity, _NOW - timedelta(days=3))
+        forged_row(
+            self.tools, entity, "SHADOW", from_state="EVAL_WINDOW", evidence=evidence_for("SHADOW"),
+            recorded_at=_days_ago(2),
+        )
+        forged_row(
+            self.tools, entity, "EVAL_WINDOW", from_state="SHADOW", evidence=evidence_for("EVAL_WINDOW"),
+            recorded_at=_days_ago(1),
+        )
+
+    def _forge_an_entry_after_a_rejection(self, entity: str) -> None:
+        chain(self.tools, entity, "REJECTED")
+        forged_row(
+            self.tools, entity, "EVAL_WINDOW", from_state="REJECTED", evidence=evidence_for("EVAL_WINDOW"),
+            recorded_at=_days_ago(3),
+        )
+
+    def _forgeries(self) -> dict[str, Callable[[str], None]]:
+        return {
+            "unknown_state_after_the_entry": self._forge_unknown_state_after_the_entry,
+            "entry_without_proof_evidence": self._forge_entry_without_proof_evidence,
+            "lone_entry_row": self._forge_lone_entry_row,
+            "lone_entry_row_with_proof_evidence": self._forge_lone_entry_row_with_proof_evidence,
+            "skipped_state": self._forge_skipped_state,
+            "a_recorded_from_state_that_differs": self._forge_a_recorded_from_state_that_differs,
+            "active_without_the_kernel_proof": self._forge_active_without_the_kernel_proof,
+            "a_second_entry": self._forge_a_second_entry,
+            "a_re_entry_through_shadow": self._forge_a_re_entry_through_shadow,
+            "an_entry_after_a_rejection": self._forge_an_entry_after_a_rejection,
+        }
+
+    def _entered(self, entity_id: str) -> datetime | None:
+        return _api(genesis_lifecycle, "eval_window_entered_at")(entity_id=entity_id, base_dir=self.tools)
+
+    def test_a_chain_the_replay_refuses_has_no_anchor(self) -> None:
+        for name, forge in self._forgeries().items():
+            with self.subTest(forgery=name):
+                forge(name)
+                # The premise, from API that exists at the base: SE-5 refuses the chain.
+                self.assertIsInstance(
+                    _state(self.tools, name), genesis_lifecycle.InvalidLifecycleChain,
+                    f"the fixture {name!r} is a lawful chain, so it proves nothing",
+                )
+                self.assertIsNone(self._entered(name), f"{name}: a chain the replay refuses anchored the comparison")
+
+    def test_a_forged_chain_does_not_cost_a_lawful_entity_its_anchor(self) -> None:
+        entered = _NOW - timedelta(days=4)
+        self._forge_entry_without_proof_evidence("forged")
+        _enter_eval_window(self.tools, "lawful", entered)
+        self._forge_a_second_entry("forged-too")
+        self.assertIsNone(self._entered("forged"))
+        self.assertIsNone(self._entered("forged-too"))
+        self.assertEqual(self._entered("lawful"), entered)
+
+
+class ReadsThroughTheReplayTests(_LedgerCase):
+    """``eval_window_entered_at`` has no ledger walk of its own: SE-5's replay is the one reader of the events file."""
+
+    LOADERS = frozenset({"load_declared_jsonl", "load_jsonl", "open"})
+    READERS = ("current_lifecycle_state", "eval_window_entered_at")
+
+    @classmethod
+    def violations(cls, source: str) -> list[str]:
+        """What SE-5's one-owner law finds wrong with a module's way of reading the lifecycle events ledger.
+
+        The loop over the events file is ``_rows_by_entity`` and nothing else reaches the file (a loader called
+        from a reader, or from any function a reader calls, is a second walk); both readers reach it through that
+        loop AND replay what it returns (``_replay``, directly or through ``lifecycle_chains``); ``_entity_rows``,
+        F1.8's private iterator, does not come back."""
+        functions = {node.name: node for node in ast.parse(source).body if isinstance(node, ast.FunctionDef)}
+        calls = {
+            name: {c.func.id for c in ast.walk(node) if isinstance(c, ast.Call) and isinstance(c.func, ast.Name)}
+            for name, node in functions.items()
+        }
+
+        def reachable(name: str) -> set[str]:
+            seen: set[str] = set()
+            pending = [name]
+            while pending:
+                current = pending.pop()
+                if current in seen or current not in functions:
+                    continue
+                seen.add(current)
+                pending.extend(calls[current])
+            return seen
+
+        found: list[str] = []
+        if "_entity_rows" in functions:
+            found.append("_entity_rows is back: a second iterator over the entity's rows")
+        if "_rows_by_entity" not in functions or "_replay" not in functions:
+            found.append("the replay owner (_rows_by_entity, _replay) is missing")
+        for reader in cls.READERS:
+            if reader not in functions:
+                found.append(f"{reader} is missing")
+                continue
+            reached = reachable(reader)
+            walkers = sorted(name for name in reached if calls[name] & cls.LOADERS)
+            if walkers != ["_rows_by_entity"]:
+                found.append(f"{reader} reads the ledger through {walkers}, not through _rows_by_entity alone")
+            for owner in ("_rows_by_entity", "_replay"):
+                if owner not in reached:
+                    found.append(f"{reader} never reaches {owner}")
+        return found
+
+    def test_the_one_loop_over_the_events_file_is_rows_by_entity(self) -> None:
+        _api(genesis_lifecycle, "eval_window_entered_at")
+        self.assertEqual(self.violations(inspect.getsource(genesis_lifecycle)), [])
+        self.assertFalse(hasattr(genesis_lifecycle, "_entity_rows"))
+
+    def test_the_check_accepts_both_lawful_shapes_and_fails_the_mutant_readers(self) -> None:
+        shared = (
+            "def _rows_by_entity(base_dir):\n"
+            "    return load_declared_jsonl(lifecycle_events_path(base_dir), expected_surface='x')\n"
+            "def _replay(entity_id, rows, root):\n    return rows\n"
+            "def lifecycle_chains(base_dir):\n"
+            "    return {e: _replay(e, r, base_dir) for e, r in _rows_by_entity(base_dir).items()}\n"
+            "def current_lifecycle_state(*, entity_id, base_dir=None):\n"
+            "    return _replay(entity_id, _rows_by_entity(base_dir).get(entity_id, []), base_dir)\n"
+        )
+        lawful = (
+            "def eval_window_entered_at(*, entity_id, base_dir=None):\n"
+            "    return _replay(entity_id, _rows_by_entity(base_dir).get(entity_id, []), base_dir)\n"
+        )
+        lawful_through_the_chains = (
+            "def eval_window_entered_at(*, entity_id, base_dir=None):\n"
+            "    return lifecycle_chains(base_dir).get(entity_id)\n"
+        )
+        loops_the_file_itself = (
+            "def eval_window_entered_at(*, entity_id, base_dir=None):\n"
+            "    for row in load_declared_jsonl(lifecycle_events_path(base_dir), expected_surface='x'):\n"
+            "        return row\n"
+        )
+        loops_the_file_through_another_loader = (
+            "def eval_window_entered_at(*, entity_id, base_dir=None):\n"
+            "    return [row for row in load_jsonl(events_file(base_dir))]\n"
+        )
+        walks_through_a_helper = (
+            "def _entity_rows(*, entity_id, base_dir=None):\n"
+            "    return [r for r in load_declared_jsonl(lifecycle_events_path(base_dir), expected_surface='x')]\n"
+            "def eval_window_entered_at(*, entity_id, base_dir=None):\n"
+            "    return _entity_rows(entity_id=entity_id, base_dir=base_dir)\n"
+        )
+        never_replays = (
+            "def eval_window_entered_at(*, entity_id, base_dir=None):\n"
+            "    return _rows_by_entity(base_dir).get(entity_id)\n"
+        )
+        self.assertEqual(self.violations(shared + lawful), [])
+        self.assertEqual(self.violations(shared + lawful_through_the_chains), [])
+        for name, mutant in (
+            ("loops_the_file_itself", loops_the_file_itself),
+            ("loops_the_file_through_another_loader", loops_the_file_through_another_loader),
+            ("walks_through_a_helper", walks_through_a_helper),
+            ("never_replays", never_replays),
+        ):
+            with self.subTest(mutant=name):
+                self.assertTrue(self.violations(shared + mutant), f"the check accepts the mutant reader {name}")
+
+    def test_each_reader_walks_the_events_ledger_once_and_replays_once(self) -> None:
+        # One walk and one replay per question: a reader that asks the state first and then walks the rows itself
+        # (two walks of the same ledger) reads the entity at two moments and can answer from two different chains.
+        _enter_eval_window(self.tools, "cand", _NOW - timedelta(days=3))
+        entered = _api(genesis_lifecycle, "eval_window_entered_at")
+        readers = {
+            "current_lifecycle_state": lambda: _state(self.tools, "cand"),
+            "eval_window_entered_at": lambda: entered(entity_id="cand", base_dir=self.tools),
+        }
+        for name, ask in readers.items():
+            with self.subTest(reader=name):
+                with mock.patch.object(
+                    genesis_lifecycle, "load_declared_jsonl", wraps=genesis_lifecycle.load_declared_jsonl
+                ) as walks, mock.patch.object(genesis_lifecycle, "_replay", wraps=genesis_lifecycle._replay) as replays:
+                    answer = ask()
+                self.assertIsNotNone(answer)
+                self.assertEqual(walks.call_count, 1, f"{name} walked the ledger {walks.call_count} times")
+                self.assertEqual(replays.call_count, 1, f"{name} replayed {replays.call_count} times")
+
+    def test_the_anchor_follows_what_the_replay_says_not_what_the_rows_say(self) -> None:
+        # The rows are lawful. If the replay owner says the chain is invalid, or says the entity is elsewhere, the
+        # entity has no anchor: a reader that reads the rows past the replay is a second owner.
+        entered = _api(genesis_lifecycle, "eval_window_entered_at")
+        stamp = _NOW - timedelta(days=3)
+        _enter_eval_window(self.tools, "cand", stamp)
+        real_replay = genesis_lifecycle._replay
+        self.assertEqual(entered(entity_id="cand", base_dir=self.tools), stamp)
+        verdicts = {
+            "invalid": genesis_lifecycle.InvalidLifecycleChain("cand", ("forced_by_the_test",)),
+            "shadow": "SHADOW",
+            "active": "ACTIVE",
+            "none": None,
+        }
+        for name, state in verdicts.items():
+            with self.subTest(replayed_state=name):
+                with mock.patch.object(
+                    genesis_lifecycle, "_replay",
+                    side_effect=lambda *a, _state=state, **k: dataclasses.replace(real_replay(*a, **k), state=_state),
+                ):
+                    self.assertIsNone(entered(entity_id="cand", base_dir=self.tools))
+        with mock.patch.object(
+            genesis_lifecycle, "_replay",
+            side_effect=lambda *a, **k: dataclasses.replace(real_replay(*a, **k), state="EVAL_WINDOW"),
+        ):
+            self.assertEqual(entered(entity_id="cand", base_dir=self.tools), stamp)
 
 
 # ---------------------------------------------------------------------------
@@ -914,6 +1220,36 @@ class GateTests(_LedgerCase):
         self.assertEqual(proof["window"]["test"], SEQUENTIAL_TEST_NAME)
         self.assertEqual(_parse(proof["window"]["window_start"]), GATE_ANCHOR)
         self.assertTrue(proof["passed"], proof["reasons"])
+
+    def test_a_forged_chain_gives_the_gate_no_anchor_and_nothing_can_pass(self) -> None:
+        # F1.8 entered the window with a lone EVAL_WINDOW row without proof evidence. SE-5 refuses that chain, so the
+        # entity has no anchor and the comparison starts at the look: no evidence, no promotion (as production
+        # is blocked for the same entity). Read from the forged row it would be 'improved' (100 pairs).
+        forged_row(self.tools, "cand", "EVAL_WINDOW", from_state=None, evidence={}, recorded_at=_stamp(GATE_ANCHOR))
+        self.assertIsInstance(_state(self.tools, "cand"), genesis_lifecycle.InvalidLifecycleChain)
+        _write_runs(self.tools, self._better_runs("cand"))
+        before = datetime.now(timezone.utc)
+        proof = compute_eval_window_superiority(entity_id="cand", base_dir=self.tools)
+        after = datetime.now(timezone.utc)
+        self.assertFalse(proof["passed"], "100 better runs promoted an entity whose chain does not replay")
+        self.assertEqual(proof["window"]["verdict"], "insufficient_evidence")
+        self.assertTrue(
+            before <= _parse(proof["window"]["window_start"]) <= after, "the comparison was anchored at a forged row"
+        )
+
+    def test_the_promotion_record_carries_the_proof_anchored_at_the_replayed_entry(self) -> None:
+        # The producer path end to end: record_transition replays the chain, computes the proof kernel-side
+        # (anchored at the entry the replay yields) and writes an ACTIVE row that itself replays.
+        _enter_eval_window(self.tools, "cand", GATE_ANCHOR)
+        _write_runs(self.tools, self._better_runs("cand"))
+        row = genesis_lifecycle.record_transition(
+            entity_id="cand", entity_kind="agent", to_state="ACTIVE", evidence={"reviewers": ["r1", "r2"]},
+            base_dir=self.tools,
+        )
+        window = row["evidence"]["resolved_eval_window_superiority"]["window"]
+        self.assertEqual(window["verdict"], "improved")
+        self.assertEqual(_parse(window["window_start"]), GATE_ANCHOR)
+        self.assertEqual(_state(self.tools, "cand"), "ACTIVE")
 
 
 @functools.lru_cache(maxsize=None)

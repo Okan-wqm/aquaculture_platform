@@ -74,6 +74,12 @@ def _answer(request: dict, *, verdict: str | None = None, reason: str | None = N
                        "evidence_refs": ["aria-kernel/aria_kernel/judge_fanout.py:1"]}
     if verdict is not None:
         consensus["verdict"] = verdict
+        # J3 — a weighing brief is answered with a ruling per side before the verdict; the sides
+        # are the verdicts the arbiter's bound seats voted.
+        sides = sorted({str(seat["verdict"]) for seat in request["arbiter_inputs"]["facts"]})
+        consensus["side_rulings"] = [
+            {"verdict": side, "ruling": "upheld" if side == verdict else "speculative"} for side in sides
+        ]
     else:
         consensus["uncertainty_reason"] = reason
     return {"role": CONSENSUS_ARBITRATION_ROLE, "request_id": request["request_id"],
@@ -262,10 +268,11 @@ class UnverifiableRateCeilingTest(_Case):
 
 class ArbiterNonVerdictIsTerminalTest(_Case):
     def test_an_aggregation_non_verdict_is_terminal_and_counted(self) -> None:
-        # Corrective B1 (arch) — a legacy split gets the aggregation brief,
-        # whose gate a split fails by construction, so an honest arbiter
-        # answers judge_disagreement. The arbiter lane has one non-verdict:
-        # the terminal one, with the arbiter's stated reason kept beside it.
+        # Corrective B1 (arch) — an arbiter that cannot close a split (before
+        # J3 the aggregation brief's gate, which a split fails by construction;
+        # now a weighing that finds nothing to rule on) answers
+        # judge_disagreement. The arbiter lane has one non-verdict: the
+        # terminal one, with the arbiter's stated reason kept beside it.
         from aria_kernel.feedback_store import unverifiable_rate
         from aria_kernel.judge_fanout import _uncertain_group_keys, arbitration_groups
 

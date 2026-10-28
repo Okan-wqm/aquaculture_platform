@@ -4,14 +4,15 @@
 // WHY: nothing watched documentation truth — a runbook can name a script
 // that was deleted a year ago and stay green forever. Stale docs are worse
 // than missing docs: they answer confidently and wrongly.
-// WHAT (deterministic, fs-only): every backtick-quoted repo path in
-// docs/**/*.md is resolved against the working tree; a reference to a path
-// that no longer exists is a `doc_references_missing_path` finding with the
-// doc's file:line as evidence. Globs, placeholders, and line-suffixed refs
-// are handled so the rule stays low-noise. Point-in-time records (see
-// isPointInTimeRecord) are read but never flagged: they describe the repo as
-// it was on their date, so a path they cite that is gone since is history,
-// not staleness (ARIA-HIGH-202).
+// WHAT (deterministic, fs-only): every backtick-quoted repo path in the
+// markdown the manifest's roots name (documentation directories, and the live
+// root documents as file roots) is resolved against the working tree; a
+// reference to a path that no longer exists is a `doc_references_missing_path`
+// finding with the doc's file:line as evidence. Globs, placeholders, and
+// line-suffixed refs are handled so the rule stays low-noise. Point-in-time
+// records (see isPointInTimeRecord) are read but never flagged: they describe
+// the repo as it was on their date, so a path they cite that is gone since is
+// history, not staleness (ARIA-HIGH-202).
 // A missing path is stale only where the doc CLAIMS it exists. A reference
 // the doc marks as a file to create, proposes, states is absent or excluded,
 // or lists as a change target it never evidences makes no such claim — see
@@ -20,6 +21,7 @@ import { relative } from 'node:path';
 
 import {
   collectFiles,
+  containedWorkspace,
   filterFilesBySnapshot,
   isArchivedWorkspacePath,
   normalizeWorkspacePath,
@@ -81,6 +83,8 @@ const PATH_PREFIXES = [
   'tools/',
   'web/',
 ];
+
+const DOC_EXTENSION = '.md';
 
 const BACKTICK_SPAN_RE = /`([^`\n]+)`/g;
 
@@ -357,11 +361,24 @@ export function analyzeDocStaleness(
   const findings: AdapterFinding[] = [];
   const readPaths: string[] = [];
 
+  // A root is a directory walked for its markdown, or one markdown file read
+  // as itself (collectFiles lists a directory's entries; it cannot take a file).
+  const workspace = containedWorkspace(workspaceRoot);
+  const docsUnder = (root: string): readonly string[] => {
+    const entry = workspace.entry(normalizeWorkspacePath(relative(workspaceRoot, root)));
+    if (entry !== 'file') {
+      return collectFiles(workspaceRoot, root, { extensions: [DOC_EXTENSION] });
+    }
+    if (!root.endsWith(DOC_EXTENSION)) {
+      throw new Error(`doc-staleness-adapter: scan root is not a markdown file: ${root}`);
+    }
+    return [root];
+  };
   const docs = filterFilesBySnapshot(
     roots
       .map((root) => resolveInsideWorkspace(workspaceRoot, root))
       .filter((root) => workspacePathExists(workspaceRoot, root))
-      .flatMap((root) => collectFiles(workspaceRoot, root, { extensions: ['.md'] })),
+      .flatMap(docsUnder),
     workspaceRoot,
     input,
   );

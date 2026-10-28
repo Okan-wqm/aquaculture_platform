@@ -96,10 +96,9 @@ class EvidenceWeighingArbiterTests(_PanelCase):
         self.assertTrue(any("unverifiable" in line for line in render_judge_verdict_rules()))
 
     def test_a_method_panel_split_is_weighed_not_aggregated(self) -> None:
-        """The live split lane picks its brief by the receipts: a panel
-        whose seats carry method receipts gets the identity-stripped,
-        class-ranked weighing brief; a legacy split (no methods anywhere)
-        keeps the aggregation brief byte for byte."""
+        """A panel whose seats carry method receipts gets the identity-stripped,
+        class-ranked weighing brief. (J3: so does every other split, a legacy
+        pair included: test_j3_every_split_weighed.)"""
         from aria_kernel.agent_invocations import list_agent_invocation_requests
         from aria_kernel.judge_fanout import dispatch_arbiter_for_split_verdicts
         from aria_kernel.judgment_bridge import record_judge_verdict_from_response

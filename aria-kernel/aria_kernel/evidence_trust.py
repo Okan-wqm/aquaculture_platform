@@ -212,6 +212,15 @@ class EvidenceEnvelope:
 REPO_OR_GLOB_VERIFIED_GRADES: frozenset[str] = frozenset(
     {"repo_verified", "repo_glob_verified"}
 )
+# J3 — the grades by which the tree positively does NOT carry a citation:
+# nothing at the path (``missing``), a ref the grammar or the workspace
+# refuses (``invalid``), ARIA's own output (``self_output``), or bytes that
+# differ from the committed tree at the target (``worktree_candidate``). The
+# two host-side grades (``baseline_unavailable``, ``verification_unavailable``)
+# say nothing about the citation and sit in neither set.
+TREE_DISAGREES_GRADES: frozenset[str] = frozenset(
+    {"missing", "invalid", "self_output", "worktree_candidate"}
+)
 
 
 class EvidencePolicy:

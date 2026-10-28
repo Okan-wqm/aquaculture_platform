@@ -119,8 +119,13 @@ export interface ServiceBootstrapOptions {
   /**
    * Additional NestFactory.create() options merged with the defaults.
    * Use this for rawBody, bodyParser overrides, etc.
+   *
+   * `logger` is excluded by type: these options are spread AFTER the kernel
+   * StructuredLoggerService, so a `logger` key would replace the PII-redacting
+   * sink (OBS-CRITICAL-008). Pinned by
+   * tests/invariants/structured-logger-single-authority.spec.ts.
    */
-  nestFactoryOptions?: Partial<NestApplicationOptions>;
+  nestFactoryOptions?: Omit<Partial<NestApplicationOptions>, 'logger'>;
 
   /**
    * Override or extend the default ValidationPipe configuration.

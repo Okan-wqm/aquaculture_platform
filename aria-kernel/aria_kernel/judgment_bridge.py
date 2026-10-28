@@ -41,6 +41,7 @@ from .feedback_store import (
     CONSENSUS_MIN_CONFIDENCE,
     FEEDBACK_SEVERITIES,
     FEEDBACK_VERDICTS,
+    SIDE_RULINGS,
     generate_ai_consensus,
     record_operator_feedback,
 )
@@ -227,6 +228,56 @@ def stamped_confidence_source(details: dict[str, Any]) -> tuple[str, str | None]
     return str(stamp), None
 
 
+def arbiter_side_rulings(
+    request: dict[str, Any], verdict_block: dict[str, Any],
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """J3 — the per-side rulings a weighing arbiter's verdict carries, as
+    recorded, and the reasons they are refused.
+
+    The sides are the verdicts the arbiter's bound seats voted
+    (``judge_fanout.arbiter_sides``); every side is ruled exactly once with a
+    member of ``SIDE_RULINGS``. The recorded entry names the seat answers
+    (request ids) on its side, read off the bound inputs, never off the
+    arbiter's own claim.
+    """
+    from .judge_fanout import arbiter_sides
+
+    sides = arbiter_sides(request)
+    if sides is None:
+        return [], ["judge_verdict.side_rulings:inputs_unbound"]
+    given = verdict_block.get("side_rulings")
+    if not isinstance(given, list) or not given:
+        return [], ["judge_verdict.side_rulings:absent"]
+    errors: list[str] = []
+    ruled: dict[str, str] = {}
+    for entry in given:
+        side = entry.get("verdict") if isinstance(entry, dict) else None
+        ruling = entry.get("ruling") if isinstance(entry, dict) else None
+        if not isinstance(side, str) or side not in sides:
+            errors.append(f"judge_verdict.side_rulings:unknown_side:{side!r}")
+        elif side in ruled:
+            errors.append(f"judge_verdict.side_rulings:duplicate_side:{side}")
+        elif ruling not in SIDE_RULINGS:
+            errors.append(f"judge_verdict.side_rulings:ruling_invalid:{ruling!r}")
+        else:
+            ruled[side] = ruling
+    errors.extend(f"judge_verdict.side_rulings:side_unruled:{side}" for side in sides if side not in ruled)
+    return (
+        [{"verdict": side, "ruling": ruled[side], "request_ids": request_ids}
+         for side, request_ids in sides.items() if side in ruled],
+        errors,
+    )
+
+
+def _weighs_sides(request: dict[str, Any], role: Any, verdict: Any) -> bool:
+    """J3 — a verdict-bearing answer to the EVIDENCE WEIGHING brief owes a
+    ruling per side. The non-verdict answer (``unverifiable``) weighed nothing
+    and owes none; anchor, belief and pre-J3 envelopes carry another brief."""
+    from .judge_fanout import is_weighing_brief
+
+    return role == "consensus_arbitration" and verdict in FEEDBACK_VERDICTS and is_weighing_brief(request)
+
+
 def validate_judge_response(
     *,
     request: dict[str, Any],
@@ -309,6 +360,8 @@ def validate_judge_response(
             pass
         else:
             errors.append(f"judge_verdict.verdict:invalid:{verdict!r}")
+    if _weighs_sides(request, role, verdict):
+        errors.extend(arbiter_side_rulings(request, verdict_block)[1])
     if verdict == "true_positive":
         errors.extend(_unmet_true_positive_premises(request, response))
     tool_id = request.get("tool_id") or verdict_block.get("tool_id")
@@ -568,6 +621,10 @@ def record_judge_verdict_from_response(
         # above): a judge's payload never names its own request or tree.
         request_ids=[str(request["request_id"])] if request.get("request_id") else None,
         target_sha=request_anchor_sha(request),
+        # J3 — the arbiter's ruling on each side it weighed (validated above).
+        side_rulings=(
+            arbiter_side_rulings(request, verdict_block)[0] if _weighs_sides(request, role, verdict) else None
+        ),
         base_dir=base_dir,
     )
     return row

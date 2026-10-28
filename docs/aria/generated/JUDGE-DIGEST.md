@@ -6,7 +6,7 @@
 
 # ARIA Judge Contract Digest
 
-source_hash: sha256:409e98cf644db83abe0d8e43b62978b557e4a5b4254d6a022d51f794cae21b3e
+source_hash: sha256:9fcc970dd84f1931d8ef6ad15ed1aa372ca9fd5ab5370a6305960a606bd15a4a
 
 Preamble digest for the runtime-dispatched judge, panel-seat and worker
 agents. Every
@@ -154,9 +154,10 @@ Two prompt-delivery paths exist and they differ structurally:
 - `evidence_judgment` → **aria-evidence-judge** (reads evidence_refs in order)
 - `adversarial_judgment` → **aria-adversarial-judge** (reads in REVERSE order;
   hunts counter-evidence)
-- `consensus_arbitration` → **aria-consensus-arbiter** (gate: ≥2 unique
-  judges, verdict agreement, mean confidence ≥ 0.80; otherwise no verdict and a
-  `details.consensus.uncertainty_reason` from the closed vocabulary)
+- `consensus_arbitration` → **aria-consensus-arbiter** (weighs each split's
+  evidence, not its votes, and rules `upheld`, `evidence_missing`,
+  `evidence_contradicts` or `speculative` on each side; if nothing can be
+  weighed: no verdict and a closed-vocabulary `details.consensus.uncertainty_reason`)
 - Supporting: `change_intelligence` → **aria-change-intelligence** (diff →
   revalidation impact map); `goldset_curation` → **aria-goldset-curator**
   (fixture proposals, operator-gated promotion; bar ≥20 TP / ≥10 FP per tool).

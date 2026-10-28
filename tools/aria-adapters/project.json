@@ -29,9 +29,9 @@
         "{workspaceRoot}/infra/**",
         "{workspaceRoot}/deploy/**",
         "{workspaceRoot}/nginx/**",
-        "{workspaceRoot}/docker-compose*.yml",
-        "{workspaceRoot}/Dockerfile.agent-tooling",
-        "{workspaceRoot}/apps/sensor-ingestion/Dockerfile",
+        "{workspaceRoot}/**/Dockerfile*",
+        "{workspaceRoot}/**/*.{Dockerfile,dockerfile}",
+        "{workspaceRoot}/**/{docker-,}compose*.{yml,yaml}",
         "{workspaceRoot}/.gitleaks.toml",
         "{workspaceRoot}/.github/manifests/postgres-image.json"
       ],
@@ -44,6 +44,7 @@
           "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/bundle-budget-adapter.test.ts",
           "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/doc-staleness-adapter.test.ts",
           "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/event-contracts-adapter.test.ts",
+          "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/event-contracts-schema-agreement.test.ts",
           "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/fe-dto-parity-adapter.test.ts",
           "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/infrastructure-policy-adapter.test.ts",
           "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/kernel-dead-wire-adapter.test.ts",
@@ -54,11 +55,13 @@
           "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/rust-source.test.ts",
           "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/rust-test-files.test.ts",
           "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/security-boundary-adapter.test.ts",
+          "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/security-boundary-adapter.nats.test.ts",
           "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/shell-script.test.ts",
           "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/sql-migration-safety-adapter.test.ts",
           "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/tenant-scoping-adapter.test.ts",
           "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/test-gap-adapter.test.ts",
           "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/typeorm-entity-schema-adapter.test.ts",
+          "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/typeorm-entity-schema-adapter.forbidden.test.ts",
           "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/workflow-shell-safety-adapter.test.ts"
         ]
       }

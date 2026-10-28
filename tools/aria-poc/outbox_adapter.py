@@ -56,6 +56,8 @@ import sys
 from pathlib import Path
 from typing import Iterable
 
+from adapter_scope import is_excluded_source
+
 
 REPO_ROOT_ENV = "ARIA_REPO_ROOT"
 
@@ -63,14 +65,6 @@ REPO_ROOT_ENV = "ARIA_REPO_ROOT"
 _FALLBACK_SCANNED_GLOBS: tuple[str, ...] = ("apps/*/src/**/*.ts",)
 SCANNED_GLOBS: tuple[str, ...] = _FALLBACK_SCANNED_GLOBS
 
-_SKIP_SUBSTRINGS: tuple[str, ...] = (
-    "node_modules/",
-    "dist/",
-    "/__tests__/",
-    ".spec.ts",
-    ".test.ts",
-    "/migrations/",
-)
 # The outbox machinery publishes by design; it is what the rule protects. Its
 # files are read (a service registers the outbox there) but never judged.
 _OUTBOX_DIR = "/outbox/"
@@ -127,9 +121,7 @@ def _service_of(rel: str) -> str:
 
 
 def _in_scope(rel: str) -> bool:
-    return bool(_SERVICE_SOURCE_RE.match(rel)) and rel.endswith(".ts") and not any(
-        skip in rel for skip in _SKIP_SUBSTRINGS
-    )
+    return bool(_SERVICE_SOURCE_RE.match(rel)) and rel.endswith(".ts") and not is_excluded_source(rel)
 
 
 def _iter_files_from_globs(root: Path, patterns: Iterable[str]) -> list[Path]:

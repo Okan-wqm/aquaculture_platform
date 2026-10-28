@@ -8,6 +8,8 @@ export type { IEventBus as EventBus } from './interfaces/event-bus.interface';
 // applies, and the dead-letter sink contract.
 export * from './interfaces/handler-outcome';
 export * from './interfaces/dead-letter-sink';
+// PLAT-HIGH-936: the scope the bus runs each handler (and its dead-letter record) in.
+export * from './interfaces/event-handler-scope';
 
 // NATS Implementation
 export * from './nats/nats-event-bus';

@@ -14,6 +14,7 @@ import {
   AuditedOperationModule,
 } from '@aquaculture/backend-common/audit';
 import { TenantErasureTargetModule } from '@aquaculture/backend-common/compliance';
+import { TenantEventHandlerScope } from '@aquaculture/backend-common/context';
 import {
   AuditColumnsModule,
   createSchemaVersionGate,
@@ -218,6 +219,12 @@ const GRAPHQL_MAX_COMPLEXITY = 1000;
         useFactory: (repository: Repository<NotificationLog>) =>
           new NotificationLogDeadLetterSink(repository),
       },
+      // PLAT-HIGH-936: a NATS handler has no HTTP request behind it, so the
+      // RLS pool patch read an empty frame and every write to notification_logs
+      // (TaskOverdue, TaskCreated, ...) was refused and redelivered. The bus
+      // runs every handler, and the dead-letter record of its event, inside
+      // the event tenant's frame, bound here once.
+      handlerScope: { useFactory: () => new TenantEventHandlerScope() },
     }),
     NotificationOutboxModule,
     TenantErasureTargetModule.forService('notification-service'),

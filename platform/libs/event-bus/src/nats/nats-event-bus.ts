@@ -53,6 +53,11 @@ import {
   EventMetadata,
 } from '../interfaces/event-bus.interface';
 import {
+  EVENT_HANDLER_SCOPE,
+  PassThroughEventHandlerScope,
+  type IEventHandlerScope,
+} from '../interfaces/event-handler-scope';
+import {
   HandlerOutcome,
   foldHandlerOutcomes,
   outcomeForError,
@@ -212,6 +217,8 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
 
   /** PLAT-HIGH-902: where terminated / retry-exhausted messages are recorded. */
   private readonly deadLetterSink: IDeadLetterSink;
+  /** PLAT-HIGH-936: the scope every handler and dead-letter record of an event runs in. */
+  private readonly handlerScope: IEventHandlerScope;
   private readonly deliveryMetrics: EventBusDeliveryMetrics;
 
   /**
@@ -225,9 +232,11 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
     @Inject('EVENT_BUS_OPTIONS') @Optional() moduleOptions?: EventBusModuleOptions,
     @Inject('EVENT_UPCASTER_REGISTRY') @Optional() upcasterRegistry?: EventUpcasterRegistry,
     @Inject(EVENT_DEAD_LETTER_SINK) @Optional() deadLetterSink?: IDeadLetterSink,
+    @Inject(EVENT_HANDLER_SCOPE) @Optional() handlerScope?: IEventHandlerScope,
   ) {
     this.upcasterRegistry = upcasterRegistry;
     this.deadLetterSink = deadLetterSink ?? new LoggingDeadLetterSink();
+    this.handlerScope = handlerScope ?? new PassThroughEventHandlerScope();
     this.deliveryMetrics = new EventBusDeliveryMetrics(
       this.configService.get<string>('SERVICE_NAME', 'unknown-service'),
     );
@@ -1459,7 +1468,7 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
       const outcomes: HandlerOutcome[] = [];
       for (const handler of handlers) {
         try {
-          outcomes.push(await handler.handle(event));
+          outcomes.push(await this.handlerScope.run(event, () => handler.handle(event)));
         } catch (handlerError) {
           // A handler that THROWS is classified by exactly the rule that
           // classifies one that RETURNS: an error redelivery cannot fix
@@ -1642,16 +1651,20 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
       `${event.eventType} on ${subject} dead-lettered (${disposition.retryExhausted ? 'retry exhausted' : 'terminated'}): ${disposition.reason}`,
     );
     try {
-      await this.deadLetterSink.record({
-        subject,
-        event,
-        reason: disposition.reason,
-        disposition: disposition.retryExhausted ? 'retry-exhausted' : 'terminated',
-        deliveryCount,
-        maxDeliver,
-        ...(disposition.cause === undefined ? {} : { cause: disposition.cause }),
-        terminatedAt: new Date().toISOString(),
-      });
+      // The record is a write on behalf of the event's tenant, so it runs in
+      // the same scope as the handler that failed.
+      await this.handlerScope.run(event, () =>
+        this.deadLetterSink.record({
+          subject,
+          event,
+          reason: disposition.reason,
+          disposition: disposition.retryExhausted ? 'retry-exhausted' : 'terminated',
+          deliveryCount,
+          maxDeliver,
+          ...(disposition.cause === undefined ? {} : { cause: disposition.cause }),
+          terminatedAt: new Date().toISOString(),
+        }),
+      );
     } catch (sinkError) {
       this.logger.error(
         `Dead-letter sink failed for ${event.eventType} (eventId=${event.eventId}) — message terminated without a durable record`,

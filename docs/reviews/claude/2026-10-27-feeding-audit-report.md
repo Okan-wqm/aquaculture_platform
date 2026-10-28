@@ -73,7 +73,7 @@ The ten root causes that were not already registered by the first series. Each i
 
 ## FARM-HIGH-488 — Protocol editor: an edit cannot clear optional columns (species, temperature adjustments, description) and the FCR-matrix editor is transposed against the backend contract
 
-- **Rule:** A cleared field is cleared (null is a value, undefined is not) and the editor's matrix axes are the backend's: fcrValues[temperatureIndex][weightIndex].
+- **Rule:** A cleared field is cleared (null is a value, undefined is not) and the editor's matrix axes are the backend's: `fcrValues[temperatureIndex][weightIndex]`.
 - **Evidence:** `apps/farm-service/src/feeding-protocol/handlers/protocol-crud.handlers.ts:211`, `web/modules/farm-module/src/pages/feeding/components/ProtocolBuilderTab.tsx:280`, `web/modules/farm-module/src/pages/feeding/components/ProtocolBuilderTab.tsx:433`, `apps/farm-service/src/feeding-protocol/services/protocol-validation.service.ts:1`.
 - **What was seen:** Source plus a live render: after '+ Add weight' the editor holds 5 rows x 4 columns and the server check 5 !== 4 rejects it; a square default grid is accepted and stored with its axes swapped. TypeORM skips undefined properties, so an emptied field never reaches the UPDATE. Fix: send null to clear (set speciesId and speciesName together) and transpose the editor; add a handler spec (none exists).
 
@@ -120,7 +120,7 @@ The ten root causes that were not already registered by the first series. Each i
 | #2175 growth input validators, enum wire values, measuredBy user id        | FARM-HIGH-482                             |
 | #2177 refresh bucket sized for a shared address                            | SEC-MEDIUM-212                            |
 
-#2167, #2169, #2175 and #2177 are the follow-up PRs for the findings this audit registered and left open in the first four. The two findings the follow-up work itself uncovered (PLAT-HIGH-937, PLAT-HIGH-938) are tracked, not fixed, in `docs/reviews/claude/2026-10-27-tracked-findings-fix.md`.
+The follow-up PRs #2167, #2169, #2175 and #2177 are for the findings this audit registered and left open in the first four. The two findings the follow-up work itself uncovered (PLAT-HIGH-937, PLAT-HIGH-938) are tracked, not fixed, in `docs/reviews/claude/2026-10-27-tracked-findings-fix.md`.
 
 ## Every finding, by tab
 

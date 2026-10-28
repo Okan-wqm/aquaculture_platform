@@ -544,6 +544,218 @@ scenario('a dated or historical header does not make a record', () => {
   );
 });
 
+// DOCROLES review point: the repo names its live authority itself. A document
+// that carries ARIA-LIVE-AUTHORITY within its first 5 lines (MARKER_HEAD_LINES)
+// says it supersedes stale statements, yet docs/aria/SPEC.md is named SPEC.md,
+// so the file-name token rule made it a record and none of its references was
+// checked. The banner outranks ONLY that rule: a record directory, a dated
+// name, an archive path, an ARIA-HISTORICAL or ARIA-SUPERSEDED marker and a
+// Status header stay record causes, banner or not.
+const LIVE_AUTHORITY_BANNER =
+  '<!-- ARIA-LIVE-AUTHORITY: docs/aria/CURRENT_STATE.md and executable contracts supersede stale runtime/provider/branch statements in this document. -->';
+// A document of 45 lines: heading, background notes, and `placed` on its lines
+// (1-based). Line 45 is past both the 5-line marker head and the 40-line status head.
+const docWith = (placed: Readonly<Record<number, string>>): string[] =>
+  Array.from(
+    { length: 45 },
+    (_, index) => placed[index + 1] ?? (index === 0 ? '# Guide' : `Background note ${index + 1}.`),
+  );
+const bannerOnLine = (position: number): string[] => docWith({ [position]: LIVE_AUTHORITY_BANNER });
+const NAMED_LIKE_THE_REAL_ONES = [
+  'docs/aria/SPEC.md',
+  'docs/aria/PLAN.md',
+  'docs/aria/audit-tables.md',
+];
+// The three names above, then every token in every spelling the token rule
+// reads, under docs/guides/, libs/ and the root: the banner is read in the
+// document, never in a path.
+const TOKEN_NAMED_DOCS = [
+  ...NAMED_LIKE_THE_REAL_ONES,
+  'SPEC.md',
+  'libs/shared/docs/plan.md',
+  ...FILE_NAME_TOKENS.flatMap((token) => [
+    `${token}.md`,
+    `${token.toUpperCase()}.md`,
+    `ops-${token}.md`,
+    `ops_${token}_notes.md`,
+    `ops.${token}.md`,
+    `ops ${token} notes.md`,
+  ]).map((name) => (name.includes('/') ? name : `docs/guides/${name}`)),
+];
+
+scenario('the live-authority banner on line 1 keeps a document named for a token live', () => {
+  assert.deepEqual(
+    failing(TOKEN_NAMED_DOCS, (name) => !isPointInTimeRecord(name, bannerOnLine(1))),
+    [],
+    'these documents carry the banner on line 1 and are still read as a record',
+  );
+  // The real shape: banner, blank line, heading (docs/aria/SPEC.md).
+  assert.equal(
+    isPointInTimeRecord('docs/aria/SPEC.md', [LIVE_AUTHORITY_BANNER, '', '# ARIA Snowball']),
+    false,
+  );
+});
+
+// GUARD: the banner is what rescues the name; no path, and no name, does. The
+// mutant: documents under docs/aria/ (or named SPEC) are exempt without a banner.
+scenario('without the banner the same names are still records', () => {
+  assert.deepEqual(
+    failing(TOKEN_NAMED_DOCS, (name) => isPointInTimeRecord(name, docWith({}))),
+    [],
+    'a token-named document without the banner is not read as a record',
+  );
+});
+
+scenario('the banner is read in the first 5 lines: line 5 counts, line 6 does not', () => {
+  const inside = [1, 2, 3, 4, 5].flatMap((position) =>
+    failing(
+      NAMED_LIKE_THE_REAL_ONES,
+      (name) => !isPointInTimeRecord(name, bannerOnLine(position)),
+    ).map((name) => `${name} with the banner on line ${position}`),
+  );
+  assert.deepEqual(inside, [], 'the banner is inside the head and is not read');
+  const outside = [6, 7, 10, 40, 45].flatMap((position) =>
+    failing(NAMED_LIKE_THE_REAL_ONES, (name) =>
+      isPointInTimeRecord(name, bannerOnLine(position)),
+    ).map((name) => `${name} with the banner on line ${position}`),
+  );
+  assert.deepEqual(outside, [], 'the banner is below the head and keeps the document live');
+});
+
+// GUARD (the ruling's mutant): a token, not a substring of another word.
+scenario('a word that merely starts with the banner is not the banner', () => {
+  const lookalikes = [
+    '<!-- ARIA-LIVE-AUTHORITY-NOT: this document is not live authority -->',
+    '<!-- ARIA-LIVE-AUTHORITY-NOT -->',
+    'ARIA-LIVE-AUTHORITY-NOT',
+  ];
+  const wrong = lookalikes.flatMap((lookalike) =>
+    failing(NAMED_LIKE_THE_REAL_ONES, (name) =>
+      isPointInTimeRecord(name, docWith({ 1: lookalike })),
+    ).map((name) => `${name} with ${lookalike}`),
+  );
+  assert.deepEqual(wrong, [], 'a lookalike was read as the banner');
+});
+
+// The banner is a whole token on both sides: a letter or a digit after it, or a
+// word glued before it, makes another word. The `-NOT` suffix above is the case
+// the lead's ruling names; this one extends it, and is kept apart so it can be
+// relaxed alone.
+scenario('the banner is a whole token: letters and digits around it are another word', () => {
+  const lookalikes = [
+    '<!-- ARIA-LIVE-AUTHORITYS: docs/aria/CURRENT_STATE.md -->',
+    '<!-- ARIA-LIVE-AUTHORITY2: docs/aria/CURRENT_STATE.md -->',
+    '<!-- XARIA-LIVE-AUTHORITY: docs/aria/CURRENT_STATE.md -->',
+    '<!-- NOT-ARIA-LIVE-AUTHORITY: docs/aria/CURRENT_STATE.md -->',
+  ];
+  const wrong = lookalikes.flatMap((lookalike) =>
+    failing(NAMED_LIKE_THE_REAL_ONES, (name) =>
+      isPointInTimeRecord(name, docWith({ 2: lookalike })),
+    ).map((name) => `${name} with ${lookalike}`),
+  );
+  assert.deepEqual(wrong, [], 'a longer word was read as the banner');
+});
+
+// The bare spellings of the token the repo's markers use: a comment with a
+// colon (the real one), a comment without one, a bold word, the word alone.
+scenario('the banner is read in a comment with or without a colon, and as a bold word', () => {
+  const spellings = [
+    '<!-- ARIA-LIVE-AUTHORITY -->',
+    '<!-- ARIA-LIVE-AUTHORITY: docs/aria/CURRENT_STATE.md -->',
+    '**ARIA-LIVE-AUTHORITY** — docs/aria/CURRENT_STATE.md supersedes this document.',
+    'ARIA-LIVE-AUTHORITY',
+  ];
+  const wrong = spellings.flatMap((spelling) =>
+    failing(
+      NAMED_LIKE_THE_REAL_ONES,
+      (name) => !isPointInTimeRecord(name, docWith({ 1: spelling })),
+    ).map((name) => `${name} with ${spelling}`),
+  );
+  assert.deepEqual(wrong, [], 'a spelling of the banner is not read');
+});
+
+// GUARD: the five causes the banner does not touch. Each scenario puts the
+// banner on line 1 of a document that holds exactly one other cause, under a
+// token name (the banner rescues the name, the cause remains) and under a name
+// with no token (the banner has nothing to rescue). The mutants: the banner
+// overrides this cause, on every name or on only one kind of name; the banner
+// overrides every cause.
+const readAsLive = (names: readonly string[], lines: readonly string[]): string[] =>
+  failing(names, (name) => isPointInTimeRecord(name, lines));
+
+scenario('a banner document in a reviews or audits directory is still a record', () => {
+  const names = [
+    'docs/reviews/SPEC.md',
+    'docs/audits/PLAN.md',
+    'docs/reviews/claude/audit-tables.md',
+    'docs/reviews/live-notes.md',
+    'docs/audits/aria/ops-guide.md',
+  ];
+  assert.deepEqual(
+    readAsLive(names, bannerOnLine(1)),
+    [],
+    'the banner made a review a live document',
+  );
+});
+
+scenario('a banner document with a date in its name is still a record', () => {
+  const names = [
+    'docs/aria/2026-10-28-SPEC.md',
+    'docs/aria/SPEC-2026-10-28.md',
+    'docs/plans/2026-04-24-queue-rework/PLAN.md',
+    'docs/plans/2026-04-24-queue-rework/ops-guide.md',
+    'docs/aria/2026-10-28-ops-guide.md',
+  ];
+  assert.deepEqual(readAsLive(names, bannerOnLine(1)), [], 'the banner made a dated document live');
+});
+
+scenario('a banner document under an archive path is still a record', () => {
+  const names = [
+    'docs/_archive/SPEC.md',
+    'docs/archive/aria/PLAN.md',
+    'docs/aria/SPEC.archived.md',
+    'docs/plans/_archive/ops-guide.md',
+    'docs/archived/ops-guide.md',
+  ];
+  assert.deepEqual(
+    readAsLive(names, bannerOnLine(1)),
+    [],
+    'the banner made an archived document live',
+  );
+});
+
+scenario('a banner document headed ARIA-HISTORICAL or ARIA-SUPERSEDED is still a record', () => {
+  const names = ['docs/aria/SPEC.md', 'docs/aria/PLAN.md', 'docs/aria/ops-guide.md'];
+  const headers = [
+    docWith({ 1: LIVE_AUTHORITY_BANNER, 3: '<!-- ARIA-HISTORICAL: Historical plan document. -->' }),
+    docWith({ 1: '<!-- ARIA-HISTORICAL: Historical plan document. -->', 2: LIVE_AUTHORITY_BANNER }),
+    docWith({
+      1: LIVE_AUTHORITY_BANNER,
+      5: '<!-- ARIA-SUPERSEDED: replaced by docs/aria/SPEC.md -->',
+    }),
+  ];
+  assert.deepEqual(
+    headers.flatMap((lines) => readAsLive(names, lines)),
+    [],
+    'the banner made a document that says it is historical live',
+  );
+});
+
+scenario('a banner document headed Status: Draft is still a record', () => {
+  const names = ['docs/aria/SPEC.md', 'docs/aria/PLAN.md', 'docs/aria/ops-guide.md'];
+  const headers = [
+    docWith({ 1: LIVE_AUTHORITY_BANNER, 3: 'Status: Draft' }),
+    docWith({ 1: LIVE_AUTHORITY_BANNER, 3: '**Status:** Proposed' }),
+    docWith({ 1: LIVE_AUTHORITY_BANNER, 4: '| Status | Superseded |' }),
+    docWith({ 1: LIVE_AUTHORITY_BANNER, 40: 'Status: Rejected' }),
+  ];
+  assert.deepEqual(
+    headers.flatMap((lines) => readAsLive(names, lines)),
+    [],
+    'the banner made a document with a Status header live',
+  );
+});
+
 const ROW_REF = 'apps/farm-service/src/fx-handler.ts';
 const ROW_SPAN = `\`${ROW_REF}\``;
 const rowRole = (row: string): UnclaimedRole | undefined =>
@@ -719,6 +931,17 @@ const ROLE_CASES: readonly {
       'docs/runbooks/rollback.md:29',
     ],
     recordDocs: 0,
+    creation: 0,
+  },
+  {
+    // The live-authority banner on line 1 keeps SPEC.md live although its name
+    // holds a token, so its missing path is flagged. PLAN.md without the banner,
+    // a banner on line 7 (below the 5-line head) and a banner above a
+    // Status: Draft header are records.
+    name: 'semantic-live-authority-banner',
+    workspace: 'live-authority-banner',
+    flagged: ['docs/aria/SPEC.md:5'],
+    recordDocs: 3,
     creation: 0,
   },
 ];

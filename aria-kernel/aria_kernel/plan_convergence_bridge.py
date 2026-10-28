@@ -42,6 +42,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from .agent_surface import PLANNER_BRIDGE_ROLES
+from .decision_stamp import DECISION_STAMP_FIELD
 from .independence_check import response_principal
 from .plan_origin import carry_started_origin
 from .tool_registry import GovernanceError
@@ -525,6 +526,7 @@ def _dispatch_implementation(
       * claim_id (kernel-issued lease at request time)
       * pr_url, diff_hash, branch_tip_sha, base_branch_sha
       * validation_results, signer_key_fp, completed_at
+      * decision_stamp (F3.1): the executor's stamp, when the record has one
 
     Any missing field surfaces as GovernanceError from the kernel-side
     _validate_event payload check (defense-in-depth — the bridge
@@ -587,6 +589,7 @@ def _dispatch_implementation(
         # an empty one was refused as "completed_at must be a non-empty
         # string" on every implementer result that reached this line.
         completed_at=impl.get("completed_at") or _bridge_utc_now(),
+        decision_stamp=impl.get(DECISION_STAMP_FIELD),
         base_dir=base_dir,
     )
 

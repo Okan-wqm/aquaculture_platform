@@ -207,6 +207,24 @@ class Principal:
         return f"{self.agent}@{self.provider}/{self.model}"
 
 
+# The executor's word for which model ran a sealed response (ORPHAN-HIGH-781,
+# ARIA-MEDIUM-171). Written ONLY through :func:`stamp_dispatch_model`, read here.
+DISPATCH_MODEL_KEY = "agent_dispatch_model"
+
+
+def stamp_dispatch_model(details: dict[str, Any], model: str | None) -> None:
+    """The one writer of ``details[DISPATCH_MODEL_KEY]``: the route's word, never the agent's.
+
+    A named model overwrites whatever the agent wrote under the key; a route that
+    named nothing REMOVES the key rather than leaving the agent's spelling in place,
+    so a response can never carry a stale or self-reported model.
+    """
+    if model:
+        details[DISPATCH_MODEL_KEY] = model
+    else:
+        details.pop(DISPATCH_MODEL_KEY, None)
+
+
 def executed_route(
     response: Mapping[str, Any],
     *,
@@ -234,7 +252,7 @@ def executed_route(
     details = response.get("details")
     if not isinstance(details, dict):
         return None
-    stamped = str(details.get("agent_dispatch_model") or "").strip()
+    stamped = str(details.get(DISPATCH_MODEL_KEY) or "").strip()
     ledger_hash = details.get("runtime_attempt_ledger_hash")
     if ledger_hash:
         matches = [
@@ -335,6 +353,26 @@ class _BoundSeat:
 _LEDGER_READ_FAILURES: tuple[type[BaseException], ...] = (
     GovernanceError, LedgerIntegrityError, LedgerReadLimitError, OSError, ValueError,
 )
+
+
+def executed_route_of(response: Mapping[str, Any], *, base_dir: str | Path) -> tuple[str, str] | None:
+    """:func:`executed_route` for a caller that holds one response and no attempt rows.
+
+    The governance ledger is read only when the envelope names a runtime attempt
+    (``runtime_attempt_ledger_hash``): the spawn path has no attempt row and reads
+    no ledger. A ledger that cannot be read is no route (``None``), as in
+    :func:`_bind_seats`; this function resolves nothing itself.
+    """
+    details = response.get("details")
+    attempt_rows: Sequence[Mapping[str, Any]] = ()
+    if isinstance(details, dict) and details.get("runtime_attempt_ledger_hash"):
+        try:
+            attempt_rows = load_declared_jsonl(
+                Path(base_dir) / "governance.jsonl", expected_surface="tools_governance",
+            )
+        except _LEDGER_READ_FAILURES:
+            return None
+    return executed_route(response, attempt_rows=attempt_rows)
 
 
 def _sealed_response(root: Path, accepted: Mapping[str, Any]) -> dict[str, Any] | None:

@@ -143,6 +143,7 @@ def build_envelope_from_typed_answer(
     """The kernel-valid envelope for one typed answer — built from the
     answer's fields only (no vendor payload passes through), the identity
     stamps written by this route, never by the model."""
+    from aria_kernel.independence_check import stamp_dispatch_model
     from aria_kernel.typed_judgment import materialize_evidence_refs
 
     refs = materialize_evidence_refs(question, answer)
@@ -168,6 +169,15 @@ def build_envelope_from_typed_answer(
         "finding_fingerprint": request.get("finding_fingerprint"),
         "judge_id": subagent_type,
     }
+    details: dict[str, Any] = {
+        "verdict": verdict_block,
+        "agent_subagent_type": subagent_type,
+        "agent_confidence_source": confidence_source,
+        "agent_contract_hash": contract_hash,
+        "runtime_attempt_ledger_hash": attempt_ledger_hash,
+        "judge_batch": True,
+    }
+    stamp_dispatch_model(details, dispatch_model)
     return {
         "$schema": "aria/agent-response/v1",
         "request_id": str(request["request_id"]),
@@ -177,15 +187,7 @@ def build_envelope_from_typed_answer(
         "status": "submitted",
         "satisfaction_matrix": matrix,
         "evidence_refs": list(refs),
-        "details": {
-            "verdict": verdict_block,
-            "agent_subagent_type": subagent_type,
-            "agent_dispatch_model": dispatch_model,
-            "agent_confidence_source": confidence_source,
-            "agent_contract_hash": contract_hash,
-            "runtime_attempt_ledger_hash": attempt_ledger_hash,
-            "judge_batch": True,
-        },
+        "details": details,
     }
 
 

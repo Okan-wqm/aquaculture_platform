@@ -73,10 +73,12 @@ FAMILIES: dict[str, Family] = {
     "python_source_facts": Family("tools-gates", f"{_K}source_facts.py:extract",
                                   ("module_name", "iter_sources", "iter_modules", "deepest_module", "path_parts",
                                    "chain_runs", "flatten_div", "module_bindings", "export_table")),
-    # ARIA-HIGH-1083: what a sampled adapter finding cites is read once; tier-0, the judge fan-out and the verdict
-    # cache key are callers (the retired private readers: tier0._item_refs, judgment_funnel._item_cited_refs).
+    # ARIA-HIGH-1083: what a sampled adapter finding cites is read once; tier-0, the judge fan-out, the verdict cache
+    # key and the System One shadow asks are callers (the retired private readers: tier0._item_refs,
+    # judgment_funnel._item_cited_refs, system_one_points._cited_line).
     "item_citations": Family("judgment", f"{_K}item_citations.py:item_cited_refs",
-                             ("item_cited_refs", "cited_line", "_item_refs", "_item_cited_refs")),
+                             ("item_cited_refs", "cited_line", "cited_target", "_item_refs", "_item_cited_refs",
+                              "_cited_line")),
     # ARIA-HIGH-1084: the mixed-tree law of a closing set; the consensus engine (consumer) and the arbiter's producer
     # (judge_fanout._group_tree) both ask it (the retired private spellings: feedback_store._target_shas, ._common_target_sha).
     "closing_tree": Family("judgment", f"{_K}feedback_store.py:tree_is_mixed",

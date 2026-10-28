@@ -149,7 +149,7 @@ def _tier1_shadow(
     routing ever turns on (crit2-06 selection bias).
     """
     from .system_one import StateRef, ask
-    from .system_one_points import _cited_line
+    from .item_citations import cited_target
 
     out: dict[int, dict[str, Any]] = {}
     if not routed or not isinstance(target_sha, str) or not target_sha.strip():
@@ -158,7 +158,7 @@ def _tier1_shadow(
     for index, item in enumerate(routed):
         if _monotonic() >= deadline:
             break
-        cited = _cited_line(item)
+        cited = cited_target(item)
         if cited is None:
             continue
         path, line = cited

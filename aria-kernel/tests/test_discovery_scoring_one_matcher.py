@@ -36,9 +36,11 @@ equality, not ``assertAlmostEqual``: an unrounded or differently rounded upper b
 differs from the owner's by less than the tolerance a places=4 comparison allows), the
 return shapes ("byte for byte") and the window-per-caller rows.
 
-Not pinned, on purpose: what a CONTROL does with a claim whose lines are not line
-numbers (the base counts any truthy claim list as a false alarm; the specification says
-only that such a claim is no report for a defect, "exactly as _claim_hits ignored it").
+What a CONTROL does with a claim whose lines are not line numbers is pinned by the last
+class, ``ControlDrawsAnyClaimTests``: D3 counted any claim a control drew as a false alarm
+(``if claims:`` before any validation), the unification first dropped a malformed claim and
+so made the zoo's false-alarm rate optimistic, and the ruling is that a control that draws any
+claim is a false alarm, malformed or not, while a malformed claim still cannot hit a defect.
 """
 from __future__ import annotations
 
@@ -362,6 +364,162 @@ class ReturnShapeTests(_Scoring):
 
     def test_the_gold_block_without_cases_is_unmeasured_and_nothing_else(self) -> None:
         self.assertEqual(self.measure([], []), {"status": role_fitness.UNMEASURED_NO_DISCOVERY_CASES})
+
+
+class ControlDrawsAnyClaimTests(_Scoring):
+    """D3's rule the D9a unification dropped: a control that draws ANY claim is a false alarm, malformed or not.
+
+    On origin/main the test was ``if claims:`` before any validation, so a noisy reviewer that answers a clean change
+    with garbage claims scored as a false alarm. A malformed claim (lines that are not line numbers, or no claim object
+    at all) still cannot HIT a defect: a defect is hit only by a claim whose file and line numbers are valid and within
+    the window. Pinned through ``score_zoo_discovery`` only; the way a malformed claim is carried to the fold has no name
+    in the specification.
+    """
+
+    # (name, the claim). Every row is a claim the matcher must never read lines from.
+    MALFORMED: tuple[tuple[str, Any], ...] = (
+        ("string lines", _claim(FARM, "101", "101")),
+        ("float lines", _claim(FARM, 101.0, 101.0)),
+        ("bool lines", _claim(FARM, True, True)),
+        ("bool lines False and True", _claim(FARM, False, True)),
+        ("bool start and int end", _claim(FARM, True, 101)),
+        ("int start and bool end", _claim(FARM, 1, True)),
+        ("None lines", _claim(FARM, None, None)),
+        ("missing line keys", {"file": FARM, "claim_type": "wrong_code"}),
+        ("start_line only", {"file": FARM, "start_line": 101}),
+        ("end_line only", {"file": FARM, "end_line": 101}),
+        ("string end_line", {"file": FARM, "start_line": 101, "end_line": "101"}),
+        ("float start_line", {"file": FARM, "start_line": 101.0, "end_line": 101}),
+        ("claim that is a string", "not a claim"),
+        ("claim that is None", None),
+        ("claim that is an int", 7),
+        ("claim that is a list", [FARM, 101, 101]),
+        ("empty dict", {}),
+    )
+    CONTROL = _label("C1", "control", FARM, 100, 102)
+    # One defect the integer 101 / 101.0 would hit, one that a bool (True is line 1) would hit.
+    DEFECTS = (_label("D1", "defect", FARM, 100, 102), _label("D2", "defect", FARM, 1, 2))
+
+    def control_result(self, *claims: Any) -> dict[str, Any]:
+        return self.zoo({"C1": _answer(*claims)}, [self.CONTROL])["controls"]
+
+    def test_a_control_whose_only_claim_is_malformed_is_a_false_alarm(self) -> None:
+        for name, claim in self.MALFORMED:
+            with self.subTest(shape=name):
+                controls = self.control_result(claim)
+                self.assertEqual(
+                    (controls["n"], controls["false_alarms"]), (1, ["C1"]),
+                    f"a control that drew the claim {claim!r} is scored clean: a control that draws any claim is a "
+                    "false alarm (D3), malformed or not",
+                )
+                self.assertEqual(controls["rate"], 1.0)
+                self.assertEqual(controls["wilson"], wilson_interval(1, 1))
+
+    def test_a_control_that_draws_several_malformed_claims_is_one_false_alarm(self) -> None:
+        every_shape = [claim for _, claim in self.MALFORMED]
+        controls = self.control_result(*every_shape)
+        self.assertEqual((controls["n"], controls["false_alarms"]), (1, ["C1"]))
+        for name, claim in self.MALFORMED:
+            with self.subTest(shape=name, beside="the same shape twice"):
+                self.assertEqual(self.control_result(claim, claim)["false_alarms"], ["C1"])
+
+    def test_a_control_that_draws_a_malformed_claim_beside_a_well_formed_one_is_one_false_alarm(self) -> None:
+        well_formed = _claim(FARM, 101, 101)
+        for name, claim in self.MALFORMED:
+            for order, claims in (("malformed first", (claim, well_formed)), ("malformed last", (well_formed, claim))):
+                with self.subTest(shape=name, order=order):
+                    controls = self.control_result(*claims)
+                    self.assertEqual((controls["n"], controls["false_alarms"]), (1, ["C1"]))
+
+    def test_a_control_whose_claim_is_well_formed_is_a_false_alarm_wherever_its_lines_are(self) -> None:
+        # The rule is "any claim", not "a claim near the control's lines": the zoo's window is for defects.
+        for name, claim in (("on the control", _claim(FARM, 101, 101)), ("far from it", _claim(FARM, 900, 950)),
+                            ("on another file", _claim(HR, 101, 101)), ("no file named", {"start_line": 101, "end_line": 101})):
+            with self.subTest(claim=name):
+                self.assertEqual(self.control_result(claim)["false_alarms"], ["C1"])
+
+    def test_a_control_with_no_claim_is_clean(self) -> None:
+        answers: tuple[tuple[str, dict[str, Any]], ...] = (
+            ("an empty claim list", _answer()),
+            ("no details at all", {"role": "change_intelligence"}),
+            ("details that are None", {"role": "change_intelligence", "details": None}),
+            ("details with no claims key", {"role": "change_intelligence", "details": {"impact_map": {}}}),
+            ("a claims key that is None", {"role": "change_intelligence", "details": {"defect_claims": None}}),
+            ("a claims key that is an empty list", {"role": "change_intelligence", "details": {"defect_claims": []}}),
+        )
+        for name, answer in answers:
+            with self.subTest(answer=name):
+                controls = self.zoo({"C1": answer}, [self.CONTROL])["controls"]
+                self.assertEqual((controls["n"], controls["false_alarms"], controls["rate"]), (1, [], 0.0))
+                self.assertEqual(controls["wilson"], wilson_interval(0, 1))
+
+    def test_a_malformed_claim_on_a_defect_is_never_a_hit_and_leaves_it_a_miss(self) -> None:
+        for defect in self.DEFECTS:
+            for name, claim in self.MALFORMED:
+                with self.subTest(defect=defect["id"], shape=name):
+                    defects = self.zoo({defect["id"]: _answer(claim)}, [defect])["defects"]
+                    self.assertEqual(
+                        (defects["n"], defects["hits"], defects["misses"], defects["recall"]),
+                        (1, [], [defect["id"]], 0.0),
+                        f"the claim {claim!r} is no claim with line numbers, so it hit {defect['id']}",
+                    )
+                    self.assertEqual(defects["wilson"], wilson_interval(0, 1))
+
+    def test_a_malformed_claim_hides_no_hit_when_a_valid_claim_is_within_the_window(self) -> None:
+        for defect in self.DEFECTS:
+            valid = _claim(FARM, defect["line_start"] + 1, defect["line_start"] + 1)
+            for name, claim in self.MALFORMED:
+                for order, claims in (("malformed first", (claim, valid)), ("malformed last", (valid, claim))):
+                    with self.subTest(defect=defect["id"], shape=name, order=order):
+                        defects = self.zoo({defect["id"]: _answer(*claims)}, [defect])["defects"]
+                        self.assertEqual((defects["n"], defects["hits"], defects["misses"]), (1, [defect["id"]], []))
+
+    def test_two_controls_one_clean_and_one_with_only_a_malformed_claim_give_one_alarm_in_two(self) -> None:
+        labels = [_label("C1", "control", FARM, 100, 102), _label("C2", "control", HR, 5, 5)]
+        for name, claim in self.MALFORMED:
+            for drawn_on, clean in (("C2", "C1"), ("C1", "C2")):
+                with self.subTest(shape=name, drawn_on=drawn_on):
+                    controls = self.zoo({clean: _answer(), drawn_on: _answer(claim)}, labels)["controls"]
+                    self.assertEqual((controls["n"], controls["false_alarms"]), (2, [drawn_on]))
+                    self.assertEqual(controls["rate"], 1 / 2)
+                    self.assertEqual(controls["wilson"], wilson_interval(1, 2))
+
+    def test_one_zoo_with_every_kind_of_answer_is_scored_whole(self) -> None:
+        # Four controls (clean, malformed only, well-formed only, malformed beside well-formed) and four defects (a valid
+        # claim in the window, a malformed claim only, a malformed claim beside a valid one, no claim).
+        labels = [
+            _label("C1", "control", FARM, 10, 10), _label("C2", "control", FARM, 10, 10),
+            _label("C3", "control", FARM, 10, 10), _label("C4", "control", FARM, 10, 10),
+            _label("D1", "defect", FARM, 100, 102), _label("D2", "defect", FARM, 100, 102),
+            _label("D3", "defect", FARM, 100, 102), _label("D4", "defect", FARM, 100, 102),
+        ]
+        responses = {
+            "C1": _answer(),
+            "C2": _answer(_claim(FARM, "10", "10")),
+            "C3": _answer(_claim(FARM, 10, 10)),
+            "C4": _answer("garbage", _claim(FARM, 10, 10)),
+            "D1": _answer(_claim(FARM, 105, 105)),
+            "D2": _answer(_claim(FARM, "101", "101"), {}),
+            "D3": _answer(None, _claim(FARM, 112, 112)),
+            "D4": _answer(),
+        }
+
+        result = self.zoo(responses, labels)
+
+        self.assertEqual(result["controls"], {
+            "n": 4, "false_alarms": ["C2", "C3", "C4"], "rate": 3 / 4, "wilson": wilson_interval(3, 4),
+        })
+        self.assertEqual(result["defects"], {
+            "n": 4, "hits": ["D1", "D3"], "misses": ["D2", "D4"], "recall": 2 / 4, "wilson": wilson_interval(2, 4),
+        })
+
+    def test_a_control_whose_claims_field_is_no_list_but_is_not_empty_is_a_false_alarm(self) -> None:
+        # origin/main read ``details.defect_claims or []`` and tested its truth: any truthy value was "a claim".
+        for name, claims in (("a string", "garbage"), ("a dict", {"file": FARM, "start_line": 101, "end_line": 101})):
+            with self.subTest(claims=name):
+                answer = {"role": "change_intelligence", "details": {"defect_claims": claims}}
+                controls = self.zoo({"C1": answer}, [self.CONTROL])["controls"]
+                self.assertEqual((controls["n"], controls["false_alarms"]), (1, ["C1"]))
 
 
 if __name__ == "__main__":

@@ -10,6 +10,9 @@ under a mock gh API factory. Asserts:
 - Action without `ready_for_pr` status cannot open a PR.
 - gh API failure surfaces as `GovernanceError`.
 - push_prepared_branch refuses to push protected base branches.
+- push_prepared_branch is a governed action (ARIA-MEDIUM-1109): a real push is
+  refused under a profile without `pr_push`, and after the operator's approval
+  of the proposal changed, in both cases before any intent row or git command.
 
 
 Plus the apply_engine.gate_apply_action `diff_text` extension:
@@ -19,8 +22,11 @@ Plus the apply_engine.gate_apply_action `diff_text` extension:
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
 import tempfile
 import unittest
+from contextlib import AbstractContextManager
 from pathlib import Path
 from unittest.mock import patch
 
@@ -36,13 +42,23 @@ from aria_kernel.implementation_safety import (
     CANONICAL_VALIDATION_COMMANDS_EXECUTABLE,
     CANONICAL_VALIDATION_TIMEOUT_MS,
 )
+from aria_kernel.ledger import load_declared_jsonl
 from aria_kernel.pr_manager import (
     build_pr_body,
+    commit_prepared_branch,
+    list_pr_actions,
     open_pr_for_action,
+    prepare_branch,
     push_prepared_branch,
 )
-from aria_kernel.proposal import approve_proposal, record_proposal
-from aria_kernel.runtime_profile import set_profile
+from aria_kernel.proposal import (
+    approve_proposal,
+    get_proposal,
+    record_machine_approval,
+    record_proposal,
+)
+from aria_kernel.recovery import EXTERNAL_EFFECTS_RELPATH, EXTERNAL_EFFECTS_SURFACE
+from aria_kernel.runtime_profile import ProfileActionRefused, set_profile
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
 from tests._helpers.declared_fixtures import append_declared_fixture
 from tests._helpers.git_fixtures import implementer_identity_args
@@ -1410,6 +1426,194 @@ class PushBaseBranchProtectionTests(unittest.TestCase):
                 base_dir=self.tools,
                 dry_run=False,
             )
+
+
+class PushIsAGovernedActionTests(unittest.TestCase):
+    """ARIA-MEDIUM-1109 — the branch push is a governed action of the PR pipeline.
+
+    `pr_create` is refused to a profile that may not open a pull request, and
+    `prepare_branch` / `commit_prepared_branch` re-read the operator's approval,
+    yet `push_prepared_branch` put the `aria/*` branch on the remote under ANY
+    profile and on whatever approval the proposal carried. The push is the
+    GitHub-facing half of `pr_create`: it is enrolled in the profile table as
+    `pr_push`, and it re-reads the approval at the moment of the push.
+
+    The fixture runs the real manual lane up to the push — operator approval,
+    `prepare_branch`, `commit_prepared_branch` — under `strict` (the grant that
+    lane needs), against a real bare remote. A refused push is then judged by
+    everything it must NOT have done: no git command, no ref on the remote, no
+    external-effects row, no `push` row in the PR-action ledger.
+    """
+
+    BRANCH = "aria/test-proposal"
+
+    def setUp(self) -> None:
+        self.tools = _seed_tools()  # strict, on the branch BRANCH, one commit ahead
+        self.repo = self.tools.parent
+        self.addCleanup(shutil.rmtree, self.repo, ignore_errors=True)
+        remote_parent = Path(tempfile.mkdtemp(prefix="aria-pr-push-remote-"))
+        self.addCleanup(shutil.rmtree, remote_parent, ignore_errors=True)
+        self.remote = remote_parent / "origin.git"
+        subprocess.run(["git", "init", "-q", "--bare", str(self.remote)], check=True)
+        subprocess.run(
+            ["git", "remote", "add", "origin", str(self.remote)], cwd=self.repo, check=True,
+        )
+        # The tools directory sits inside the fixture workspace; the commit step
+        # stages every changed path, and the ledgers are not part of the branch.
+        with (self.repo / ".git" / "info" / "exclude").open("a", encoding="utf-8") as exclude:
+            exclude.write("aria-tools/\n")
+        self.pid = _seed_proposal(tools=self.tools)["proposal_id"]
+        _seed_apply_action(tools=self.tools, proposal_id=self.pid, status="ready_for_pr")
+        prepare_branch(
+            proposal_id=self.pid, workspace_root=self.repo, base_dir=self.tools, dry_run=False,
+        )
+        (self.repo / "PUSH-NOTE.txt").write_text("the change the operator approved\n", encoding="utf-8")
+        commit_prepared_branch(
+            proposal_id=self.pid, workspace_root=self.repo, base_dir=self.tools, dry_run=False,
+        )
+        self.head_sha = _rev_parse(self.repo, self.BRANCH)
+
+    # ----- helpers ----------------------------------------------------------
+
+    def _recording_git(self) -> tuple[AbstractContextManager[object], list[list[str]]]:
+        """A seam over `pr_manager._git` that records every argv and still runs it."""
+        from aria_kernel import pr_manager
+
+        real_git = pr_manager._git
+        git_calls: list[list[str]] = []
+
+        def recording_git(cwd: Path, args: list[str]) -> str:
+            git_calls.append(list(args))
+            return real_git(cwd, args)
+
+        return patch("aria_kernel.pr_manager._git", side_effect=recording_git), git_calls
+
+    def _push(self, *, dry_run: bool) -> tuple[dict, list[list[str]]]:
+        """Run the push; return its row and every git argv `pr_manager` ran."""
+        seam, git_calls = self._recording_git()
+        with seam:
+            row = push_prepared_branch(
+                proposal_id=self.pid, workspace_root=self.repo, base_dir=self.tools, dry_run=dry_run,
+            )
+        return row, git_calls
+
+    def _push_refused(self, exception: type[Exception]) -> tuple[Exception, list[list[str]]]:
+        """Run a real push that must raise `exception`; return it and the git argv run."""
+        seam, git_calls = self._recording_git()
+        with seam, self.assertRaises(exception) as refused:
+            push_prepared_branch(
+                proposal_id=self.pid, workspace_root=self.repo, base_dir=self.tools, dry_run=False,
+            )
+        return refused.exception, git_calls
+
+    def _remote_branch_sha(self) -> str | None:
+        completed = subprocess.run(
+            ["git", "--git-dir", str(self.remote), "rev-parse", "--verify", "--quiet",
+             f"refs/heads/{self.BRANCH}"],
+            capture_output=True, text=True, check=False,
+        )
+        return completed.stdout.strip() or None
+
+    def _effect_rows(self) -> list[dict]:
+        effects = self.tools.joinpath(*EXTERNAL_EFFECTS_RELPATH)
+        if not effects.exists():
+            return []
+        return load_declared_jsonl(effects, expected_surface=EXTERNAL_EFFECTS_SURFACE)
+
+    def _push_rows(self) -> list[dict]:
+        return [row for row in list_pr_actions(base_dir=self.tools) if row.get("action") == "push"]
+
+    def _assert_nothing_happened(self, git_calls: list[list[str]]) -> None:
+        """What a refused push leaves behind: nothing, anywhere."""
+        self.assertEqual(git_calls, [], "a refused push runs no git command")
+        self.assertIsNone(self._remote_branch_sha(), "a refused push leaves no ref on the remote")
+        self.assertEqual(
+            self._effect_rows(), [],
+            "a refused push writes no external-effects row for recovery to chase",
+        )
+        self.assertEqual(self._push_rows(), [], "a refused push records no push row")
+
+    def _withdraw_the_operator_approval(self) -> None:
+        """A later proposal row that carries no approval: the operator took it back."""
+        proposal = get_proposal(proposal_id=self.pid, base_dir=self.tools)
+        withdrawn = {
+            key: value for key, value in proposal.items() if key != "operator_approval"
+        }
+        withdrawn.update(
+            status="open", approval_source=None, operator_approval_ref=None,
+            machine_approval_ref=None, recorded_at="2099-01-01T00:00:00Z",
+        )
+        append_declared_fixture(
+            self.tools / "proposals" / "proposals.jsonl", withdrawn, expected_surface="proposals",
+        )
+
+    # ----- the pins ---------------------------------------------------------
+
+    def test_the_fixture_stands_on_a_committed_branch_with_an_empty_remote(self) -> None:
+        self.assertEqual(_rev_parse(self.repo, "HEAD"), self.head_sha)
+        self.assertIsNone(self._remote_branch_sha())
+        self.assertEqual(self._effect_rows(), [])
+        commit_rows = [row for row in list_pr_actions(base_dir=self.tools) if row.get("action") == "commit"]
+        self.assertEqual([row["commit_sha"] for row in commit_rows], [self.head_sha])
+
+    def test_a_real_push_under_standard_is_refused_before_any_effect(self) -> None:
+        operator_set_profile("standard", base_dir=self.tools)
+        refused, git_calls = self._push_refused(ProfileActionRefused)
+        message = str(refused)
+        for needle in ("profile_violation", "'pr_push'", "'standard'", "strict", "autonomous"):
+            self.assertIn(needle, message)
+        self._assert_nothing_happened(git_calls)
+
+    def test_a_real_push_under_strict_still_pushes_with_one_intent_and_one_receipt(self) -> None:
+        row, _git_calls = self._push(dry_run=False)
+        self.assertEqual(
+            (row["action"], row["status"], row["dry_run"], row["branch"], row["remote"]),
+            ("push", "pushed", False, self.BRANCH, "origin"),
+        )
+        self.assertEqual(self._remote_branch_sha(), self.head_sha)
+        effects = self._effect_rows()
+        self.assertEqual([effect["event"] for effect in effects], ["intent", "receipt"])
+        intent, receipt = effects
+        self.assertEqual(intent["effect_kind"], "git_push")
+        self.assertEqual(intent["target"], f"origin/{self.BRANCH}")
+        self.assertEqual(
+            intent["intended_postcondition"],
+            {"branch": self.BRANCH, "remote": "origin", "head_sha": self.head_sha, "proposal_id": self.pid},
+        )
+        self.assertEqual(receipt["operation_id"], intent["operation_id"])
+        self.assertEqual(receipt["status"], "confirmed")
+        self.assertEqual(
+            receipt["observed_receipt"],
+            {"branch": self.BRANCH, "remote": "origin", "head_sha": self.head_sha},
+        )
+        self.assertEqual(len(self._push_rows()), 1)
+
+    def test_a_push_after_the_approval_was_withdrawn_is_refused_before_any_effect(self) -> None:
+        self._withdraw_the_operator_approval()
+        refused, git_calls = self._push_refused(GovernanceError)
+        self.assertIn("push_prepared_branch_requires_operator_approval", str(refused))
+        self._assert_nothing_happened(git_calls)
+
+    def test_a_push_after_a_machine_approval_replaced_the_operators_is_refused(self) -> None:
+        record_machine_approval(
+            proposal_id=self.pid, plan_id="plan-after-the-commit",
+            content_hash="sha256:" + "0" * 64, base_dir=self.tools,
+        )
+        refused, git_calls = self._push_refused(GovernanceError)
+        self.assertIn("push_prepared_branch_requires_operator_approval", str(refused))
+        self._assert_nothing_happened(git_calls)
+
+    def test_a_dry_run_push_under_standard_still_returns_the_planned_row(self) -> None:
+        operator_set_profile("standard", base_dir=self.tools)
+        row, git_calls = self._push(dry_run=True)
+        self.assertEqual(
+            (row["action"], row["status"], row["dry_run"], row["branch"], row["remote"]),
+            ("push", "planned", True, self.BRANCH, "origin"),
+        )
+        self.assertEqual(git_calls, [], "a planned push has no git effect")
+        self.assertIsNone(self._remote_branch_sha())
+        self.assertEqual(self._effect_rows(), [], "a planned push records no intent")
+        self.assertEqual(len(self._push_rows()), 1)
 
 
 class ApplyGateSuppressionScanTests(unittest.TestCase):

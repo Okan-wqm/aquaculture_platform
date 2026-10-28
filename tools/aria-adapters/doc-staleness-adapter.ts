@@ -12,7 +12,9 @@
 // line-suffixed refs are handled so the rule stays low-noise. Point-in-time
 // records (see isPointInTimeRecord) are read but never flagged: they describe
 // the repo as it was on their date, so a path they cite that is gone since is
-// history, not staleness (ARIA-HIGH-202).
+// history, not staleness (ARIA-HIGH-202). A document is a record by where it
+// lives, by what its name says it is, and by the status its own header gives
+// it (ARIA-MEDIUM-1108).
 // A missing path is stale only where the doc CLAIMS it exists. A reference
 // the doc marks as a file to create, proposes, states is absent or excluded,
 // or lists as a change target it never evidences makes no such claim — see
@@ -130,12 +132,15 @@ const END_WORD = '(?![\\p{L}\\p{N}_])';
 const word = (body: string): RegExp => new RegExp(`${NOT_LETTER}(?:${body})${END_WORD}`, 'iu');
 
 // The file is to be created: `(new)`, `(NEW) -- …`, `(new — …)`, `— YENİ`,
-// a `Create:` list verb. `(new mutations)` is not a creation marker: it adds
-// to a file that exists.
+// a `Create:` list verb, a table row with a Create or New cell. `(new
+// mutations)` is not a creation marker: it adds to a file that exists. The
+// cell is the whole word, read once the row's backtick spans are removed:
+// `| Renewal |` and `| Create index |` claim nothing about the row's file.
 const CREATION_RES: readonly RegExp[] = [
   /\(\s*(?:new|yeni|YENİ)(?:\s+file)?\s*(?:\)|—|–|--|,|-)/iu,
   /(?:—|–|--)\s*(?:new|yeni|YENİ)(?:\s+file)?(?![\p{L}\p{N}_])/iu,
   /^\s*(?:[-*+]|\d+\.)\s+(?:\*\*)?(?:create|add|oluştur)(?:\*\*)?\s*:/iu,
+  /^\s*\|(?:[^|]*\|)*?\s*(?:create|new|oluştur|yeni|YENİ)\s*(?:\||$)/iu,
 ];
 // The doc proposes the surface: it names where a future artifact would live.
 const PROPOSAL_RES: readonly RegExp[] = [
@@ -338,6 +343,39 @@ const DATED_SEGMENT_RE = /(?:^|[^0-9])[0-9]{4}-[0-9]{2}-[0-9]{2}(?:[^0-9]|$)/;
 // authority (tests/invariants/aria-doc-runtime-ssot.spec.ts PLAN_MARKERS).
 const RECORD_MARKERS = ['ARIA-HISTORICAL', 'ARIA-SUPERSEDED'];
 const MARKER_HEAD_LINES = 5;
+// A document named for what it is — a report, an audit, a plan — records one
+// revision of the repo. The name is read by token, never by substring
+// (`planning-guide.md` and `inspector.md` are live), and only in the base
+// name: a directory keeps the rules above.
+const RECORD_NAME_TOKENS: ReadonlySet<string> = new Set([
+  'report',
+  'review',
+  'audit',
+  'verification',
+  'spec',
+  'plan',
+  'inventory',
+  'findings',
+  'retro',
+]);
+const NAME_SEPARATOR_RE = /[-_.\s]/;
+// A document whose header says its own status is not live authority: an ADR
+// that is Proposed or Draft has no built surface to cite, and a Superseded,
+// Deprecated or Rejected one describes a design that was dropped. The value
+// is exactly the word, then at most a date or a parenthesis (`Status:
+// Proposed (2026-04-21)`): `Accepted`, `Drafting` and `Proposed-then-…` are
+// not a status. A plain, bold or list-item line, or the cell after a `Status`
+// cell of a table row, spells it.
+const RECORD_STATUS_WORDS = ['proposed', 'draft', 'superseded', 'deprecated', 'rejected'];
+const STATUS_HEAD_LINES = 40;
+const STATUS_LABEL = '\\*{0,2}status\\*{0,2}';
+const STATUS_VALUE =
+  `\\*{0,2}\\s*(?:${RECORD_STATUS_WORDS.join('|')})\\*{0,2}` +
+  '(?:\\s+[0-9]{4}-[0-9]{2}-[0-9]{2})?(?:\\s*\\(.*)?\\s*';
+const STATUS_HEADER_RES: readonly RegExp[] = [
+  new RegExp(`^\\s*(?:[-*+]\\s+)?${STATUS_LABEL}\\s*:\\s*${STATUS_VALUE}$`, 'i'),
+  new RegExp(`^\\s*\\|\\s*${STATUS_LABEL}\\s*\\|\\s*${STATUS_VALUE}(?:\\||$)`, 'i'),
+];
 
 export function isPointInTimeRecord(docRel: string, lines: readonly string[]): boolean {
   const segments = normalizeWorkspacePath(docRel).split('/');
@@ -346,9 +384,14 @@ export function isPointInTimeRecord(docRel: string, lines: readonly string[]): b
     segments.some(
       (segment) => RECORD_DIR_SEGMENTS.has(segment) || DATED_SEGMENT_RE.test(segment),
     ) ||
+    segments[segments.length - 1]
+      .toLowerCase()
+      .split(NAME_SEPARATOR_RE)
+      .some((token) => RECORD_NAME_TOKENS.has(token)) ||
     lines
       .slice(0, MARKER_HEAD_LINES)
-      .some((line) => RECORD_MARKERS.some((marker) => line.includes(marker)))
+      .some((line) => RECORD_MARKERS.some((marker) => line.includes(marker))) ||
+    lines.slice(0, STATUS_HEAD_LINES).some((line) => STATUS_HEADER_RES.some((re) => re.test(line)))
   );
 }
 

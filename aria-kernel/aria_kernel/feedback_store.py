@@ -66,7 +66,7 @@ CONSENSUS_UNCERTAINTY_REASONS = (
     # callers (independence_check): the settle path asks it too.
     "panel_echo",
     # J5 (SEPT-HARVEST §2) — an anchor-grade closing set whose seats judged
-    # different trees (no ``_common_target_sha``): agreement about no single
+    # different trees (``tree_is_mixed``): agreement about no single
     # tree, so it neither becomes ground truth nor suppresses. The group's
     # sub-anchor precision row (the pair settled at one tree) stands.
     "target_sha_mixed",
@@ -1521,7 +1521,7 @@ def generate_ai_consensus(
         if (
             len(closing) >= ANCHOR_MIN_JUDGE_COUNT
             and dissenting == 0
-            and len(_target_shas(closing)) > 1
+            and tree_is_mixed(closing)
         ):
             uncertainties.append(
                 _consensus_uncertainty(
@@ -1545,7 +1545,7 @@ def generate_ai_consensus(
                 )
                 continue
         closing_refs = sorted({ref for row in closing for ref in _optional_string_list(row.get("evidence_refs"))})
-        closing_sha = _common_target_sha(closing)
+        closing_sha = common_target_sha(closing)
         consensus_rows.append(
             record_operator_feedback(
                 tool_id=tool_id,
@@ -1711,15 +1711,28 @@ def _store_cited_code_hash(
     return cited_blobs_code_hash(repo_root, refs, at_sha, session=session)
 
 
-def _target_shas(rows: list[dict[str, Any]]) -> set[str]:
+def target_shas(rows: list[dict[str, Any]]) -> set[str]:
     """The commits the rows were judged at; ``""`` stands for a row that
-    names none. More than one member is a mixed-tree set (ARIA-HIGH-004, J5)."""
+    names none (ARIA-HIGH-004, J5)."""
     return {str(row.get("target_sha") or "") for row in rows}
 
 
-def _common_target_sha(rows: list[dict[str, Any]]) -> str | None:
+def tree_is_mixed(rows: list[dict[str, Any]]) -> bool:
+    """The ONE mixed-tree law of a closing set (ARIA-HIGH-1084): do the rows
+    name more than one commit? ``""`` counts as a member, so an unnamed row
+    beside a named one is mixed and an all-unnamed set is not.
+
+    The consumer asks it to refuse an anchor-grade set as ``target_sha_mixed``
+    (``generate_ai_consensus``); the arbiter's producer asks it to hold a group
+    whose seats judged different trees (``judge_fanout._group_tree``) instead of
+    minting an arbiter whose answer would be refused. A change of the law is a
+    change of this function."""
+    return len(target_shas(rows)) > 1
+
+
+def common_target_sha(rows: list[dict[str, Any]]) -> str | None:
     """The one commit every row was judged at, or None (ARIA-HIGH-004)."""
-    shas = _target_shas(rows)
+    shas = target_shas(rows)
     if len(shas) != 1:
         return None
     sha = shas.pop()

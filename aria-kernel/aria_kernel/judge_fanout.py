@@ -30,7 +30,7 @@ from .request_admission import Admission, admit_request
 from .rule_contract import RuleContract, resolve_rule_contract
 from .system_one_points import shadow_judge_fanout
 from .text_safety import untrusted_block
-from .tool_registry import GovernanceError, ensure_tools_dir
+from .tool_registry import GovernanceError, append_tools_governance_once, ensure_tools_dir
 
 
 # Two distinct judge roles → two distinct judge_ids on the same finding. The
@@ -686,18 +686,65 @@ def arbiter_inputs(subject: str, facts: Any) -> dict[str, Any]:
 
 
 def _seat_inputs(by_judge: dict[str, dict[str, Any]]) -> dict[str, Any]:
-    """A finding group's arbiter inputs: each seat's identity, verdict and the
+    """A finding group's arbiter inputs: each seat's identity, verdict, the
+    tree it judged (ARIA-HIGH-1084: ``""`` when it names none) and the
     requests it answered (a rebuttal revote answers a new request). The
     arbiter's own rows are not seats it arbitrates."""
     return arbiter_inputs(ARBITER_SUBJECT_FINDING, [
         {
             "judge_id": judge_id,
             "verdict": str(row.get("verdict") or ""),
+            "target_sha": str(row.get("target_sha") or ""),
             "request_ids": sorted({str(r) for r in row.get("request_ids") or [] if str(r).strip()}),
         }
         for judge_id, row in sorted(by_judge.items())
         if judge_id != CONSENSUS_ARBITER_AGENT
     ])
+
+
+# ARIA-HIGH-1084 — the arbiter is minted at the tree its seats judged. Seats
+# that judged different trees (or a named seat beside an unnamed one) have no
+# such tree: the consumer (``feedback_store.generate_ai_consensus``) would
+# refuse the closing set as ``target_sha_mixed``, so the group is HELD by this
+# name (no admission, no mint) and disclosed once per claim on governance.
+ARBITER_HOLD_SEATS_MIXED_TREE: str = "arbiter_hold_seats_judged_different_trees"
+ARBITER_TREE_HOLD_KIND: str = "judge_arbiter_tree_hold"
+_TREE_HOLD_IDS_DISCLOSED = 20
+
+
+def _group_tree(by_judge: dict[str, dict[str, Any]]) -> tuple[str | None, str | None]:
+    """``(tree, hold)`` of a group: the commit its seats judged, or the hold
+    that names why it has none. Asked of ``feedback_store.tree_is_mixed``, the
+    consumer's own predicate, so the producer cannot drift from the law that
+    will refuse its arbiter's answer; the arbiter's own row is what is being
+    re-asked, not a seat (as in ``_seat_inputs``). A group that names no commit
+    at all is not mixed: it is minted with none, which the consumer admits."""
+    from .feedback_store import common_target_sha, tree_is_mixed
+
+    seats = [row for judge_id, row in by_judge.items() if judge_id != CONSENSUS_ARBITER_AGENT]
+    if tree_is_mixed(seats):
+        return None, ARBITER_HOLD_SEATS_MIXED_TREE
+    return common_target_sha(seats), None
+
+
+def _disclose_tree_holds(root: Path, tool_id: str, held: list[str]) -> None:
+    """The groups an arm held this call, disclosed ONCE per claim: the
+    per-decision ``skipped`` rows are dropped at the cycle boundary
+    (ARIA-MEDIUM-644), and a standing hold is a fact about the ledger, not
+    about this cycle."""
+    if not held:
+        return
+    append_tools_governance_once(
+        root,
+        ARBITER_TREE_HOLD_KIND,
+        {
+            "tool_id": tool_id,
+            "reason": ARBITER_HOLD_SEATS_MIXED_TREE,
+            "held_count": len(held),
+            "judgment_group_ids": sorted(held)[:_TREE_HOLD_IDS_DISCLOSED],
+        },
+        claim_keys=("tool_id", "reason", "held_count", "judgment_group_ids"),
+    )
 
 
 def _minted_arbiter_inputs(root: Path) -> set[tuple[str, str]]:
@@ -747,8 +794,10 @@ def arbitration_groups(
     ``anchor_evidence_empty`` and ``panel_echo``, ``low_confidence``, ...).
     Before F0.7 those reached HUMAN_REQUIRED. Settled groups are never
     returned, and neither is a group the arbiter already called
-    ``unverifiable``: that answer is terminal. Each group carries ``split``
-    and the ``arbiter_inputs`` its arbiter is bound to.
+    ``unverifiable``: that answer is terminal. Each group carries ``split``,
+    the ``arbiter_inputs`` its arbiter is bound to and (ARIA-HIGH-1084) the
+    ``target_sha`` its seats judged, or the ``hold`` that says they judged no
+    single tree.
     """
     grouped, settled = _judge_rows_by_group(tool_id, base_dir)
     arbitrated, terminal = _uncertain_group_keys(tool_id, base_dir)
@@ -761,6 +810,7 @@ def arbitration_groups(
         if not split and key not in arbitrated:
             continue
         run_id, finding_id, group_id = key
+        target_sha, hold = _group_tree(by_judge)
         groups.append({
             "tool_id": tool_id,
             "run_id": run_id,
@@ -769,6 +819,8 @@ def arbitration_groups(
             "finding_fingerprint": _group_fingerprint(by_judge),
             "split": split,
             "judges": [_seat_payload(judge_id, row) for judge_id, row in sorted(seats.items())],
+            "target_sha": target_sha,
+            "hold": hold,
             "arbiter_inputs": _seat_inputs(by_judge),
         })
     return groups
@@ -930,7 +982,6 @@ def dispatch_arbiter_for_split_verdicts(
     tool_id: str,
     base_dir: str | Path | None = None,
     cycle_id: str | None = None,
-    target_sha: str | None = None,
 ) -> dict[str, Any]:
     """Mint ONE arbiter envelope per arbitration group (``arbitration_groups``:
     a split, or an unsettled group whose consensus uncertainty is the
@@ -939,14 +990,23 @@ def dispatch_arbiter_for_split_verdicts(
     Idempotent on ``(judgment_group_id, arbiter inputs digest)`` read back
     from the request ledger: a group whose arbiter is in flight or answered
     is not asked again, and a group whose seats moved since (J4) is
-    re-offered at its current inputs.
+    re-offered at its current inputs. The arbiter is minted at the tree the
+    group's seats judged (``group["target_sha"]``, ARIA-HIGH-1084); a group
+    whose seats judged different trees is held by name, not minted.
     """
     root = ensure_tools_dir(base_dir)
     minted_inputs = _minted_arbiter_inputs(root)
     minted: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
+    held: list[str] = []
     for group in arbitration_groups(tool_id=tool_id, base_dir=root):
         group_id = str(group.get("judgment_group_id") or "")
+        if group["hold"] is not None:
+            skipped.append({
+                "judgment_group_id": group_id, "target_agent": CONSENSUS_ARBITER_AGENT, "reason": group["hold"],
+            })
+            held.append(group_id)
+            continue
         digest = group["arbiter_inputs"]["digest"]
         if (group_id, digest) in minted_inputs:
             skipped.append({
@@ -988,9 +1048,9 @@ def dispatch_arbiter_for_split_verdicts(
             ),
             inputs=group["arbiter_inputs"],
             cycle_id=cycle_id,
-            target_sha=target_sha,
         ))
         minted_inputs.add((group_id, digest))
+    _disclose_tree_holds(root, tool_id, held)
     return {"schema_version": 1, "minted_count": len(minted), "minted": minted, "skipped": skipped}
 
 
@@ -1014,11 +1074,12 @@ def _mint_arbiter(
     criterion: str,
     inputs: dict[str, Any],
     cycle_id: str | None,
-    target_sha: str | None,
 ) -> dict[str, Any]:
     """One arbiter envelope. Shared by the split, anchor and belief arms so a
     change to the arbiter's contract cannot land on one lane only. J4 — the
-    envelope carries the ``arbiter_inputs`` it was minted over."""
+    envelope carries the ``arbiter_inputs`` it was minted over. ARIA-HIGH-1084
+    — and the tree its group's seats judged (``group["target_sha"]``; a belief
+    names none): no caller can hand the mint another."""
     group_id = str(group.get("judgment_group_id") or "")
     refs = sorted({
         ref
@@ -1042,7 +1103,7 @@ def _mint_arbiter(
         run_id=str(group.get("run_id") or ""),
         judgment_group_id=group_id,
         cycle_id=cycle_id,
-        target_sha=target_sha,
+        target_sha=group.get("target_sha"),
         base_dir=root,
         admission=admission,
         arbiter_inputs=inputs,
@@ -1148,6 +1209,7 @@ def anchor_candidate_groups(
             if remaining <= 0:
                 continue
         remaining = max(remaining - 1, 0)
+        target_sha, hold = _group_tree(by_judge)
         candidates.append({
             "tool_id": tool_id,
             "run_id": run_id,
@@ -1159,6 +1221,8 @@ def anchor_candidate_groups(
                 _seat_payload(judge_id, row)
                 for judge_id, row in sorted(by_judge.items())
             ],
+            "target_sha": target_sha,
+            "hold": hold,
             "arbiter_inputs": _seat_inputs(by_judge),
         })
     return candidates
@@ -1169,14 +1233,15 @@ def dispatch_arbiter_for_anchor_groups(
     tool_id: str,
     base_dir: str | Path | None = None,
     cycle_id: str | None = None,
-    target_sha: str | None = None,
 ) -> dict[str, Any]:
     """JJ-1 - mint the third judge that turns agreement into an ANCHOR.
 
     The readiness shortfall is derived here, not passed in, so the mint and
     the gate can never disagree about how many anchors a tool still owes.
     Idempotent on the same ``(judgment_group_id, inputs digest)`` key the
-    split arm uses.
+    split arm uses. ARIA-HIGH-1084 — the arbiter is minted at the tree the
+    pair judged, and a pair whose seats judged different trees is held by
+    name, exactly as in the split arm.
     """
     from .feedback_store import (
         ANCHOR_PROMOTION_MIN_JUDGMENTS,
@@ -1192,10 +1257,17 @@ def dispatch_arbiter_for_anchor_groups(
     )
     minted: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
+    held: list[str] = []
     for candidate in anchor_candidate_groups(
         tool_id=tool_id, base_dir=root, demand=demand,
     ):
         group = str(candidate.get("judgment_group_id") or "")
+        if candidate["hold"] is not None:
+            skipped.append({
+                "judgment_group_id": group, "target_agent": CONSENSUS_ARBITER_AGENT, "reason": candidate["hold"],
+            })
+            held.append(group)
+            continue
         digest = candidate["arbiter_inputs"]["digest"]
         if (group, digest) in minted_inputs:
             skipped.append({
@@ -1222,9 +1294,9 @@ def dispatch_arbiter_for_anchor_groups(
             ),
             inputs=candidate["arbiter_inputs"],
             cycle_id=cycle_id,
-            target_sha=target_sha,
         ))
         minted_inputs.add((group, digest))
+    _disclose_tree_holds(root, tool_id, held)
     return {
         "schema_version": 1,
         "anchor_demand": demand,
@@ -1295,7 +1367,6 @@ def dispatch_arbiter_for_belief(
         ),
         inputs=inputs,
         cycle_id=cycle_id,
-        target_sha=None,
     )
 
 

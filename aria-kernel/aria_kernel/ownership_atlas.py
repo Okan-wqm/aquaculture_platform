@@ -77,6 +77,10 @@ FAMILIES: dict[str, Family] = {
     # cache key are callers (the retired private readers: tier0._item_refs, judgment_funnel._item_cited_refs).
     "item_citations": Family("judgment", f"{_K}item_citations.py:item_cited_refs",
                              ("item_cited_refs", "cited_line", "_item_refs", "_item_cited_refs")),
+    # ARIA-HIGH-1084: the mixed-tree law of a closing set; the consensus engine (consumer) and the arbiter's producer
+    # (judge_fanout._group_tree) both ask it (the retired private spellings: feedback_store._target_shas, ._common_target_sha).
+    "closing_tree": Family("judgment", f"{_K}feedback_store.py:tree_is_mixed",
+                           ("tree_is_mixed", "target_shas", "common_target_sha", "_target_shas", "_common_target_sha")),
     # Dormant by design: routed every cycle, acts only with funnel_enabled (genesis_policy).
     "judgment_funnel": Family("judgment", f"{_K}judgment_funnel.py:route_judgment_sample", ("route_judgment_sample",),
                               (("judgment_funnel_routing", "judgment-funnel/routing.jsonl"),), gate="funnel_enabled"),

@@ -564,7 +564,7 @@ class MixedTargetShaAnchorTests(_LedgerCase):
     suppress.
 
     ARIA-HIGH-004 already refuses to NAME a commit for a closing set judged
-    at different trees (``_common_target_sha`` -> None), yet the row still
+    at different trees (``common_target_sha`` -> None), yet the row still
     mints at anchor grade: ground truth about no single tree, and — for a
     false_positive — a suppression of the finding class that no later code
     can contradict. The realistic path is the anchor upgrade itself: the

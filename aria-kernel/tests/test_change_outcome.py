@@ -16,10 +16,18 @@ What this suite pins, one property per test:
   * a negative verdict folds into ``cycles_rejected`` — the column after
     ``cycles_merged`` — through the effectiveness ledger's one writer;
   * the nightly phase is registered on the cycle table with an existing
-    precondition, after the bench that produces its evidence.
+    precondition, after the bench that produces its evidence;
+  * ``closure_by_any_author`` (F3.3b): a merged change reads ``gain`` when the
+    finding it was made for was closed BY THAT MERGE (the finding store's
+    RESOLVED row names the merge sha the merged row recorded), whoever authored
+    the closure, and never ``no_gain``/``regression`` (an open finding is
+    silence); every metric is partitioned ``reality``/``board`` and the verdict
+    folds ``reality`` readings only.
 """
 from __future__ import annotations
 
+import ast
+import dataclasses
 import shutil
 import subprocess
 import tempfile
@@ -60,6 +68,19 @@ _FINDING_ID = "F-901"
 _PLAN_ID = "plan-g4"
 _PR_NUMBER = 4242
 
+# F3.3b — two full merge shas (40 hex, letters in both so an upper-cased copy differs).
+_M1 = "5e1f0c7a9b3d4e6f8a0b1c2d3e4f5a6b7c8d9e0f"
+_M2 = "9d8c7b6a5f4e3d2c1b0a9f8e7d6c5b4a39281706"
+_CLOSER = "aria-kernel:implementation_reconciler"
+_CLOSURE_METRIC = "closure_by_any_author"
+_READING_KEYS = {"metric_id", "signal", "evidence_sources", "evidence_refs", "observed", "reason"}
+# The resolver's closed reason set (SPEC ruling 2), pinned verbatim.
+_NOT_IN_STORE = "finding_id_not_in_the_finding_store"
+_NO_MERGE_SHA = "merge_sha_unrecorded"
+_NOT_RESOLVED = "finding_not_resolved_after_the_merge"
+_BY_THIS_MERGE = "finding_resolved_by_this_merge"
+_BY_ANOTHER = "finding_resolved_by_another_commit"
+
 
 def _iso(moment: datetime) -> str:
     return moment.astimezone(timezone.utc).replace(microsecond=0).isoformat()
@@ -83,7 +104,9 @@ class OutcomeBase(unittest.TestCase):
 
     # ---- fixture builders: every row goes through a declared surface ----
 
-    def _chain(self, *, idx: int = 1, finding_id: str = _FINDING_ID) -> str:
+    def _chain(
+        self, *, idx: int = 1, finding_id: str = _FINDING_ID, commit_sha: str | None = None,
+    ) -> str:
         planned = emit_change_planned(
             plan_id=f"{_PLAN_ID}-{idx}",
             finding_id=finding_id,
@@ -95,7 +118,7 @@ class OutcomeBase(unittest.TestCase):
         change_id = str(planned["change_id"])
         emit_change_committed(
             change_id=change_id,
-            commit_sha=f"sha{idx:03d}",
+            commit_sha=commit_sha or f"sha{idx:03d}",
             actual_affected_files=[f"apps/svc/src/file{idx}.ts"],
             base_dir=self.tools,
         )
@@ -111,7 +134,10 @@ class OutcomeBase(unittest.TestCase):
         )
         return change_id
 
-    def _merge(self, change_id: str, *, nights_ago: float, pr_number: int = _PR_NUMBER) -> datetime:
+    def _merge(
+        self, change_id: str, *, nights_ago: float, pr_number: int = _PR_NUMBER,
+        merge_sha: str | None = None,
+    ) -> datetime:
         merged_at = self.now - timedelta(days=nights_ago)
         path = self.tools / "pr-lifecycle.jsonl"
         append_declared_fixture(
@@ -122,14 +148,14 @@ class OutcomeBase(unittest.TestCase):
             },
             expected_surface="pr_lifecycle",
         )
-        append_declared_fixture(
-            path,
-            {
-                "schema_version": 1, "recorded_at": _iso(merged_at),
-                "event": "merged", "pr_number": pr_number, "change_id": None, "head_lineage": "delivered",
-            },
-            expected_surface="pr_lifecycle",
-        )
+        merged_row = {
+            "schema_version": 1, "recorded_at": _iso(merged_at),
+            "event": "merged", "pr_number": pr_number, "change_id": None, "head_lineage": "delivered",
+        }
+        if merge_sha is not None:
+            # record_merge's shape (F3.3a): the merge GitHub observed, anchored by merged_at.
+            merged_row.update(merge_sha=merge_sha, merged_at=_iso(merged_at))
+        append_declared_fixture(path, merged_row, expected_surface="pr_lifecycle")
         return merged_at
 
     def _cost_row(self, *, plan_idx: int = 1, source_type: str = "orphan_finding") -> None:
@@ -148,7 +174,9 @@ class OutcomeBase(unittest.TestCase):
             expected_surface="cost_attribution",
         )
 
-    def _finding_event(self, event: str, *, at: datetime, finding_id: str = _FINDING_ID) -> None:
+    def _finding_event(
+        self, event: str, *, at: datetime, finding_id: str = _FINDING_ID, **extra: object,
+    ) -> None:
         events = findings_dir(self.repo) / "finding-events.jsonl"
         events.parent.mkdir(parents=True, exist_ok=True)
         append_declared_fixture(
@@ -156,10 +184,29 @@ class OutcomeBase(unittest.TestCase):
             {
                 "schema_version": 1, "event": event,
                 "event_id": f"finding:{finding_id}:{event}:{_iso(at)}",
-                "finding_id": finding_id, "recorded_at": _iso(at),
+                "finding_id": finding_id, "recorded_at": _iso(at), **extra,
             },
             expected_surface="repo_finding_events",
         )
+
+    def _resolution_event(
+        self, *, at: datetime, closes_in_commit: str | None, to_status: str = "RESOLVED",
+        finding_id: str = _FINDING_ID, actor: str = _CLOSER,
+    ) -> str:
+        """A ``finding_status_changed`` row in finding_closure's shape; ``None`` omits ``closes_in_commit``."""
+        event_id = f"finding:{finding_id}:status:{to_status}:{_iso(at)}"
+        row: dict[str, object] = {
+            "schema_version": 1, "event": "finding_status_changed", "event_id": event_id,
+            "finding_id": finding_id, "from_status": "IN_PROGRESS", "to_status": to_status,
+            "reason": "implementation merged; the detector does not reproduce the subject at that commit",
+            "actor": actor, "recorded_at": _iso(at),
+        }
+        if closes_in_commit is not None:
+            row["closes_in_commit"] = closes_in_commit
+        events = findings_dir(self.repo) / "finding-events.jsonl"
+        events.parent.mkdir(parents=True, exist_ok=True)
+        append_declared_fixture(events, row, expected_surface="repo_finding_events")
+        return event_id
 
     def _observation(self, change_id: str, *, at: datetime, matched: bool, status: str) -> None:
         path = self.tools / "experiments" / "observations.jsonl"
@@ -404,6 +451,471 @@ class NightlyPhaseTests(OutcomeBase):
         self.assertEqual(row["verdict"], "no_gain")
         self.assertIsNone(row["pressure_source_type"])
         self.assertEqual(rank_pressure_sources(base_dir=self.tools), [])
+
+
+class ClosureBase(OutcomeBase):
+    """F3.3b fixtures: a merged chain whose merged row names its merge commit."""
+
+    def _merged_chain(
+        self, *, nights_ago: float = 5, merge_sha: str | None = _M1, idx: int = 1,
+        pr_number: int = _PR_NUMBER, finding_id: str = _FINDING_ID,
+    ) -> tuple[str, datetime]:
+        change_id = self._chain(idx=idx, finding_id=finding_id)
+        merged_at = self._merge(
+            change_id, nights_ago=nights_ago, pr_number=pr_number, merge_sha=merge_sha,
+        )
+        return change_id, merged_at
+
+    def _recomputed(self, change_id: str) -> dict:
+        return recompute_change_outcome(
+            change_id=change_id, repo_root=self.repo, base_dir=self.tools, now=self.now,
+        )
+
+    def _closure(self, outcome: dict) -> dict:
+        reading = next(
+            (r for r in outcome["readings"] if r["metric_id"] == _CLOSURE_METRIC), None,
+        )
+        self.assertIsNotNone(
+            reading,
+            f"{_CLOSURE_METRIC} is not among the readings {[r['metric_id'] for r in outcome['readings']]}",
+        )
+        return reading
+
+    def _assert_reading(self, outcome: dict, signal: str, reason: str) -> dict:
+        reading = self._closure(outcome)
+        self.assertEqual((reading["signal"], reading["reason"]), (signal, reason))
+        # Whatever the case: the one reading shape, the finding store as its only source,
+        # and a signal that is never no_gain or regression (an open finding is silence).
+        self.assertIn(reading["signal"], {"gain", "unavailable"})
+        self.assertEqual(reading["evidence_sources"], ["repo_finding_events"])
+        self.assertEqual(set(reading), _READING_KEYS)
+        return reading
+
+
+class ClosureByAnyAuthorTests(ClosureBase):
+    def test_the_resolver_is_registered_and_admits_no_new_source(self) -> None:
+        self.assertIn(_CLOSURE_METRIC, BENEFIT_METRICS)
+        # The finding store was already one of the four admissible sources.
+        self.assertEqual(LEDGER_EVIDENCE_SOURCES, frozenset({
+            "repo_finding_events", "tools_governance",
+            "experiment_observations", "validation_runs",
+        }))
+
+    def test_the_1906_shape_reads_gain_and_confirms_the_change(self) -> None:
+        # Literal values of the snapshot (aria/state 8e39b2eeb): the change's own
+        # committed sha is not the merge sha, the closure names the merge sha.
+        merged = datetime(2026, 10, 10, 1, 3, 6, tzinfo=timezone.utc)
+        merge_sha = "528c63c0d0921af1645f027dc76e4a594431f5c6"
+        self.now = merged + timedelta(days=3.5)
+        change_id = self._chain(
+            finding_id="F-015", commit_sha="1ac2048c2a7adf14f0e62505caeacb68447d68a9",
+        )
+        self.assertEqual(self._merge(change_id, nights_ago=3.5, merge_sha=merge_sha), merged)
+        closure = self._resolution_event(
+            at=datetime(2026, 10, 10, 1, 28, 28, tzinfo=timezone.utc),
+            closes_in_commit=merge_sha, finding_id="F-015",
+        )
+        row = emit_change_outcome(
+            change_id=change_id, repo_root=self.repo, base_dir=self.tools, now=self.now,
+        )
+        reading = self._assert_reading(row, "gain", _BY_THIS_MERGE)
+        self.assertEqual(reading["evidence_refs"], [closure])
+        observed = reading["observed"]
+        self.assertEqual(observed["merge_sha"], merge_sha)
+        # The counts read 0 or 1 here, so an int or a bool answers the same.
+        self.assertEqual(observed["resolved_events_after_merge"], 1)
+        self.assertEqual(observed["bound_to_this_merge"], 1)
+        self.assertEqual(list(observed["closing_commits"]), [merge_sha])
+        self.assertEqual(list(observed["actors"]), [_CLOSER])
+        self.assertEqual(row["verdict"], "gain_confirmed")
+        # gain_confirmed writes no counter: F4.1 owns the merged counter.
+        self.assertEqual(rank_pressure_sources(base_dir=self.tools), [])
+
+    def test_a_closure_is_credited_only_to_the_merge_it_names(self) -> None:
+        # The F-013 shape: two change chains on one finding, one closure.
+        first, _merged_1 = self._merged_chain(nights_ago=6, merge_sha=_M1, idx=1, pr_number=1)
+        second, merged_2 = self._merged_chain(nights_ago=4, merge_sha=_M2, idx=2, pr_number=2)
+        # "Any author": the closer is not the reconciler, and the resolver never asks who it was.
+        self._resolution_event(
+            at=merged_2 + timedelta(minutes=25), closes_in_commit=_M2, actor="operator-lane:claude",
+        )
+        earlier = self._recomputed(first)
+        observed = self._assert_reading(earlier, "unavailable", _BY_ANOTHER)["observed"]
+        self.assertEqual(observed["merge_sha"], _M1)
+        self.assertEqual(observed["resolved_events_after_merge"], 1)
+        self.assertEqual(observed["bound_to_this_merge"], 0)
+        self.assertEqual(list(observed["closing_commits"]), [_M2])
+        self.assertEqual(list(observed["actors"]), ["operator-lane:claude"])
+        self.assertEqual(earlier["verdict"], "unknown")
+        later = self._recomputed(second)
+        self._assert_reading(later, "gain", _BY_THIS_MERGE)
+        self.assertEqual(later["verdict"], "gain_confirmed")
+
+    def test_a_closure_recorded_before_a_later_merge_is_not_after_that_merge(self) -> None:
+        change_id, merged_at = self._merged_chain(merge_sha=_M2)
+        # An earlier merge (no chain of its own here) closed the finding before this merge.
+        self._resolution_event(at=merged_at - timedelta(days=1), closes_in_commit=_M1)
+        self._assert_reading(self._recomputed(change_id), "unavailable", _NOT_RESOLVED)
+
+    def test_an_open_finding_is_silence_never_no_gain(self) -> None:
+        change_id, merged_at = self._merged_chain()
+        # A sibling finding the same merge closed is that finding's closure, not this one's.
+        self._resolution_event(
+            at=merged_at + timedelta(minutes=25), closes_in_commit=_M1, finding_id="F-902",
+        )
+        row = self._recomputed(change_id)
+        self._assert_reading(row, "unavailable", _NOT_RESOLVED)
+        self.assertEqual(row["verdict"], "unknown")
+        # A defect recorded again is the recurrence metric's no_gain, not this resolver's.
+        self._finding_event("finding_reproduced", at=merged_at + timedelta(days=1))
+        row = self._recomputed(change_id)
+        self._assert_reading(row, "unavailable", _NOT_RESOLVED)
+        signals = {r["metric_id"]: r["signal"] for r in row["readings"]}
+        self.assertEqual(signals["finding_recurrence"], "no_gain")
+        self.assertEqual(row["verdict"], "no_gain")
+
+    def test_a_closure_at_or_before_the_merge_instant_is_not_after_the_merge(self) -> None:
+        change_id, merged_at = self._merged_chain()
+        for offset in (timedelta(hours=-1), timedelta(seconds=-1), timedelta(0)):
+            self._resolution_event(at=merged_at + offset, closes_in_commit=_M1)
+        row = self._recomputed(change_id)
+        self._assert_reading(row, "unavailable", _NOT_RESOLVED)
+        self.assertEqual(row["verdict"], "unknown")
+
+    def test_a_closure_one_second_after_the_merge_instant_is_after_the_merge(self) -> None:
+        change_id, merged_at = self._merged_chain()
+        self._resolution_event(at=merged_at + timedelta(seconds=1), closes_in_commit=_M1)
+        self._assert_reading(self._recomputed(change_id), "gain", _BY_THIS_MERGE)
+
+    def test_only_a_resolved_transition_counts(self) -> None:
+        change_id, merged_at = self._merged_chain()
+        for minutes, status in ((10, "IN_PROGRESS"), (20, "SUPPRESSED"), (30, "WITHDRAWN")):
+            # A raw row may carry closes_in_commit; the status decides, not the field.
+            self._resolution_event(
+                at=merged_at + timedelta(minutes=minutes), closes_in_commit=_M1, to_status=status,
+            )
+        row = self._recomputed(change_id)
+        self._assert_reading(row, "unavailable", _NOT_RESOLVED)
+        self.assertEqual(row["verdict"], "unknown")
+
+    def test_the_closing_commit_must_equal_the_merge_sha_exactly(self) -> None:
+        change_id, merged_at = self._merged_chain()
+        # None of these names the merge: no commit, a 7-char prefix, an upper-cased sha.
+        for minutes, closes in ((10, None), (20, _M1[:7]), (30, _M1.upper())):
+            self._resolution_event(at=merged_at + timedelta(minutes=minutes), closes_in_commit=closes)
+        row = self._recomputed(change_id)
+        observed = self._assert_reading(row, "unavailable", _BY_ANOTHER)["observed"]
+        self.assertEqual(observed["bound_to_this_merge"], 0)
+        self.assertEqual(row["verdict"], "unknown")
+
+    def test_a_full_closure_sha_is_not_bound_to_an_abbreviated_merged_row(self) -> None:
+        change_id, merged_at = self._merged_chain(merge_sha=_M1[:7])
+        self._resolution_event(at=merged_at + timedelta(minutes=25), closes_in_commit=_M1)
+        row = self._recomputed(change_id)
+        self._assert_reading(row, "unavailable", _BY_ANOTHER)
+        self.assertEqual(row["verdict"], "unknown")
+
+    def test_a_merged_row_without_a_merge_sha_never_reads_gain(self) -> None:
+        change_id, merged_at = self._merged_chain(merge_sha=None)
+        self._resolution_event(at=merged_at + timedelta(minutes=25), closes_in_commit=_M1)
+        row = self._recomputed(change_id)
+        self._assert_reading(row, "unavailable", _NO_MERGE_SHA)
+        self.assertEqual(row["verdict"], "unknown")
+
+    def test_an_empty_merge_sha_never_equals_a_closure_naming_no_commit(self) -> None:
+        change_id, merged_at = self._merged_chain(merge_sha="")
+        self._resolution_event(at=merged_at + timedelta(minutes=25), closes_in_commit=None)
+        row = self._recomputed(change_id)
+        self._assert_reading(row, "unavailable", _NO_MERGE_SHA)
+        self.assertEqual(row["verdict"], "unknown")
+
+    def test_ids_outside_the_finding_store_are_unavailable_and_touch_no_registry(self) -> None:
+        from aria_kernel import report_ingestion
+
+        changes = []
+        # (finding id, merge sha): the last one also lacks a merge sha, and the id check comes first.
+        for idx, (finding_id, merge_sha) in enumerate(
+            (("plan:plan-g4-1", _M1), ("ARIA-HIGH-745", _M1), ("ORPHAN-HIGH-811", None)), start=1,
+        ):
+            change_id, merged_at = self._merged_chain(
+                idx=idx, pr_number=idx, finding_id=finding_id, merge_sha=merge_sha,
+            )
+            # Even a row that would bind (same sha, after the merge) is not read for such an id.
+            self._resolution_event(
+                at=merged_at + timedelta(minutes=25), closes_in_commit=_M1, finding_id=finding_id,
+            )
+            changes.append(change_id)
+        with patch("subprocess.run", side_effect=AssertionError("subprocess")) as run, \
+                patch.object(report_ingestion, "run_registry_cli", side_effect=AssertionError("registry")) as cli:
+            outcomes = [self._recomputed(change_id) for change_id in changes]
+        run.assert_not_called()
+        cli.assert_not_called()
+        for outcome in outcomes:
+            self._assert_reading(outcome, "unavailable", _NOT_IN_STORE)
+            self.assertEqual(outcome["verdict"], "unknown")
+
+    def test_fix_verified_is_not_read_by_the_closure_resolver(self) -> None:
+        change_id, merged_at = self._merged_chain()
+        self._finding_event(
+            "finding_fix_verified", at=merged_at + timedelta(days=1), commit_sha=_M1,
+        )
+        row = self._recomputed(change_id)
+        # finding_recurrence owns that event: one reader per event type.
+        self._assert_reading(row, "unavailable", _NOT_RESOLVED)
+        signals = {r["metric_id"]: r["signal"] for r in row["readings"]}
+        self.assertEqual(signals["finding_recurrence"], "gain")
+        self.assertEqual(row["verdict"], "gain_confirmed")
+
+    def test_closure_gain_never_masks_a_recorded_regression(self) -> None:
+        change_id, merged_at = self._merged_chain()
+        self._resolution_event(at=merged_at + timedelta(minutes=25), closes_in_commit=_M1)
+        append_tools_governance(
+            self.tools, "experiment_regression_detected",
+            {"finding_id": _FINDING_ID, "experiment_id": "exp-1", "recipe_ref": "rec-1",
+             "validation_run_id": "vr-9", "original_fix_commit": "sha001"},
+        )
+        row = self._recomputed(change_id)
+        self._assert_reading(row, "gain", _BY_THIS_MERGE)
+        signals = {r["metric_id"]: r["signal"] for r in row["readings"]}
+        self.assertEqual(signals["finding_recurrence"], "regression")
+        self.assertEqual(row["verdict"], "regression")
+
+
+class ClosureCapturedReadTests(ClosureBase):
+    """The captured (assessment) context reads its own rows, bounded above by ``evaluated_at``."""
+
+    def _require_the_merge_sha_field(self) -> None:
+        fields = {f.name: f for f in dataclasses.fields(outcome_owner.EvaluationContext)}
+        self.assertTrue("merge_sha" in fields, "EvaluationContext carries no merge_sha (SPEC ruling 5)")
+        self.assertIs(fields["merge_sha"].default, dataclasses.MISSING)
+        self.assertIs(fields["merge_sha"].default_factory, dataclasses.MISSING)
+
+    def _identity(self, merged_at: datetime, evaluated_at: datetime, merge_sha: str) -> dict:
+        return dict(
+            change_id="chg-captured", finding_id=_FINDING_ID, plan_id="plan-captured",
+            commit_sha="sha001", merged_at=merged_at, evaluated_at=evaluated_at,
+            repo_root=self.repo, tools_root=self.tools, merge_sha=merge_sha,
+        )
+
+    def _captured(self, rows: list[dict], identity: dict):
+        verified = (
+            ("experiment_observations", b"[]"),
+            ("repo_finding_events", json.dumps(rows).encode("utf-8")),
+            ("tools_governance", b"[]"),
+        )
+        return outcome_owner._AssessmentCapture(
+            **identity, _native_sources=(), _verified_sources=verified, _metadata=b"{}",
+        )
+
+    def _read(self, ctx) -> dict:
+        reading = next(
+            (r for r in outcome_owner._metric_readings(ctx) if r.metric_id == _CLOSURE_METRIC), None,
+        )
+        self.assertIsNotNone(reading, f"{_CLOSURE_METRIC} is not among the metric readings")
+        return reading.as_dict()
+
+    @staticmethod
+    def _row(at: datetime, closes_in_commit: str = _M1) -> dict:
+        return {
+            "schema_version": 1, "event": "finding_status_changed",
+            "event_id": f"finding:{_FINDING_ID}:status:RESOLVED:{_iso(at)}",
+            "finding_id": _FINDING_ID, "from_status": "IN_PROGRESS", "to_status": "RESOLVED",
+            "reason": "closed", "actor": _CLOSER, "recorded_at": _iso(at),
+            "closes_in_commit": closes_in_commit,
+        }
+
+    def test_the_evaluation_context_carries_a_required_merge_sha(self) -> None:
+        self._require_the_merge_sha_field()
+
+    def test_a_captured_context_reads_its_captured_rows_not_the_live_file(self) -> None:
+        self._require_the_merge_sha_field()
+        merged_at = self.now - timedelta(days=5)
+        identity = self._identity(merged_at, self.now, _M1)
+        bound = self._row(merged_at + timedelta(hours=1))
+        # No live finding-events file exists at all: the capture is the source.
+        self.assertFalse((findings_dir(self.repo) / "finding-events.jsonl").exists())
+        reading = self._read(self._captured([bound], identity))
+        self.assertEqual((reading["signal"], reading["reason"]), ("gain", _BY_THIS_MERGE))
+        self.assertEqual(reading["evidence_refs"], [bound["event_id"]])
+        # The reverse: the live file names the binding, the capture does not.
+        self._resolution_event(at=merged_at + timedelta(hours=1), closes_in_commit=_M1)
+        reading = self._read(self._captured([], identity))
+        self.assertEqual((reading["signal"], reading["reason"]), ("unavailable", _NOT_RESOLVED))
+
+    def test_a_captured_closure_after_the_cutoff_is_excluded_and_the_cutoff_is_inclusive(self) -> None:
+        self._require_the_merge_sha_field()
+        merged_at = self.now - timedelta(days=5)
+        evaluated_at = merged_at + timedelta(days=2)
+        identity = self._identity(merged_at, evaluated_at, _M1)
+        after = self._read(self._captured([self._row(evaluated_at + timedelta(seconds=1))], identity))
+        self.assertEqual((after["signal"], after["reason"]), ("unavailable", _NOT_RESOLVED))
+        at_cutoff = self._read(self._captured([self._row(evaluated_at)], identity))
+        self.assertEqual((at_cutoff["signal"], at_cutoff["reason"]), ("gain", _BY_THIS_MERGE))
+
+    def test_live_and_captured_contexts_read_the_same_rows_the_same_way(self) -> None:
+        self._require_the_merge_sha_field()
+        merged_at = self.now - timedelta(days=5)
+        identity = self._identity(merged_at, self.now, _M1)
+        rows = [self._row(merged_at + timedelta(hours=1), closes_in_commit=_M2),
+                self._row(merged_at + timedelta(hours=2))]
+        for row in rows:
+            self._resolution_event(
+                at=datetime.fromisoformat(row["recorded_at"]), closes_in_commit=row["closes_in_commit"],
+            )
+        live = self._read(outcome_owner.EvaluationContext(**identity))
+        self.assertEqual(live, self._read(self._captured(rows, identity)))
+        self.assertEqual((live["signal"], live["reason"]), ("gain", _BY_THIS_MERGE))
+        self.assertEqual(live["observed"]["resolved_events_after_merge"], 2)
+        self.assertEqual(list(live["observed"]["closing_commits"]), sorted({_M1, _M2}))
+        self.assertEqual(list(live["observed"]["actors"]), [_CLOSER])
+
+    def test_a_live_context_is_not_bounded_above_by_the_evaluation_instant(self) -> None:
+        # The siblings' window: the upper bound belongs to a captured context only.
+        self._require_the_merge_sha_field()
+        merged_at = self.now - timedelta(days=5)
+        evaluated_at = merged_at + timedelta(days=1)
+        self._resolution_event(at=evaluated_at + timedelta(days=1), closes_in_commit=_M1)
+        reading = self._read(outcome_owner.EvaluationContext(**self._identity(merged_at, evaluated_at, _M1)))
+        self.assertEqual((reading["signal"], reading["reason"]), ("gain", _BY_THIS_MERGE))
+
+
+class MetricPartitionTests(ClosureBase):
+    """Every metric is ``reality`` or ``board``; the verdict folds ``reality`` readings only."""
+
+    @staticmethod
+    def _probe(signal: str):
+        def resolver(ctx) -> MetricReading:
+            return MetricReading(
+                metric_id="partition_probe", signal=signal,
+                evidence_sources=("experiment_observations",), evidence_refs=(),
+                observed={}, reason="probe",
+            )
+        return resolver
+
+    def _partition(self) -> dict:
+        partition = getattr(outcome_owner, "METRIC_PARTITION", None)
+        self.assertIsNotNone(partition, "change_outcome has no METRIC_PARTITION (SPEC ruling 7)")
+        return partition
+
+    def test_the_partition_names_the_three_reality_metrics(self) -> None:
+        self.assertEqual(self._partition(), {
+            "finding_recurrence": "reality", "experiment_rerun_hold": "reality",
+            "closure_by_any_author": "reality",
+        })
+
+    def test_an_unpartitioned_metric_or_a_metricless_entry_is_refused_before_any_row(self) -> None:
+        change_id, _merged_at = self._merged_chain()
+        partition = getattr(outcome_owner, "METRIC_PARTITION", {})
+        for metrics, entries, named in (
+            ({"partition_probe": self._probe("unavailable")}, {}, "partition_probe"),
+            ({}, {"ghost_metric": "reality"}, "ghost_metric"),
+        ):
+            with patch.dict(BENEFIT_METRICS, metrics), patch.dict(partition, entries):
+                with self.assertRaises(GovernanceError) as raised:
+                    emit_change_outcome(
+                        change_id=change_id, repo_root=self.repo, base_dir=self.tools, now=self.now,
+                    )
+            self.assertIn("change_outcome_metric_not_partitioned", str(raised.exception))
+            self.assertIn(named, str(raised.exception))
+            self.assertEqual(list_change_outcomes(base_dir=self.tools), [])
+            self.assertEqual(rank_pressure_sources(base_dir=self.tools), [])
+
+    def test_the_partition_check_names_the_new_api_directly(self) -> None:
+        check = getattr(outcome_owner, "_assert_every_metric_is_partitioned", None)
+        self.assertTrue(callable(check), "_assert_every_metric_is_partitioned is absent (SPEC ruling 7)")
+        check(BENEFIT_METRICS)  # the shipped registry is fully partitioned
+        with self.assertRaisesRegex(GovernanceError, "change_outcome_metric_not_partitioned"):
+            check({**BENEFIT_METRICS, "partition_probe": self._probe("gain")})
+
+    def test_the_signal_check_still_comes_before_the_partition_check(self) -> None:
+        self._partition()  # red at the base for the missing partition, not for the order
+        ctx = outcome_owner.EvaluationContext(
+            change_id="chg-order", finding_id=_FINDING_ID, plan_id="plan-order", commit_sha="sha001",
+            merged_at=self.now - timedelta(days=5), evaluated_at=self.now, repo_root=self.repo,
+            tools_root=self.tools, merge_sha=_M1,
+        )
+        with patch.dict(BENEFIT_METRICS, {"partition_probe": self._probe("not_a_signal")}):
+            with self.assertRaisesRegex(GovernanceError, "change_outcome_unknown_metric_signal"):
+                outcome_owner._metric_readings(ctx)
+
+    def test_a_board_reading_is_recorded_but_never_moves_the_verdict(self) -> None:
+        partition = self._partition()
+        change_id, merged_at = self._merged_chain()
+        self._finding_event("finding_reproduced", at=merged_at + timedelta(days=1))
+        with patch.dict(partition, {"partition_probe": "board"}), \
+                patch.dict(BENEFIT_METRICS, {"partition_probe": self._probe("regression")}):
+            row = self._recomputed(change_id)
+        recorded = {r["metric_id"]: r["signal"] for r in row["readings"]}
+        self.assertEqual(recorded.get("partition_probe"), "regression")
+        self.assertEqual(recorded["finding_recurrence"], "no_gain")
+        self.assertEqual(row["verdict"], "no_gain", "a board regression moved the verdict")
+
+    def test_the_fold_ignores_every_board_signal(self) -> None:
+        partition = self._partition()
+        board = {s: self._probe(s)(None) for s in ("regression", "no_gain", "gain")}
+        with patch.dict(partition, {"partition_probe": "board"}):
+            for signal, reading in board.items():
+                self.assertEqual(outcome_owner.fold_outcome_verdict([reading]), "unknown", signal)
+            reality = MetricReading(
+                metric_id="finding_recurrence", signal="gain", evidence_sources=("repo_finding_events",),
+                evidence_refs=(), observed={}, reason="r",
+            )
+            self.assertEqual(
+                outcome_owner.fold_outcome_verdict([reality, board["regression"]]), "gain_confirmed",
+            )
+
+    def test_the_partition_is_not_a_field_of_the_reading(self) -> None:
+        self._partition()
+        self.assertEqual({f.name for f in dataclasses.fields(MetricReading)}, _READING_KEYS)
+
+
+class FindingEventsOneReaderTests(unittest.TestCase):
+    """SPEC T14: the finding store is read inside change_outcome by ONE helper both resolvers call."""
+
+    class _Calls(ast.NodeVisitor):
+        def __init__(self) -> None:
+            self.stack: list[str] = []
+            self.sites: list[tuple[str, ast.Call]] = []
+
+        def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+            self.stack.append(node.name)
+            self.generic_visit(node)
+            self.stack.pop()
+
+        def visit_Call(self, node: ast.Call) -> None:
+            self.sites.append((self.stack[-1] if self.stack else "<module>", node))
+            self.generic_visit(node)
+
+    @staticmethod
+    def _callee(call: ast.Call) -> str:
+        func = call.func
+        return func.id if isinstance(func, ast.Name) else func.attr if isinstance(func, ast.Attribute) else ""
+
+    @staticmethod
+    def _names_surface(call: ast.Call) -> bool:
+        constants = [kw.value for kw in call.keywords if kw.arg == "expected_surface"] + list(call.args)
+        return any(isinstance(c, ast.Constant) and c.value == "repo_finding_events" for c in constants)
+
+    def setUp(self) -> None:
+        self.tree = ast.parse(Path(outcome_owner.__file__).read_text(encoding="utf-8"))
+        calls = self._Calls()
+        calls.visit(self.tree)
+        self.sites = calls.sites
+
+    def test_the_finding_events_are_read_in_exactly_one_function(self) -> None:
+        reads = [(fn, call) for fn, call in self.sites
+                 if (self._callee(call) in {"load_declared_jsonl", "_rows"} and self._names_surface(call))
+                 or self._callee(call) == "_finding_events_path"]
+        self.assertEqual({fn for fn, _call in reads}, {"_finding_event_rows"})
+        loads = [call for _fn, call in reads if self._callee(call) == "load_declared_jsonl"]
+        self.assertEqual(len(loads), 1)
+
+    def test_both_finding_resolvers_read_through_that_helper(self) -> None:
+        functions = {node.name: node for node in ast.walk(self.tree) if isinstance(node, ast.FunctionDef)}
+        for name in ("_metric_finding_recurrence", "_metric_closure_by_any_author"):
+            self.assertIn(name, functions, f"{name} is absent from change_outcome")
+            callees = {self._callee(n) for n in ast.walk(functions[name]) if isinstance(n, ast.Call)}
+            self.assertIn("_finding_event_rows", callees, f"{name} does not read through the one helper")
 
 
 class CycleWiringTests(unittest.TestCase):
@@ -717,6 +1229,40 @@ class AssessmentHotEvidenceTests(unittest.TestCase):
         rewrite_declared_fixture(self.tools / "pr-lifecycle.jsonl", legacy, expected_surface="pr_lifecycle")
         with self.assertRaisesRegex(GovernanceError, r"^change_assessment_original_merge_unavailable$"):
             self._capture()
+
+    def test_the_captured_closure_reading_binds_the_merge_the_original_outcome_names(self) -> None:
+        # F3.3b — the capture constructor takes merge_sha from the folded merged row
+        # of the original outcome's merge, not from the change's committed sha.
+        from aria_kernel.merge_record import lifecycle_rows
+        from tests._helpers.declared_fixtures import rewrite_declared_fixture
+
+        merge_sha = "528c63c0d0921af1645f027dc76e4a594431f5c6"
+        self.assertNotEqual(merge_sha, self.commit_sha)
+        rows = [dict(row, merge_sha=merge_sha) if row.get("event") == "merged" else row
+                for row in lifecycle_rows(self.tools)]
+        rewrite_declared_fixture(self.tools / "pr-lifecycle.jsonl", rows, expected_surface="pr_lifecycle")
+        closed_at = datetime.fromisoformat(self.merged_at) + timedelta(minutes=25)
+        events = findings_dir(self.repo) / "finding-events.jsonl"
+        events.parent.mkdir(parents=True, exist_ok=True)
+        append_declared_fixture(
+            events,
+            {
+                "schema_version": 1, "event": "finding_status_changed",
+                "event_id": f"finding:{self.finding_id}:status:RESOLVED:{_iso(closed_at)}",
+                "finding_id": self.finding_id, "from_status": "IN_PROGRESS", "to_status": "RESOLVED",
+                "reason": "closed by the merge", "actor": _CLOSER, "recorded_at": _iso(closed_at),
+                "closes_in_commit": merge_sha,
+            },
+            expected_surface="repo_finding_events",
+        )
+        assessment = outcome_owner._compute_change_assessment(self._capture())
+        reading = next(
+            (row for row in assessment["readings"] if row["metric_id"] == _CLOSURE_METRIC), None,
+        )
+        self.assertIsNotNone(reading, f"{_CLOSURE_METRIC} is not among the assessment readings")
+        self.assertEqual((reading["signal"], reading["reason"]), ("gain", _BY_THIS_MERGE))
+        self.assertEqual(reading["observed"]["merge_sha"], merge_sha)
+        self.assertEqual(assessment["verdict"], "gain_confirmed")
 
     def test_exact_retry_after_successor_returns_original_assessment_without_append(self) -> None:
         capture = self._capture()

@@ -527,7 +527,8 @@ flowchart TD
         O1[emit_change_outcome: change_validated +<br/>merge satırı şart · yalnız defterden yeniden hesap]
         O1 --> O2[metric: finding_recurrence →<br/>regression / no_gain / gain]
         O1 --> O3[metric: experiment_rerun_hold]
-        O2 & O3 --> VD[verdict: regression &gt; no_gain &gt;<br/>gain_confirmed &gt; unknown]
+        O1 --> O4[metric: closure_by_any_author →<br/>bulgu BU merge ile kapandıysa gain · asla no_gain]
+        O2 & O3 & O4 --> VD[verdict: yalnız reality okumaları · regression &gt; no_gain &gt;<br/>gain_confirmed &gt; unknown]
         VD -.no_gain/regression.-> KG[knowledge_graph:<br/>kaynak sayacı cycles_rejected+1]
         KG -.besler.-> TS[mission Thompson banditi<br/>+ pipeline_stalled baskısı]
     end

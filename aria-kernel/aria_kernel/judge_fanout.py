@@ -1053,8 +1053,9 @@ def dispatch_arbiter_for_split_verdicts(
     J3 — every group is WEIGHED, never aggregated: a split of the legacy pair
     fails the aggregation gate by construction, so that brief could only end
     in a terminal ``unverifiable``. The brief lists each seat's cited refs
-    beside the grade ``evidence_trust`` gives them at ``target_sha`` and asks
-    for a ruling per side.
+    beside the grade ``evidence_trust`` gives them at the group's own tree
+    (``group["target_sha"]``, the tree its seats judged) and asks for a ruling
+    per side.
 
     Idempotent on ``(judgment_group_id, arbiter inputs digest)`` read back
     from the request ledger: a group whose arbiter is in flight or answered
@@ -1095,7 +1096,7 @@ def dispatch_arbiter_for_split_verdicts(
             group=group,
             admission=admission,
             prompt=render_evidence_weighing_prompt(_grade_cited_refs(
-                group, workspace_root=bound_workspace_root(root), target_sha=target_sha,
+                group, workspace_root=bound_workspace_root(root), target_sha=group["target_sha"],
             )),
             criterion=(
                 "Weigh the ranked evidence, rule on each side (details.consensus.side_rulings) "

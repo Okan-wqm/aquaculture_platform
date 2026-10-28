@@ -20,6 +20,14 @@ passthrough = [
     "RUST_LOG",
     "LIBCLANG_PATH",
 ]
+# The agent depends on ../crates/alarm-core, a member of the repository-root workspace whose
+# manifest it inherits from (`version.workspace = true`, `[lints] workspace = true`). cross mounts
+# only this project and its path dependencies' own directories, so inside the container cargo
+# cannot find that workspace root ("error inheriting `edition` from workspace root manifest"):
+# the three release builds of 2.0.0-rc.6 failed there, and every release since the dependency
+# was added (2026-07-13) would have. The release job exports CROSS_REPO_ROOT (the checkout) and
+# cross mounts it at the same path, so the root manifest is where the member crates expect it.
+volumes = ["CROSS_REPO_ROOT"]
 
 # Shared pre-build across all 3 cross targets:
 #   1. perl + make: rusqlite bundled-sqlcipher-vendored-openssl builds OpenSSL

@@ -25,7 +25,11 @@ function read(relPath: string): string {
 export function pathDependenciesOutside(agentManifest: string, agentDir: string): string[] {
   const found = new Set<string>();
   for (const match of agentManifest.matchAll(/\bpath\s*=\s*"([^"]+)"/g)) {
-    const resolved = path.posix.normalize(path.posix.join(agentDir, match[1]));
+    const target = match[1];
+    if (target === undefined) {
+      continue;
+    }
+    const resolved = path.posix.normalize(path.posix.join(agentDir, target));
     if (resolved !== agentDir && !resolved.startsWith(`${agentDir}/`)) {
       found.add(resolved);
     }
@@ -46,7 +50,8 @@ export function crossMountsRepoRoot(crossToml: string, variable: string): boolea
   const buildEnv =
     crossToml.split(/^\[/m).find((section) => section.startsWith('build.env]')) ?? '';
   const volumes = /^\s*volumes\s*=\s*\[([^\]]*)\]/m.exec(buildEnv);
-  return volumes !== null && new RegExp(`"${variable}"`).test(volumes[1]);
+  const listed = volumes?.[1];
+  return listed !== undefined && new RegExp(`"${variable}"`).test(listed);
 }
 
 /** True when the release workflow exports the mount variable as the checkout. */

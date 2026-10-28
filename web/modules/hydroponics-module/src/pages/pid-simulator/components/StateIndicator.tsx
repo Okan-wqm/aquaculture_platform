@@ -122,7 +122,7 @@ const StateIndicator: React.FC<StateIndicatorProps> = ({ currentState }) => {
             <li
               key={s}
               aria-current={isActive ? 'step' : undefined}
-              className={`px-2 py-1 rounded text-xs font-mono font-semibold transition-colors ${
+              className={`px-2 py-1 rounded text-xs font-semibold transition-colors ${
                 isActive ? `${info.active} ${LIT_FRAME}` : `${info.bg} ${info.text}`
               }`}
             >

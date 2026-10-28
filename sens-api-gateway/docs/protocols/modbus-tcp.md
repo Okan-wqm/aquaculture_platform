@@ -13,11 +13,11 @@ RFC 2119 keywords apply.
 
 ## 2. Crate + feature flag
 
-- Crate: `rodbus = "=1.4.0"` — pinned.
+- Crate: `tokio-modbus = "~0.17"` (features `tcp`, `rtu`) — Modbus/TCP MBAP framing and function-code encoding. Modbus/TCP Security (TLS) is implemented in `src/modbus.rs` on `tokio-rustls = "0.26"` (rustls, ring provider).
 - Feature flag: none (default build). The client is compiled unconditionally.
-- Pin rationale (Cargo.toml:64-70): rodbus 1.4 treats an empty `Path` as "no client certificate" for the server-only TLS path. Bumping the minor version MUST be gated by re-testing server-only TLS without mTLS.
+- Pin rationale (`Cargo.toml:78-88`): `tokio-modbus` is pre-1.0, so it is pinned to the 0.17 minor; a minor bump is a breaking change and MUST be made explicitly.
 
-Evidence: `Cargo.toml:70`, `src/modbus.rs:32-33`.
+Evidence: `Cargo.toml:88-89`, `src/modbus.rs:43-45`.
 
 ## 3. Supported operations
 
@@ -44,7 +44,7 @@ A server that advertises only FC 15/16 for writing MUST NOT be paired with this 
 
 | Offset | Field | Size | Value / constraint |
 |--------|-------|------|--------------------|
-| `0x00` | Transaction Identifier | 2 bytes, big-endian | Echoed in the response; rodbus manages this automatically. |
+| `0x00` | Transaction Identifier | 2 bytes, big-endian | Echoed in the response; `tokio-modbus` manages this automatically. |
 | `0x02` | Protocol Identifier | 2 bytes, big-endian | MUST be `0x0000` (Modbus). |
 | `0x04` | Length | 2 bytes, big-endian | Byte count of Unit ID + PDU that follows. |
 | `0x06` | Unit Identifier | 1 byte | Slave ID; configured via `slave_id` (`src/config.rs:1049`). |
@@ -68,14 +68,14 @@ Multi-register decoding order is configurable per-register via `byte_order` (`sr
 
 ### 4.3 Exception responses
 
-The client surfaces rodbus error variants as `anyhow::Error`; it does not currently decode the exception code to a named Modbus code. The Modbus-defined codes `0x01` (illegal function), `0x02` (illegal data address), `0x03` (illegal data value), `0x04` (server device failure), `0x05` (acknowledge), `0x06` (server busy), `0x0A` (gateway path unavailable), `0x0B` (gateway target failed to respond) are preserved in the underlying rodbus error type.
+`tokio-modbus` returns an exception response as a typed `ExceptionCode`, separate from transport errors. The client surfaces it as an `anyhow::Error` carrying the exception's text (`"<operation>: device exception: ..."`, `settle_outcome` in `src/modbus.rs`) and keeps the transport open; it does not map the code to a typed agent-level error. The Modbus-defined codes `0x01` (illegal function), `0x02` (illegal data address), `0x03` (illegal data value), `0x04` (server device failure), `0x05` (acknowledge), `0x06` (server busy), `0x0A` (gateway path unavailable), `0x0B` (gateway target failed to respond) are distinguishable in that `ExceptionCode`.
 
 ## 5. Error handling
 
 - Per-operation timeout: `5 s` (`MODBUS_TIMEOUT`, `src/modbus.rs:45`).
 - Connect timeout: `10 s` (`CONNECT_TIMEOUT`, `src/modbus.rs:47`).
 - Circuit breaker: 3 consecutive failures open the breaker for 30 s before a probe retry (`src/modbus.rs:49-51`). When OPEN, `read_all` MUST short-circuit with an error entry and not emit wire traffic.
-- Retry strategy at the connect/RTU channel layer: doubling backoff 2 s → 30 s max (`src/modbus.rs:595-598`, `src/modbus.rs:724-727`).
+- Reconnect: a transport/protocol error or timeout retires the transport (a Modbus exception does not); the next request after the backoff re-opens it — doubling backoff 2 s → 30 s max (`ReconnectPolicy` / `Link` in `src/modbus.rs`).
 - Read rate limiter (FC 1/2/3/4): tokens configured via `security.rate_limit_ops_per_sec` / `security.rate_limit_burst` (`src/modbus.rs:383-388`).
 - Write rate limiter (FC 5/6): hard-coded burst `4`, sustained `2 ops/s` (`src/modbus.rs:390-396`). A runaway write loop is therefore capped to protect physical actuators.
 - Error collection per `read_all` cycle is bounded to `MAX_ERRORS_PER_READ = 50` (`src/modbus.rs:67`) to prevent unbounded memory growth; overflow produces a single `"[Additional errors truncated]"` marker.
@@ -90,13 +90,13 @@ Plain Modbus-TCP offers **no authentication and no integrity protection**. Any p
 2. Enable `tls.enabled = true` (section 6.2); or
 3. Interpose a firewall / diode; this falls outside the chapter and is covered by `deployment/dmz-topology.md`.
 
-### 6.2 Modbus-TCP with TLS (rodbus `TlsClientConfig::full_pki`)
+### 6.2 Modbus-TCP with TLS (Modbus/TCP Security over `tokio-rustls`)
 
-- Minimum TLS version: **1.2** (`src/modbus.rs:640`, `src/modbus.rs:662`).
-- CA certificate validation is MANDATORY when TLS is enabled — `ca_cert_path` is REQUIRED (`src/modbus.rs:611-613`).
-- Server-name validation via SNI: configured via `tls.server_name`; if omitted, the client falls back to the IP string of the configured address (`src/modbus.rs:617-622`).
-- mTLS (client cert) is OPTIONAL. When `tls.client_cert_path` AND `tls.client_key_path` are both provided, rodbus is handed those paths via `full_pki` (`src/modbus.rs:634-642`). When omitted, the server-only TLS code path passes empty `Path::new("")` (`src/modbus.rs:655-663`) — this relies on the documented rodbus-1.4 behaviour (see Cargo.toml:64-69 BUG-005 comment). A minor-version bump on rodbus therefore MUST be accompanied by a regression test for server-only-TLS.
-- Client private-key password: NOT SUPPORTED (`None` passed at `src/modbus.rs:639`, `src/modbus.rs:661`).
+- Minimum TLS version: **1.2**; TLS 1.3 is negotiated when the PLC supports it (`MODBUS_TLS_VERSIONS`, `src/modbus.rs:80-81`).
+- CA certificate validation is MANDATORY when TLS is enabled — `ca_cert_path` is REQUIRED (`ModbusTlsConfig::to_mode`, `src/config.rs`); the PLC certificate chain is verified against that CA bundle (`modbus_tls_client`, `src/modbus.rs`).
+- Server-name validation: `tls.server_name` is REQUIRED when TLS is enabled (`ModbusTlsConfig::to_mode`) and is sent as SNI; the PLC certificate MUST match it.
+- mTLS (client cert) is OPTIONAL. When `tls.client_cert_path` AND `tls.client_key_path` are both provided, the client presents that certificate chain + key (`TlsMode::Full` → rustls `with_client_auth_cert`). When both are omitted, the link is server-only TLS (`TlsMode::ServerOnly` → rustls `with_no_client_auth()`). A half-configured pair is rejected at config load (`TlsMode`). Certificate and key files are re-read on every (re)connect, so a rotated certificate takes effect without restarting the agent.
+- Client private-key password: NOT SUPPORTED — the client key MUST be an unencrypted PEM private key (`modbus_tls_client`).
 - `insecure_skip_verify` is exposed as a boolean (`src/config.rs:1031-1032`). Production deployments MUST leave it `false`.
 
 ### 6.3 Access-control policy (application layer)
@@ -177,7 +177,7 @@ Surfaced as a `RegisterValue` (`src/modbus.rs:349-356`):
 
 ## 9. Test coverage
 
-- Unit tests inside `src/modbus.rs` (11 `#[test]` / `#[tokio::test]` blocks) exercise: byte-order conversion, function-code whitelist, write-range whitelist, rate-limiter behaviour, circuit-breaker transitions. No TLS path unit test; server-only TLS is covered by the BUG-005 regression test.
+- Unit tests inside `src/modbus.rs` (`#[cfg(test)] mod tests`) exercise: byte-order conversion, function-code whitelist, write-range whitelist, rate-limiter behaviour, circuit-breaker transitions. Transport tests in the same module run against an in-process `tokio-modbus` TCP server (dev-dependency feature `tcp-server`, `Cargo.toml:538`): plain TCP, device exceptions, automatic reconnect after a dropped transport, server-only TLS, mTLS, and rejection of an unknown-CA / wrong-name PLC certificate (vector T6).
 - Integration stress tests: `sens-api-gateway/tests/stress_test.rs` + `sens-api-gateway/tests/resource_benchmark.rs`.
 - HIL coverage against a live Schneider M241 or Siemens SIMATIC ET 200SP MUST be documented in `testing/hil-coverage.md` before any customer deployment declares a given PLC family as Tier-1 supported. Coverage against ORPHAN-EDGE-010 function codes MUST remain negative until that finding closes.
 
@@ -191,10 +191,11 @@ Surfaced as a `RegisterValue` (`src/modbus.rs:349-356`):
 | Claim | Anchor |
 |-------|--------|
 | FC set 1/2/3/4/5/6 wired, 15/16/17/22/23/43 not | `src/modbus.rs:55-68` |
-| rodbus crate pin | `Cargo.toml:70` |
-| TCP + TLS channel spawn | `src/modbus.rs:671-692` |
-| RTU serial channel spawn | `src/modbus.rs:739-748` |
-| `full_pki` server-only path | `src/modbus.rs:655-663` |
+| `tokio-modbus` + `tokio-rustls` dependencies | `Cargo.toml:88-89` |
+| TCP + TLS transport open | `open_tcp` in `src/modbus.rs` |
+| RTU serial transport open | `open_rtu` in `src/modbus.rs` |
+| Server-only TLS (`with_no_client_auth()`) / mTLS (`with_client_auth_cert`) | `modbus_tls_client` in `src/modbus.rs` |
+| Reconnect backoff 2 s → 30 s | `ReconnectPolicy` / `Link` in `src/modbus.rs` |
 | Function-code whitelist | `src/modbus.rs:421-442` |
 | Write-address range whitelist | `src/modbus.rs:467-489` |
 | 5 s op timeout, 10 s connect, 3/30 s breaker | `src/modbus.rs:45-51` |
@@ -213,7 +214,7 @@ The following vectors are the minimum acceptance set. Each vector is determinist
 | T3 | 4 consecutive timeouts on same device | After failure #3 the breaker opens and subsequent `read_all` calls return an error entry without touching the wire for the next 30 s |
 | T4 | FC 0x05 request with `security.allow_writes=false` | `write_coil` returns `Err("Write operations not allowed by security policy")`; no PDU sent |
 | T5 | FC 0x06 write to register `999` while `allowed_write_ranges = [[100, 110]]` | Rejected before the wire: `Err("Register address 999 is not in the allowed write range")` |
-| T6 | TLS enabled, server presents cert signed by a different CA | rodbus TLS handshake fails; `connect_tcp_inner` returns context `"Failed to create TLS config ..."` |
+| T6 | TLS enabled, server presents cert signed by a different CA | TLS handshake fails; `open_tcp` returns context `"TLS handshake with Modbus device '<name>' at <addr> failed"` and the link is scheduled for re-open with backoff |
 | T7 | Configure `byte_order=big_endian_byte_swap`, server returns `[0x12, 0x34]` in the single register | Decoded raw word `0x3412` |
 | T8 | Configure `data_type=f32`, 2-register read, response `41 A4 00 00` (big-endian) | `scaled_value ≈ 20.5 × scale` |
 | T9 | Configure an FC that is whitelisted at the PLC but not in `allowed_function_codes` (e.g. `0x04`) | Pre-wire rejection; `"Function code 4 not allowed by security policy"` |

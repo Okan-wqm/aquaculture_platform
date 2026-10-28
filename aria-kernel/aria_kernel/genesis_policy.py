@@ -101,10 +101,27 @@ POLICY_KEYS = {
     # from defaults — by service_expertise_policy / change_review_policy.
     "service_expertise",
     "change_review",
+    # F1.2 (PLAN-v2 §4) — the pre-registered gates: gates.g1 is the field list a
+    # scorecard cycle must have measured, and how many consecutive cycles must.
+    # Parsed strictly by gates_policy; nothing in the policy module evaluates a gate.
+    "gates",
+    # F0.6 (ARIA-MEDIUM-731) — how many non-matching observations of one
+    # experiment end its night run, and the operator-written exempt experiment
+    # ids. Parsed strictly — never filled from defaults — by
+    # hypothesis_cut_policy; read by experiment_night.plan_night_experiments.
+    "hypothesis_cut",
 }
 
 JUDGMENT_PIPELINE_DEFAULTS: dict[str, Any] = {
     "sample_size_per_tool": 5,
+    # ARIA-MEDIUM-1087 — the most NEW unanimous true_positive pairs the anchor
+    # arm mints an arbiter for, per tool per cycle (judge_fanout.
+    # dispatch_arbiter_for_anchor_groups; false_positive pairs are
+    # unconditional and an arbiter already in flight does not count). A
+    # ceiling, not a throttle: it equals `sample_size_per_tool`, the most new
+    # pairs one tool's sample can produce in a cycle; the drain-budget door
+    # (`judge_fanout.arbitration`, discretionary) is the real throttle.
+    "anchor_tp_pairs_per_tool_per_cycle": 5,
     # Second sealed night measured 462 judge envelopes minted against ~9
     # drained per night: 296 died of anchor staleness without ever being
     # read. 32 per role ≈ 3 nights of drain headroom at the measured
@@ -1083,6 +1100,38 @@ CHANGE_REVIEW_SCHEMA: dict[str, Any] = {
         "overflow": _prereg.one_of("hold"),
     },
 }
+# PLAN-v2 §4, G1 — "14 consecutive cycles, every field of the F1.2 field list measured". The list is the
+# decision (a field left off it can never hold the gate), so it is pre-registered here, before the measurement,
+# and the scorecard reader (autonomy_evidence.g1_gap_free_run) takes the names it reports from it. Each name is
+# a measured field of one lens spec (autonomy_evidence.CAPABILITY_SPECS; tests/test_scorecard_lens_specs.py pins
+# that). The bound on the cycle count refuses nonsense (a bool, zero), it is not the decision.
+GATES_SCHEMA: dict[str, Any] = {
+    "g1": {
+        "consecutive_cycles": _prereg.whole(1, 3650),
+        "fields": _prereg.names(),
+    },
+}
+
+
+def gates_policy(repo_root: str | Path | None = None) -> dict[str, Any]:
+    """F1.2 — the pre-registered gate decisions (today G1's field list), parsed strictly.
+
+    Every key is required and refused by its dotted path when missing, unknown or out of range; the shipped
+    value never stands in for one an override leaves out (an override replaces the block whole).
+    """
+    merged = load_policy(repo_root) if repo_root is not None else default_policy()
+    return _prereg.parse_block("gates", merged.get("gates"), GATES_SCHEMA)
+# F0.6 (ARIA-MEDIUM-731, PLAN-v2 principle 3) — the refuted-hypothesis cut.
+# max_nonmatching_observations: the streak at which the night stops running an
+# experiment (experiment_night.nonmatching_streaks). exempt_experiments: ids
+# the operator keeps running anyway; aria-config/ is read-only to ARIA, so ARIA
+# cannot exempt its own hypothesis. There is no ``enabled`` key on purpose: a
+# switch that turns the cut off brings the repeated run back; the operator
+# raises the limit or names an id.
+HYPOTHESIS_CUT_SCHEMA: dict[str, Any] = {
+    "max_nonmatching_observations": _prereg.whole(2, 50),
+    "exempt_experiments": _prereg.labels(max_len=64),
+}
 
 
 def _parsed_change_review(merged: dict[str, Any]) -> dict[str, Any]:
@@ -1096,6 +1145,16 @@ def change_review_policy(repo_root: str | Path | None = None) -> dict[str, Any]:
     raise. A missing, unknown or out-of-range key is refused by its dotted path.
     """
     return _parsed_change_review(load_policy(repo_root) if repo_root is not None else default_policy())
+
+
+def hypothesis_cut_policy(repo_root: str | Path | None = None) -> dict[str, Any]:
+    """F0.6 — the refuted-hypothesis cut's limit and exemptions, parsed strictly.
+
+    A missing, unknown or out-of-range key is refused by its dotted path; the
+    night planner lets that refusal stop the night, never read it as "no cut".
+    """
+    merged = load_policy(repo_root) if repo_root is not None else default_policy()
+    return _prereg.parse_block("hypothesis_cut", merged.get("hypothesis_cut"), HYPOTHESIS_CUT_SCHEMA)
 
 
 def service_expertise_policy(repo_root: str | Path | None = None) -> dict[str, Any]:

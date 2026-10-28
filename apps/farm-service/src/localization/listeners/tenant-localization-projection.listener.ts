@@ -20,6 +20,7 @@
  *
  * @module FeedingProtocol/Listeners
  */
+import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { isValidBcp47Locale, isValidIanaTimeZone } from '@aquaculture/backend-common/utils';
 import { Inject, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { HandlerOutcome, IEventBus, IEventHandler } from '@platform/event-bus';
@@ -90,18 +91,22 @@ export class TenantLocalizationProjectionListener
     }
 
     try {
-      await this.dataSource.query(
-        `INSERT INTO farm.tenant_localization
-           ("tenantId", "timezone", "locale", "sourceUpdatedAt", "updatedAt")
-         VALUES ($1, $2, $3, $4, now())
-         ON CONFLICT ("tenantId") DO UPDATE
-           SET "timezone" = EXCLUDED."timezone",
-               "locale" = COALESCE(EXCLUDED."locale", farm.tenant_localization."locale"),
-               "sourceUpdatedAt" = EXCLUDED."sourceUpdatedAt",
-               "updatedAt" = now()
-         WHERE farm.tenant_localization."sourceUpdatedAt" IS NULL
-            OR farm.tenant_localization."sourceUpdatedAt" < EXCLUDED."sourceUpdatedAt"`,
-        [tenantId, updated.timezone, locale, sourceUpdatedAt],
+      // `farm.tenant_localization` is FORCE-RLS (policy: tenantId = app.current_tenant):
+      // an INSERT outside the tenant's own context is refused, so the upsert runs in it.
+      await runInTenantTransaction(this.dataSource, 'farm', tenantId, (queryRunner) =>
+        queryRunner.query(
+          `INSERT INTO farm.tenant_localization
+             ("tenantId", "timezone", "locale", "sourceUpdatedAt", "updatedAt")
+           VALUES ($1, $2, $3, $4, now())
+           ON CONFLICT ("tenantId") DO UPDATE
+             SET "timezone" = EXCLUDED."timezone",
+                 "locale" = COALESCE(EXCLUDED."locale", farm.tenant_localization."locale"),
+                 "sourceUpdatedAt" = EXCLUDED."sourceUpdatedAt",
+                 "updatedAt" = now()
+           WHERE farm.tenant_localization."sourceUpdatedAt" IS NULL
+              OR farm.tenant_localization."sourceUpdatedAt" < EXCLUDED."sourceUpdatedAt"`,
+          [tenantId, updated.timezone, locale, sourceUpdatedAt],
+        ),
       );
       return HandlerOutcome.ack();
     } catch (error) {

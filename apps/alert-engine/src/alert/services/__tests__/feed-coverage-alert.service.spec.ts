@@ -9,7 +9,7 @@ import type {
 } from '@platform/event-contracts';
 
 import { AlertSeverity } from '../../../database/entities/alert-rule.entity';
-import { AlertModule } from '../../entities/alert-module.enum';
+import { OWNER_MODULE } from '@aquaculture/shared-contracts';
 import { stub } from '@aquaculture/testing';
 import {
   FeedCoverageAlertService,
@@ -133,9 +133,9 @@ describe('FeedCoverageAlertService', () => {
       row.siteId,
     ]);
     expect(origins).toEqual([
-      [AlertModule.FARM, siteId],
-      [AlertModule.FARM, null],
-      [AlertModule.FARM, siteId],
+      [OWNER_MODULE.FARM, siteId],
+      [OWNER_MODULE.FARM, null],
+      [OWNER_MODULE.FARM, siteId],
     ]);
   });
 });

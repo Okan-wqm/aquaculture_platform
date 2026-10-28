@@ -13,6 +13,7 @@ person's merge):
 """
 from __future__ import annotations
 
+import ast
 import functools
 import os
 import subprocess
@@ -23,6 +24,7 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
+from aria_kernel import merge_record
 from aria_kernel.implementation_reconciler import reconcile_recorded_implementations
 from aria_kernel.ledger import load_jsonl
 from aria_kernel.merge_record import (
@@ -370,6 +372,134 @@ class APersonsMergeOfAHandedOverPlan(_ImplementationRequested):
             record_implementation_merged(plan_id="plan-1", merge_sha=MERGE_SHA, merged_at="2026-10-09T12:00:00Z",
                                          idempotency_key_hash="sha256:" + "a" * 64, head_lineage=LINEAGE_DELIVERED,
                                      base_dir=self.tools)
+
+
+class AClosedPrOfARecordedPlanIsRecordedByTheReconciler(unittest.TestCase):
+    """F3.1 / ARIA-MEDIUM-742 (the lifecycle half) — a PR a person closed unmerged is the ledger's fact, for a RECORDED plan too.
+
+    BASE: a plan that recorded its outcome stays ``IMPLEMENTATION_RECORDED`` when its PR is closed unmerged, and the
+    reconciler's RECORDED branch asks GitHub only whether the PR MERGED and writes nothing for CLOSED. The
+    ``closed_unmerged`` row (``record_pr_unmergeable``, asked again once a day and bounded by ``MAX_CLOSED_RECHECKS``)
+    is written only on the branch for plans already ``IMPLEMENTATION_REJECTED``. So a RECORDED plan whose PR was closed
+    reads as open FOREVER to anything that asks the PR ledger — and a guard that holds a subject while its change is in
+    flight would hold it for good (the deadlock ``test_change_in_flight_guard`` pins from the other side).
+
+    The reconciler records CLOSED for a RECORDED plan through the same writer and the same daily bound; it records an
+    observation, grants no merge authority and writes no plan event (the plan stays RECORDED; what a closed PR means
+    for the implementer's attribution is not decided here).
+
+    The fixture is ``APersonsMergeOfARecordedPlan``'s own (a RECORDED plan with its ``opened`` row), reused as it is.
+    Every near-miss below pairs "writes nothing" with a CLOSED control in the same store, so it fails at base for the
+    defect and not by writing nothing.
+    """
+
+    setUp = APersonsMergeOfARecordedPlan.setUp
+    reconcile = APersonsMergeOfARecordedPlan.reconcile
+
+    def closed_rows(self) -> list[dict]:
+        return [row for row in lifecycle_rows(self.tools) if row.get("event") == "closed_unmerged" and row.get("pr_number") == PR]
+
+    def state(self) -> str:
+        return fold_plan_state(plan_id="plan-r", base_dir=self.tools)["state"]
+
+    def assert_a_closed_answer_is_recorded_once(self) -> None:
+        """The control: with nothing recorded so far, a CLOSED answer of this PR writes exactly one row."""
+        self.assertEqual(self.closed_rows(), [])
+        self.reconcile(Reader(state="CLOSED", mergedAt=None, mergeCommit=None))
+        rows = self.closed_rows()
+        self.assertEqual(len(rows), 1, "a CLOSED answer of this PR was not recorded exactly once")
+        self.assertEqual((rows[0]["reason"], rows[0]["head_sha"]), ("closed_unmerged_on_github", TIP))
+
+    def test_a_closed_pr_is_recorded_once_a_day_and_the_plan_is_left_alone(self) -> None:
+        reader = Reader(state="CLOSED", mergedAt=None, mergeCommit=None)
+        plan_ledger = events_path(self.tools).read_bytes()
+        result = self.reconcile(reader)
+        rows = self.closed_rows()
+        self.assertEqual(len(rows), 1, "the closed PR of a RECORDED plan was not recorded")
+        self.assertEqual((rows[0]["reason"], rows[0]["head_sha"], rows[0]["pr_number"]), ("closed_unmerged_on_github", TIP, PR))
+        self.assertEqual(self.state(), "IMPLEMENTATION_RECORDED")
+        self.assertEqual(events_path(self.tools).read_bytes(), plan_ledger, "the plan ledger got an event for a closed PR")
+        self.assertEqual(result["merged"], [])
+        # Within the day, nothing more is written; the RECORDED branch still asks GitHub every cycle (a merge wins).
+        self.reconcile(reader)
+        self.assertEqual(len(self.closed_rows()), 1)
+        self.assertEqual(len(reader.asked), 2)
+        self.assertEqual(self.state(), "IMPLEMENTATION_RECORDED")
+
+    def test_the_rows_stop_at_the_owners_bound_never_one_per_cycle(self) -> None:
+        reader = Reader(state="CLOSED", mergedAt=None, mergeCommit=None)
+        self.reconcile(reader)
+        self.assertEqual(len(self.closed_rows()), 1)
+        later = datetime.now(timezone.utc)
+        for _ in range(MAX_CLOSED_RECHECKS + 3):
+            later += timedelta(seconds=CLOSED_RECHECK_INTERVAL_SECONDS + 1)
+            with patch("aria_kernel.implementation_reconciler.closed_recheck_due", functools.partial(closed_recheck_due, now=later)):
+                self.reconcile(reader)
+        # One observation per due recheck, at most MAX_CLOSED_RECHECKS rechecks beside the first: the owner's bound.
+        self.assertEqual(len(self.closed_rows()), MAX_CLOSED_RECHECKS + 1)
+        self.assertEqual(self.state(), "IMPLEMENTATION_RECORDED")
+
+    def test_an_open_pr_writes_no_closed_row(self) -> None:
+        self.reconcile(Reader(state="OPEN", mergedAt=None, mergeCommit=None))
+        self.assert_a_closed_answer_is_recorded_once()
+
+    def test_another_prs_closed_answer_writes_no_closed_row(self) -> None:
+        reader = Reader(number=9999, state="CLOSED", mergedAt=None, mergeCommit=None)
+        self.reconcile(reader)
+        self.assertEqual(reader.asked, [PR])
+        self.assert_a_closed_answer_is_recorded_once()
+
+    def test_a_github_that_answers_nothing_writes_no_closed_row(self) -> None:
+        class NoAnswer(Reader):
+            def pr_merge_state(self, pr_number: int):  # noqa: ANN201
+                self.asked.append(pr_number)
+                return None
+
+        reader = NoAnswer()
+        self.reconcile(reader)
+        self.assertEqual(reader.asked, [PR])
+        self.assert_a_closed_answer_is_recorded_once()
+
+    def test_an_unreadable_github_asks_nothing_and_writes_no_closed_row(self) -> None:
+        reader = Unreadable(state="CLOSED", mergedAt=None, mergeCommit=None)
+        self.reconcile(reader)
+        self.assertEqual(reader.asked, [])
+        self.assert_a_closed_answer_is_recorded_once()
+
+    def test_a_closed_pr_that_is_merged_after_all_folds_merged_and_still_holds_the_change(self) -> None:
+        self.reconcile(Reader(state="CLOSED", mergedAt=None, mergeCommit=None))
+        self.assertEqual(len(self.closed_rows()), 1)
+        self.assertFalse(merge_record.pr_holds_change(lifecycle_rows(self.tools), head_sha=TIP), "a closed PR holds nothing")
+        result = self.reconcile(Reader())
+        self.assertEqual([row["plan_id"] for row in result["merged"]], ["plan-r"], result)
+        self.assertEqual(self.state(), "IMPLEMENTATION_MERGED")
+        self.assertEqual(len(_merged_rows(self.tools)), 1)
+        # merged outranks closed_unmerged: the change is held (by a merge now) whatever the closed row says.
+        self.assertTrue(merge_record.pr_holds_change(lifecycle_rows(self.tools), head_sha=TIP))
+
+    def test_the_closed_unmerged_event_has_one_writer_call_and_it_is_the_one_function(self) -> None:
+        # The rejected-plan branch and the RECORDED branch share the one call (one writer, one bound).
+        source = (_REPO_ROOT / "aria-kernel" / "aria_kernel" / "implementation_reconciler.py").read_text(encoding="utf-8")
+        found: list[str] = []
+
+        class Visitor(ast.NodeVisitor):
+            def __init__(self) -> None:
+                self.scope: list[str] = []
+
+            def visit_FunctionDef(self, node: ast.FunctionDef) -> None:  # noqa: N802 - ast API
+                self.scope.append(node.name)
+                self.generic_visit(node)
+                self.scope.pop()
+
+            def visit_Call(self, node: ast.Call) -> None:  # noqa: N802 - ast API
+                if isinstance(node.func, ast.Name) and node.func.id == "record_pr_unmergeable" and any(
+                        keyword.arg == "event" and isinstance(keyword.value, ast.Name) and keyword.value.id == "EVENT_CLOSED_UNMERGED"
+                        for keyword in node.keywords):
+                    found.append(self.scope[-1] if self.scope else "<module>")
+                self.generic_visit(node)
+
+        Visitor().visit(ast.parse(source))
+        self.assertEqual(found, ["_record_closed_unmerged"])
 
 
 class TheOwnersVerification(unittest.TestCase):

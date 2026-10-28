@@ -631,6 +631,28 @@ def verify_validation_run(
     return row
 
 
+def verified_validation_run_output(
+    validation_run_id: str,
+    *,
+    base_dir: str | Path | None = None,
+) -> str:
+    """What the run's command printed, read from its hash-verified log.
+
+    The ONE reader behind "the run's output contains X" (ARIA-MEDIUM-936):
+    the red-first prover's signature check and the experiment bench's
+    ``log_contains`` comparator both judge THIS text, the output section
+    (``validation_run_log_output``) of the file ``verify_validation_run``
+    hashed — resolved through ``_validation_log_path``, never a caller's
+    re-read of ``row['log_path']`` (ARIA-LOW-939). The runner's header above
+    the output line (the command, its argv) is text the caller chose, not
+    what the run printed, so it is never a hit. Decoded the way
+    ``record_validation_run`` decoded it when it classed the run.
+    """
+    row = verify_validation_run(validation_run_id, base_dir=base_dir)
+    log_text = _validation_log_path(row, base_dir=base_dir).read_text(encoding="utf-8", errors="replace")
+    return validation_run_log_output(log_text)
+
+
 def list_validation_runs_for_change(
     change_id: str,
     *,
@@ -727,5 +749,6 @@ __all__ = [
     "record_validation_run",
     "validation_run_duration_ms",
     "validation_runs_path",
+    "verified_validation_run_output",
     "verify_validation_run",
 ]

@@ -118,7 +118,7 @@ class MergeLineageUnverified(MergeNotProven):
     """A merge GitHub reports whose head could not be read this time: retried, not refused (review of #1910, N2)."""
 
 
-def lifecycle_rows(base_dir: str | Path) -> list[dict[str, Any]]:
+def lifecycle_rows(base_dir: str | Path | None) -> list[dict[str, Any]]:
     from .ledger import load_declared_jsonl
     from .tool_registry import ensure_tools_dir_readonly
 
@@ -228,6 +228,16 @@ PR_STATE_OPEN = "open"
 # reopen writes no `opened` row) is the PR's outcome, and a refused merge ends
 # it; a close or an unreadable head only describes it until then.
 _PR_STATE_PRECEDENCE = ("merged", EVENT_MERGE_UNPROVEN, EVENT_LINEAGE_UNVERIFIED, EVENT_CLOSED_UNMERGED)
+# The states in which a PR no longer holds the change it carried: closed
+# without a merge, or a merge refused for a named fact. Every other state
+# (open, merged, an unreadable merged head being retried) holds it.
+_PR_STATES_THAT_RELEASE_THE_CHANGE = frozenset({EVENT_CLOSED_UNMERGED, EVENT_MERGE_UNPROVEN})
+
+
+def _pr_state(rows: list[dict[str, Any]], number: int) -> str:
+    """Where one PR's lifecycle stands: the highest-precedence event any of its rows carries, else open."""
+    events = {row.get("event") for row in rows if row.get("pr_number") == number}
+    return next((event for event in _PR_STATE_PRECEDENCE if event in events), PR_STATE_OPEN)
 
 
 def pull_requests_for_change(rows: list[dict[str, Any]], *, proposal_id: str,
@@ -255,12 +265,23 @@ def pull_requests_for_change(rows: list[dict[str, Any]], *, proposal_id: str,
             continue
         if type(row.get("pr_number")) is int:
             opened.setdefault(row["pr_number"], None)
-    result = []
-    for number in opened:
-        events = {row.get("event") for row in rows if row.get("pr_number") == number}
-        state = next((event for event in _PR_STATE_PRECEDENCE if event in events), PR_STATE_OPEN)
-        result.append({"pr_number": number, "pr_state": state})
-    return result
+    return [{"pr_number": number, "pr_state": _pr_state(rows, number)} for number in opened]
+
+
+def pr_holds_change(rows: list[dict[str, Any]], *, head_sha: str) -> bool:
+    """Whether a PR still holds the change whose delivered head is ``head_sha``.
+
+    ARIA-MEDIUM-742 — "this change is in flight" is asked of this ledger, not
+    inferred from a plan's state (a plan whose PR a person closed stays
+    ``IMPLEMENTATION_RECORDED``). The PRs are the numbers named by the rows
+    that carry this head; the answer is False only when at least one exists and
+    every one of them is closed unmerged or refused. Open, merged (the plan
+    folds MERGED only when the reconciler next runs), a merged head being
+    retried, and a head no row names at all (a damaged ledger: the one
+    ``gh pr create`` writes ``opened``) hold the change: fail closed.
+    """
+    numbers = {row["pr_number"] for row in rows if row.get("head_sha") == head_sha and type(row.get("pr_number")) is int}
+    return not numbers or any(_pr_state(rows, number) not in _PR_STATES_THAT_RELEASE_THE_CHANGE for number in numbers)
 
 
 def merged_row_instant(row: Mapping[str, Any]) -> str:
@@ -332,6 +353,56 @@ def fold_merged_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
                                                        "attested_at", "ledger_hash")}}
         folded.append(row)
     return folded
+
+
+# ARIA-MEDIUM-746 (F3.3a) — "which merges happened, and which are ARIA's" is
+# read here and nowhere else. The F0.9 atlas found three readers with three
+# rules: change_outcome's own index of the merged rows, self_revert's merge
+# lane decisions, own_pr_ci's head-branch prefix. They disagreed on PR #1906
+# (ARIA's change on a person-named branch, merged by a person): this module
+# held it as ARIA's by lineage, the other two did not see it.
+# tests/invariants/test_merge_index_single_owner.py pins the one reader.
+
+
+def merged_rows_by_change(base_dir: str | Path | None) -> dict[str, dict[str, Any]]:
+    """change_id → its latest folded ``merged`` row, the one merge index.
+
+    The ``merged`` row carries the PR number; the change it delivered is the
+    one the PR's ``opened`` row binds (:func:`pr_change_binding`,
+    merge-delivery-1): every change an ``opened`` row of the PR named, and no
+    other row's. So the join is change → PR → merged row, the same ledger
+    ``auto_merge.change_for_pr`` reads in the opposite direction.
+
+    One pass, because the nightly outcome selection asks once per validated
+    chain: a per-change scan would re-read the whole PR ledger for every chain.
+    """
+    rows = lifecycle_rows(base_dir)
+    rows_by_pr: dict[int, list[dict[str, Any]]] = {}
+    for row in rows:
+        if type(row.get("pr_number")) is int:
+            rows_by_pr.setdefault(row["pr_number"], []).append(row)
+    bound_changes: dict[int, tuple[str, ...]] = {}
+    for pr_number, pr_rows in rows_by_pr.items():
+        binding = pr_change_binding(pr_rows, pr_number=pr_number)
+        if binding is not None:
+            bound_changes[pr_number] = binding.bound_change_ids
+    index: dict[str, dict[str, Any]] = {}
+    for row in fold_merged_rows(rows):
+        for change_id in bound_changes.get(row.get("pr_number"), ()):
+            index[change_id] = row  # a later merged row wins
+    return index
+
+
+def arias_merges(base_dir: str | Path | None) -> dict[int, dict[str, Any]]:
+    """PR number → its folded ``merged`` row, for every merge whose head is ARIA's change.
+
+    The one rule of ARIA authorship of a merge (F3.3a / F3.4): the merged
+    row's lineage (:func:`merged_row_is_arias`), whoever merged it — the
+    merge lane, or a person observed on GitHub (PR #1906). Neither the head
+    branch's name nor the merge lane's decision makes a merge ARIA's.
+    """
+    return {row["pr_number"]: row for row in fold_merged_rows(lifecycle_rows(base_dir))
+            if type(row.get("pr_number")) is int and merged_row_is_arias(row)}
 
 
 def attested_plan_lineages(events: list[dict[str, Any]]) -> dict[str, str]:
@@ -699,6 +770,7 @@ __all__ = [
     "PR_STATE_OPEN",
     "classify_merged_head",
     "closed_recheck_due",
+    "arias_merges",
     "attest_merge_lineage",
     "attestation_binds",
     "attested_plan_lineages",
@@ -710,9 +782,11 @@ __all__ = [
     "lineage_credits_aria",
     "merged_row_instant",
     "merged_row_is_arias",
+    "merged_rows_by_change",
     "observed_merge",
     "opened_row",
     "pr_change_binding",
+    "pr_holds_change",
     "pull_requests_for_change",
     "record_merge",
     "record_pr_unmergeable",

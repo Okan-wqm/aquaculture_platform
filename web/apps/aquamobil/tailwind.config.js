@@ -57,12 +57,12 @@ export default {
     },
     extend: {
       fontFamily: {
-        // v4 design typeface. Geist is self-hosted (src/styles/tokens.css) —
+        // v4 design typeface. Inter is self-hosted (src/styles/tokens.css) —
         // an offline-first PWA cannot depend on a font CDN.
-        sans: ['Geist', 'system-ui', '-apple-system', 'sans-serif'],
-        display: ['Geist', 'system-ui', 'sans-serif'],
-        // Hero numerals, codes, timestamps — "uppercase survives only where a
-        // machine speaks", and machine values are set in mono.
+        sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+        display: ['Inter', 'system-ui', 'sans-serif'],
+        // Codes and IDs — "uppercase survives only where a machine speaks", and
+        // machine identifiers are set in mono. Figures are Inter with tabular-nums.
         mono: ['Geist Mono', 'ui-monospace', 'SFMono-Regular', 'monospace'],
       },
       // v4 type scale. WHY named steps instead of arbitrary `text-[13px]`:

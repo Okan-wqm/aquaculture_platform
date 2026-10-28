@@ -30,7 +30,7 @@ import {
 } from '../hooks';
 import { useModuleScope } from '../hooks/useModuleScope';
 import { ScopedDescription } from '../components/common';
-import { MODULE_CODES, moduleLabel } from '../utils/moduleLabels';
+import { MODULE_CODES, moduleChoicesFor, moduleLabel } from '../utils/moduleLabels';
 import type { Department, CreateDepartmentInput, UpdateDepartmentInput } from '../types';
 
 /** The module select's "no module" option; '' is never sent as a module. */
@@ -181,7 +181,10 @@ const DepartmentFormModal: React.FC<DepartmentFormModalProps> = ({ department, o
               onChange={(e) => setModuleSelection(e.target.value)}
               options={[
                 { value: COMPANY_WIDE, label: t('hr.module.companyWide') },
-                ...MODULE_CODES.map((code) => ({ value: code, label: moduleLabel(code, t) })),
+                ...moduleChoicesFor(department?.moduleCode).map((code) => ({
+                  value: code,
+                  label: moduleLabel(code, t),
+                })),
               ]}
             />
             {isEditing && (

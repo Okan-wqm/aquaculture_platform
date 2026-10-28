@@ -14,6 +14,7 @@ import {
   AuditedOperationModule,
 } from '@aquaculture/backend-common/audit';
 import { TenantErasureTargetModule } from '@aquaculture/backend-common/compliance';
+import { TenantEventHandlerScope } from '@aquaculture/backend-common/context';
 import {
   AuditColumnsModule,
   createSchemaVersionGate,
@@ -23,7 +24,11 @@ import {
   getRlsExcludeTablesForService,
   SchemaDriftModule,
 } from '@aquaculture/backend-common/database';
-import { RolesGuard, ServiceIdentityGuard, TenantGuard } from '@aquaculture/backend-common/guards';
+import {
+  accessGuardProviders,
+  ServiceIdentityGuard,
+  TenantGuard,
+} from '@aquaculture/backend-common/guards';
 import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
 import { ServiceMetricsModule } from '@aquaculture/backend-common/metrics';
 import {
@@ -31,6 +36,7 @@ import {
   StripInternalHeadersMiddleware,
   TenantContextMiddleware,
   UserContextMiddleware,
+  VerifiedUserAssertionMiddleware,
 } from '@aquaculture/backend-common/middleware';
 import { RedisModule, buildRedisOptions } from '@aquaculture/backend-common/redis';
 import { CircuitBreakerModule } from '@aquaculture/backend-common/resilience';
@@ -213,6 +219,12 @@ const GRAPHQL_MAX_COMPLEXITY = 1000;
         useFactory: (repository: Repository<NotificationLog>) =>
           new NotificationLogDeadLetterSink(repository),
       },
+      // PLAT-HIGH-936: a NATS handler has no HTTP request behind it, so the
+      // RLS pool patch read an empty frame and every write to notification_logs
+      // (TaskOverdue, TaskCreated, ...) was refused and redelivered. The bus
+      // runs every handler, and the dead-letter record of its event, inside
+      // the event tenant's frame, bound here once.
+      handlerScope: { useFactory: () => new TenantEventHandlerScope() },
     }),
     NotificationOutboxModule,
     TenantErasureTargetModule.forService('notification-service'),
@@ -309,11 +321,9 @@ const GRAPHQL_MAX_COMPLEXITY = 1000;
         new TenantGuard(reflector, undefined, configService),
       inject: [Reflector, ConfigService],
     },
-    {
-      provide: APP_GUARD,
-      useFactory: (reflector: Reflector): RolesGuard => new RolesGuard(reflector),
-      inject: [Reflector],
-    },
+    // SECURITY: RolesGuard enforces @Roles(); once this service is enrolled in ADR-051 its
+    // MODULE_ACCESS_ENROLMENT entry adds the access-classification guard (RBAC-HIGH-030).
+    ...accessGuardProviders('notification-service'),
     /** SEC-M22: Register global audit logging for compliance — all mutations are tracked. */
     {
       provide: APP_INTERCEPTOR,
@@ -327,6 +337,11 @@ export class AppModule implements NestModule {
       .apply(
         // SEC-CRITICAL-002 sweep — strip forged internal headers.
         StripInternalHeadersMiddleware,
+        // SEC-HIGH-156: resolve req.user/req.tenantId from the gateway-signed
+        // verified-user assertion (runs after Strip sets req.verifiedIdentity,
+        // before UserContext/TenantContext). Without it the TenantGuard sees no
+        // user and answers every authenticated operation with UNAUTHENTICATED.
+        VerifiedUserAssertionMiddleware,
         CorrelationIdMiddleware,
         RequestContextMiddleware, // Populate AsyncLocalStorage for structured logging
         UserContextMiddleware,

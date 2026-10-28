@@ -3,12 +3,13 @@ import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import { gql } from 'graphql-tag';
 
 import { useAuth } from './useAuth';
+import { useOfflineCacheScope } from './useOfflineCacheScope';
 
 import type {
   FarmStockInventoryQuery,
   FarmStockInventoryQueryVariables,
 } from '@/generated/graphql';
-import { cacheData, getCachedData } from '@/pwa/offline-queue';
+import { readThroughOfflineCache } from '@/pwa/offline-cache';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import type { Tank } from '@/types';
 import { logger } from '@/utils/logger';
@@ -205,8 +206,12 @@ export async function fetchAllTanks(): Promise<Tank[]> {
   return tanks;
 }
 
+/** Offline copy TTL: the tank list stands in for an hour when the server is unreachable. */
+const TANKS_CACHE_TTL_MS = 1000 * 60 * 60;
+
 export function useTanks(): UseQueryResult<Tank[], Error> {
   const { accessToken, tenantId, isAuthenticated } = useAuth();
+  const cacheScope = useOfflineCacheScope();
 
   return useQuery({
     queryKey: createTenantQueryKey(tenantId, 'tanks', tenantId),
@@ -215,22 +220,15 @@ export function useTanks(): UseQueryResult<Tank[], Error> {
         throw new Error('Not authenticated');
       }
 
-      try {
-        const tanks = await fetchAllTanks();
-        // PERF-05: Write to IndexedDB only as an offline fallback.
-        // React Query's own gcTime handles in-memory caching for the online path,
-        // eliminating the duplicate cache layer.
-        // SECURITY (FE-CRITICAL-002): tenantId required for tenant-isolated caching
-        await cacheData(tenantId, 'tanks', tanks, 1000 * 60 * 60); // 1 hour TTL for offline use
-        return tanks;
-      } catch (error) {
-        // Network failed — return IndexedDB cached data if available
-        const cached = await getCachedData<Tank[]>(tenantId, 'tanks');
-        if (cached) {
-          return cached;
-        }
-        throw error;
-      }
+      // PERF-05: the IndexedDB copy is an offline fallback only; React Query's
+      // gcTime caches the online path. The copy is keyed by tenant, user and
+      // grants and stands in only when the server is unreachable (MOB-MEDIUM-031).
+      const read = await readThroughOfflineCache(
+        cacheScope,
+        { key: 'tanks', ttlMs: TANKS_CACHE_TTL_MS },
+        fetchAllTanks,
+      );
+      return read.data;
     },
     enabled: isAuthenticated && !!tenantId,
     staleTime: 1000 * 60 * 1, // 1 minute — more accurate for live inventory data

@@ -110,7 +110,7 @@ ARE DISCLAIMED. …
 
 ### 3.4 BSD 3-Clause License
 
-Applicable to `rodbus` (clarified in `deny.toml:72-78`), `ed25519-dalek`, `subtle`, and `bindgen` (build-only). The text adds a third clause prohibiting use of the contributor names for endorsement:
+Applicable to `ed25519-dalek`, `subtle`, and `bindgen` (build-only). The text adds a third clause prohibiting use of the contributor names for endorsement:
 
 ```
 3. Neither the name of the copyright holder nor the names of its contributors

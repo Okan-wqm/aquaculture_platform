@@ -54,6 +54,7 @@ import { PresenceService } from '../../../presence/presence.service';
 import { ChannelResolver } from '../channel.resolver';
 import type { CurrentUserPayload } from '@aquaculture/backend-common/decorators';
 import type { CreateChannelInput } from '../../dto/create-channel.input';
+import { CreateChannelCommand } from '../../commands/create-channel.command';
 import {
   createMockChannel,
   createMockChannelMember,
@@ -169,6 +170,30 @@ describe('ChannelResolver', () => {
     expect(mockCommandBusExecute).toHaveBeenCalledTimes(1);
     expect(result.name).toBe('New Channel');
   });
+
+  it.each([
+    [['MODULE_USER'], 'TENANT_ADMIN', 'TENANT_ADMIN'],
+    [['MODULE_MANAGER', 'MODULE_USER'], undefined, 'MODULE_MANAGER'],
+    [['OWNER'], 'module_manager', 'MODULE_USER'],
+  ])(
+    'createChannel sends the highest platform role of roles %j and role %s: %s (RBAC-MEDIUM-024)',
+    async (roles, role, expected) => {
+      mockCommandBusExecute.mockResolvedValue(createMockChannel({ name: 'Role Channel' }));
+      const user = { ...mockUser(), roles: [...roles], role };
+
+      await resolver.createChannel(
+        tenantId,
+        stub<CurrentUserPayload>(user),
+        stub<CreateChannelInput>({ type: ChannelType.DIRECT, memberIds: [fakeUuid('usr')] }),
+      );
+
+      const [command] = mockCommandBusExecute.mock.calls[0] ?? [];
+      expect(command).toBeInstanceOf(CreateChannelCommand);
+      expect(command).toMatchObject({ userRole: expected });
+      // The payload is read, never written: the role list stays as it arrived.
+      expect(user.roles).toEqual(roles);
+    },
+  );
 
   it('createChannel forbids GROUP creation without the channels:create_group capability', async () => {
     const input = {

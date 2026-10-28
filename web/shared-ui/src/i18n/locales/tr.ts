@@ -742,6 +742,18 @@ export const tr: Record<MessageKey, string> = {
   'm.chat.channelSettings': 'Kanal ayarları',
   'm.chat.closeSearch': 'Aramayı kapat',
   'm.chat.searchChannels': 'Kanallarda ara',
+  // PKG-42 (ADR-051 C6): sunucunun reddettiği çevrimdışı kayıtlar, yeniden giriş için.
+  'm.sync.rejected.title': 'Yeniden girilmeli',
+  'm.sync.rejected.intro':
+    'Sunucu bu kayıtları reddetti, bu yüzden kaydedilmediler. Her birini hâlâ ait olduğu yere yeniden girin, sonra burada kapatın.',
+  'm.sync.rejected.recordedAt': 'Kaydedildi: {time}',
+  'm.sync.rejected.entered': 'Girdiğiniz değerler',
+  'm.sync.rejected.dismiss': 'Kapat — yeniden girildi',
+  'm.sync.rejected.reason.forbidden': 'Bunu kaydetme yetkiniz artık yok.',
+  'm.sync.rejected.reason.unauthenticated': 'Bu gönderildiğinde oturumunuz kabul edilmedi.',
+  'm.sync.rejected.reason.invalid': 'Sunucu kaydı girildiği haliyle kabul etmedi.',
+  'm.sync.rejected.reason.outdated': 'Bu kayıt uygulamanın eski bir sürümüyle girildi.',
+  'm.sync.rejected.reason.notFound': 'Bu kaydın bağlı olduğu kayıt artık yok.',
   'm.account.title': 'Hesap',
   'm.account.biometric.title': 'Biyometrik kimlik doğrulama',
   'm.account.biometric.close': 'Biyometrik kurulumu kapat',
@@ -1179,6 +1191,7 @@ export const tr: Record<MessageKey, string> = {
   'hr.orgChart.expand': '{name} departmanını genişlet',
   'hr.module.companyWide': 'Şirket geneli',
   'hr.module.allModules': 'Tüm modüller',
+  'hr.module.hr': 'İnsan kaynakları',
   'hr.module.showing': '{label} gösteriliyor',
   'hr.departments.moduleLabel': 'Modül',
   'hr.departments.moduleMoveHint':

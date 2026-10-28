@@ -92,7 +92,12 @@ the request worktree:
    to it), recorded on the validation-runs ledger by this process from the
    contained child's output, compared against the staged baseline, and the
    action promoted to ``ready_for_pr`` with the ``validation_gate_ref`` the
-   PR opener demands. The recorded runs — the agent's own output,
+   PR opener demands. A change that answers a finding (F3.5a) is promoted
+   only when the one red-first prover has proved the agent's own test red at
+   the staged base and green at the tip (``red_first``, declared on the
+   outcome record; the gate's ``apply_gate:gate_blocked:red_first_*``), and
+   its two proof runs are priced into the window beside the suite
+   (``_staged_proof_runs``). The recorded runs — the agent's own output,
    hash-bound on the validation-runs ledger and carried by the stamp — are
    then scanned with the submit's own scanner (round 5,
    ``implementation_safety.verify_no_secret_in_envelope`` over the
@@ -190,7 +195,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
-from .change_paths import name_status_args, parse_name_status_z
+from .change_paths import name_status_args, parse_change_z
+from .decision_stamp import DECISION_STAMP_FIELD, build_decision_stamp
 from .delivery_credentials import (
     DELIVERY_CREDENTIAL_CONSUMPTION_SECONDS,
     DELIVERY_CREDENTIAL_WORST_CASE_SECONDS,
@@ -207,6 +213,7 @@ from .git_containment import (
     derive_git_containment,
 )
 from .evidence_probe import EVIDENCE_VERIFICATION_LIVENESS_SECONDS
+from .independence_check import executed_route_of
 from .implementation_safety import (
     CANONICAL_VALIDATION_TIMEOUT_MS,
     COMMIT_SIGNATURE_VERIFY_TIMEOUT_SECONDS,
@@ -216,6 +223,7 @@ from .implementation_safety import (
     verify_no_secret_in_envelope,
     wrap_validation_in_sandbox,
 )
+from .apply_engine import RED_FIRST_PROOF_TIMEOUT_MS
 from .pr_manager import GH_PR_CREATE_TIMEOUT_SECONDS
 from .state_store import GIT_TIMEOUT_SECONDS as _GIT_TIMEOUT_SECONDS
 from .validation import SpawnWrapper, parse_allowed_command
@@ -275,6 +283,18 @@ DELIVERY_ACTIONS: tuple[str, ...] = ("apply_gate", "pr_open")
 # per intended file it deliberately left untouched, read off the outcome
 # record and written on the change ledger's commit row by the executor.
 AGENT_DISPOSITIONS_FIELD = "uncovered_intended_dispositions"
+# The second one (F3.5a): how to run the test it wrote for a finding and the
+# text its failure must carry, `{command, failure_signature}`. Never the
+# files to prove and never the expectation source: the gate lifts the files
+# from the tip's own diff and names the finding itself.
+AGENT_RED_FIRST_FIELD = "red_first"
+RED_FIRST_DECLARATION_KEYS: tuple[str, ...] = ("command", "failure_signature")
+# The commands a red-first proof adds to a delivery: the prover's two sides
+# (`validation.prove_red_first` runs the pin at the tip and at the base), each
+# bounded by `apply_engine.RED_FIRST_PROOF_TIMEOUT_MS`, the number the gate runs
+# the prover under and `delivery_worst_case_seconds` prices a proof run at.
+# Pinned against the prover's own run rows.
+RED_FIRST_PROOF_RUNS = 2
 # Governance rows.
 IMPLEMENTATION_DELIVERED_EVENT = "implementation_delivered"
 IMPLEMENTATION_DELIVERY_REFUSED_EVENT = "implementation_delivery_refused"
@@ -287,8 +307,9 @@ KERNEL_STAMPED_DELIVERY_FIELDS: tuple[str, ...] = (
 )
 _PUSH_REMOTE = "origin"
 # The git subprocesses `deliver_implementation` runs, each at the store's git
-# cap: the tip's `rev-parse`, `diff --name-status --no-renames` (the scope
-# verdict), the push, and `diff` (the stamp's hash).
+# cap: the tip's `rev-parse`, `diff --raw --numstat --no-renames` (ONE combined
+# read: the scope verdict's path set and the decision stamp's line counts),
+# the push, and `diff` (the stamp's hash).
 DELIVERY_GIT_CALLS = 4
 # The `commit_identity` stage's own bounded subprocess: one `git
 # verify-commit` (round 4). Its registry read and anchor write are work,
@@ -309,11 +330,16 @@ DELIVERY_RESULT_ADMISSIBLE_SECONDS = int(EVIDENCE_VERIFICATION_LIVENESS_SECONDS)
 DELIVERY_WORK_ALLOWANCE_SECONDS = 120
 
 
-def delivery_worst_case_seconds(*, validation_commands: Sequence[str], validation_timeout_ms: int) -> int:
+def delivery_worst_case_seconds(
+    *, validation_commands: Sequence[str], validation_timeout_ms: int, proof_runs: int = 0,
+) -> int:
     """How long ``deliver_implementation`` may legitimately run for a staged
     action whose suite is ``validation_commands`` at ``validation_timeout_ms``
     per command — the ONE derivation every consumer of "how long can the
-    delivery take" reads (ARIA-HIGH-124, round 3):
+    delivery take" reads (ARIA-HIGH-124, round 3). ``proof_runs`` more
+    commands run, each at the proof's own ceiling
+    (``apply_engine.RED_FIRST_PROOF_TIMEOUT_MS``, never the suite's), when the
+    change needs a red-first proof (``_staged_proof_runs``, F3.5a):
 
     * the executor's ``child_worst_case_seconds`` for an implementation
       child (the drain starts one only while it fits the window; the
@@ -332,9 +358,13 @@ def delivery_worst_case_seconds(*, validation_commands: Sequence[str], validatio
     """
     if validation_timeout_ms <= 0:
         raise ValueError("validation_timeout_ms must be positive")
+    if proof_runs < 0:
+        raise ValueError("proof_runs must not be negative")
     per_command = int(math.ceil(validation_timeout_ms / 1000))
+    per_proof_run = int(math.ceil(RED_FIRST_PROOF_TIMEOUT_MS / 1000))
     return int(
         len(validation_commands) * per_command
+        + proof_runs * per_proof_run
         + DELIVERY_GIT_CALLS * _GIT_TIMEOUT_SECONDS
         + DELIVERY_COMMIT_IDENTITY_SECONDS
         + DELIVERY_RESULT_ADMISSIBLE_SECONDS
@@ -379,9 +409,10 @@ def staged_delivery_worst_case_seconds(*, proposal_id: str, base_dir: str | Path
     found is priced at the canonical shape — the delivery itself then
     refuses ``apply_gate_no_action`` by name."""
     commands, timeout_ms = _staged_suite(proposal_id=proposal_id, base_dir=base_dir)
-    return delivery_worst_case_seconds(validation_commands=commands, validation_timeout_ms=timeout_ms) + (
-        IMPLEMENTATION_TERM_BESIDE_DELIVERY_SECONDS
-    )
+    return delivery_worst_case_seconds(
+        validation_commands=commands, validation_timeout_ms=timeout_ms,
+        proof_runs=_staged_proof_runs(proposal_id=proposal_id, base_dir=base_dir),
+    ) + IMPLEMENTATION_TERM_BESIDE_DELIVERY_SECONDS
 
 
 def deadline_refusal(*, job_deadline_epoch: float | None, worst_case_seconds: int, now: float | None = None) -> str | None:
@@ -438,6 +469,9 @@ class ImplementationDelivery:
     pr_url: str
     pr_number: int
     validation_gate_ref: str
+    # The executed route and the change's numstat (``decision_stamp``): stamped
+    # beside, not among, the eight kernel-stamped fields the agent contract quotes.
+    decision_stamp: dict[str, Any]
     validation_results: tuple[dict[str, Any], ...] = field(default_factory=tuple)
 
     def record_fields(self) -> dict[str, Any]:
@@ -530,6 +564,24 @@ def agent_dispositions(envelope: Mapping[str, Any]) -> dict[str, str]:
         return {}
     return {str(path): str(sentence) for path, sentence in declared.items()
             if isinstance(path, str) and isinstance(sentence, str)}
+
+
+def agent_red_first_declaration(envelope: Mapping[str, Any]) -> dict[str, str] | None:
+    """The agent's red-first declaration off the result envelope's outcome
+    record (``implementation_record``, nested or flat like the dispositions):
+    only ``command`` and ``failure_signature`` and only when they are strings.
+    Every other key the agent wrote there (``files``, ``expectation_ref``, ...)
+    is dropped here: the agent chooses how to run its test and what failure it
+    expects, never which files or which expectation. ``None`` when there is no
+    declaration object at all; a partial one is returned partial, and the gate
+    names it ``red_first_declaration_invalid``."""
+    from .implementation_identity import implementation_record
+
+    details = envelope.get("details")
+    declared = implementation_record(details if isinstance(details, dict) else {}).get(AGENT_RED_FIRST_FIELD)
+    if not isinstance(declared, Mapping):
+        return None
+    return {key: declared[key] for key in RED_FIRST_DECLARATION_KEYS if isinstance(declared.get(key), str)}
 
 
 # ARIA-HIGH-150 — what the room probe asks, one fact per line, each tool
@@ -625,6 +677,20 @@ def _staged_suite(*, proposal_id: str, base_dir: str | Path | None) -> tuple[lis
     return commands, int(action.get("validation_timeout_ms") or CANONICAL_VALIDATION_TIMEOUT_MS)
 
 
+def _staged_proof_runs(*, proposal_id: str, base_dir: str | Path | None) -> int:
+    """The proof commands the gate will add to this delivery: the prover's two
+    sides when ``apply_engine.classify_red_first`` says the staged change needs
+    a proof, else 0 (also when nothing is staged: the gate then refuses
+    ``apply_gate_no_action`` by name). Both pricing sites read this one term;
+    the canonical window constant prices none."""
+    from .apply_engine import classify_red_first, latest_apply_action
+
+    action = latest_apply_action(proposal_id=proposal_id, base_dir=base_dir)
+    if action is None:
+        return 0
+    return RED_FIRST_PROOF_RUNS if classify_red_first(action, base_dir=base_dir).required else 0
+
+
 def delivery_authority_refusal(*, base_dir: str | Path | None) -> str | None:
     """``authority_absent:profile=<p>:missing=<actions>`` when the store's
     runtime profile lacks ``DELIVERY_ACTIONS``, else None (ARIA-HIGH-388).
@@ -698,7 +764,10 @@ def delivery_admission_refusal(
         return f"staged_command_refused:{str(exc)[:200]}"
     return deadline_refusal(
         job_deadline_epoch=job_deadline_epoch,
-        worst_case_seconds=delivery_worst_case_seconds(validation_commands=commands, validation_timeout_ms=timeout_ms) + extra_seconds,
+        worst_case_seconds=delivery_worst_case_seconds(
+            validation_commands=commands, validation_timeout_ms=timeout_ms,
+            proof_runs=_staged_proof_runs(proposal_id=proposal_id, base_dir=base_dir),
+        ) + extra_seconds,
         now=now,
     )
 
@@ -790,7 +859,9 @@ def deliver_implementation(
     submitter and ``output_path`` the envelope's path; the agent's
     dispositions for intended files it left untouched are read off it
     (``agent_dispositions``) and go, with ``claim_id``, on the change
-    ledger's commit row; ``job_deadline_epoch`` is the job's
+    ledger's commit row; its red-first declaration
+    (``agent_red_first_declaration``) is read off it too and handed to the
+    gate; ``job_deadline_epoch`` is the job's
     ``ARIA_JOB_DEADLINE_EPOCH`` (None binds nothing); ``transcript_path``
     is the run's transcript the executor will submit beside the envelope,
     judged with it (ARIA-HIGH-524; None, or no such file, judges none).
@@ -866,13 +937,17 @@ def deliver_implementation(
     #    ARIA-CRITICAL-214 — read through the one change-path reader: a
     #    rename is its source AND its target, so moving an unplanned file
     #    into a planned path is refused by the scope verdict for its source.
-    touched = _git(name_status_args(base_sha, branch_tip_sha), cwd=workspace, env=git_env)
+    #    ARIA-LOW-741 — the same call carries the change's line counts (the
+    #    decision stamp's numstat): the git budget has no room for a second
+    #    read, and one parse cannot disagree with itself about the path set.
+    touched = _git(name_status_args(base_sha, branch_tip_sha, churn=True), cwd=workspace, env=git_env)
     if touched.returncode != 0:
         raise ImplementationDeliveryRefusal("change_ledger", f"diff_unresolvable:{_first_line(touched.stderr)}")
     try:
-        actual_affected_files = sorted({path for _status, path in parse_name_status_z(touched.stdout)})
+        change_entries, change_churn = parse_change_z(touched.stdout)
     except GovernanceErrorType as exc:
         raise ImplementationDeliveryRefusal("change_ledger", f"diff_unresolvable:{str(exc)[:160]}") from exc
+    actual_affected_files = sorted({path for _status, path in change_entries})
     try:
         verify_change_scope(
             change_id=change_id, actual_affected_files=actual_affected_files,
@@ -886,6 +961,13 @@ def deliver_implementation(
     if diff.returncode != 0:
         raise ImplementationDeliveryRefusal("change_ledger", f"diff_unresolvable:{_first_line(diff.stderr)}")
     diff_hash = sha256_digest_text(diff.stdout)
+    # The decision stamp: which route executed this envelope (the executor's
+    # stamp, or the native attempt row), and the size of the change just read.
+    # Built here, before anything external; no route is a null, not a refusal.
+    try:
+        decision_stamp = build_decision_stamp(executed_route_of(envelope, base_dir=base_dir), change_churn)
+    except GovernanceErrorType as exc:
+        raise ImplementationDeliveryRefusal("change_ledger", f"decision_stamp_unbuildable:{str(exc)[:160]}") from exc
 
     # 1a. The patch's own secret scan (round 6): the branch's WHOLE diff,
     #     `base_sha..tip`, through the scanner whose docstring has promised
@@ -960,7 +1042,7 @@ def deliver_implementation(
         action = run_apply_gate(
             proposal_id=proposal_id, change_id=change_id, base_dir=base_dir,
             runner_identity=f"aria-executor:{request_id}", cycle_id=cycle_id or None, workspace_root=workspace,
-            spawn_wrapper=sandbox,
+            spawn_wrapper=sandbox, red_first_declared=agent_red_first_declaration(envelope),
         )
     except SandboxUnavailable as exc:
         raise ImplementationDeliveryRefusal(ADMISSION_STAGE, f"sandbox_unavailable:{exc}") from exc
@@ -1105,7 +1187,8 @@ def deliver_implementation(
         branch=branch, branch_tip_sha=branch_tip_sha, base_branch_sha=base_sha,
         diff_hash=diff_hash,
         pr_url=str(opened["url"]), pr_number=int(opened["pr_number"]),
-        validation_gate_ref=validation_gate_ref, validation_results=validation_results,
+        validation_gate_ref=validation_gate_ref, decision_stamp=decision_stamp,
+        validation_results=validation_results,
     )
 
 
@@ -1125,7 +1208,10 @@ def stamp_implementation_delivery(
     from the kernel's is replaced and recorded on governance
     (``implementation_delivery_overridden``) with the field names and the
     agent's values — the agent's claim is data about the agent, never the
-    identity of the delivery.
+    identity of the delivery. The decision stamp (``DECISION_STAMP_FIELD``,
+    the executed route and the numstat) rides the same rule on the same
+    record, outside ``KERNEL_STAMPED_DELIVERY_FIELDS`` on purpose: that tuple
+    is what the agent contract quotes, and the agent is not told this one.
     """
     from .implementation_identity import implementation_record
     from .tool_registry import append_tools_governance
@@ -1135,10 +1221,10 @@ def stamp_implementation_delivery(
         details = {}
         envelope["details"] = details
     record = implementation_record(details)
-    facts = delivery.record_fields()
+    facts = {**delivery.record_fields(), DECISION_STAMP_FIELD: delivery.decision_stamp}
     overridden: dict[str, Any] = {}
     changed = False
-    for name in KERNEL_STAMPED_DELIVERY_FIELDS:
+    for name in (*KERNEL_STAMPED_DELIVERY_FIELDS, DECISION_STAMP_FIELD):
         supplied = record.get(name)
         if supplied == facts[name]:
             continue
@@ -1172,10 +1258,13 @@ __all__ = [
     "PRE_PR_OPEN_STAGE",
     "RESULT_ADMISSIBLE_STAGE",
     "AGENT_DISPOSITIONS_FIELD",
+    "AGENT_RED_FIRST_FIELD",
     "DELIVERY_STAGES",
     "IMPLEMENTATION_DELIVERY_WORST_CASE_SECONDS",
     "IMPLEMENTATION_TERM_BESIDE_DELIVERY_SECONDS",
+    "RED_FIRST_PROOF_RUNS",
     "agent_dispositions",
+    "agent_red_first_declaration",
     "deadline_refusal",
     "delivery_admission_refusal",
     "delivery_worst_case_seconds",

@@ -337,15 +337,92 @@ def bootstrap_ece_upper(
     return round(values[min(len(values) - 1, max(0, int(math.ceil(quantile * len(values))) - 1))], 4)
 
 
-def wilson_lower(successes: int, trials: int, *, z: float = 1.96) -> float | None:
-    """Wilson score interval's lower bound for a proportion; None with no trials."""
+def wilson_interval(successes: int, trials: int, *, z: float = 1.96) -> tuple[float, float] | None:
+    """The two-sided Wilson score interval (95% at the default ``z``) of a proportion; None with no trials.
+
+    The one owner of the interval: ``wilson_lower`` is its lower end, and every
+    report that states a proportion with its n and an interval reads this.
+    """
     if trials <= 0:
         return None
     phat = successes / trials
     denominator = 1.0 + z * z / trials
     centre = phat + z * z / (2.0 * trials)
     margin = z * math.sqrt(phat * (1.0 - phat) / trials + z * z / (4.0 * trials * trials))
-    return round((centre - margin) / denominator, 4)
+    return round((centre - margin) / denominator, 4), round(min(1.0, (centre + margin) / denominator), 4)
+
+
+def wilson_lower(successes: int, trials: int, *, z: float = 1.96) -> float | None:
+    """Wilson score interval's lower bound for a proportion; None with no trials."""
+    interval = wilson_interval(successes, trials, z=z)
+    return None if interval is None else interval[0]
+
+
+# Bisection stops when the bracket is narrower than this: far below the 4
+# decimals the interval is rounded to, so a bound is never rounded off a
+# stale bracket.
+_EXACT_INTERVAL_BRACKET = 1e-12
+
+
+def _log_binomial_tail(counts: range, trials: int, p: float) -> float:
+    """``log P(X in counts)`` for ``X ~ Binomial(trials, p)``, 0 < p < 1.
+
+    Summed in log space around the largest term: at 2000 trials a pmf term
+    underflows a float, and a product or factorial body loses the tail.
+    """
+    terms = [
+        math.lgamma(trials + 1) - math.lgamma(k + 1) - math.lgamma(trials - k + 1)
+        + k * math.log(p) + (trials - k) * math.log1p(-p)
+        for k in counts
+    ]
+    peak = max(terms)
+    return peak + math.log(sum(math.exp(term - peak) for term in terms))
+
+
+def exact_binomial_interval(
+    successes: int, trials: int, *, confidence: float = 0.95,
+) -> tuple[float, float] | None:
+    """The exact (Clopper-Pearson) two-sided interval of a proportion; None with no trials.
+
+    Beside ``wilson_interval``, the one owner of proportion intervals. It is
+    the conservative one: the plan's "0 of 13, [0, 24.7%]" is the exact
+    bound, where Wilson's upper bound for the same count is 0.2281. For
+    0 < k < n each bound is the p at which the exact binomial tail reaches
+    alpha/2 (P(X >= k) for the lower, P(X <= k) for the upper), found by
+    bisection; k = 0 and k = n have closed forms. Bounds are rounded to 4
+    decimals. A count outside 0..trials or a confidence outside (0, 1) is a
+    ``ValueError``.
+    """
+    if trials <= 0:
+        return None
+    if not 0 <= successes <= trials:
+        raise ValueError(f"successes must be within 0..{trials}, got {successes}")
+    if not 0.0 < confidence < 1.0:
+        raise ValueError(f"confidence must be within (0, 1), got {confidence}")
+    alpha_half = (1.0 - confidence) / 2.0
+    target = math.log(alpha_half)
+
+    def bisect_bound(tail_counts: range, *, rising: bool) -> float:
+        """The p at which the tail over ``tail_counts`` reaches alpha/2; ``rising``: the tail grows with p."""
+        low, high = 0.0, 1.0
+        while high - low > _EXACT_INTERVAL_BRACKET:
+            middle = (low + high) / 2.0
+            tail = _log_binomial_tail(tail_counts, trials, middle)
+            below_the_bound = tail < target if rising else tail >= target
+            if below_the_bound:
+                low = middle
+            else:
+                high = middle
+        return (low + high) / 2.0
+
+    if successes == 0:
+        return 0.0, round(1.0 - alpha_half ** (1.0 / trials), 4)
+    if successes == trials:
+        return round(alpha_half ** (1.0 / trials), 4), 1.0
+    return (
+        round(bisect_bound(range(successes, trials + 1), rising=True), 4),
+        round(bisect_bound(range(0, successes + 1), rising=False), 4),
+    )
 
 
 def calibration_status(

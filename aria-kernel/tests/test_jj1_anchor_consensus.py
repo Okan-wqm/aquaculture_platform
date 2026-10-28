@@ -17,8 +17,9 @@ Deliberate-breakage pins:
 - the arbiter's anchor brief asks it to refute, not to ratify;
 - a group settled at 2 judges is re-settleable at 3, otherwise the third
   verdict is paid for and discarded and the anchor class is unreachable;
-- an FP verdict demands the arbiter unconditionally; once a tool holds
-  enough anchors, agreeing TP pairs stop costing an arbiter call.
+- an FP verdict demands the arbiter unconditionally; an agreeing TP pair
+  costs one arbiter call, at most `anchor_tp_pairs_per_tool_per_cycle` new
+  pairs per tool per cycle (ARIA-MEDIUM-1087), whatever anchors the tool holds.
 """
 from __future__ import annotations
 
@@ -29,7 +30,6 @@ from pathlib import Path
 
 from aria_kernel.feedback_store import (
     ANCHOR_MIN_JUDGE_COUNT,
-    ANCHOR_PROMOTION_MIN_JUDGMENTS,
     CONSENSUS_UNCERTAINTY_REASONS,
     _confirmed_false_positive_fingerprints,
     anchor_group_keys,
@@ -41,6 +41,7 @@ from aria_kernel.feedback_store import (
     operator_group_keys,
     record_operator_feedback,
 )
+from aria_kernel.genesis_policy import judgment_pipeline_policy
 from aria_kernel.judge_fanout import (
     ANCHOR_MODE_MARKER,
     CONSENSUS_ARBITER_AGENT,
@@ -430,7 +431,9 @@ class AnchorMintTests(_LedgerCase):
         )
         self.assertEqual(first["minted_count"], 1)
         self.assertEqual(first["minted"][0]["target_agent"], CONSENSUS_ARBITER_AGENT)
-        self.assertEqual(first["anchor_demand"], ANCHOR_PROMOTION_MIN_JUDGMENTS)
+        self.assertEqual(
+            first["anchor_pair_bound"], judgment_pipeline_policy()["anchor_tp_pairs_per_tool_per_cycle"],
+        )
         second = dispatch_arbiter_for_anchor_groups(
             tool_id="tool-a", base_dir=self.tools, cycle_id="cyc-2",
         )
@@ -564,7 +567,7 @@ class MixedTargetShaAnchorTests(_LedgerCase):
     suppress.
 
     ARIA-HIGH-004 already refuses to NAME a commit for a closing set judged
-    at different trees (``_common_target_sha`` -> None), yet the row still
+    at different trees (``common_target_sha`` -> None), yet the row still
     mints at anchor grade: ground truth about no single tree, and — for a
     false_positive — a suppression of the finding class that no later code
     can contradict. The realistic path is the anchor upgrade itself: the

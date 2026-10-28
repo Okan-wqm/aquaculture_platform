@@ -145,7 +145,7 @@ const SeverityBadge: React.FC<{ severity: AlertSeverity }> = ({ severity }) => {
 
 const OperatorLabel: React.FC<{ operator: AlertOperator }> = ({ operator }) => {
   const op = OPERATOR_OPTIONS.find((o) => o.value === operator);
-  return <span className="font-mono text-sm">{op?.symbol || operator}</span>;
+  return <span className="text-sm">{op?.symbol || operator}</span>;
 };
 
 // ============================================================================

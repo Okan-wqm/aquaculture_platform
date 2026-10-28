@@ -25,7 +25,7 @@
  * colours to `colors` knowing they ARE the theme.
  */
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import { colors } from '../../web/shared-ui/src/styles/theme';
@@ -841,27 +841,54 @@ describe('INVARIANT (FE-MEDIUM-348): each workspace carries its domain on the co
 });
 
 /**
- * INVARIANT (FE-MEDIUM-090): every face theme.css names is one the shell loads.
+ * INVARIANT (FE-MEDIUM-090): every face theme.css names is one the shell serves itself.
  *
- * `web/shell/index.html` is the only font loader. A family named in a
- * `--font-*` token but missing from its Google Fonts request does not fail
- * anywhere: the browser falls back down the stack and the product renders in
- * a face nobody chose (the tenant console's Barlow pair was added this way).
+ * `web/shared-ui/src/styles/fonts.css` is the only font loader; its files live in
+ * `web/shell/public/fonts` beside their OFL notices. A family named in a
+ * `--font-*` token with no `@font-face` does not fail anywhere: the browser falls
+ * back down the stack and the product renders in a face nobody chose. A face
+ * fetched from a third-party host is worse: the production CSP is `font-src 'self'`
+ * (infrastructure/security/csp.policy.json), so it is blocked wherever that policy
+ * is enforced, and where it is not, it leaks the visitor's IP on every first paint.
  * The first family of each stack is the web font; the rest are system faces.
  */
-describe('INVARIANT (FE-MEDIUM-090): the shell loads every face theme.css names', () => {
-  const INDEX_HTML = readFileSync(resolve(REPO_ROOT, 'web/shell/index.html'), 'utf8');
+describe('INVARIANT (FE-MEDIUM-090): the shell serves every face theme.css names', () => {
+  const FONTS_DIR = resolve(REPO_ROOT, 'web/shell/public/fonts');
+  const FONTS_CSS = readFileSync(resolve(REPO_ROOT, 'web/shared-ui/src/styles/fonts.css'), 'utf8');
+  const faces = [...FONTS_CSS.matchAll(/@font-face\s*\{([^}]*)\}/g)].map(([, body]) => ({
+    family: /font-family:\s*'([^']+)'/.exec(body ?? '')?.[1] ?? '',
+    file: /url\('\/fonts\/([^']+)'\)/.exec(body ?? '')?.[1] ?? '',
+  }));
 
-  it('the first family of every --font-* token is in the Google Fonts request', () => {
-    const request = /https:\/\/fonts\.googleapis\.com\/css2\?[^"]+/.exec(INDEX_HTML)?.[0] ?? '';
-    expect(request).not.toBe('');
+  it('the first family of every --font-* token has a self-hosted @font-face', () => {
     const families = [...themeBlock().matchAll(/--font-[a-z-]+:\s*([^,;]+)[,;]/g)].map(
       ([, first]) => (first ?? '').trim().replace(/^'|'$/g, ''),
     );
     expect(families.length).toBeGreaterThanOrEqual(5);
-    const unloaded = families.filter(
-      (family) => !request.includes(`family=${family.replace(/ /g, '+')}:`),
+    const undeclared = families.filter((family) => !faces.some((face) => face.family === family));
+    expect(undeclared).toEqual([]);
+  });
+
+  it('every declared face points at a file that is in the shell public directory', () => {
+    expect(faces.length).toBeGreaterThanOrEqual(4);
+    const missing = faces.filter(
+      (face) => face.file === '' || !existsSync(resolve(FONTS_DIR, face.file)),
     );
-    expect(unloaded).toEqual([]);
+    expect(missing).toEqual([]);
+  });
+
+  it('every served family ships with its licence notice', () => {
+    const missing = ['LICENSE-inter.txt', 'LICENSE-geist-mono.txt'].filter(
+      (notice) => !existsSync(resolve(FONTS_DIR, notice)),
+    );
+    expect(missing).toEqual([]);
+  });
+
+  it('neither the shell document nor the CSP policy names a third-party font host', () => {
+    const host = /fonts\.(?:googleapis|gstatic)\.com/i;
+    const offenders = ['web/shell/index.html', 'infrastructure/security/csp.policy.json'].filter(
+      (path) => host.test(readFileSync(resolve(REPO_ROOT, path), 'utf8')),
+    );
+    expect(offenders).toEqual([]);
   });
 });

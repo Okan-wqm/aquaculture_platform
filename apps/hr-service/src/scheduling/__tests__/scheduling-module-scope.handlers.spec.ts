@@ -10,7 +10,7 @@
  */
 import type { Repository } from 'typeorm';
 
-import { HrModuleCode } from '../../common/enums';
+import { OWNER_MODULE, type OwnerModuleCode } from '@aquaculture/shared-contracts';
 import type { Employee } from '../../hr/entities/employee.entity';
 import type { WeeklyPlan } from '../entities/weekly-plan.entity';
 import { GetOvertimeSummaryQuery } from '../queries/get-overtime-summary.query';
@@ -58,7 +58,7 @@ function repositoryOf<Entity extends object>(queryBuilder: QueryBuilderDouble): 
 function expectScopedTo(
   queryBuilder: QueryBuilderDouble,
   employeeAlias: string,
-  moduleCode: HrModuleCode,
+  moduleCode: OwnerModuleCode,
 ): void {
   expect(queryBuilder['innerJoin']).toHaveBeenCalledTimes(1);
   expect(queryBuilder['innerJoin']).toHaveBeenCalledWith(
@@ -91,12 +91,12 @@ describe('scheduling queries — module scope', () => {
           '2026-10-19',
           undefined,
           undefined,
-          HrModuleCode.FARM,
+          OWNER_MODULE.FARM,
         ),
       );
 
       expect(employeeQb['where']).toHaveBeenCalledWith('e.tenantId = :tenantId', { tenantId });
-      expectScopedTo(employeeQb, 'e', HrModuleCode.FARM);
+      expectScopedTo(employeeQb, 'e', OWNER_MODULE.FARM);
     });
 
     it('plans only the scoped employees, so totals and day counts follow the module', async () => {
@@ -106,7 +106,7 @@ describe('scheduling queries — module scope', () => {
           '2026-10-19',
           undefined,
           undefined,
-          HrModuleCode.SENSOR,
+          OWNER_MODULE.SENSOR,
         ),
         [{ id: 'emp-1', firstName: 'Ada', lastName: 'Lovelace' }],
       );
@@ -144,12 +144,12 @@ describe('scheduling queries — module scope', () => {
           undefined,
           20,
           1,
-          HrModuleCode.HYDROPONICS,
+          OWNER_MODULE.HYDROPONICS,
         ),
       );
 
       expect(planQb['where']).toHaveBeenCalledWith('wp.tenantId = :tenantId', { tenantId });
-      expectScopedTo(planQb, 'employee', HrModuleCode.HYDROPONICS);
+      expectScopedTo(planQb, 'employee', OWNER_MODULE.HYDROPONICS);
     });
 
     it('is untouched without a module (the Company view)', async () => {
@@ -168,11 +168,11 @@ describe('scheduling queries — module scope', () => {
 
     it('sums only the plans of employees in the module when one is given', async () => {
       const planQb = await run(
-        new GetOvertimeSummaryQuery(tenantId, 10, 2026, undefined, undefined, HrModuleCode.FARM),
+        new GetOvertimeSummaryQuery(tenantId, 10, 2026, undefined, undefined, OWNER_MODULE.FARM),
       );
 
       expect(planQb['where']).toHaveBeenCalledWith('wp.tenantId = :tenantId', { tenantId });
-      expectScopedTo(planQb, 'employee', HrModuleCode.FARM);
+      expectScopedTo(planQb, 'employee', OWNER_MODULE.FARM);
     });
 
     it('is untouched without a module (the Company view)', async () => {

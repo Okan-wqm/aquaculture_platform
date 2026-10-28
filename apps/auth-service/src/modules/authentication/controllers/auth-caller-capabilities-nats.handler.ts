@@ -14,8 +14,9 @@ import { TokenService } from '../services/token.service';
  * (request.auth.user.resolveCallerCapabilities).
  *
  * Answers exactly one question for a non-HTTP caller: "which authorization
- * capabilities does this tenant user hold RIGHT NOW?" — the same `roles` +
- * effective `resourcePermissions` a fresh JWT would stamp, resolved through
+ * capabilities does this tenant user hold RIGHT NOW?" — the same `roles`,
+ * effective `resourcePermissions`, `moduleAccess` grants and `assignedSiteIds`
+ * (RBAC-HIGH-028) a fresh JWT would stamp, resolved through
  * TokenService's single SSoT read path (auth.user_role_assignments →
  * tenant_role_permissions → per-user overrides ∩ licensed capabilities).
  *
@@ -52,6 +53,8 @@ export class AuthCallerCapabilitiesNatsHandler {
         active: false,
         roles: [],
         resourcePermissions: [],
+        moduleAccess: {},
+        assignedSiteIds: [],
         errorCode: 'VALIDATION_ERROR',
         error: 'Invalid caller-capabilities query payload',
       };
@@ -82,6 +85,8 @@ export class AuthCallerCapabilitiesNatsHandler {
         active: false,
         roles: [],
         resourcePermissions: [],
+        moduleAccess: {},
+        assignedSiteIds: [],
         errorCode: 'INTERNAL_ERROR',
         error: 'Unable to resolve caller capabilities',
       };

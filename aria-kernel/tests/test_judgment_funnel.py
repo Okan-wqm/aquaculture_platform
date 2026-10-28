@@ -852,5 +852,120 @@ class FunnelPolicyKeysTest(unittest.TestCase):
         self.assertIs(JUDGMENT_PIPELINE_DEFAULTS["funnel_enabled"], False)
 
 
+class TheRoutingRowAndTheShadowAskReadWhatTheOwnerReads(unittest.TestCase):
+    """ARIA-HIGH-1083 audit gaps R9 and R11 - the funnel's two remaining readers of an item's citations.
+
+    ``item_citations.item_cited_refs`` is the ONE reader of what a sampled finding
+    cites. Two places in the funnel put the item's citations on a record and neither
+    had a test:
+
+      * R9, the routing row's ``cited_refs`` (``_append_routing_rows``): the audit's
+        mutant m30 (back to path plus STRING evidence, every adapter dict dropped)
+        survived every test, so the row an operator reads to see what a routed item
+        cited could silently lose the ``path:line`` refs the judge is handed;
+      * R11, the tier-1 shadow ask (``_tier1_shadow``): it asked Jev J2 about the line
+        ``system_one_points._cited_line`` reads, a fifth reader that is strings-only and
+        falls back to line 1, so for ``{"path": P, "evidence": [{"path": P, "line": 120}]}``
+        the owner says 120 and the ask was about ``(P, 1)``.
+
+    The funnel is driven through the production phase on a real repository, so tier-0
+    resolves the cited files at the cycle's HEAD and the items are really routed.
+    """
+
+    P, OTHER = "src/a.py", "src/b.py"
+
+    def setUp(self) -> None:
+        import os as _os
+
+        _os.environ.setdefault("ARIA_CONSENSUS_PROMOTION_ACK", "operator-approved-tests")
+
+    def _route(self, tmp: str, items: list[dict], *, asked: list | None = None) -> list[dict]:
+        """Run the phase over ``items``; the routing rows of the routed items, by finding id.
+
+        ``asked`` receives ``(finding_id, path, line)`` of every tier-1 shadow ask
+        (``system_one.ask`` is the collaborator replaced, never the funnel's reader)."""
+        import json
+        import subprocess
+        from types import SimpleNamespace
+
+        repo = Path(tmp) / "ws"
+        (repo / "src").mkdir(parents=True)
+        (repo / "aria-config").mkdir()
+        for name in (self.P, self.OTHER):
+            (repo / name).write_text("".join(f"x{i} = {i}\n" for i in range(1, 301)), encoding="utf-8")
+        (repo / "aria-config" / "genesis_policy.json").write_text(json.dumps(
+            {"$schema": "aria/genesis-policy/v1", "judgment_pipeline": {"funnel_enabled": True}}), encoding="utf-8")
+
+        def git(*args: str) -> str:
+            return subprocess.run(["git", "-C", str(repo), *args], check=True,
+                                  capture_output=True, text=True).stdout.strip()
+
+        git("init", "-q")
+        git("config", "user.email", "fixture@example.invalid")
+        git("config", "user.name", "fixture")
+        git("add", "-A")
+        git("commit", "-q", "-m", "fixture")
+        head = git("rev-parse", "HEAD")
+        ctx = cycle_mod.build_phase_context(
+            cycle_id="cyc-owner", workspace_root=repo, base_dir=Path(tmp) / "aria-tools")
+
+        def fake_ask(question_id, refs, **_kw):
+            if asked is not None:
+                excerpt = refs["excerpt"]
+                asked.append((refs["rule"].finding_id, excerpt.path, excerpt.line))
+            return SimpleNamespace(outcome="unavailable", reason="test")
+
+        with _pinned_clock(), _door_open(), patch.object(cycle_mod, "list_tools", return_value=[{"tool_id": "adapter-a"}]), \
+             patch("aria_kernel.feedback_store.generate_judgment_sample",
+                   return_value={"sample_id": "S1", "cycle_id": "cyc-owner", "items": items}), \
+             patch("aria_kernel.judge_fanout.dispatch_judges_for_sample", return_value={"minted": [], "skipped": []}), \
+             patch("aria_kernel.feedback_store.generate_ai_consensus", return_value={"consensus": []}), \
+             patch("aria_kernel.request_drain_capacity._request_ledgers", return_value=_seed_ledgers(drained=91, now=_NIGHT)), \
+             patch("aria_kernel.convergence_drainer._resolve_workspace_head_sha", return_value=head), \
+             patch("aria_kernel.system_one.ask", fake_ask):
+            cycle_mod._phase_judgment_pipeline(ctx)
+        from aria_kernel.judgment_funnel import routing_path
+        from aria_kernel.ledger import load_declared_jsonl
+
+        path = routing_path(ctx.base_dir)
+        rows = load_declared_jsonl(path, expected_surface="judgment_funnel_routing") if path.exists() else []
+        return [row for row in rows if row.get("held") is None]
+
+    def _item(self, finding_id: str, evidence: object, *, path: str | None = None) -> dict:
+        return {"finding_id": finding_id, "tool_id": "adapter-a", "run_id": "r", "rule": "rule-a",
+                "severity": "MEDIUM", "path": self.P if path is None else path, "message": "m", "evidence": evidence}
+
+    def test_the_routing_row_cites_exactly_what_the_owner_reads(self) -> None:
+        # R9 - kills m30. Every shape the adapters and the legacy sampler emit, exact and in order:
+        # the item's own path, then each evidence ref; a dict is ``path:line`` when it carries a line.
+        a, b = self.P, self.OTHER
+        cases = {
+            "F-DICT-LINE": ([{"path": a, "line": 120}], [a, f"{a}:120"]),
+            "F-DICT-NO-LINE": ([{"path": a}], [a, a]),
+            "F-MIXED": ([f"{b}:3", {"path": b, "line": 7}, {"path": b}], [a, f"{b}:3", f"{b}:7", b]),
+            "F-TWO-LINES": ([{"path": a, "line": 200}, {"path": a, "line": 120}], [a, f"{a}:200", f"{a}:120"]),
+            "F-LEGACY-STRING": ([f"{a}:1"], [a, f"{a}:1"]),
+        }
+        with TemporaryDirectory() as tmp:
+            rows = {row["finding_id"]: row for row in self._route(
+                tmp, [self._item(finding, evidence) for finding, (evidence, _refs) in cases.items()])}
+            self.assertEqual(sorted(rows), sorted(cases), "every item was routed, none held")
+            for finding, (_evidence, expected) in cases.items():
+                with self.subTest(finding):
+                    self.assertEqual(rows[finding]["cited_refs"], expected)
+
+    def test_the_tier1_shadow_ask_is_about_the_line_the_owner_reads(self) -> None:
+        # R11 - the funnel's own caller path into the shadow asks: the dict's line, never line 1.
+        a = self.P
+        cases = {
+            "F-ONE-LINE": ([{"path": a, "line": 120}], 120),
+            "F-FIRST-LINE-OF-OWN-PATH": ([{"path": self.OTHER, "line": 7}, {"path": a, "line": 200}, {"path": a, "line": 120}], 200),
+        }
+        asked: list[tuple[str, str, int]] = []
+        with TemporaryDirectory() as tmp:
+            self._route(tmp, [self._item(finding, evidence) for finding, (evidence, _line) in cases.items()], asked=asked)
+        self.assertEqual(sorted(asked), sorted((finding, a, line) for finding, (_evidence, line) in cases.items()))
+
+
 if __name__ == "__main__":
     unittest.main()

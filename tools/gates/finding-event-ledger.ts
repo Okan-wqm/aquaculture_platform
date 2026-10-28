@@ -34,6 +34,7 @@ import { resolve } from 'node:path';
 
 import { Client, type ClientConfig } from 'pg';
 
+import { compareFindingIds } from './finding-id-grammar';
 import { canonicalJson, sha256hex } from './finding-registry-chain';
 import { type FindingEventLine, serializeEventLines } from './finding-registry-events';
 import {
@@ -100,7 +101,7 @@ export function findingEventInsertValues(
 /** Every event line the store holds, in (finding, version) order. */
 export function storeEvents(store: RegistryStore): FindingEventLine[] {
   return [...store.logs.values()]
-    .sort((left, right) => left.path.localeCompare(right.path))
+    .sort((left, right) => compareFindingIds(left.findingId, right.findingId))
     .flatMap((log) => log.events);
 }
 
@@ -125,7 +126,7 @@ export function storeOf(store: RegistryStore, events: readonly FindingEventLine[
   const byFinding = new Map<string, FindingEventLine[]>();
   for (const event of [...events].sort(
     (left, right) =>
-      left.finding_id.localeCompare(right.finding_id) || left.version - right.version,
+      compareFindingIds(left.finding_id, right.finding_id) || left.version - right.version,
   )) {
     byFinding.set(event.finding_id, [...(byFinding.get(event.finding_id) ?? []), event]);
   }

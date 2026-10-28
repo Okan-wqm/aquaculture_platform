@@ -37,8 +37,13 @@ for them at all. The pytest half refuses the same skips by the same predicate
 WHY WEIGHTS CANNOT COST COVERAGE. Weights only decide balance. A module the
 weights file does not name weighs its test count times the measured median
 seconds-per-test, so a stale file costs wall-clock, never a test. Refresh it
-from a CI run's shard reports with ``weights`` (the aggregation job prints
-the per-shard seconds so an imbalance is visible in the log).
+from CI runs' shard reports with ``weights`` (the aggregation job prints the
+per-shard seconds so an imbalance is visible in the log). Pass the reports of
+several runs (``--reports-dir`` repeated): a module weighs its SLOWEST
+measurement, because module seconds swing up to 2x between runners and the
+30-minute job cap is overrun by the run that draws badly, not by the average
+one (run 40641014171: shard 3 took 1782 s of 1800 s under weights refreshed
+from a single run).
 
 TWO PARTITIONS (ARIA-HIGH-602). The ``suite`` job runs only when a PR touches
 the kernel surface (.github/manifests/aria-kernel-surface.json); a test that
@@ -433,6 +438,21 @@ def measured_seconds(reports: Sequence[Mapping[str, Any]]) -> dict[str, float]:
     return seconds
 
 
+def slowest_seconds(runs: Sequence[Sequence[Mapping[str, Any]]]) -> dict[str, float]:
+    """Each module's slowest measurement across runs: the weight a shard must plan for.
+
+    One run's seconds are one draw from a wide spread (tests.test_enterprise_cycle
+    took 293 s, 324 s and 570 s in three runs of one tree), and the 30-minute job
+    cap is overrun by the run that draws badly, not by the average one. A module
+    one run never ran keeps the seconds of the runs that did.
+    """
+    slowest: dict[str, float] = {}
+    for reports in runs:
+        for name, seconds in measured_seconds(reports).items():
+            slowest[name] = max(seconds, slowest.get(name, seconds))
+    return slowest
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     from aria_kernel.live_partition import LIVE_DECLARATION
 
@@ -453,8 +473,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     listing = commands.add_parser("list", help="print the id of every test the unittest half runs")
     listing.add_argument("--kernel-root", type=Path, default=KERNEL_ROOT)
-    weights = commands.add_parser("weights", help="write measured seconds from shard reports")
-    weights.add_argument("--reports-dir", required=True, type=Path)
+    weights = commands.add_parser("weights", help="write the slowest measured seconds of each module from shard reports")
+    weights.add_argument(
+        "--reports-dir", required=True, type=Path, action="append",
+        help="one CI run's shard reports; repeat the option to plan for the slowest of several runs",
+    )
     weights.add_argument("--out", type=Path, default=WEIGHTS_PATH)
     args = parser.parse_args(argv)
 
@@ -476,6 +499,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             green = run_shard(index, total, args.report, kernel_root=args.kernel_root.resolve(),
                               weights_path=args.weights)
         return 0 if green else 1
+    if args.command == "weights":
+        payload = {"seconds": dict(sorted(slowest_seconds([read_reports(path) for path in args.reports_dir]).items()))}
+        args.out.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        return 0
     reports = read_reports(args.reports_dir)
     if args.command == "verify":
         for report in sorted(reports, key=lambda item: (str(item.get("partition")), str(item.get("shard")))):
@@ -490,9 +517,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         for problem in problems:
             print(f"suite shard coverage: {problem}", file=sys.stderr)
         return 1 if problems else 0
-    payload = {"seconds": dict(sorted(measured_seconds(reports).items()))}
-    args.out.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-    return 0
+    raise AssertionError(f"unhandled command {args.command!r}")
 
 
 if __name__ == "__main__":

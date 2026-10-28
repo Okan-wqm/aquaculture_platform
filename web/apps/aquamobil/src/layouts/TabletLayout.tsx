@@ -249,7 +249,7 @@ export function TabletLayout({ children }: { children: ReactNode }): ReactElemen
           {/* Deliberately NOT an aria-live region: a screen reader announcing
               the time every minute would bury the alarms it sits next to. It is
               still readable on demand, like any other text. */}
-          <time dateTime={clock} className="shrink-0 text-head font-mono tabular-nums text-ink-1">
+          <time dateTime={clock} className="shrink-0 text-head tabular-nums text-ink-1">
             {clock}
           </time>
 

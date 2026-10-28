@@ -5,5 +5,6 @@
  */
 
 export { withTenantContext } from './with-tenant-context';
+export { TenantEventHandlerScope } from './tenant-event-handler-scope';
 export { TenantExecutionContextInterceptor } from './tenant-execution-context.interceptor';
 export { TenantExecutionContextModule } from './tenant-execution-context.module';

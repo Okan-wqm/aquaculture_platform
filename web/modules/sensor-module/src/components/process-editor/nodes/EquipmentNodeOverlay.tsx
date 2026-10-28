@@ -84,7 +84,7 @@ const IoBadge: React.FC<{
       title={`${binding.tagName} (${binding.ioType}): ${displayValue}`}
     >
       <span className="truncate max-w-[40px]">{binding.tagName}</span>
-      <span className="font-mono">{displayValue}</span>
+      <span className="tabular-nums">{displayValue}</span>
     </div>
   );
 };

@@ -161,12 +161,17 @@ class DraftChainProducerTests(unittest.TestCase):
     def test_shadow_stays_out_of_reach_of_this_producer(self) -> None:
         # SANDBOX-family transitions demand the C4-d proof chain; the
         # draft producer must not be able to fake its way there.
-        from aria_kernel.agent_invocations import _target_is_shadow
+        # SE-5 — the claim-side SHADOW predicate is production_block_reason, the lifecycle owner's own answer.
+        from aria_kernel import genesis_lifecycle
 
+        owner = getattr(genesis_lifecycle, "production_block_reason", None)
+        self.assertIsNotNone(
+            owner, "genesis_lifecycle.production_block_reason does not exist: the claim-side SHADOW predicate has no owner"
+        )
         with tempfile.TemporaryDirectory() as tmp:
             root = ensure_tools_dir(Path(tmp) / "aria-tools")
             self._record(root)
-            self.assertFalse(_target_is_shadow(root, "aria-svc-farm-auditor"))
+            self.assertNotEqual(owner("aria-svc-farm-auditor", base_dir=root), "shadow")
 
 
 if __name__ == "__main__":

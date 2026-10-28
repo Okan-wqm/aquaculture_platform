@@ -18,10 +18,13 @@
     "aria/capability-semantic-authority/v1:finding_funnel@1:fold@2:upcasters@1": "sha256:acb97b25bf10062a4fa6c3bca76a80fd7900a69e71a615297c6455367ad966b0",
     "aria/capability-semantic-authority/v1:finding_funnel@1:fold@3:upcasters@1": "sha256:78fb8c9a500808b6aad7a939d8524ed7a7bdf83b5f2c90de35dbbda8bfcd2e63",
     "aria/capability-semantic-authority/v1:finding_funnel@2:fold@4:upcasters@1": "sha256:fd8c3f7d2a2d663afb0803698ff3dd17f3b2e88e9cb8a5f9b020ab4e7bcc7f74",
+    "aria/capability-semantic-authority/v1:finding_quality@1:fold@4:upcasters@1": "sha256:e94f360591187491036e55e29d455904e8d9c900a1801d45f8ff694a1e7bdcd1",
     "aria/capability-semantic-authority/v1:fixture_calibration@1:fold@2:upcasters@1": "sha256:b48d51fb3a41cb488bb84165e3391da0bd5c95bca9e83628c701d2ea493dbfb8",
     "aria/capability-semantic-authority/v1:fixture_calibration@1:fold@3:upcasters@1": "sha256:60bf11d31f9e6231be44bd8dff074582ece3222899fe2a0c8b35d6d04f4dd208",
     "aria/capability-semantic-authority/v1:fixture_calibration@2:fold@3:upcasters@1": "sha256:f86106f3959a0ea53502298d3305c5d5cae23d4a19df3b03e077f6f142be8ce3",
     "aria/capability-semantic-authority/v1:fixture_calibration@3:fold@4:upcasters@1": "sha256:8018c01cdcee149b76b74288b6aeed19d5f6fd8c42b2a77989960a20ced7c096",
+    "aria/capability-semantic-authority/v1:implementation_quality@1:fold@4:upcasters@1": "sha256:e94f360591187491036e55e29d455904e8d9c900a1801d45f8ff694a1e7bdcd1",
+    "aria/capability-semantic-authority/v1:learning_from_memory@1:fold@4:upcasters@1": "sha256:e94f360591187491036e55e29d455904e8d9c900a1801d45f8ff694a1e7bdcd1",
     "aria/capability-semantic-authority/v1:pre_merge_perimeter@1:fold@2:upcasters@1": "sha256:ada32852bf7300a0fce6dd7f7adf30d9b9455caaa368bc920617f35f3390e26c",
     "aria/capability-semantic-authority/v1:pre_merge_perimeter@1:fold@3:upcasters@1": "sha256:b86e69292805c02d8527113841a9d0f3d9bcd0ef6230bfecd6de59258d44526f",
     "aria/capability-semantic-authority/v1:pre_merge_perimeter@1:fold@4:upcasters@1": "sha256:b86e69292805c02d8527113841a9d0f3d9bcd0ef6230bfecd6de59258d44526f"

@@ -41,6 +41,7 @@ from .agent_surface import (
     REQUEST_ROLES,
     ROLE_TARGET_PAIRING,
     allowed_targets_for_role,
+    service_seat_agents,
 )
 from .agent_genesis import BANNED_PHRASES
 from .must_satisfy import validate_must_satisfy
@@ -189,7 +190,11 @@ def validate_request(
     absent (it is REQUIRED above) and cannot disagree with the plan it names.
     An implementation envelope must name a body the store can reproduce —
     an implementer handed a suite the ledger cannot vouch for is handed a
-    claim, not evidence — and must carry its commit contract.
+    claim, not evidence — and must carry its commit contract. The same store
+    names the per-service agents a service seat may be asked of
+    (``agent_surface.service_seat_agents``): such an agent is a valid target
+    on top of the whitelist, so a narrower caller-supplied whitelist still
+    binds the static agents; without ``base_dir`` there is no grant.
     """
     missing = [f for f in REQUEST_REQUIRED_FIELDS if f not in envelope]
     if missing:
@@ -216,7 +221,7 @@ def validate_request(
         raise GovernanceError(f"agent-request.role unknown: {role!r}")
     target = envelope["target_agent"]
     whitelist = tuple(target_agent_whitelist)
-    if target not in whitelist:
+    if target not in whitelist and target not in service_seat_agents(role, base_dir=base_dir):
         raise GovernanceError(
             f"agent-request.target_agent {target!r} not in whitelist; "
             f"allowed: {whitelist}"
@@ -227,7 +232,7 @@ def validate_request(
     # judgment served by architectural-arbiter) is rejected here so a
     # caller cannot smuggle a domain-review role into an unrelated
     # agent's queue.
-    allowed_targets = allowed_targets_for_role(role)
+    allowed_targets = allowed_targets_for_role(role, base_dir=base_dir)
     if allowed_targets is not None and target not in allowed_targets:
         raise GovernanceError(
             f"agent-request.role {role!r} requires target_agent in "
@@ -612,6 +617,7 @@ def render_response_validator_contract() -> str:
     kernel "reads `id` + `verdict` only". Rendered from the constants and
     the checks themselves — edit the validator and this text follows.
     """
+    from .change_review import render_defect_claim_rules
     from .judgment_bridge import render_judge_verdict_rules
     from .plan_contract import render_plan_contract_rules
 
@@ -655,6 +661,12 @@ def render_response_validator_contract() -> str:
         "### Judge verdict contract (judge roles; ARIA-HIGH-242)",
         "",
         *render_judge_verdict_rules(),
+        "",
+        "### Defect claims (role `change_intelligence`; WP-D3)",
+        "",
+        "Rendered from aria_kernel.change_review, which is what the supporting bridge enforces:",
+        "",
+        *render_defect_claim_rules(),
     )) + "\n"
 
 

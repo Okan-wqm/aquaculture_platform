@@ -36,6 +36,7 @@ from typing import Any
 
 from .strict_jsonl_reader import read_strict_jsonl
 from .digest import sha256_digest
+from .merge_record import fold_merged_rows
 
 
 def _safe_read_lines(path: Path) -> list[str]:
@@ -225,13 +226,12 @@ def _roi_metrics(tools_root: Path, date: str) -> dict[str, Any]:
             if row.get("cycle_id"):
                 day_cycles.add(str(row["cycle_id"]))
     day_merged = mtd_merged = 0
-    for row in read_strict_jsonl(
+    # F3.3a — the merged rows are merge_record's to select (fold_merged_rows).
+    for row in fold_merged_rows(list(read_strict_jsonl(
         tools_root / "pr-lifecycle.jsonl",
         on_corruption="tolerant",
         base_dir=tools_root,
-    ):
-        if row.get("event") != "merged":
-            continue
+    ))):
         recorded = str(row.get("recorded_at") or "")
         if recorded.startswith(month):
             mtd_merged += 1

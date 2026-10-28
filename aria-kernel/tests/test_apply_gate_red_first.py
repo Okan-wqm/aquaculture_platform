@@ -756,7 +756,7 @@ class PromoterTests(unittest.TestCase):
 
 
 class CallSiteInvariantTests(unittest.TestCase):
-    """R9 AST: one promoter call that passes the decision, one proof call, owned by apply_engine."""
+    """R9 AST: one promoter call that passes the decision; the prover is called only by its two named proof entries."""
 
     def production_files(self) -> list[Path]:
         roots = (KERNEL_DIR, REPO_ROOT / "tools" / "aria-poc")
@@ -798,12 +798,29 @@ class CallSiteInvariantTests(unittest.TestCase):
         self.assertEqual([(module, function) for module, function, _ in sites], [("apply_engine", "run_apply_gate")])
         self.assertIn("red_first", sites[0][2], "run_apply_gate promotes without handing the promoter the red-first decision")
 
-    def test_the_one_proof_call_is_apply_engines_and_sits_behind_one_private_function(self) -> None:
+    def test_k1_the_prover_has_exactly_two_production_callers_apply_engines_private_function_and_d6s_proof_entry(self) -> None:
+        # The original pin (written on main, where apply_engine was the only caller) held one thing: ONE proof entry,
+        # and nothing else may call the prover. K1 integrates D6 (`experiment.prove_candidate_pin`, the registered-
+        # candidate proof entry) beside F3.5a, so until F3.5b lands the true statement is two named sites:
+        # apply_engine behind ONE private function, and `experiment` inside `prove_candidate_pin` and nowhere else.
+        # F3.5b routes apply_engine's proof call through `experiment.prove_candidate_pin`
+        # (F3.5 SPEC, "Left for later slices", F3.5b); this pin then shrinks to the single `experiment` site.
         sites = self.calls("prove_red_first")
-        self.assertEqual(sorted({module for module, _, _ in sites}), ["apply_engine"],
-                         "production callers of prove_red_first must be exactly apply_engine")
-        self.assertEqual(len(sites), 1, "one proof call site")
-        self.assertTrue(sites[0][1].startswith("_"), f"the proof call must sit behind one private function, not {sites[0][1]}")
+        functions_by_module: dict[str, list[str]] = {}
+        for module, function, _ in sites:
+            functions_by_module.setdefault(module, []).append(function)
+        self.assertEqual(
+            sorted(functions_by_module), ["apply_engine", "experiment"],
+            "production callers of prove_red_first must be exactly apply_engine and experiment "
+            "(K1: F3.5a's gate call + D6's prove_candidate_pin). If apply_engine no longer calls it, F3.5b has landed: "
+            "shrink this pin to the single experiment site (F3.5 SPEC, 'Left for later slices'). If experiment no longer "
+            "calls it, D6's proof entry has lost its prover. Any other module is a second prover owner")
+        gate_functions = functions_by_module["apply_engine"]
+        self.assertEqual(len(gate_functions), 1, f"apply_engine has one proof call site, not {gate_functions}")
+        self.assertTrue(gate_functions[0].startswith("_"),
+                        f"the gate's proof call must sit behind one private function, not {gate_functions[0]}")
+        self.assertEqual(functions_by_module["experiment"], ["prove_candidate_pin"],
+                         "experiment's one proof call is D6's prove_candidate_pin; no other function there may call the prover")
 
 
 class LiftSourceTests(unittest.TestCase):

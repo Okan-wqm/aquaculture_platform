@@ -35,6 +35,11 @@ never at import):
   target_sha (`missing`, `repo_verified`), ranking a seat whose citations the
   tree does not carry below one whose citations it does.
 
+The tree those grades are taken at is the group's, never a caller's: the evidence grades of
+the weighing brief and the arbiter's mint both read the tree the group's SEATS judged
+(`group["target_sha"]`, ARIA-HIGH-1084), so `dispatch_arbiter_for_split_verdicts` takes no
+`target_sha` and two groups judged at two trees, minted in one call, are each graded at their own.
+
 Also pinned: the arbiter's tools are Read + Grep (the kernel profile
 `arbiter` is the authority; the agent file mirrors it), the contract's
 evidence_refs are repo refs, and its AGGREGATION MODE text stays.
@@ -46,8 +51,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from aria_kernel import cycle as cycle_mod
 from aria_kernel.agent_invocations import list_agent_invocation_requests
 from aria_kernel.agent_runtime_profile import read_agent_runtime_profile
+from aria_kernel.evidence_trust import classify_evidence_ref
 from aria_kernel.feedback_store import (
     generate_ai_consensus,
     load_feedback,
@@ -68,6 +75,7 @@ from aria_kernel.judge_fanout import (
 from aria_kernel.judgment_bridge import record_judge_verdict_from_response
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_binding
 from tests._helpers.git_fixtures import commit_files, make_local_git_repo
+from tests._helpers.rule_contracts import register_contracted_tool
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ARBITER_FILE = REPO_ROOT / ".claude" / "agents" / "aria-consensus-arbiter.md"
@@ -121,9 +129,9 @@ class _SplitCase(unittest.TestCase):
         self._vote(ADVERSARIAL_JUDGE, "false_positive", [GONE_REF], adversarial_rationale)
 
     def _mint(self) -> dict:
-        minted = dispatch_arbiter_for_split_verdicts(
-            tool_id=TOOL, base_dir=self.tools, cycle_id="cyc-1", target_sha=self.sha,
-        )
+        # The arbiter is minted at the tree its seats judged (ARIA-HIGH-1084): `_vote` records
+        # `self.sha` on both rows, and no caller hands the dispatcher another tree.
+        minted = dispatch_arbiter_for_split_verdicts(tool_id=TOOL, base_dir=self.tools, cycle_id="cyc-1")
         self.assertEqual([m["judgment_group_id"] for m in minted["minted"]], [GROUP], minted)
         [request] = [
             row for row in list_agent_invocation_requests(base_dir=self.tools, role=CONSENSUS_ARBITRATION_ROLE)
@@ -299,6 +307,148 @@ class SideTextStaysInsideTheUntrustedBoundaryTest(_SplitCase):
                 any(start <= hit.start() < end for start, end in inside),
                 f"the seat's instruction sits outside every untrusted block: ...{prompt[max(0, hit.start() - 60):hit.end() + 20]}",
             )
+
+
+class EachArbitersEvidenceIsGradedAtItsOwnGroupsTreeTest(unittest.TestCase):
+    """The arbiter weighs a group's evidence at the tree that group's seats judged.
+
+    One owner of "which tree an arbiter judges at": the group (ARIA-HIGH-1084,
+    `group["target_sha"]`). The weighing brief's `ref_grades` and the arbiter's
+    mint both read it, so the grades the arbiter is shown describe the tree it
+    is minted at, for EACH group of one dispatch, whatever HEAD has become.
+
+    The fixture is a real repository whose three commits disagree about the two
+    refs the seats cite, so a grade taken at the wrong tree reads differently:
+
+    * `src/shrinks.ts` carries its body at tree one, another body at tree two and
+      the first body again at HEAD (a revert): the checkout equals tree one and
+      HEAD, and differs from tree two;
+    * `src/grows.ts` does not exist at tree one and is added at tree two: the
+      checkout carries it, tree one does not.
+
+    Group one's seats judged tree one and group two's judged tree two; both
+    groups cite both refs. Mutants this pins (each tried in a throwaway copy):
+    grade at no tree, at the first group's tree for every group, at the last
+    group's tree for every group, at the cycle's HEAD (a tree the caller passes,
+    here through the production phase), and the mint at any tree but the group's.
+    """
+
+    SHRINKS, GROWS = "src/shrinks.ts", "src/grows.ts"
+    SHRINKS_REF, GROWS_REF = f"{SHRINKS}:3", f"{GROWS}:3"
+    SHRINKS_BODY = "export const shrinks = 1;\n" * 6
+    SHRINKS_REWRITTEN = "export const shrinks = 2;\n" * 6
+    GROWS_BODY = "export const grows = 1;\n" * 6
+    FIRST, SECOND = "F-1", "F-2"
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory(prefix="aria-j3-trees-")
+        self.addCleanup(self._tmp.cleanup)
+        tmp = Path(self._tmp.name)
+        self.repo = make_local_git_repo(tmp, name="repo")
+        self.tree_one = commit_files(self.repo, {self.SHRINKS: self.SHRINKS_BODY}, message="fixture: tree one")
+        self.tree_two = commit_files(
+            self.repo, {self.SHRINKS: self.SHRINKS_REWRITTEN, self.GROWS: self.GROWS_BODY},
+            message="fixture: tree two rewrites shrinks and adds grows",
+        )
+        self.head = commit_files(self.repo, {self.SHRINKS: self.SHRINKS_BODY}, message="fixture: main moved on")
+        self.assertEqual(len({self.tree_one, self.tree_two, self.head}), 3)
+        self.tools = ensure_tools_binding(tmp / "store" / "aria-tools", workspace_root=self.repo)
+        self.trees = {self.FIRST: self.tree_one, self.SECOND: self.tree_two}
+        # What evidence_trust says of each ref at the tree its group's seats judged.
+        self.expected = {
+            self.FIRST: {self.GROWS_REF: "worktree_candidate", self.SHRINKS_REF: "repo_verified"},
+            self.SECOND: {self.GROWS_REF: "repo_verified", self.SHRINKS_REF: "worktree_candidate"},
+        }
+
+    def _group(self, finding: str) -> str:
+        return f"judge:{TOOL}:run-1:{finding}"
+
+    def _seat(self, finding: str, judge_id: str, verdict: str, ref: str) -> None:
+        record_operator_feedback(
+            tool_id=TOOL, run_id="run-1", finding_id=finding, verdict=verdict, severity="high",
+            note=f"{judge_id} verdict", source_type="ai_judge", judge_id=judge_id, model="opus",
+            confidence=0.9, rationale="what this seat read at the tree it judged", evidence_refs=[ref],
+            judgment_group_id=self._group(finding), request_ids=[f"REQ-{finding}-{judge_id}"],
+            target_sha=self.trees[finding], base_dir=self.tools,
+        )
+
+    def _two_splits_at_two_trees(self) -> None:
+        for finding in (self.FIRST, self.SECOND):
+            self._seat(finding, EVIDENCE_JUDGE, "true_positive", self.GROWS_REF)
+            self._seat(finding, ADVERSARIAL_JUDGE, "false_positive", self.SHRINKS_REF)
+
+    def _arbiters_by_finding(self) -> dict[str, dict]:
+        requests = list_agent_invocation_requests(base_dir=self.tools, role=CONSENSUS_ARBITRATION_ROLE)
+        arbiters: dict[str, dict] = {}
+        for finding in (self.FIRST, self.SECOND):
+            [arbiters[finding]] = [r for r in requests if r.get("judgment_group_id") == self._group(finding)]
+        return arbiters
+
+    def _grade_beside(self, prompt: str, ref: str) -> str | None:
+        found = re.search(re.escape(ref) + r"\s*\((\w+)\)", prompt)
+        return found.group(1) if found else None
+
+    def _assert_every_arbiter_graded_and_minted_at_its_own_group_tree(self) -> None:
+        arbiters = self._arbiters_by_finding()
+        for finding, request in arbiters.items():
+            prompt = request["suggested_prompt"]
+            with self.subTest(finding=finding, what="the brief grades each ref at the group's tree"):
+                self.assertEqual(
+                    {ref: self._grade_beside(prompt, ref) for ref in (self.GROWS_REF, self.SHRINKS_REF)},
+                    self.expected[finding],
+                )
+            with self.subTest(finding=finding, what="the seat the group's tree backs ranks first"):
+                backed = [ref for ref, grade in self.expected[finding].items() if grade == "repo_verified"]
+                refuted = [ref for ref, grade in self.expected[finding].items() if grade == "worktree_candidate"]
+                self.assertLess(prompt.index(backed[0]), prompt.index(refuted[0]))
+            with self.subTest(finding=finding, what="the envelope is minted at the group's tree"):
+                self.assertEqual(request["target_sha"], self.trees[finding])
+                self.assertNotEqual(request["target_sha"], self.head)
+
+    def test_the_fixtures_two_trees_disagree_about_both_refs(self) -> None:
+        # The pin is only discriminating while the grade depends on the tree: state that here, by
+        # asking evidence_trust directly, so a fixture that drifts cannot leave the pin vacuous.
+        for name, tree in (("tree one", self.tree_one), ("tree two", self.tree_two), ("head", self.head), ("none", None)):
+            grades = {
+                ref: classify_evidence_ref(
+                    ref, workspace_root=self.repo, source_hint="repo_source",
+                    context="arbiter_weighing", target_sha=tree,
+                ).trust_grade
+                for ref in (self.GROWS_REF, self.SHRINKS_REF)
+            }
+            expected = {
+                "tree one": self.expected[self.FIRST],
+                "tree two": self.expected[self.SECOND],
+                "head": {self.GROWS_REF: "repo_verified", self.SHRINKS_REF: "repo_verified"},
+                "none": {self.GROWS_REF: "baseline_unavailable", self.SHRINKS_REF: "baseline_unavailable"},
+            }[name]
+            with self.subTest(tree=name):
+                self.assertEqual(grades, expected)
+
+    def test_two_groups_judged_at_two_trees_are_each_graded_and_minted_at_their_own_tree_in_one_dispatch(self) -> None:
+        self._two_splits_at_two_trees()
+
+        minted = dispatch_arbiter_for_split_verdicts(tool_id=TOOL, base_dir=self.tools, cycle_id="cyc-1")
+
+        self.assertEqual(
+            sorted(m["judgment_group_id"] for m in minted["minted"]),
+            [self._group(self.FIRST), self._group(self.SECOND)], minted,
+        )
+        self._assert_every_arbiter_graded_and_minted_at_its_own_group_tree()
+
+    def test_the_production_phase_grades_each_group_at_its_own_tree_not_at_the_cycles_head(self) -> None:
+        # The cycle's HEAD is a third tree; a caller that hands the dispatcher the tree it resolved
+        # (as the cycle once did) would grade both groups there.
+        self._two_splits_at_two_trees()
+        register_contracted_tool(self.tools, TOOL)
+        context = cycle_mod.build_phase_context(
+            cycle_id="cyc-phase", workspace_root=self.repo, base_dir=self.tools,
+        )
+
+        result = cycle_mod._phase_judgment_pipeline(context)
+
+        self.assertEqual(result["arbiter_requests_minted"], 2, result)
+        self._assert_every_arbiter_graded_and_minted_at_its_own_group_tree()
 
 
 class TheArbiterContractWeighsEverySplitTest(unittest.TestCase):

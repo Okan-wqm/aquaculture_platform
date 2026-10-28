@@ -115,8 +115,12 @@ The ten root causes that were not already registered by the first series. Each i
 | #2158 Batch filter validators                                              | FARM-HIGH-480                             |
 | #2159 MealUnderfed once per unit per day, dead-letter grants               | ALERT-HIGH-025, PLAT-HIGH-933             |
 | #2160 throttle surfacing, user assertion, session kept on a refresh outage | PLAT-HIGH-934, PLAT-HIGH-935, FE-HIGH-396 |
+| #2167 task crons and the AutoRule engine bind the tenant                   | FARM-HIGH-481                             |
+| #2169 notification event handlers run in the event tenant's context        | PLAT-HIGH-936                             |
+| #2175 growth input validators, enum wire values, measuredBy user id        | FARM-HIGH-482                             |
+| #2177 refresh bucket sized for a shared address                            | SEC-MEDIUM-212                            |
 
-The follow-up PRs of the same effort (the task crons, the notification handlers, the growth inputs and enum wire values, the refresh ceiling) are named in their own review file, `docs/reviews/claude/2026-10-27-tracked-findings-fix.md`.
+#2167, #2169, #2175 and #2177 are the follow-up PRs for the findings this audit registered and left open in the first four. The two findings the follow-up work itself uncovered (PLAT-HIGH-937, PLAT-HIGH-938) are tracked, not fixed, in `docs/reviews/claude/2026-10-27-tracked-findings-fix.md`.
 
 ## Every finding, by tab
 

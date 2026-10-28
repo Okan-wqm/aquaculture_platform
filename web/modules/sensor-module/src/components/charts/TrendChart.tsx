@@ -626,7 +626,7 @@ export const TrendChart: React.FC<TrendChartProps> = ({
                   style={{ background: v.color }}
                 />
                 <span className="text-gray-600 dark:text-gray-400">{v.label}:</span>
-                <span className="font-mono font-medium text-gray-900 dark:text-gray-100">
+                <span className="tabular-nums font-medium text-gray-900 dark:text-gray-100">
                   {v.value}
                 </span>
               </div>

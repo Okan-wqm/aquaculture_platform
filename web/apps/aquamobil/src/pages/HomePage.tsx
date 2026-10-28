@@ -197,11 +197,11 @@ export function HomePage(): JSX.Element {
           tone={unacknowledgedCount > 0 ? 'crit' : 'neutral'}
           onClick={() => navigate('/alerts')}
         >
-          <span className="font-mono font-semibold">{unacknowledgedCount}</span>
+          <span className="font-semibold tabular-nums">{unacknowledgedCount}</span>
           alarms
         </Chip>
         <Chip tone={pendingCount > 0 ? 'warn' : 'neutral'} onClick={() => navigate('/sync')}>
-          <span className="font-mono font-semibold">{pendingCount}</span>
+          <span className="font-semibold tabular-nums">{pendingCount}</span>
           queued
         </Chip>
       </div>
@@ -257,7 +257,7 @@ export function HomePage(): JSX.Element {
             title="Alarms"
             meta={
               unacknowledgedCount > 0 ? (
-                <span className="text-crit font-mono">{unacknowledgedCount} active</span>
+                <span className="text-crit tabular-nums">{unacknowledgedCount} active</span>
               ) : undefined
             }
           />
@@ -277,7 +277,7 @@ export function HomePage(): JSX.Element {
               leading={<AlertTriangle size={18} />}
               title={alert.ruleName}
               subtitle={alert.message}
-              trailing={<span className="font-mono">{clockOf(alert.triggeredAt)}</span>}
+              trailing={<span className="tabular-nums">{clockOf(alert.triggeredAt)}</span>}
               onClick={() => navigate('/alerts')}
             />
           ))}
@@ -290,7 +290,7 @@ export function HomePage(): JSX.Element {
               title="Tasks"
               meta={
                 todayTasks.length > 0 ? (
-                  <span className="font-mono">
+                  <span className="tabular-nums">
                     {doneCount}/{todayTasks.length}
                   </span>
                 ) : undefined
@@ -316,7 +316,7 @@ export function HomePage(): JSX.Element {
                   title={task.title}
                   subtitle={task.location ?? task.category}
                   trailing={
-                    task.dueTime ? <span className="font-mono">{task.dueTime}</span> : undefined
+                    task.dueTime ? <span className="tabular-nums">{task.dueTime}</span> : undefined
                   }
                   onClick={() => navigate(`/tasks/${task.id}`)}
                 />
@@ -451,9 +451,7 @@ function Metric({
 }): JSX.Element {
   return (
     <div className="text-center">
-      <div
-        className={`text-head font-mono font-bold tabular-nums ${alarm ? 'text-crit' : 'text-ink-1'}`}
-      >
+      <div className={`text-head font-bold tabular-nums ${alarm ? 'text-crit' : 'text-ink-1'}`}>
         {value}
       </div>
       <div className="text-meta text-ink-3">{label}</div>

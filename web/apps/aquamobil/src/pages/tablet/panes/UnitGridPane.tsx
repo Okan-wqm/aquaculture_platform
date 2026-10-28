@@ -59,9 +59,7 @@ export function UnitGridPane(): ReactElement {
                 {/* h3: the region's own label is the h2 above it, so the site
                     headings nest under it instead of competing with it. */}
                 <h3 className="text-body font-semibold text-ink-3">{group.label}</h3>
-                <span className="text-meta font-mono text-ink-3 tabular-nums">
-                  {group.units.length}
-                </span>
+                <span className="text-meta text-ink-3 tabular-nums">{group.units.length}</span>
               </div>
               <div className="grid gap-2 grid-cols-[repeat(auto-fill,minmax(150px,1fr))]">
                 {group.units.map((tank) => (
@@ -149,7 +147,7 @@ function UnitCell({
   );
 }
 
-/** Label left, machine value right — mono and tabular so a column of cells aligns. */
+/** Label left, figure right — tabular digits so a column of cells aligns. */
 function CellFigure({
   label,
   value,
@@ -162,7 +160,7 @@ function CellFigure({
   return (
     <span className="flex items-baseline justify-between gap-2">
       <span className="text-meta text-ink-3">{label}</span>
-      <span className="text-meta font-mono font-semibold tabular-nums text-ink-1">
+      <span className="text-meta font-semibold tabular-nums text-ink-1">
         {value}
         {unit !== undefined && <span className="font-sans text-ink-3"> {unit}</span>}
       </span>

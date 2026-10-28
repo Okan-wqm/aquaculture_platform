@@ -31,8 +31,8 @@ import { runInTenantTransaction } from './tenant-transaction';
  * list tenants" must never read as "no tenants".
  *
  * Related: `forEachVerifiedTenantSchema` fans work out with bounded
- * concurrency but does not establish the RLS context, so it fits work that
- * already binds its own context; this helper is for discovery.
+ * concurrency and binds the same tenant context on one transaction per tenant;
+ * it fits work that mutates, this helper is for answering "which tenants?".
  */
 export type TenantDiscoveryScope = 'active' | 'retained';
 

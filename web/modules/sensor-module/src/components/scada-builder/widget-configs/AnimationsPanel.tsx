@@ -223,7 +223,7 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
             <span className="text-[10px] font-medium text-info-700 dark:text-info-300 uppercase">
               Preview Value
             </span>
-            <span className="text-xs text-info-600 dark:text-info-400 font-mono">
+            <span className="text-xs text-info-600 dark:text-info-400 tabular-nums">
               {previewValue}
             </span>
           </div>

@@ -9,13 +9,14 @@ import { DataSource, EntityManager, QueryRunner } from 'typeorm';
 import { OutboxPublisher } from '@platform/outbox';
 
 const runInTenantTransaction = jest.fn();
-const listTenantSchemas = jest.fn().mockResolvedValue([]);
+const findTenantsMatching = jest.fn().mockResolvedValue([]);
 
 jest.mock('@aquaculture/backend-common/database', () => ({
   ...jest.requireActual('@aquaculture/backend-common/database'),
   runInTenantTransaction: (ds: unknown, schema: string, tenantId: string, cb: unknown) =>
     runInTenantTransaction(ds, schema, tenantId, cb),
-  listTenantSchemas: (ds: unknown) => listTenantSchemas(ds),
+  findTenantsMatching: (ds: unknown, schema: string, probe: unknown) =>
+    findTenantsMatching(ds, schema, probe),
 }));
 
 import { ReportSchedulerService } from '../services/report-scheduler.service';
@@ -371,8 +372,8 @@ describe('ReportSchedulerService advisory-lock discipline', () => {
    * explicit assertion.
    */
   beforeEach(() => {
-    listTenantSchemas.mockReset();
-    listTenantSchemas.mockResolvedValue([]);
+    findTenantsMatching.mockReset();
+    findTenantsMatching.mockResolvedValue([]);
   });
 
   function makeLockService(acquired = true): {
@@ -396,7 +397,7 @@ describe('ReportSchedulerService advisory-lock discipline', () => {
   }
 
   it('acquires and releases the advisory lock on the same dedicated connection', async () => {
-    listTenantSchemas.mockResolvedValueOnce([]); // no tenants → body is a no-op
+    findTenantsMatching.mockResolvedValueOnce([]); // no tenants → body is a no-op
     const { service, lockRunner, createQueryRunner, recordRegulatoryCronRun } = makeLockService();
 
     await service.deadlineSweep(new Date('2026-07-06T05:00:00Z'));
@@ -417,7 +418,7 @@ describe('ReportSchedulerService advisory-lock discipline', () => {
   });
 
   it('releases the lock (and the connection) even when the job body throws', async () => {
-    listTenantSchemas.mockRejectedValueOnce(new Error('discovery boom'));
+    findTenantsMatching.mockRejectedValueOnce(new Error('discovery boom'));
     const { service, lockRunner, recordRegulatoryCronRun } = makeLockService();
 
     // the error still propagates (the cron logs it) — but the lock+connection
@@ -457,7 +458,7 @@ describe('ReportSchedulerService advisory-lock discipline', () => {
     // acquire attempted, but no unlock when we never held it, and the runner is still released
     expect(sqls.some((s) => s.includes('pg_advisory_unlock'))).toBe(false);
     expect(lockRunner.release).toHaveBeenCalledTimes(1);
-    expect(listTenantSchemas).not.toHaveBeenCalled();
+    expect(findTenantsMatching).not.toHaveBeenCalled();
     // OBS-HIGH-002: a lock-skip is still a heartbeat (a passive replica), so the
     // "cron stalled" alert never fires on the replica that didn't win the lock.
     expect(recordRegulatoryCronRun).toHaveBeenCalledWith({
@@ -527,5 +528,49 @@ describe('ReportSchedulerService.autoSubmitForTenant', () => {
 
     expect(approveAndSubmit).toHaveBeenCalledTimes(2);
     expect(submitted).toBe(1);
+  });
+});
+
+describe('ReportSchedulerService tenant discovery (FARM-HIGH-481)', () => {
+  /**
+   * `regulatory_settings` and `sites` sit under FORCE row-level security: a bare
+   * QueryRunner saw zero rows of both for every tenant, so the job found nobody
+   * to serve. Each active tenant now answers for itself under its own RLS
+   * context (`findTenantsMatching`); real-Postgres proof of that helper is the
+   * feeding engine's discovery spec.
+   */
+  const newService = (): ReportSchedulerService => makeService({}).service;
+
+  beforeEach(() => {
+    findTenantsMatching.mockReset();
+  });
+
+  it('asks every active tenant, in the farm source schema, whether it does regulatory reporting', async () => {
+    findTenantsMatching.mockResolvedValue(['tenant-a', 'tenant-b']);
+
+    const tenantIds = await newService()['discoverTenantIds']();
+
+    expect(tenantIds).toEqual(['tenant-a', 'tenant-b']);
+    expect(findTenantsMatching).toHaveBeenCalledTimes(1);
+    expect(findTenantsMatching.mock.calls[0]?.[1]).toBe('farm');
+  });
+
+  it('a tenant qualifies when it has reporting settings OR a site, and does not with neither', async () => {
+    findTenantsMatching.mockResolvedValue([]);
+    await newService()['discoverTenantIds']();
+    const probe = findTenantsMatching.mock.calls[0]?.[2] as (
+      runner: QueryRunner,
+    ) => Promise<boolean>;
+    const queryRunner = (rows: unknown[]) =>
+      ({ query: jest.fn().mockResolvedValue(rows) }) as Partial<QueryRunner> as QueryRunner;
+
+    const sql = (queryRunnerWithRow: QueryRunner): string =>
+      String((queryRunnerWithRow.query as jest.Mock).mock.calls[0]?.[0]);
+
+    const configured = queryRunner([{ '?column?': 1 }]);
+    await expect(probe(configured)).resolves.toBe(true);
+    expect(sql(configured)).toMatch(/regulatory_settings/);
+    expect(sql(configured)).toMatch(/\bsites\b/);
+    await expect(probe(queryRunner([]))).resolves.toBe(false);
   });
 });

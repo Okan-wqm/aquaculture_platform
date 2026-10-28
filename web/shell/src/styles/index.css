@@ -477,7 +477,6 @@ html[data-theme='dark'] {
   border-radius: 999px;
   color: #294e65;
   background: rgb(20 58 92 / 0.045);
-  font-family: var(--font-mono);
   font-size: 9px;
   font-weight: 500;
   letter-spacing: 0.1em;
@@ -533,7 +532,6 @@ html[data-theme='dark'] {
   padding: 12px 28px 15px;
   border-top: 1px solid rgb(20 58 92 / 0.1);
   color: #294e65;
-  font-family: var(--font-mono);
   font-size: 10px;
   letter-spacing: 0.025em;
 }
@@ -548,7 +546,6 @@ html[data-theme='dark'] {
   min-height: 44px;
   padding: 8px 20px 14px;
   color: #668895;
-  font-family: var(--font-mono);
   font-size: 10px;
   letter-spacing: 0.08em;
   text-transform: uppercase;

@@ -82,27 +82,26 @@ export const SamplingModal: React.FC<SamplingModalProps> = ({
   };
 
   const handleSubmit = async (): Promise<void> => {
-    if (!tank.batchId || errors.length > 0) return;
+    // The measurer column is a user uuid (a display name is rejected by the API),
+    // so a session without a user id cannot record a sample.
+    if (!tank.batchId || !user?.id || errors.length > 0) return;
 
     const individualMeasurements: IndividualMeasurement[] = parsedWeights.map((weight, index) => ({
       sampleNumber: index + 1,
       weight,
     }));
 
-    const measuredBy =
-      [user?.firstName, user?.lastName].filter(Boolean).join(' ') || user?.email || '';
-
     try {
       await recordSample.mutateAsync({
         batchId: tank.batchId,
         tankId: tank.id,
         measurementDate: new Date(`${measurementDate}T00:00:00`).toISOString(),
-        measurementType: 'routine',
-        measurementMethod: 'manual_scale',
+        measurementType: 'ROUTINE',
+        measurementMethod: 'MANUAL_SCALE',
         sampleSize: individualMeasurements.length,
         populationSize,
         individualMeasurements,
-        measuredBy,
+        measuredBy: user.id,
         notes: notes || undefined,
         updateBatchWeight,
       });
@@ -249,7 +248,7 @@ export const SamplingModal: React.FC<SamplingModalProps> = ({
         <Button
           variant="primary"
           onClick={() => void handleSubmit()}
-          disabled={errors.length > 0 || recordSample.isPending || !tank.batchId}
+          disabled={errors.length > 0 || recordSample.isPending || !tank.batchId || !user?.id}
         >
           {t('tanksV2.sampling.submit')}
         </Button>

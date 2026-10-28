@@ -205,7 +205,8 @@ export function ChildSensorFormModal({
       description={
         sensor?.sampleValue !== undefined && (
           <>
-            Sample value: <span className="font-mono">{formatSampleValue(sensor.sampleValue)}</span>
+            Sample value:{' '}
+            <span className="tabular-nums">{formatSampleValue(sensor.sampleValue)}</span>
           </>
         )
       }

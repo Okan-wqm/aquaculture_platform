@@ -14,9 +14,9 @@ const TENANT_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const TENANT_SCHEMA = 'tenant_aaaaaaaaaaaaaaaa';
 
 /**
- * Build a mock query-runner that satisfies forEachTenantSchema's lifecycle
- * (connect/startTransaction/SET.../commit/release) and returns the supplied
- * due-change-set rows for the vfd_change_sets discovery query.
+ * Build a mock query-runner that satisfies forEachVerifiedTenantSchema's lifecycle
+ * (connect/startTransaction/SET.../tenant binding/commit/release) and returns the
+ * supplied due-change-set rows for the vfd_change_sets discovery query.
  */
 function buildQueryRunner(dueRows: { id: string; tenant_id: string }[]) {
   let txActive = false;
@@ -41,21 +41,32 @@ function buildQueryRunner(dueRows: { id: string; tenant_id: string }[]) {
       if (typeof sql === 'string' && sql.includes('FROM vfd_change_sets')) {
         return Promise.resolve(dueRows);
       }
+      // The fan-out reads its tenant binding back (app.current_tenant / bypass).
+      if (typeof sql === 'string' && sql.includes('current_setting($1, true) AS tenant')) {
+        return Promise.resolve([{ tenant: TENANT_ID, bypass: 'off' }]);
+      }
       return Promise.resolve([]);
     }),
     release: jest.fn().mockResolvedValue(undefined),
   };
 }
 
-function buildDataSource(dueRows: { id: string; tenant_id: string }[], schemas = [TENANT_SCHEMA]) {
+function buildDataSource(dueRows: { id: string; tenant_id: string }[]) {
   const queryRunner = buildQueryRunner(dueRows);
   return {
     queryRunner,
     dataSource: {
-      // listTenantSchemas() runs this information_schema query.
+      // listActiveTenantSchemaIdentities() runs this platform-ledger query.
       query: jest.fn().mockImplementation((sql: string) => {
-        if (typeof sql === 'string' && sql.includes('information_schema.schemata')) {
-          return Promise.resolve(schemas.map((schema_name) => ({ schema_name })));
+        if (typeof sql === 'string' && sql.includes('list_active_tenant_schema_mappings')) {
+          return Promise.resolve([
+            {
+              schema_name: TENANT_SCHEMA,
+              tenant_id: TENANT_ID,
+              schema_exists: true,
+              committed_proof: true,
+            },
+          ]);
         }
         return Promise.resolve([]);
       }),

@@ -19,25 +19,20 @@ import {
   VERIFY_MEASUREMENT_MUTATION,
 } from '../graphql/growth.operations';
 import type { PaginationResultV1 } from '@platform/pagination-contracts';
+import type {
+  MeasurementMethod,
+  MeasurementType,
+} from '@platform/shared-ui/generated/graphql-types';
 
 // ============================================================================
 // TYPES
 // ============================================================================
 
-export type MeasurementType =
-  | 'routine'
-  | 'transfer'
-  | 'grading'
-  | 'harvest'
-  | 'health_check'
-  | 'spot_check';
-
-export type MeasurementMethod =
-  | 'manual_scale'
-  | 'automated_scale'
-  | 'image_analysis'
-  | 'sonar'
-  | 'estimated';
+// Wire contract: GraphQL ENUM fields carry the enum NAME ('ROUTINE'), never the
+// stored value ('routine'). Both enums come from the generated schema types, so
+// a hand-typed lowercase literal no longer compiles (FARM-HIGH-482: the Sampling
+// modal sent 'routine' and the whole mutation died at variable coercion).
+export type { MeasurementMethod, MeasurementType };
 
 export type GrowthPerformance =
   | 'excellent'
@@ -211,6 +206,7 @@ export interface RecordGrowthSampleInput {
   populationSize: number;
   individualMeasurements: IndividualMeasurement[];
   conditions?: MeasurementConditions;
+  /** The user id of whoever took the measurement (a uuid column), never a display name. */
   measuredBy: string;
   notes?: string;
   updateBatchWeight?: boolean;

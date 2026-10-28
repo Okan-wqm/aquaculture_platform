@@ -60,6 +60,9 @@ FAMILIES: dict[str, Family] = {
     # F1.1: goldset and pr_tracking record through the owner, whose event kinds are a closed vocabulary.
     "learning_log": Family("learning-memory", f"{_K}memory.py:record_learning_event",
                            ledgers=(("memory_learning_events", "memory/learning-events.jsonl"),)),
+    # F0.6: the non-matching streak that cuts a refuted night hypothesis; no other computer of it.
+    "experiment_hypothesis_cut": Family("learning-memory", f"{_K}experiment_night.py:nonmatching_streaks",
+                                        ("nonmatching_streaks",)),
     "fitness_report": Family("learning-memory", f"{_K}fitness.py:generate_fitness_report",
                              ("generate_fitness_report",), (("fitness_reports", "fitness/fitness-reports.jsonl"),)),
     "calibration_gate": Family("judgment", f"{_K}genesis_policy.py:effective_calibration_gate",
@@ -69,6 +72,17 @@ FAMILIES: dict[str, Family] = {
                                       ("validate_judge_response",)),
     "dispatch_failure_classification": Family("tools-gates", "tools/aria-poc/dispatch_failure.py:classify_dispatch_failure",
                                               ("classify_dispatch_failure",)),
+    # F3.1 (ARIA-LOW-741, ARIA-MEDIUM-742): the decision stamp's concepts, one owner each from the commit they land.
+    # Which (provider, model) executed a sealed response, and the one writer of the executor's route key.
+    "executed_route": Family("judgment", f"{_K}independence_check.py:executed_route",
+                             ("executed_route", "executed_route_of", "stamp_dispatch_model")),
+    # A change's per-path line counts: the one git argv and the one parse live in change_paths.
+    "change_churn": Family("planning-impl", f"{_K}change_paths.py:parse_change_z", ("parse_change_z",)),
+    # The stamp's closed shape: its constructor, validator and readers.
+    "decision_stamp": Family("planning-impl", f"{_K}decision_stamp.py:build_decision_stamp",
+                             ("build_decision_stamp", "validate_decision_stamp", "stamp_churn", "stamp_route_key")),
+    # "This subject has a change in flight": the one fold the F loop guard reads.
+    "change_in_flight": Family("planning-impl", f"{_K}finding_grounding.py:_in_flight_state", ("_in_flight_state",)),
     # The one parse aria-import-graph and this atlas read (PLAN-v2 F0.9: no fourth graph engine).
     "python_source_facts": Family("tools-gates", f"{_K}source_facts.py:extract",
                                   ("module_name", "iter_sources", "iter_modules", "deepest_module", "path_parts",

@@ -7,7 +7,7 @@ import {
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
-import { forEachTenantSchema } from '@aquaculture/backend-common/database';
+import { forEachVerifiedTenantSchema } from '@aquaculture/backend-common/database';
 import { withTenantContext } from '@aquaculture/backend-common/context';
 
 import { VfdChangeSet } from '../entities/vfd-change-set.entity';
@@ -61,11 +61,11 @@ export class VfdChangeSetSchedulerService {
     this.isProcessing = true;
 
     try {
-      await forEachTenantSchema(
+      await forEachVerifiedTenantSchema(
         this.dataSource,
-        async ({ schema, queryRunner }) => {
+        async ({ schemaName: schema, queryRunner }) => {
           // Discover this tenant's due change-set ids under the tenant
-          // search_path (established by forEachTenantSchema). The tenant_id
+          // search_path (established by forEachVerifiedTenantSchema). The tenant_id
           // column carries the full tenant UUID that the schema name (a
           // truncated hash) cannot recover.
           // SENSOR-CRITICAL-009: sweep BOTH scheduled sets that are due AND

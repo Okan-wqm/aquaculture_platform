@@ -33,7 +33,9 @@ FEEDBACK_KINDS = {
     "external_contradiction",
     "closed_signal",
 }
-FEEDBACK_SOURCES = {"self", "operator", "external_scanner", "ai_judge", "manual_audit"}
+# ``replay_dev`` (WP-D9): ARIA's own misses on a replayed DEV-train change,
+# minted by ``role_fitness.feed_dev_misses``; a DEV-check case never writes one.
+FEEDBACK_SOURCES = {"self", "operator", "external_scanner", "ai_judge", "manual_audit", "replay_dev"}
 CLOSED_SIGNAL_EVIDENCE_PREFIXES = ("git:commit:", "github:PR:", "agent:", "manual:")
 DEFAULT_FAILURE_MODE_BY_KIND = {
     "missed_signal": "evidence_gap",

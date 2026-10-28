@@ -128,6 +128,7 @@ _PLANTED = {
         "def common_target_sha(rows):\n    return None\n",
         "def _target_shas(rows):\n    return set()\n",
         "def _common_target_sha(rows):\n    return None\n",
+    ),
     # SE-5 — the claim-side SHADOW predicate agent_invocations carried (a second, unverified replay of the ledger),
     # and a second writer of the lifecycle ledger under its declared surface.
     "lifecycle_state": (

@@ -377,7 +377,7 @@ class Merge(unittest.TestCase):
 
             def merge_pr(self, number: int, **kwargs: Any) -> dict:
                 calls.append("merge")
-                return {"merged": True}
+                return {"merged": True, "merge_commit_sha": "c" * 40}
 
             def get_pr_diff(self, number: int) -> tuple[str | None, str | None]:
                 return diff, None

@@ -18,7 +18,7 @@ import-shaped text inside string literals come out right with ``ast`` and wrong
 with a regex over source text. Nothing is executed.
 
 WHAT ``extract`` YIELDS for one module, from its source text alone (the
-symbol layer, ``defs`` to ``constants``, only when asked for):
+symbol layer, ``defs`` to ``keys``, only when asked for):
   imports    ``["name", dotted]`` for ``import a.b`` and a relative or absolute
              ``from`` base, ``["from", base, name]`` per imported name, a literal
              ``import_module("a.b")``, and ``["dotted", "aria_kernel.x"]`` for a
@@ -39,6 +39,12 @@ symbol layer, ``defs`` to ``constants``, only when asked for):
              dotted name of a constant) or a path literal (``refs`` of its
              operands, the same rule).
   constants  module-level string constants (a surface name held in a constant).
+  keys       ``[scope, key]`` for every key a scope WRITES into a row (F0.9p): a string
+             constant key of a dict literal, ``row["key"] = ...`` (a Store subscript)
+             and a field declared directly in a class body (a dataclass is its own
+             schema). A call keyword, a Load subscript, ``.get("k")``, a ``**`` spread,
+             a non-string key and an annotated local of a method read or name a key
+             without writing a row, so they are not keys.
 A scope is the top-level statement a node sits in, not the innermost one, so a
 closure inside a phase runner still counts as that runner's use.
 """
@@ -278,6 +284,7 @@ def _symbol_layer(tree: ast.Module, module: str, aliases: dict[str, str], bound:
     constants: dict[str, str] = {}
     uses: list[list[Any]] = []
     calls: list[list[Any]] = []
+    keys: set[tuple[str, str]] = set()
     for stmt in tree.body:
         names = _statement_names(stmt)
         scope = names[0] if names else MODULE_SCOPE
@@ -294,7 +301,21 @@ def _symbol_layer(tree: ast.Module, module: str, aliases: dict[str, str], bound:
                 uses.append([node.lineno, scope, f"{aliases[node.value.id]}.{node.attr}"])
             if isinstance(node, ast.Call):
                 calls.extend(_surface_call(node, scope, dotted))
-    return {"defs": defs, "uses": uses, "calls": calls, "constants": constants}
+            keys.update((scope, key) for key in _row_keys(node))
+    return {"defs": defs, "uses": uses, "calls": calls, "constants": constants,
+            "keys": sorted(list(pair) for pair in keys)}
+
+
+def _row_keys(node: ast.AST) -> Iterator[str]:
+    """The keys one node writes into a row (the ``keys`` rule)."""
+    if isinstance(node, ast.Dict):  # a ``**`` spread has a None key
+        yield from (key.value for key in node.keys if isinstance(key, ast.Constant) and isinstance(key.value, str))
+    elif isinstance(node, ast.Subscript) and isinstance(node.ctx, ast.Store):
+        if isinstance(node.slice, ast.Constant) and isinstance(node.slice.value, str):
+            yield node.slice.value
+    elif isinstance(node, ast.ClassDef):  # the class body's own statements, never a method's locals
+        yield from (item.target.id for item in node.body
+                    if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name))
 
 
 def _surface_call(node: ast.Call, scope: str, dotted: Any) -> Iterator[list[Any]]:

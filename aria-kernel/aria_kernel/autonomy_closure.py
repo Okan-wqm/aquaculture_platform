@@ -56,7 +56,7 @@ from pathlib import Path
 from typing import Any, Literal, Mapping
 
 from .autonomy_evidence import (
-    CAPABILITY_SPECS,
+    PROOF_CAPABILITIES,
     _git_text,
     _git_tree_entry,
     _operator_policy_shape,
@@ -473,7 +473,7 @@ def _capabilities_live_proven(
     status = derive_autonomy_evidence_status(base_dir=base_dir, repo_root=repo, target_sha=evidence)
     reasons: list[str] = [
         f"capability_not_derived:{capability}"
-        for capability in CAPABILITY_SPECS if capability not in status.capabilities
+        for capability in PROOF_CAPABILITIES if capability not in status.capabilities
     ]
     state_commits: set[str] = set()
     for capability, evidence_status in status.capabilities.items():

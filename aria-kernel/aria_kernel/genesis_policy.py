@@ -101,6 +101,10 @@ POLICY_KEYS = {
     # from defaults — by service_expertise_policy / change_review_policy.
     "service_expertise",
     "change_review",
+    # F1.2 (PLAN-v2 §4) — the pre-registered gates: gates.g1 is the field list a
+    # scorecard cycle must have measured, and how many consecutive cycles must.
+    # Parsed strictly by gates_policy; nothing in the policy module evaluates a gate.
+    "gates",
     # F0.6 (ARIA-MEDIUM-731) — how many non-matching observations of one
     # experiment end its night run, and the operator-written exempt experiment
     # ids. Parsed strictly — never filled from defaults — by
@@ -1088,6 +1092,27 @@ CHANGE_REVIEW_SCHEMA: dict[str, Any] = {
         "overflow": _prereg.one_of("hold"),
     },
 }
+# PLAN-v2 §4, G1 — "14 consecutive cycles, every field of the F1.2 field list measured". The list is the
+# decision (a field left off it can never hold the gate), so it is pre-registered here, before the measurement,
+# and the scorecard reader (autonomy_evidence.g1_gap_free_run) takes the names it reports from it. Each name is
+# a measured field of one lens spec (autonomy_evidence.CAPABILITY_SPECS; tests/test_scorecard_lens_specs.py pins
+# that). The bound on the cycle count refuses nonsense (a bool, zero), it is not the decision.
+GATES_SCHEMA: dict[str, Any] = {
+    "g1": {
+        "consecutive_cycles": _prereg.whole(1, 3650),
+        "fields": _prereg.names(),
+    },
+}
+
+
+def gates_policy(repo_root: str | Path | None = None) -> dict[str, Any]:
+    """F1.2 — the pre-registered gate decisions (today G1's field list), parsed strictly.
+
+    Every key is required and refused by its dotted path when missing, unknown or out of range; the shipped
+    value never stands in for one an override leaves out (an override replaces the block whole).
+    """
+    merged = load_policy(repo_root) if repo_root is not None else default_policy()
+    return _prereg.parse_block("gates", merged.get("gates"), GATES_SCHEMA)
 # F0.6 (ARIA-MEDIUM-731, PLAN-v2 principle 3) — the refuted-hypothesis cut.
 # max_nonmatching_observations: the streak at which the night stops running an
 # experiment (experiment_night.nonmatching_streaks). exempt_experiments: ids

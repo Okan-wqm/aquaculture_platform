@@ -134,7 +134,7 @@ class DecisionMemory(_Store):
             must_satisfy=[{"id": "x", "description": "y"}], allowed_scope=["apps/**"], convergence_id="conv-1", base_dir=self.tools, admission=admit_request("operator_cli.request", "challenger_plan", base_dir=self.tools))
         self.assertIn("decision_memory", req)
         prompt = render_invocation_prompt(req)
-        self.assertIn('<derived_context section="decision_memory">', prompt)
+        self.assertIn("<untrusted_decision_memory>", prompt)  # F4.0b: decision memory is data inside an escaped block
         self.assertIn("rejected by the panel", prompt)
         self.assertIn("**not evidence**", prompt)
         self.assertEqual(render_invocation_prompt(dict(req)), prompt, "re-rendering the row reproduces the sealed text")

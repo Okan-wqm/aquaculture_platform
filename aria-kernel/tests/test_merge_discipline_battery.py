@@ -28,6 +28,7 @@ from aria_kernel.implementation_safety import (
     CANONICAL_VALIDATION_COMMANDS,
     CANONICAL_VALIDATION_COMMANDS_EXECUTABLE,
 )
+from aria_kernel.merge_record import LINEAGE_DELIVERED, MERGED_BY_MERGE_LANE, record_merge
 from aria_kernel.own_pr_ci import (
     load_post_merge_reds,
     merge_outcomes_path,
@@ -166,8 +167,10 @@ class PostMergeScanTests(unittest.TestCase):
     def tearDown(self) -> None:
         self._tmp.cleanup()
 
-    @staticmethod
-    def _merged_pr(number: int, sha: str) -> dict:
+    def _merged_pr(self, number: int, sha: str) -> dict:
+        """A merged PR ARIA's merge lane merged: merge_record holds it as ARIA's (F3.3a)."""
+        record_merge(pr={"number": number, "head_sha": "e" * 40}, merged_by=MERGED_BY_MERGE_LANE,
+                     base_dir=self.tools, merge_sha=sha, head_lineage=LINEAGE_DELIVERED)
         return {
             "number": number,
             "headRefName": f"aria/change-{number}",

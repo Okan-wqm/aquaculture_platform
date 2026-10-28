@@ -1,0 +1,13 @@
+{
+  "base_head": "602f2e17d18df0e745aec545e79fea6d99b86dd7",
+  "cases": [
+    {
+      "case_id": "all-sections-v7",
+      "input_sha256": "f32ff29fba51fa885df6867ada5b158c1e3dbd203ef7a0df12578104a3e03aa7",
+      "output_byte_length": 10320,
+      "output_sha256": "321af4d8ac0d0b2af2d23221f410c3605dfc4b07d12603be278b01b164fce8b6",
+      "version_value": 7
+    }
+  ],
+  "note": "Captured with the v7 renderer at the branch base (production code unmodified); never regenerate with a later renderer."
+}

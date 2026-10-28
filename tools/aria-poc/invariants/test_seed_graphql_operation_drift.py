@@ -106,6 +106,21 @@ def document(name: str, field: str) -> str:
     )
 
 
+# poc.py derives the directories its SQL enum scan reads from the schema registry (the one owner of
+# migration locations), so a tree it scans declares one; this fixture holds no migrations.
+SCHEMA_REGISTRY_FILE = "apps/db-migrate/src/schema-registry.ts"
+SCHEMA_REGISTRY_TEXT = (
+    "export const SCHEMA_REGISTRY = [\n"
+    "  {\n"
+    "    service: 'fixture-service',\n"
+    "    schema: 'fixture',\n"
+    "    migrationsGlob: ['apps/fixture-service/src/database/migrations/[0-9]*{.ts,.js}'],\n"
+    "    reason: 'fixture',\n"
+    "  },\n"
+    "];\n"
+)
+
+
 class _Tree:
     """A git repository holding the owner as this checkout ships it, plus FE sources and a baseline."""
 
@@ -134,6 +149,7 @@ class _Tree:
         self.write(BASELINE, json.dumps(baseline, indent=2) + "\n")
         self.write("infrastructure/apollo-router/subgraphs.json", json.dumps(SUBGRAPHS))
         self.write(".github/workflows/apollo-supergraph-validate.yml", SUPERGRAPH_WORKFLOW)
+        self.write(SCHEMA_REGISTRY_FILE, SCHEMA_REGISTRY_TEXT)
         for path, text in files.items():
             self.write(path, text)
         self.git("init", "-q")

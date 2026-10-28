@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "status": "SHADOW",
   "security_class": false,
-  "declared_scope": ["aria-kernel/aria_kernel/**/*.py", "aria-kernel/aria_kernel/data/*.json"],
+  "declared_scope": ["aria-kernel/aria_kernel/**/*.py", "aria-kernel/aria_kernel/data/**/*.json"],
   "output_schema": {
     "type": "object",
     "required": ["observations", "findings", "read_paths", "evidence_sources"]
@@ -18,7 +18,7 @@
   },
   "allowed_read_globs": [
     "aria-kernel/aria_kernel/**/*.py",
-    "aria-kernel/aria_kernel/data/*.json",
+    "aria-kernel/aria_kernel/data/**/*.json",
     "tools/aria-adapters/fixtures/kernel-dead-wire-adapter/**"
   ],
   "forbidden_read_globs": [
@@ -40,7 +40,7 @@
       "severity_cap": "MEDIUM",
       "defect_claim": "A kernel policy file declares a tunable that no kernel module reads, so setting it changes nothing.",
       "premises": [
-        "The cited key is declared in aria-kernel/aria_kernel/data/*.json as an operator tunable.",
+        "The cited key is declared in aria-kernel/aria_kernel/data/**/*.json as an operator tunable.",
         "No kernel module reads the key, directly or through a loader that iterates the policy block."
       ]
     },
@@ -69,6 +69,6 @@
     "stdin_json": true
   },
   "freshness_window_hours": 168,
-  "parse_window_signature": "sha256:a6ec9ab9569735c09e6258cdb50be6ba61091b82962a604fb3f086dc6d083f1d",
+  "parse_window_signature": "sha256:ecdc48fc504703cc2d771e5d7f3c472287480935be0213016a7cbb41adcc50ec",
   "schema_version": 1
 }

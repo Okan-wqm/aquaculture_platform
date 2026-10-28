@@ -523,14 +523,19 @@ def _zoo_reports(responses: dict[str, Any]) -> list[dict[str, Any]]:
     """The change review's defect claims as reports, keyed by the label they were made on.
 
     A claim whose lines are not line numbers (a float, a bool, a string, a missing key, a claim that is no object)
-    is no report.
+    cannot hit a defect, but it is still a claim: a control that draws any claim is a false alarm (D3's rule), so it
+    is a report on its subject that no defect can match (no file, lines 0 to 0).
     """
-    return [
-        {"subject_ref": label_id, "path": claim.get("file"), "start_line": claim["start_line"], "end_line": claim["end_line"]}
-        for label_id, response in responses.items()
-        for claim in (response.get("details") or {}).get("defect_claims") or []
-        if isinstance(claim, dict) and _is_line_number(claim.get("start_line")) and _is_line_number(claim.get("end_line"))
-    ]
+    reports: list[dict[str, Any]] = []
+    for label_id, response in responses.items():
+        for claim in (response.get("details") or {}).get("defect_claims") or []:
+            if isinstance(claim, dict) and _is_line_number(claim.get("start_line")) and _is_line_number(claim.get("end_line")):
+                reports.append(
+                    {"subject_ref": label_id, "path": claim.get("file"), "start_line": claim["start_line"], "end_line": claim["end_line"]}
+                )
+            else:
+                reports.append({"subject_ref": label_id, "path": None, "start_line": 0, "end_line": 0})
+    return reports
 
 
 def score_zoo_discovery(responses: dict[str, Any], labels: list[dict[str, Any]]) -> dict[str, Any]:

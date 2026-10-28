@@ -25,6 +25,9 @@ const clearAllOperations = vi.fn((): Promise<void> => Promise.resolve());
 const clearCache = vi.fn((): Promise<void> => Promise.resolve());
 vi.mock('@/pwa/offline-queue', () => ({
   clearAllOperations: (): Promise<void> => clearAllOperations(),
+}));
+// The offline read cache has its own owner (MOB-MEDIUM-031); logout still wipes it.
+vi.mock('@/pwa/offline-cache', () => ({
   clearCache: (): Promise<void> => clearCache(),
 }));
 

@@ -1,0 +1,114 @@
+{
+  "$schema": "aria/baseline-corpus/v1",
+  "corpus_id": "bolum-v1",
+  "kind": "practice",
+  "head": "f2c0175d88239312d3254ac853e340d2fabf8749",
+  "contamination": [
+    "the revert commit subjects name the fix they undo, so the history the tools read describes each planted bug",
+    "the corpus tree holds the review documents that describe the bugs",
+    "program exits are engineered on the items: F2.1 R03, F2.2 R13 and F5.2 missed_signals are written against these 13",
+    "11 of the 13 reverts also reverted the fix's tests, so the 'tests kept' variant does not exist as built"
+  ],
+  "cases": [
+    {
+      "revert_sha": "f2c0175d88239312d3254ac853e340d2fabf8749",
+      "detector": true,
+      "detector_reason": "the adapters under tools/aria-adapters/ (agent-harness-security-adapter, workflow-shell-safety-adapter): the revert changes the detectors' own rules"
+    },
+    {
+      "revert_sha": "a2bc04e9f27c8b12540278702f923f7d62d01759",
+      "detector": true,
+      "detector_reason": "the `tool run` chokepoint every adapter's findings pass through (tool_runner.py, tool_health.py, ledger_inline.py)"
+    },
+    {
+      "revert_sha": "8ed21c71ffe1bfe84efc56e0558ca1dde1682510",
+      "detector": false,
+      "detector_reason": null
+    },
+    {
+      "revert_sha": "32a7a39bd071218cd8ce734b208acf27901b904d",
+      "detector": false,
+      "detector_reason": null
+    },
+    {
+      "revert_sha": "6ca50d2c2eb32883502f0a28b8af3aa8cc5ad0b3",
+      "detector": true,
+      "detector_reason": "the registry gate that admits an adapter's declared scope (tool_registry.py)"
+    },
+    {
+      "revert_sha": "24b588669be5c5a383d61b43ff946bec52d041d7",
+      "detector": false,
+      "detector_reason": null
+    },
+    {
+      "revert_sha": "d1fbd44f6d5f35263569100635f3ac6d3d49d7eb",
+      "detector": true,
+      "detector_reason": "the judge scorer (judge_calibration.py): the revert changes how human labels are weighted in judge calibration"
+    },
+    {
+      "revert_sha": "0ad7a74f5c15b329d107fe7de2f3bd525f1e4b97",
+      "detector": false,
+      "detector_reason": null
+    },
+    {
+      "revert_sha": "1336e0e4afe119bfc0ee44d5b28f5e54249cd162",
+      "detector": false,
+      "detector_reason": null
+    },
+    {
+      "revert_sha": "cf0980693293c690f6115206f8699cb65766f973",
+      "detector": false,
+      "detector_reason": null
+    },
+    {
+      "revert_sha": "99aa377b65a41be6c6bfa122b10dddd185cd956f",
+      "detector": false,
+      "detector_reason": null
+    },
+    {
+      "revert_sha": "f8d3a00caf5e9d19536c2cde3dca0006a9fd47e6",
+      "detector": false,
+      "detector_reason": null
+    },
+    {
+      "revert_sha": "526cbba55a731299987a9f2c674edff938c72a77",
+      "detector": false,
+      "detector_reason": null
+    }
+  ],
+  "named_noise": [
+    {
+      "tool_id": "agent-harness-security-adapter",
+      "rule": "broad_shell_permission",
+      "reason": "the rule the R13 revert brought back: it over-fires on registry-governed permissions (contents: write in aria-auto-cycle.yml is governed in the contract record; the record-aware owner, overbroad_write_token, reports none)"
+    },
+    {
+      "tool_id": "agent-harness-security-adapter",
+      "rule": "direct_anthropic_api_usage",
+      "reason": "self-hits: the matched text is prose or the rule's own wording, not a call"
+    },
+    {
+      "tool_id": "agent-harness-security-adapter",
+      "rule": "secret_leak_in_yaml_or_md",
+      "reason": "runtime code that reads a token file, not an embedded constant"
+    },
+    {
+      "tool_id": "kernel-dead-wire-adapter",
+      "rule": "policy_key_never_read",
+      "path": "aria-kernel/aria_kernel/data/runtime_profiles.json",
+      "reason": "runtime profile keys are data-plane identifiers consumed generically, not dead wires"
+    }
+  ],
+  "legacy_claim": {
+    "source": "section test report RAPOR-2026-10-20 (bolum-testi, handover 2026-10-18), sections 0 and 2.2: an earlier measurement by driver scripts that are not in the tree",
+    "system_sha": "f2c0175d88239312d3254ac853e340d2fabf8749",
+    "recall": {
+      "hits": 0,
+      "n": 13
+    },
+    "tally": {
+      "named_noise": 29,
+      "not_named_noise": 614
+    }
+  }
+}

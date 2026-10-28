@@ -16,7 +16,6 @@ import { DataSource, IsNull, Repository } from 'typeorm';
 
 import { MobileSettingsService } from '../../tenant/services/mobile-settings.service';
 import { RefreshToken } from '../entities/refresh-token.entity';
-import { UserModuleAssignment } from '../entities/user-module-assignment.entity';
 import { UserSiteAssignment } from '../entities/user-site-assignment.entity';
 import { User } from '../entities/user.entity';
 
@@ -191,10 +190,6 @@ describe('TokenService — planLevel JWT claim (MT-MEDIUM-001)', () => {
         {
           provide: getRepositoryToken(RefreshToken),
           useValue: { create: jest.fn((x: unknown) => x), save: jest.fn() },
-        },
-        {
-          provide: getRepositoryToken(UserModuleAssignment),
-          useValue: { find: jest.fn().mockResolvedValue([]) },
         },
         { provide: DataSource, useValue: transactionHarness.dataSource },
         { provide: JwtService, useValue: { signAsync } },
@@ -382,10 +377,17 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
     // ADR-0016: the live rows of auth.platform_capability_grants for the user.
     platformCapabilities?: string[];
     onPlatformCapabilityQuery?: (sql: string) => Promise<unknown>;
+    // RBAC-HIGH-027: the member's enabled module assignments, as the module-access reader reads them.
+    onModuleAssignmentQuery?: () => Promise<unknown>;
   }): jest.Mock =>
     jest.fn((sql: string) => {
       if (typeof sql !== 'string') {
         return Promise.resolve([]);
+      }
+      if (sql.includes('user_module_assignments')) {
+        return overrides?.onModuleAssignmentQuery
+          ? overrides.onModuleAssignmentQuery()
+          : Promise.resolve([]);
       }
       if (sql.includes('platform_capability_grants')) {
         if (overrides?.onPlatformCapabilityQuery) {
@@ -415,7 +417,6 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
   const createService = async (deps?: {
     query?: jest.Mock;
     config?: Record<string, unknown>;
-    moduleAssignmentFind?: jest.Mock;
   }): Promise<TokenService> => {
     configValues = { HASH_REFRESH_TOKENS: false, ...(deps?.config ?? {}) };
     query = deps?.query ?? buildQueryRouter();
@@ -452,12 +453,6 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
         {
           provide: getRepositoryToken(RefreshToken),
           useValue: { create: jest.fn((x: unknown) => x), save: refreshSave },
-        },
-        {
-          provide: getRepositoryToken(UserModuleAssignment),
-          useValue: {
-            find: deps?.moduleAssignmentFind ?? jest.fn().mockResolvedValue([]),
-          },
         },
         { provide: DataSource, useValue: dataSource },
         { provide: JwtService, useValue: { signAsync } },
@@ -519,6 +514,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
       'tenantId',
       'planLevel',
       'modules',
+      'moduleAccess',
       'resourcePermissions',
       'type',
       'jti',
@@ -632,7 +628,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
     it('binds user.id ($1) + tenantId ($2) and tenant-scopes via auth.tenant_roles', async () => {
       service = await createService({
         query: buildQueryRouter({
-          resourcePermissions: [{ resource_permissions: ['sites:view'] }],
+          resourcePermissions: [{ resource_permissions: ['users:view'] }],
         }),
       });
 
@@ -676,35 +672,31 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
   // module or permission reduction on the next refresh.
   describe('authoritative authorization reads on every mint', () => {
     it('sees a changed module assignment on the immediately following mint', async () => {
-      const moduleAssignmentFind = jest
-        .fn()
-        .mockResolvedValueOnce([
-          {
-            isAccessible: () => true,
-            module: { code: 'farm', name: 'Farm', defaultRoute: '/farm' },
-          },
-        ])
-        .mockResolvedValueOnce([
-          {
-            isAccessible: () => true,
-            module: { code: 'sensor', name: 'Sensor', defaultRoute: '/sensor' },
-          },
-        ]);
-      service = await createService({ moduleAssignmentFind });
+      const assignmentReads = [
+        [{ code: 'farm', name: 'Farm', defaultRoute: '/farm', role: 'MODULE_MANAGER' }],
+        [{ code: 'sensor', name: 'Sensor', defaultRoute: '/sensor', role: 'MODULE_USER' }],
+      ];
+      service = await createService({
+        query: buildQueryRouter({
+          onModuleAssignmentQuery: () => Promise.resolve(assignmentReads.shift() ?? []),
+        }),
+      });
       const user = buildUser({});
 
       await service.generateTokens(user);
       expect(capturedPayload().modules).toEqual(['farm']);
+      expect(capturedPayload().moduleAccess).toEqual({ farm: 'MODULE_MANAGER' });
 
       await service.generateTokens(user);
       expect(capturedPayload().modules).toEqual(['sensor']);
-      expect(moduleAssignmentFind).toHaveBeenCalledTimes(2);
+      expect(capturedPayload().moduleAccess).toEqual({ sensor: 'MODULE_USER' });
+      expect(assignmentReads).toHaveLength(0);
     });
 
     it('sees changed role permissions on the immediately following mint', async () => {
       const permissionReads: Array<Array<{ resource_permissions: string[] }>> = [
-        [{ resource_permissions: ['sites:view'] }],
-        [{ resource_permissions: ['sites:edit'] }],
+        [{ resource_permissions: ['users:view'] }],
+        [{ resource_permissions: ['roles:edit'] }],
       ];
       service = await createService({
         query: buildQueryRouter({
@@ -714,10 +706,10 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
       const user = buildUser({});
 
       await service.generateTokens(user);
-      expect(capturedPayload().resourcePermissions).toEqual(['sites:view']);
+      expect(capturedPayload().resourcePermissions).toEqual(['users:view']);
 
       await service.generateTokens(user);
-      expect(capturedPayload().resourcePermissions).toEqual(['sites:edit']);
+      expect(capturedPayload().resourcePermissions).toEqual(['roles:edit']);
       expect(permissionReads).toHaveLength(0);
     });
   });
@@ -739,19 +731,19 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
     it('includes resourcePermissions when the JOIN returns rows', async () => {
       service = await createService({
         query: buildQueryRouter({
-          resourcePermissions: [{ resource_permissions: ['sites:view', 'tanks:edit'] }],
+          resourcePermissions: [{ resource_permissions: ['users:view', 'roles:create'] }],
         }),
       });
 
       await service.generateTokens(buildUser({}));
 
       expect(capturedPayload().resourcePermissions).toEqual(
-        expect.arrayContaining(['sites:view', 'tanks:edit']),
+        expect.arrayContaining(['users:view', 'roles:create']),
       );
     });
 
     it('folds per-user permission_overrides (revoke then grant) into the resourcePermissions claim', async () => {
-      // Role base = {sites:view, sites:edit}; the assignment revokes sites:edit
+      // Role base = {users:view, roles:edit}; the assignment revokes roles:edit
       // and grants roles:view. Proves overrides reach the JWT end-to-end — before
       // this fold they were never selected here, so a per-user grant/revoke had
       // zero runtime effect (the guard enforced only the role's base set).
@@ -759,8 +751,8 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
         query: buildQueryRouter({
           resourcePermissions: [
             {
-              resource_permissions: ['sites:view', 'sites:edit'],
-              permission_overrides: { grants: ['roles:view'], revokes: ['sites:edit'] },
+              resource_permissions: ['users:view', 'roles:edit'],
+              permission_overrides: { grants: ['roles:view'], revokes: ['roles:edit'] },
             },
           ],
         }),
@@ -769,8 +761,8 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
       await service.generateTokens(buildUser({}));
 
       const claim = capturedPayload().resourcePermissions ?? [];
-      expect(claim).toEqual(expect.arrayContaining(['sites:view', 'roles:view']));
-      expect(claim).not.toContain('sites:edit');
+      expect(claim).toEqual(expect.arrayContaining(['users:view', 'roles:view']));
+      expect(claim).not.toContain('roles:edit');
     });
 
     // RBAC-HIGH-010: the mint intersects effective permissions with the tenant's
@@ -781,7 +773,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
       service = await createService({
         query: buildQueryRouter({
           // The role stores a core cap AND an AI cap...
-          resourcePermissions: [{ resource_permissions: ['sites:view', 'ai_settings:manage'] }],
+          resourcePermissions: [{ resource_permissions: ['users:view', 'ai_settings:manage'] }],
           // ...but the tenant only licenses the farm module.
           enabledModuleCodes: ['farm'],
         }),
@@ -790,14 +782,28 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
       await service.generateTokens(buildUser({}));
 
       const claim = capturedPayload().resourcePermissions ?? [];
-      expect(claim).toContain('sites:view'); // core survives
+      expect(claim).toContain('users:view'); // core survives
       expect(claim).not.toContain('ai_settings:manage'); // unlicensed dropped
+    });
+
+    it('drops a stored capability the catalogue no longer declares (RBAC-HIGH-025)', async () => {
+      service = await createService({
+        query: buildQueryRouter({
+          // A role stored before PKG-03 removed the keys no backend check read.
+          resourcePermissions: [{ resource_permissions: ['users:view', 'batches:create'] }],
+          enabledModuleCodes: ['farm'],
+        }),
+      });
+
+      await service.generateTokens(buildUser({}));
+
+      expect(capturedPayload().resourcePermissions).toEqual(['users:view']);
     });
 
     it('keeps the module-gated capability once the tenant licenses that module', async () => {
       service = await createService({
         query: buildQueryRouter({
-          resourcePermissions: [{ resource_permissions: ['sites:view', 'ai_settings:manage'] }],
+          resourcePermissions: [{ resource_permissions: ['users:view', 'ai_settings:manage'] }],
           enabledModuleCodes: ['farm', 'ai'],
         }),
       });
@@ -805,7 +811,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
       await service.generateTokens(buildUser({}));
 
       const claim = capturedPayload().resourcePermissions ?? [];
-      expect(claim).toEqual(expect.arrayContaining(['sites:view', 'ai_settings:manage']));
+      expect(claim).toEqual(expect.arrayContaining(['users:view', 'ai_settings:manage']));
     });
   });
 
@@ -1395,10 +1401,6 @@ describe('TokenService — assignedSiteIds + mobileFeatures claims (SEC-HIGH-051
         {
           provide: getRepositoryToken(RefreshToken),
           useValue: { create: jest.fn((x: unknown) => x), save: jest.fn() },
-        },
-        {
-          provide: getRepositoryToken(UserModuleAssignment),
-          useValue: { find: jest.fn().mockResolvedValue([]) },
         },
         {
           provide: getRepositoryToken(UserSiteAssignment),

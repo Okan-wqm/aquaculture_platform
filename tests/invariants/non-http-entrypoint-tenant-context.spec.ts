@@ -33,11 +33,15 @@
  *   1. **AsyncLocalStorage + GUC** — `withTenantContext`, `runInTenantTransaction`,
  *      `runInTenantRead`, `bindTenantRlsContext`, `assertTenantTransactionContext`.
  *      The pool-checkout patch reads the frame and sets `app.current_tenant`.
- *   2. **Explicit tenant-schema iteration** — `listTenantSchemas`,
- *      `getTenantSchemaName`, `withTenantSchema`, `setTenantSearchPath`. A cron
- *      that has no single tenant to bind (a monthly accrual across every
- *      tenant, say) walks the schemas and routes each pass by `search_path`.
- *      `hr-service`'s leave accrual is the reference example.
+ *   2. **Tenant-schema iteration** — the tenant-bound fan-out
+ *      (`forEachVerifiedTenantSchema`, `forEachVerifiedRetainedTenantSchema`,
+ *      `findTenantsMatching`) walks the canonical tenants and binds each pass
+ *      (GUC + frame). The NAME-only helpers (`listTenantSchemas`,
+ *      `getTenantSchemaName`, `withTenantSchema`, `setTenantSearchPath`) route by
+ *      `search_path` and bind no tenant: under FORCE RLS that session reads
+ *      nothing (FARM-HIGH-481). They are still recognised here only so the files
+ *      that use them are not misjudged; `tenant-schema-iteration-binds-tenant.spec.ts`
+ *      ratchets them away (PLAT-HIGH-938).
  *
  * A file that shows neither, yet writes, is either working on a cross-tenant
  * table — in which case it belongs in the allowlist WITH THAT REASON — or it is
@@ -74,7 +78,7 @@ const CONTEXT_MECHANISMS = [
   // 1. AsyncLocalStorage frame + transaction-local GUC
   /withTenantContext|runInTenantTransaction|runInTenantRead|bindTenantRlsContext|assertTenantTransactionContext/,
   // 2. explicit per-tenant schema routing
-  /listTenantSchemas|withTenantSchema|setTenantSearchPath|getTenantSchemaName|forEachTenantSchema/,
+  /forEachVerifiedTenantSchema|forEachVerifiedRetainedTenantSchema|findTenantsMatching|listTenantSchemas|withTenantSchema|setTenantSearchPath|getTenantSchemaName/,
 ];
 
 /**
@@ -88,10 +92,6 @@ const UNBOUND_ENTRYPOINT_ALLOWLIST = new Map<string, string>([
   [
     'apps/auth-service/src/audit/audit-log.service.ts',
     "writes AuditLog, declared @Entity('audit_logs', { schema: 'auth' }) — a cross-tenant infrastructure ledger, one of the tables MODULE_SCHEMAS keeps out of per-tenant routing on purpose",
-  ],
-  [
-    'apps/farm-service/src/feeding-protocol/services/feeding-job-run.service.ts',
-    "writes FeedingJobRun, declared @Entity('feeding_job_runs', { schema: 'farm' }) and listed in farm's MODULE_SCHEMAS.infrastructureTables — the same cross-tenant class as the auth audit ledger above. Its raw INSERT is schema-qualified (farm.feeding_job_runs) and its rows are keyed by tenantId, so it is the claim ledger the hourly UTC tick consults BEFORE it has a tenant to bind; binding context here would route a cross-tenant table into tenant_<uuid> and break the uniqueness the claim depends on",
   ],
   [
     'apps/auth-service/src/modules/tenant/handlers/auth-admin-nats.handler.ts',

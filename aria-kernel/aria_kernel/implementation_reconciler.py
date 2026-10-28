@@ -111,8 +111,10 @@ def _ended_prs(lifecycle: list[dict[str, Any]]) -> set[int]:
     (review of #1910, L1) — and an unreadable merged head is retried
     (review of #1910, N2).
     """
-    return {row["pr_number"] for row in lifecycle if type(row.get("pr_number")) is int
-            and row.get("event") in {"merged", EVENT_MERGE_UNPROVEN}}
+    merged = {row["pr_number"] for row in fold_merged_rows(lifecycle) if type(row.get("pr_number")) is int}
+    refused = {row["pr_number"] for row in lifecycle if type(row.get("pr_number")) is int
+               and row.get("event") == EVENT_MERGE_UNPROVEN}
+    return merged | refused
 
 
 def _unreadable_head(
@@ -128,6 +130,36 @@ def _unreadable_head(
     return {"unverified": {"pr_number": number, "checks": checks + 1, "max_checks": MAX_LINEAGE_CHECKS}}
 
 
+def _closed_unmerged_due(lifecycle: list[dict[str, Any]], number: int) -> bool:
+    """Whether a closed PR's row is written now: it has none yet, or the owner's daily bound says it is asked again."""
+    return (not any(row.get("event") == EVENT_CLOSED_UNMERGED and row.get("pr_number") == number for row in lifecycle)
+            or closed_recheck_due(lifecycle, number))
+
+
+def _record_closed_unmerged(
+    remote: Any, *, pr: Mapping[str, Any], lifecycle: list[dict[str, Any]], root: Path,
+) -> bool:
+    """Record GitHub's answer that ``pr`` was closed unmerged; True when the answer is this PR's CLOSED.
+
+    The one call of ``record_pr_unmergeable(... EVENT_CLOSED_UNMERGED ...)``,
+    for a plan whose outcome is recorded and for one already rejected: a PR a
+    person closed is the PR ledger's fact whatever state its plan is in, and
+    a reader asking whether the change is still in flight (``pr_holds_change``)
+    must not read a closed PR as open forever. The row is written when the PR
+    has none yet and then at most daily, bounded (``closed_recheck_due``); it
+    is an observation, never a merge and never a plan event.
+    """
+    number = pr.get("number", pr.get("pr_number"))
+    if not isinstance(remote, Mapping) or remote.get("number") not in (None, number):
+        return False
+    if str(remote.get("state") or "").upper() != "CLOSED":
+        return False
+    if _closed_unmerged_due(lifecycle, number):
+        record_pr_unmergeable(pr=pr, event=EVENT_CLOSED_UNMERGED, reason="closed_unmerged_on_github", base_dir=root)
+        lifecycle[:] = lifecycle_rows(root)
+    return True
+
+
 def _observe_merge(
     plan_id: str, state: dict[str, Any], *, reader: Any, lifecycle: list[dict[str, Any]],
     change_ids: tuple[str, ...], base_branch: str, workspace: Path, root: Path,
@@ -138,12 +170,16 @@ def _observe_merge(
         pr_number = _pr_number_from_url(str(impl.get("pr_url") or ""))
         if pr_number is None:
             return None
-        merge = observed_merge(reader.pr_merge_state(pr_number), pr_number=pr_number)
-        if merge is None:
-            return None
-        merge_sha, merged_at, head = merge
+        remote = reader.pr_merge_state(pr_number)
         delivered = str(impl.get("branch_tip_sha") or "")
         pr = opened_row(lifecycle, pr_number=pr_number) or {"number": pr_number, "head_sha": delivered}
+        merge = observed_merge(remote, pr_number=pr_number)
+        if merge is None:
+            # Not merged: a PR a person closed is recorded (the plan stays
+            # RECORDED; what that means for the implementer is not decided here).
+            _record_closed_unmerged(remote, pr=pr, lifecycle=lifecycle, root=root)
+            return None
+        merge_sha, merged_at, head = merge
         # Review of #1910, F1 — the plan's PR merged (the plan folds MERGED
         # whatever happened on the branch), but the row says what merged: a
         # head with a person's commits is not ARIA's change, and the readers
@@ -176,21 +212,15 @@ def _observe_merge(
         for row in lifecycle:
             number = row.get("pr_number")
             if (row.get("event") == "opened" and row.get("change_id") == change_id and type(number) is int
-                    and number not in ended
-                    and (not any(r.get("event") == EVENT_CLOSED_UNMERGED and r.get("pr_number") == number
-                                 for r in lifecycle) or closed_recheck_due(lifecycle, number))):
+                    and number not in ended and _closed_unmerged_due(lifecycle, number)):
                 candidates[number] = row
     for number, opened in sorted(candidates.items()):
         remote = reader.pr_merge_state(number)
         if not isinstance(remote, dict):
             continue
-        state_name = str(remote.get("state") or "").upper()
-        if state_name == "CLOSED":
-            record_pr_unmergeable(pr=opened, event=EVENT_CLOSED_UNMERGED, reason="closed_unmerged_on_github",
-                                  base_dir=root)
-            lifecycle[:] = lifecycle_rows(root)
+        if _record_closed_unmerged(remote, pr=opened, lifecycle=lifecycle, root=root):
             continue
-        if state_name != "MERGED":
+        if str(remote.get("state") or "").upper() != "MERGED":
             continue
         try:
             merge_sha, merged_at, head, lineage = verify_merge_after_rejection(

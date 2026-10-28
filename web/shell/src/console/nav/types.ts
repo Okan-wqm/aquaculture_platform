@@ -19,7 +19,7 @@
  * pulls every component into it and fails the project. Each name below comes
  * from the JSX-free, side-effect-free module that declares it.
  */
-import type { AI_ASSISTANT_USE_CAPABILITY } from '@aquaculture/shared-contracts';
+import type { AI_ASSISTANT_USE_CAPABILITY, OwnerModuleCode } from '@aquaculture/shared-contracts';
 import type { ConsoleRailIconName } from '@platform/shared-ui/components/Layout/console/railIcons';
 import type { ConsoleWorkspaceId } from '@platform/shared-ui/components/Layout/console/railTypes';
 import type { MessageKey } from '@platform/shared-ui/i18n/locales/en';
@@ -32,8 +32,11 @@ import type { TENANT_PANEL_CAPABILITIES } from '@platform/shared-ui/utils/tenant
  */
 export type WorkspaceId = ConsoleWorkspaceId;
 
-/** Tenant module codes the shell mounts behind `ProtectedRoute requiredModule` (App.tsx). */
-export type ModuleCode = 'farm' | 'hydroponics' | 'sensor' | 'hr';
+/**
+ * Tenant module codes the shell mounts behind `ProtectedRoute requiredModule` (App.tsx): the owner
+ * modules of the module dictionary (shared-contracts `OwnerModuleCode`), never a list of its own.
+ */
+export type ModuleCode = OwnerModuleCode;
 
 /**
  * The roles the console serves. SUPER_ADMIN keeps the admin Sidebar and never

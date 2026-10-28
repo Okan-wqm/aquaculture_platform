@@ -43,6 +43,7 @@ from typing import Any, Callable, Iterable, Mapping, Sequence
 
 from .finding_id_grammar import FINDING_ID_SOURCE, parse_finding_id
 from .git_object_id import ANY_OBJECT_FORMAT, is_object_id
+from .item_citations import cited_target
 from .system_one import Answer, Registry, StateRef, ask, load_registry
 from .tool_registry import bound_workspace_root
 
@@ -57,7 +58,6 @@ _clock: Callable[[], float] = time.monotonic
 _SKIP_PATH = re.compile(r"^(docs/|\.claude/)|\.md$|findings\.jsonl$|\.generated\.|/generated/|package-lock\.json$")
 # A ``Closes:`` trailer naming a registry finding; the id is the grammar's (finding_id_grammar).
 _CLOSES = re.compile(rf"^Closes:\s*\S+?#({FINDING_ID_SOURCE})\s*$", re.MULTILINE)
-_CITED_LINE = re.compile(r"^(.+?):(\d+)$")
 _OUTLINE = re.compile(
     r"^\s*(export |@|class |interface |type |enum |async |function |public |private |protected |def "
     r"|const \w+ = (async )?\()"
@@ -152,16 +152,6 @@ def shadow_merge(
         return
 
 
-def _cited_line(item: Mapping[str, Any]) -> tuple[str, int] | None:
-    """The item's first cited reference as ``(path, line)`` — refs naming a line first."""
-    refs = sorted({str(ref) for ref in (item.get("path") or "", *(item.get("evidence") or ())) if str(ref)},
-                  key=lambda ref: (not _CITED_LINE.match(ref), ref))
-    if not refs:
-        return None
-    match = _CITED_LINE.match(refs[0])
-    return (match.group(1), int(match.group(2))) if match else (refs[0], 1)
-
-
 def shadow_judge_fanout(
     *, base_dir: str | Path | None, repo_root: str | Path | None, items: Sequence[Mapping[str, Any]],
 ) -> None:
@@ -179,7 +169,7 @@ def shadow_judge_fanout(
             for question in (q for q in questions if str(item.get("tool_id") or "") in q.tool_ids):
                 if not budget.left():
                     return
-                cited = _cited_line(item)
+                cited = cited_target(item)
                 if cited is None:
                     continue
                 path, line = cited

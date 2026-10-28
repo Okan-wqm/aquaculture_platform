@@ -1,7 +1,7 @@
 import * as crypto from 'crypto';
 
 import { tenantManagerRepo } from '@aquaculture/backend-common/database';
-import { Role } from '@aquaculture/backend-common/decorators';
+import { Role, roleHasPermission } from '@aquaculture/backend-common/decorators';
 import {
   Injectable,
   Logger,
@@ -38,6 +38,8 @@ import {
 import { Tenant } from '../entities/tenant.entity';
 
 import { CapabilityAuthorityService, ValidatedOverrideSet } from './capability-authority';
+import { moduleGrantRows } from './module-assignment-grants';
+import { rederiveModuleGrantRoles } from './module-grant-rederivation';
 import { TenantRoleService, TenantRoleWithDetails } from './tenant-role.service';
 import {
   createCredentialInvalidationIntent,
@@ -704,6 +706,12 @@ export class UserLifecycleService {
           'logout_all_devices',
         );
         await this.durableUserTokenInvalidation.enqueue(manager, intent);
+        // RBAC-HIGH-027: users.role is an input of the module grant roles. Last, because the
+        // re-derivation binds the rest of the transaction to the user's tenant (RLS).
+        const tenantId = saved.tenantId;
+        if (tenantId && (requestedRole !== undefined || patch.tenantId !== undefined)) {
+          await rederiveModuleGrantRoles(manager, { tenantId, userId, role: saved.role });
+        }
         return { saved, intent };
       });
 
@@ -979,15 +987,20 @@ export class UserLifecycleService {
       // into the `if` so TS narrows `input.moduleIds` to a defined string[]
       // (no non-null assertion needed on the .map).
       if (invitedRole !== Role.TENANT_ADMIN && input.moduleIds && input.moduleIds.length > 0) {
-        const assignments = input.moduleIds.map((moduleId) =>
+        // RBAC-HIGH-027: each grant carries its module role (module-assignment-grants.ts).
+        const grants = await moduleGrantRows(manager, {
+          moduleIds: input.moduleIds,
+          userRole: invitedRole,
+          isPrimaryManager: (moduleId) =>
+            invitedRole === Role.MODULE_MANAGER && moduleId === input.primaryModuleId,
+        });
+        const assignments = grants.map((grant) =>
           umaRepo.create({
             userId: savedUser.id,
-            moduleId,
             tenantId: input.tenantId,
-            isPrimaryManager:
-              invitedRole === Role.MODULE_MANAGER && moduleId === input.primaryModuleId,
             isActive: true,
             assignedBy: input.invitedBy,
+            ...grant,
           }),
         );
         await umaRepo.saveMany(assignments);
@@ -1090,21 +1103,16 @@ export class UserLifecycleService {
    * MODULE_MANAGER can invite only MODULE_USER. Anything else throws.
    */
   private assertRoleHierarchy(inviter: User, targetTenantId: string, targetRole: Role): void {
-    const ranks: Record<string, number> = {
-      [Role.SUPER_ADMIN]: 4,
-      [Role.TENANT_ADMIN]: 3,
-      [Role.MODULE_MANAGER]: 2,
-      [Role.MODULE_USER]: 1,
-    };
-
     if (inviter.role === Role.SUPER_ADMIN) return;
 
     if (inviter.tenantId !== targetTenantId) {
       throw new ForbiddenException('Cannot invite users to a different tenant');
     }
 
+    // The one platform role hierarchy (RBAC-MEDIUM-024): a tenant admin may grant
+    // its own role or any role below it.
     if (inviter.role === Role.TENANT_ADMIN) {
-      if ((ranks[targetRole] ?? 0) <= (ranks[Role.TENANT_ADMIN] ?? 0)) return;
+      if (roleHasPermission(Role.TENANT_ADMIN, targetRole)) return;
       throw new ForbiddenException('Cannot create user with higher role than your own');
     }
 

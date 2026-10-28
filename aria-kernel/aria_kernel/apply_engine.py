@@ -3,14 +3,21 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .canonical_path import matches_repo_glob
+from .change_ledger import get_change_chain
+from .change_paths import read_change_paths
+from .git_containment import KERNEL_GIT_NO_HOOKS_ARGS
 from .implementation_safety import (
     CANONICAL_VALIDATION_TIMEOUT_MS,
     mint_unpredictable_feature_branch_name,
 )
 from .ledger import append_declared_jsonl, load_declared_jsonl
+from .state_store_lifecycle_arcs import GIT_TIMEOUT_SECONDS
 from .proposal import (
     PLAN_CONVERGED_APPROVAL_PREFIX,
     approval_source_of,
@@ -26,6 +33,9 @@ from .validation import (
     evaluate_validation_gate,
     list_validation_gates,
     parse_allowed_command,
+    PIN_TEST_GLOBS,
+    PROOF_VERDICTS,
+    prove_red_first,
     run_validation_commands,
     SpawnWrapper,
 )
@@ -189,6 +199,7 @@ def gate_apply_action(
     diff_text: str | None = None,
     workspace_root: str | Path | None = None,
     require_room: bool = False,
+    red_first: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Promote an apply action to `ready_for_pr` after validation gate passes.
 
@@ -196,6 +207,11 @@ def gate_apply_action(
     two writers (``_record_apply_action`` is the opener). It copies the
     latest row wholesale and overwrites only the gate verdict, so an action
     keeps the branch, base_sha and change_id the opener minted.
+
+    ``red_first`` (F3.5a) is the red-first decision ``run_apply_gate`` took
+    (``_red_first_decision``): its blockers join the gate's own and any one of
+    them keeps the action ``blocked``, and the decision itself is written on
+    the row. ``None`` — a direct caller, the operator's rows — writes no key.
 
     Plan 017 Phase 3 adds the optional `diff_text` kwarg. When provided,
     the apply gate runs the suppression scanner over the unified diff and
@@ -264,9 +280,11 @@ def gate_apply_action(
     blocked_by = list(gate["blocked_by"] or [])
     if suppression_matches:
         blocked_by.append("suppression_pattern")
+    red_first_blockers = list(red_first["blocked_by"]) if red_first is not None else []
+    blocked_by.extend(red_first_blockers)
     final_status = (
         "ready_for_pr"
-        if gate["status"] == "ready_for_pr" and not suppression_matches
+        if gate["status"] == "ready_for_pr" and not suppression_matches and not red_first_blockers
         else "blocked"
     )
     row = dict(action)
@@ -292,6 +310,12 @@ def gate_apply_action(
             ),
         },
     )
+    # The row was copied wholesale: a decision an earlier gate run wrote must
+    # not read as THIS run's, so it is replaced or dropped, never inherited.
+    if red_first is None:
+        row.pop("red_first", None)
+    else:
+        row["red_first"] = dict(red_first)
     return append_declared_jsonl(
         ensure_tools_dir(base_dir) / "apply" / "actions.jsonl",
         row,
@@ -878,6 +902,172 @@ def verify_plan_converged_approval(
     return None
 
 
+# F3.5a / PLAN-v2 :250 — the apply gate asks the ONE red-first prover.
+#
+# The gate promotes a change whose suite is green and no worse than the
+# baseline (`validation._regression_status` reads `improved` and
+# `no_regression` alike), so a finding-origin fix with no test that was ever
+# red, a test green on the base too, or a test red for an import was promoted
+# exactly like one whose own test failed before it and passes after it.
+# `validation.prove_red_first` owns that question; this section only decides
+# WHEN to ask it (`classify_red_first`), WHAT it is asked (the test files of
+# the change's own diff at their tip blobs, plus the two fields the agent may
+# choose) and what its answer does to the promotion (`_red_first_decision`).
+_RED_FIRST_OPERATOR_LANE = "operator_lane"
+_RED_FIRST_PLAN_ORIGIN = "plan_origin"
+# The only changes exempt from a proof. The wider vocabulary (a capability or
+# pure-addition marker, ARIA-HIGH-671) is F3.6's one definition, not this one.
+RED_FIRST_EXEMPTIONS: tuple[str, ...] = (_RED_FIRST_OPERATOR_LANE, _RED_FIRST_PLAN_ORIGIN)
+# The ceiling each of the proof's runs is bounded by: the ONE number the gate
+# runs the prover under and the delivery prices a proof run at
+# (`implementation_delivery.delivery_worst_case_seconds`). The proof runs one
+# test file's command, not the suite, so it is bounded by its own ceiling and
+# not by the suite's: staging always carries the canonical suite at 2.7M ms, and
+# two more runs at THAT ceiling (5400 s) put every finding-origin request past
+# the executor's drain window, which then skips it by name and never claims it.
+RED_FIRST_PROOF_TIMEOUT_MS = 120_000
+# Derived from the prover's verdicts, never retyped: a verdict added there is
+# a blocker here, and `proven` is the only verdict that passes.
+RED_FIRST_BLOCKERS: tuple[str, ...] = (
+    "red_first_declaration_missing",
+    "red_first_declaration_invalid",
+    "red_first_no_test_in_diff",
+    "red_first_proof_refused",
+    *(f"red_first_{verdict}" for verdict in PROOF_VERDICTS if verdict != "proven"),
+)
+# The proof's own ids, written on the decision once the prover reached a verdict.
+_RED_FIRST_PROOF_KEYS = ("proof_id", "red_at", "green_at", "red_run_id", "green_run_id")
+
+
+@dataclass(frozen=True)
+class RedFirstClass:
+    """Whether a staged action's change must arrive with a proof.
+
+    ``exemption`` is one of ``RED_FIRST_EXEMPTIONS`` when none is required;
+    otherwise ``finding_id`` is the finding the change answers, which the
+    kernel (never the agent) names as the pin's ``expectation_ref``.
+    """
+
+    exemption: str | None
+    finding_id: str | None
+
+    @property
+    def required(self) -> bool:
+        return self.exemption is None
+
+
+def classify_red_first(action: Mapping[str, Any], *, base_dir: str | Path | None) -> RedFirstClass:
+    """The ONE classifier, read by the gate and by the delivery's pricing.
+
+    An action with no ``change_id`` is the operator lane; a change whose
+    planned finding id is in the ``plan:`` namespace is its plan's own
+    (``stage_converged_plan_for_pr`` names none otherwise); anything else
+    answers a finding and needs a proof. A staged ``change_id`` with no
+    planned row cannot be classified, and is refused, never exempted.
+    """
+    change_id = action.get("change_id")
+    if not change_id:
+        return RedFirstClass(_RED_FIRST_OPERATOR_LANE, None)
+    planned = get_change_chain(change_id=str(change_id), base_dir=base_dir)["planned"]
+    if planned is None:
+        raise GovernanceError(
+            f"red_first_change_chain_missing: the apply action is staged for change {change_id!r}, "
+            "which has no change_planned row, so it cannot be classified as plan-origin or finding-origin"
+        )
+    finding_id = str(planned["finding_id"])
+    if finding_id.startswith(PLAN_FINDING_ID_PREFIX):
+        return RedFirstClass(_RED_FIRST_PLAN_ORIGIN, None)
+    return RedFirstClass(None, finding_id)
+
+
+def _tip_blob_text(root: Path, tip_sha: str, path: str) -> str:
+    """``path`` as the TIP COMMIT holds it, text only. Never the working tree
+    (it can differ from the commit under a clean ``git status``) and never the
+    agent's account of it. Hooks off, like every kernel git subprocess that
+    reads a tree an agent wrote."""
+    try:
+        completed = subprocess.run(
+            ["git", *KERNEL_GIT_NO_HOOKS_ARGS, "cat-file", "blob", f"{tip_sha}:{path}"],
+            cwd=root, capture_output=True, check=False, timeout=GIT_TIMEOUT_SECONDS,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise GovernanceError(f"red_first_pin_blob_unavailable: {exc.__class__.__name__}") from exc
+    if completed.returncode != 0:
+        raise GovernanceError("red_first_pin_blob_unavailable: git cat-file failed")
+    try:
+        return completed.stdout.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise GovernanceError("red_first_pin_content_not_text: a test file of the diff is not UTF-8 text") from exc
+
+
+def _lift_pin_files(root: Path, base_sha: str, tip_sha: str) -> dict[str, str]:
+    """The pin's files: every test file the change ADDS or MODIFIES, at its tip
+    blob. One path set (``read_change_paths``), one test-file vocabulary
+    (``PIN_TEST_GLOBS``); an unchanged or deleted test is not part of the
+    change's own proof. Admission (count, spelling) stays the prover's."""
+    entries = read_change_paths(root, base_sha, tip_sha).entries
+    paths = sorted({
+        path for status, path in entries
+        if status in ("A", "M") and any(matches_repo_glob(path, glob) for glob in PIN_TEST_GLOBS)
+    })
+    return {path: _tip_blob_text(root, tip_sha, path) for path in paths}
+
+
+def _run_red_first_proof(
+    *, files: dict[str, str], command: str, failure_signature: str, finding_id: str,
+    base_sha: str, tip_sha: str, root: Path, runner_identity: str, base_dir: str | Path | None,
+) -> dict[str, Any]:
+    """The gate's ONE call of ``prove_red_first``: red at the staged base,
+    green at the branch tip, each run under ``RED_FIRST_PROOF_TIMEOUT_MS`` (the
+    number the delivery prices a proof run at)."""
+    return prove_red_first(
+        base_sha, tip_sha,
+        {"files": files, "command": command, "failure_signature": failure_signature, "expectation_ref": finding_id},
+        workspace_root=root, runner_identity=runner_identity, base_dir=base_dir, timeout_ms=RED_FIRST_PROOF_TIMEOUT_MS,
+    )
+
+
+def _red_first_blocked(blocker: str, *, reason: str | None = None) -> dict[str, Any]:
+    return {"status": "blocked", "reason": reason or blocker, "blocked_by": [blocker]}
+
+
+def _red_first_decision(
+    requirement: RedFirstClass, declared: Mapping[str, Any] | None, *, base_sha: str, tip_sha: str, root: Path,
+    runner_identity: str, base_dir: str | Path | None,
+) -> dict[str, Any]:
+    """What the red-first proof does to this promotion: ``not_required``,
+    ``proven``, or ``blocked`` by one name of ``RED_FIRST_BLOCKERS``.
+
+    The declaration is untrusted data: only its ``command`` and
+    ``failure_signature`` are read (the prover admits the command), the files
+    come from the tip's own diff and the expectation from the finding. The
+    decision stores run ids and the prover's refusal code, never the
+    declaration's text. A host that cannot confine the proof
+    (``SandboxUnavailable``) propagates: it is no verdict about the change.
+    """
+    if requirement.exemption is not None:
+        return {"status": "not_required", "reason": requirement.exemption, "blocked_by": []}
+    if declared is None:
+        return _red_first_blocked("red_first_declaration_missing")
+    command, signature = declared.get("command"), declared.get("failure_signature")
+    if not all(type(value) is str and value.strip() for value in (command, signature)):
+        return _red_first_blocked("red_first_declaration_invalid")
+    try:
+        files = _lift_pin_files(root, base_sha, tip_sha)
+        if not files:
+            return _red_first_blocked("red_first_no_test_in_diff")
+        proof = _run_red_first_proof(
+            files=files, command=command, failure_signature=signature, finding_id=str(requirement.finding_id),
+            base_sha=base_sha, tip_sha=tip_sha, root=root, runner_identity=runner_identity, base_dir=base_dir,
+        )
+    except GovernanceError as refusal:
+        return _red_first_blocked("red_first_proof_refused", reason=str(refusal).split(":", 1)[0])
+    reached = {key: proof[key] for key in _RED_FIRST_PROOF_KEYS}
+    if proof["verdict"] == "proven":
+        return {"status": "proven", "reason": "proven", "blocked_by": [], **reached}
+    return {**_red_first_blocked(f"red_first_{proof['verdict']}"), **reached}
+
+
 def run_apply_gate(
     *,
     proposal_id: str,
@@ -887,6 +1077,7 @@ def run_apply_gate(
     cycle_id: str | None = None,
     workspace_root: str | Path | None = None,
     spawn_wrapper: SpawnWrapper | None = None,
+    red_first_declared: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run the candidate validation and promote the action to ``ready_for_pr``.
 
@@ -912,6 +1103,13 @@ def run_apply_gate(
     validation executes contained — the READONLY_PATHS read-only, the store
     and the code root not mounted, no network — while the promotion stays
     the kernel's, outside.
+
+    ``red_first_declared`` (F3.5a) is what the agent declared about its own
+    test, ``{command, failure_signature}`` or None. A finding-origin change
+    (``classify_red_first``) is promoted only when the ONE red-first prover
+    proves that test red at the staged base and green at the branch tip for
+    the reason it names; plan-origin and operator-lane changes are exempt.
+    The decision rides ``gate_apply_action(red_first=...)``.
     """
     from .runtime_profile import enforce_profile_for_action
 
@@ -931,6 +1129,9 @@ def run_apply_gate(
             f"{staged_change_id!r} but the gate was asked to validate "
             f"{change_id!r}; the gate must measure the change the staging opened"
         )
+    # Classified before any run: a change that cannot be classified is refused
+    # without spending a suite on it.
+    requirement = classify_red_first(action, base_dir=base_dir)
     baseline_ref = action.get("baseline_validation_ref")
     if not baseline_ref:
         raise GovernanceError(
@@ -984,21 +1185,21 @@ def run_apply_gate(
         room = probe_validation_room(
             spawn_wrapper, workspace_root=root, environment=build_validation_env(os.environ, declared={}).env,
         )
+    gate_identity = runner_identity or lane_runner_identity(
+        fallback=f"aria-kernel:apply-gate:{proposal_id}",
+    )
+    # The ceiling the BASELINE was measured under, off the staged row. Two
+    # sides measured under different timeouts are not a comparison.
+    timeout_ms = int(action.get("validation_timeout_ms") or CANONICAL_VALIDATION_TIMEOUT_MS)
     candidate = run_validation_commands(
         commands=list(action.get("validation_commands") or []),
         workspace_root=root,
         change_id=change_id,
         commit_sha=branch_sha,
-        runner_identity=runner_identity or lane_runner_identity(
-            fallback=f"aria-kernel:apply-gate:{proposal_id}",
-        ),
+        runner_identity=gate_identity,
         base_dir=base_dir,
         cycle_id=cycle_id,
-        # The ceiling the BASELINE was measured under, off the staged row.
-        # Two sides measured under different timeouts are not a comparison.
-        timeout_ms=int(
-            action.get("validation_timeout_ms") or CANONICAL_VALIDATION_TIMEOUT_MS,
-        ),
+        timeout_ms=timeout_ms,
         spawn_wrapper=spawn_wrapper,
         room=room,
         **({"input_scope": input_selection["input_scope"]}
@@ -1010,6 +1211,10 @@ def run_apply_gate(
         base_dir=base_dir,
         cycle_id=cycle_id,
     )
+    red_first = _red_first_decision(
+        requirement, red_first_declared, base_sha=str(action["base_sha"]), tip_sha=branch_sha, root=root,
+        runner_identity=gate_identity, base_dir=base_dir,
+    )
     return gate_apply_action(
         proposal_id=proposal_id,
         validation_comparison_ref=str(comparison["ledger_hash"]),
@@ -1020,6 +1225,7 @@ def run_apply_gate(
         # operator's separate-worktree lane depends on.
         workspace_root=workspace_root,
         require_room=spawn_wrapper is not None,
+        red_first=red_first,
     )
 
 

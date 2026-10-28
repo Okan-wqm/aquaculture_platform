@@ -774,12 +774,34 @@ class EvidenceContract:
 
 
 @dataclass(frozen=True, slots=True)
+class MeasuredField:
+    """One scorecard number (PLAN-v2 F1.2): its name, where it is recorded, who computes it.
+
+    ``name`` is the one name the number goes by (unique across the roster, and the
+    name genesis_policy's G1 list refers to); ``ledger`` is the declared state
+    surface the number is recorded in or computed from; ``owner`` is
+    ``"<repo path>:<function>"``, the one module-level function that computes it.
+    A lens names its numbers; it never restates their computation.
+    """
+
+    name: str
+    ledger: str
+    owner: str
+
+
+@dataclass(frozen=True, slots=True)
 class CapabilitySpec:
     """Immutable proof ownership for one capability.
 
     ``authority_paths`` is the code a capability's proofs are produced and
     judged by; the evaluator runs only from a clean checkout of it. Its bytes
     are not the proof's authority (ARIA-HIGH-288): SEMANTIC_AUTHORITY_PATH is.
+
+    A spec with ``measured_fields`` is a scorecard LENS (PLAN-v2 F1.2), not a
+    proof capability: it names numbers its owners compute (``mechanisms`` are
+    the learning mechanisms a lens reports on), carries no contract and counts
+    no ledger, so it has nothing to prove and takes no part in the derived
+    evidence status (``PROOF_CAPABILITIES`` is the roster without the lenses).
     """
 
     authority_paths: tuple[str, ...]
@@ -787,6 +809,8 @@ class CapabilitySpec:
     authorizing_consumer_paths: tuple[str, ...]
     contracts: tuple[EvidenceContract, ...]
     count_surfaces: tuple[str, ...]
+    measured_fields: tuple[MeasuredField, ...] = ()
+    mechanisms: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "authority_paths", tuple(self.authority_paths))
@@ -798,6 +822,8 @@ class CapabilitySpec:
         )
         object.__setattr__(self, "contracts", tuple(self.contracts))
         object.__setattr__(self, "count_surfaces", tuple(self.count_surfaces))
+        object.__setattr__(self, "measured_fields", tuple(self.measured_fields))
+        object.__setattr__(self, "mechanisms", tuple(self.mechanisms))
 
 
 @dataclass(frozen=True, slots=True)
@@ -968,6 +994,33 @@ _COMMON_AUTHORITY_PATHS = (
 
 def _paths(*paths: str) -> tuple[str, ...]:
     return tuple(dict.fromkeys((*paths, *_COMMON_AUTHORITY_PATHS)))
+
+
+# The learning journal (memory.record_learning_event's ledger): the one ledger
+# the learning lens reads, named once for its fields and for mechanism_scorecard.
+LEARNING_JOURNAL_SURFACE = "memory_learning_events"
+
+
+def _lens(
+    *measured_fields: MeasuredField,
+    mechanisms: tuple[str, ...] = (),
+) -> CapabilitySpec:
+    """A scorecard lens (PLAN-v2 F1.2): numbers named, nothing proven.
+
+    A lens produces no proof row, so it has no producer or consumer and no
+    contract, counts no ledger, and is judged by the common authority only:
+    listing the owners' files here would tie the proof evaluator's clean
+    checkout to code that never feeds a proof.
+    """
+    return CapabilitySpec(
+        authority_paths=_paths(),
+        producer_paths=(),
+        authorizing_consumer_paths=(),
+        contracts=(),
+        count_surfaces=(),
+        measured_fields=measured_fields,
+        mechanisms=mechanisms,
+    )
 
 
 CAPABILITY_SPECS: Mapping[str, CapabilitySpec] = MappingProxyType({
@@ -1391,6 +1444,52 @@ CAPABILITY_SPECS: Mapping[str, CapabilitySpec] = MappingProxyType({
             "enterprise_autonomy_unlock_events",
         ),
     ),
+    # PLAN-v2 F1.2 (ARIA-MEDIUM-733) — the scorecard's three lenses: finding
+    # quality, implementation quality, learning from memory. Each number is
+    # computed by its existing owner and only named here; each is recorded in
+    # the per-cycle ledger it is read from. genesis_policy's gates.g1 lists
+    # which of these names a cycle must have measured (g1_gap_free_run).
+    "finding_quality": _lens(
+        # The judge panel's self-exam against the mutation-canary corpus
+        # (role_fitness._canary_row, recorded in each nightly fitness report):
+        # None while the corpus or its panel verdicts are absent.
+        MeasuredField("canary_mutant_detection_rate", "fitness_reports",
+                      f"{_KERNEL}role_fitness.py:measure_role_fitness"),
+        MeasuredField("canary_false_claim_refutation_rate", "fitness_reports",
+                      f"{_KERNEL}role_fitness.py:measure_role_fitness"),
+    ),
+    "implementation_quality": _lens(
+        # How often an implementer fails the way it failed before
+        # (agent_eval.performance_kpis, recorded in the fitness report's
+        # implementation_quality block): None with no failure to repeat.
+        MeasuredField("implementer_repeat_failure_rate", "fitness_reports",
+                      f"{_KERNEL}agent_eval.py:performance_kpis"),
+    ),
+    "learning_from_memory": _lens(
+        MeasuredField("learning_log_live", LEARNING_JOURNAL_SURFACE,
+                      f"{_KERNEL}autonomy_evidence.py:mechanism_scorecard"),
+        MeasuredField("mechanisms_contributing", LEARNING_JOURNAL_SURFACE,
+                      f"{_KERNEL}autonomy_evidence.py:mechanism_scorecard"),
+        # The learning mechanisms are the kinds of row the journal holds
+        # (memory belief recording, goldset promotion, pr_tracking's
+        # revalidation): a mechanism is live when the journal holds a row of its
+        # kind, and contributes in a window of cycles when a row of its kind
+        # carries one of those cycles (mechanism_contribution).
+        mechanisms=(
+            "belief_proposed",
+            "belief_corrected",
+            "belief_confirmed",
+            "evidence_invalidated",
+            "goldset_promoted",
+        ),
+    ),
+})
+# The roster without the lenses: what a proof is derived for (the evidence
+# status, its closure predicate). A lens measures; it has no state to prove.
+PROOF_CAPABILITIES: Mapping[str, CapabilitySpec] = MappingProxyType({
+    key: spec
+    for key, spec in CAPABILITY_SPECS.items()
+    if not spec.measured_fields
 })
 # ARIA-HIGH-004 — the counts (of ``capability_counts``) that measure the
 # learning stages a capability proves, upstream first. Any one at zero names
@@ -2235,7 +2334,7 @@ def _unavailable_status(
             blockers=blockers,
             evidence_refs=(),
         )
-        for capability in CAPABILITY_SPECS
+        for capability in PROOF_CAPABILITIES
     }
     capabilities = _apply_operator_prerequisites(
         capabilities=capabilities,
@@ -4514,7 +4613,7 @@ def derive_autonomy_evidence_status(
         )
 
     capabilities: dict[str, CapabilityEvidence] = {}
-    for capability in CAPABILITY_SPECS:
+    for capability in PROOF_CAPABILITIES:
         evidence = _derive_capability_evidence(
             capability=capability,
             rows_by_surface={},
@@ -4551,6 +4650,126 @@ def derive_autonomy_evidence_status(
     )
 
 
+# PLAN-v2 §3 — a mechanism with zero contribution over this many cycles is a
+# quarantine candidate. The scorecard records the candidates; it deletes nothing.
+QUARANTINE_WINDOW_CYCLES = 30
+
+
+def mechanism_contribution(
+    rows: Iterable[Mapping[str, Any]],
+    cycle_ids: Iterable[str],
+) -> dict[str, int]:
+    """A mechanism's contribution over a window of cycles: THE computation (PLAN-v2 F1.2).
+
+    The learning-journal rows whose ``cycle_id`` is one of ``cycle_ids``,
+    counted by ``event_type``: a kind with no such row is absent, and a row
+    of no cycle (the journal lets a writer give none) counts for no window.
+    Every reader of a contribution, the scorecard first, takes it from here.
+    """
+    window = frozenset(cycle_ids)
+    return dict(Counter(row["event_type"] for row in rows if row.get("cycle_id") in window))
+
+
+def mechanism_scorecard(
+    *,
+    base_dir: str | Path | None,
+    cycle_ids: Iterable[str],
+) -> dict[str, Any]:
+    """The learning lens's numbers, read from the learning journal alone (ARIA-LOW-732).
+
+    ``cycle_ids`` is the cycle history, oldest first. A mechanism is LIVE when
+    ``memory/learning-events.jsonl`` holds a row of its kind (any cycle), so a
+    dormant learner reads differently from a working one with no counter kept
+    beside the journal; its ``contribution`` is ``mechanism_contribution`` over
+    the newest ``QUARANTINE_WINDOW_CYCLES`` cycles. A declared mechanism with
+    none, once the history holds that many cycles, is a quarantine candidate:
+    recorded here and nowhere else. Reads only; it writes nothing.
+    """
+    from .ledger import load_declared_jsonl
+    from .state_manifest import resolve_surface_path, surface_by_name
+    from .tool_registry import ensure_tools_dir_readonly
+
+    surface = surface_by_name(LEARNING_JOURNAL_SURFACE)
+    root = ensure_tools_dir_readonly(base_dir)
+    journal = resolve_surface_path(root, surface) if root is not None else None
+    rows = (
+        load_declared_jsonl(journal, expected_surface=surface.name)
+        if journal is not None and journal.is_file() else []
+    )
+    cycles = list(cycle_ids)
+    contribution = mechanism_contribution(rows, cycles[-QUARANTINE_WINDOW_CYCLES:])
+    rows_by_kind = dict(Counter(row["event_type"] for row in rows))
+    mechanisms = {
+        name: {"contribution": contribution.get(name, 0), "live": name in rows_by_kind}
+        for name in CAPABILITY_SPECS["learning_from_memory"].mechanisms
+    }
+    silent_long_enough = len(cycles) >= QUARANTINE_WINDOW_CYCLES
+    return {
+        "learning_log": {"rows_by_kind": rows_by_kind, "live": bool(rows)},
+        "mechanisms": mechanisms,
+        "mechanisms_contributing": sum(1 for entry in mechanisms.values() if entry["contribution"] > 0),
+        "quarantine_candidates": sorted(
+            name for name, entry in mechanisms.items() if silent_long_enough and entry["contribution"] == 0
+        ),
+    }
+
+
+def g1_gap_free_run(
+    history: Iterable[Mapping[str, Any]],
+    *,
+    fields: Iterable[str],
+) -> dict[str, Any]:
+    """The longest gap-free run of a cycle history, and its first gap by name (PLAN-v2 §4, G1).
+
+    ``history`` is oldest first, one entry per cycle: ``cycle_id``, ``report``
+    (``{field name: value}``, or None for a missing report) and
+    ``state_integrity_gap``. A field is measured when its value is not None; an
+    absent key is None. A cycle is gap-free when its report exists, carries no
+    state_integrity_gap and measures every listed field. A GAP is a missing
+    report, a state_integrity_gap, or a field that is None after an earlier
+    cycle of the history measured it (``field_regressed_to_none``, naming the
+    first such field in ``fields`` order); a field never measured is no
+    regression, so the cycles before its first measurement sit in no run and
+    are not called gaps. ``fields`` is the newest cycle's measured/none state.
+
+    The result carries a run and a gap, never a verdict: whether the run is
+    long enough is the gate's business (``genesis_policy.gates_policy``).
+    """
+    names = tuple(fields)
+    cycles = list(history)
+    ever_measured: set[str] = set()
+    run = longest = 0
+    first_gap: dict[str, Any] | None = None
+    for cycle in cycles:
+        report = cycle["report"]
+        gap: tuple[str, str | None] | None = None
+        measured: set[str] = set()
+        if report is None:
+            gap = ("missing_report", None)
+        else:
+            measured = {name for name in names if report.get(name) is not None}
+            if cycle["state_integrity_gap"]:
+                gap = ("state_integrity_gap", None)
+            else:
+                regressed = next((name for name in names if name in ever_measured and name not in measured), None)
+                if regressed is not None:
+                    gap = ("field_regressed_to_none", regressed)
+        if gap is not None and first_gap is None:
+            first_gap = {"cycle_id": cycle["cycle_id"], "reason": gap[0], "field": gap[1]}
+        run = run + 1 if gap is None and measured == set(names) else 0
+        longest = max(longest, run)
+        ever_measured |= measured
+    newest = cycles[-1]["report"] if cycles else None
+    return {
+        "fields": {
+            name: "measured" if newest is not None and newest.get(name) is not None else "none"
+            for name in names
+        },
+        "run": longest,
+        "first_gap": first_gap,
+    }
+
+
 __all__ = [
     "AutonomyEvidenceStatus",
     "CAPABILITY_AUTHORITY_PATHS",
@@ -4560,6 +4779,13 @@ __all__ = [
     "EvidenceContract",
     "EvidenceRef",
     "EvidenceState",
+    "LEARNING_JOURNAL_SURFACE",
+    "MeasuredField",
+    "PROOF_CAPABILITIES",
+    "QUARANTINE_WINDOW_CYCLES",
     "SEMANTIC_AUTHORITY_PATH",
     "derive_autonomy_evidence_status",
+    "g1_gap_free_run",
+    "mechanism_contribution",
+    "mechanism_scorecard",
 ]

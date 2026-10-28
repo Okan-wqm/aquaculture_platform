@@ -1,6 +1,6 @@
 [package]
 name = "suderra-agent"
-version = "2.0.0-rc.4"
+version = "2.0.0-rc.6"
 edition = "2024"
 rust-version = "1.85"
 authors = ["Suderra <info@suderra.com>"]
@@ -75,32 +75,19 @@ async-trait = "0.1"
 # Regex for script variable interpolation
 regex = "1.10"
 
-# Modbus TCP/RTU for PLC communication (v1.2.0: rodbus with TLS support)
-# rodbus provides native TLS support for IEC 62443 SL2 FR4 compliance
+# Modbus TCP/RTU client for PLC communication.
+# tokio-modbus (MIT OR Apache-2.0) supplies the Modbus/TCP and RTU framing;
+# src/modbus.rs owns the transport underneath it: plain TCP, Modbus/TCP
+# Security over tokio-rustls (server-only TLS or mTLS, IEC 62443 SL2 FR4),
+# and RTU over tokio-serial. Pinned to the 0.17 minor: tokio-modbus is
+# pre-1.0, so a minor bump is a breaking change and must be explicit.
 #
-# BUG-005 (version pin, HISTORICAL — see BATCH-001-CI-FIX-004 below):
-# rodbus 1.4.0 required a Path::new("") workaround in modbus.rs for
-# TlsClientConfig::full_pki() server-only path (no mTLS client cert).
-#
-# BATCH-001-CI-FIX-004: Bumped to 1.5.0-RC1 to pull in sfio-rustls-config
-# 0.4.0 which uses rustls-webpki 0.103.12 (patches RUSTSEC-2026-0049/
-# 0098/0099). The rodbus 1.5 API MAY break the empty-Path workaround —
-# Batch 22 ARC-007: exact-pin to a single rodbus RC version.
-# Plan §5 Faz 1 Step 7 requires patch-level pinning to block
-# untracked minor upgrades. Caret-default `"1.5.0-RC1"` (used
-# pre-Batch-22) semantically meant `>=1.5.0-RC1, <2.0.0` so
-# Cargo could silently bump through 1.6.x / 1.7.x on every
-# cargo update. `"=1.5.0-RC1"` is the EXACT-pin operator — any
-# version change must be explicit + reviewed. Future bump path:
-# `~1.5.0` (patch-allowing) when rodbus 1.5.0 stable releases;
-# `~1.5` when 1.5.x stabilizes across patches.
-#
-# ARC-007 Tier 1 counterpart: TlsMode enum in config.rs encodes
-# the Full/ServerOnly/Disabled states at the Rust type level so
-# the modbus.rs consumer path cannot observe a half-configured
-# TLS combination (client cert without client key etc).
-rodbus = "=1.5.0-RC1"
-# Keep tokio-serial for RTU serial port support
+# The TlsMode enum in config.rs encodes the Full/ServerOnly/Disabled states
+# at the type level so modbus.rs cannot observe a half-configured TLS
+# combination (client cert without client key etc).
+tokio-modbus = { version = "~0.17", default-features = false, features = ["tcp", "rtu"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["tls12", "ring"] }
+# Serial port for Modbus RTU
 tokio-serial = "5.4"
 
 # GPIO support (for Raspberry Pi / Revolution Pi)
@@ -353,7 +340,7 @@ tss-esapi = { version = "7", optional = true }
 # 2026-03-05 (agent-v1.8.2).
 # WHAT: Explicit direct dep forces resolver to pick 0.40.x (current latest
 # stable) even though we don't use aws-lc-sys directly. Transitive deps
-# (rustls, aws-lc-rs, rumqttc, reqwest, rodbus) accept any compatible
+# (rustls, aws-lc-rs, rumqttc, reqwest) accept any compatible
 # 0.x via their own dependency specifiers so the upgrade is transparent.
 # INVARIANT: cargo audit on Cargo.lock must report 0 RUSTSEC-2026-* advisories
 #            for aws-lc-sys family.
@@ -545,6 +532,10 @@ proptest = "1.5"
 # wat — assembles WebAssembly text fixtures inline for the wasm-codec decoder
 # tests, so no pre-built binary blobs are committed for unit coverage.
 wat = "1"
+
+# In-process Modbus/TCP server for the src/modbus.rs transport tests (plain
+# TCP, server-only TLS, mTLS, reconnect). Dev-only: the agent is a client.
+tokio-modbus = { version = "~0.17", default-features = false, features = ["tcp-server"] }
 
 [profile.release]
 opt-level = "z"     # Optimize for size
@@ -936,6 +927,15 @@ path = "tests/invariants/opc_ua_subscription_freshness.rs"
 [[test]]
 name = "opc_ua_reload_drains_writes"
 path = "tests/invariants/opc_ua_reload_drains_writes.rs"
+
+# Supply-chain license gate. `[[licenses.clarify]]` in deny.toml overrides
+# the license cargo-deny detects; on a third-party crate it can make a
+# non-permissive dependency pass the allow list. Pins: clarify entries are
+# first-party only, and non-commercial-licensed crates stay banned and absent
+# from both lockfiles.
+[[test]]
+name = "deny_license_policy"
+path = "tests/invariants/deny_license_policy.rs"
 
 # =============================================================================
 # RUST-CVE-001: rumqttc 0.25.1 vendored fork (../crates/local-rumqttc)

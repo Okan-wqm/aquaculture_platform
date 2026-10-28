@@ -712,6 +712,28 @@ def _check_learning(tools_dir: Path) -> DoctorCheck:
     return DoctorCheck("learning", "ok", "" if detail["episodes"] else "no_episodes", detail)
 
 
+PROVENANCE_DETAIL_ORPHANS = 20
+
+
+def _check_provenance(tools_dir: Path) -> DoctorCheck:
+    """F0.9p — learned memory rows that name no source (``row_provenance.provenance_census``).
+
+    ``ok`` or ``warn``, never ``fail``: a legacy row on the live store cannot be rewritten (``memory_class`` forbids
+    history rewrite), so a ``fail`` could never clear. The reason names every kind with orphans and their count; the
+    detail carries ids and reason codes only, the first ``PROVENANCE_DETAIL_ORPHANS`` per kind, never a row's content.
+    A ledger the census cannot read raises its owner's error, which ``_guarded`` reports by name.
+    """
+    from .row_provenance import provenance_census
+
+    census = provenance_census(tools_dir)
+    detail = {kind: {"rows": entry["rows"], "orphans": entry["orphans"][:PROVENANCE_DETAIL_ORPHANS]}
+              for kind, entry in census.items()}
+    orphaned = [f"{kind}={len(entry['orphans'])}" for kind, entry in sorted(census.items()) if entry["orphans"]]
+    if orphaned:
+        return DoctorCheck("provenance", "warn", "orphan_memory:" + ",".join(orphaned), detail)
+    return DoctorCheck("provenance", "ok", "" if any(entry["rows"] for entry in census.values()) else "no_memory_rows", detail)
+
+
 def _check_learning_funnel(tools_dir: Path, workspace: Path) -> DoctorCheck:
     """ARIA-HIGH-004 — the learning funnel joined end to end at the
     workspace's HEAD (``funnel_health.derive_learning_funnel_health``): each
@@ -872,6 +894,7 @@ def run_doctor(
         _guarded("gateway_heartbeat_fresh", lambda: _check_gateway_heartbeat_fresh(tools_dir)),
         _guarded("economy", lambda: _check_economy(tools_dir)),
         _guarded("learning", lambda: _check_learning(tools_dir)),
+        _guarded("provenance", lambda: _check_provenance(tools_dir)),
         _guarded("learning_funnel", lambda: _check_learning_funnel(tools_dir, workspace)),
         _guarded("orchestrator", lambda: _check_orchestrator(tools_dir)),
         _guarded("tools", lambda: _check_tools(tools_dir)),

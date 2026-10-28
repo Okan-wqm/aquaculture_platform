@@ -4,7 +4,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, Mapping
 
 from .agent_eval import _require_operator_approval_future, _validate_real_eval_provenance
 from .genesis_policy import genesis_lifecycle_policy
@@ -70,26 +70,103 @@ def lifecycle_events_path(base_dir: str | Path | None = None) -> Path:
     return ensure_tools_dir(base_dir) / "genesis-lifecycle" / "events.jsonl"
 
 
-def _entity_rows(*, entity_id: str, base_dir: str | Path | None) -> Iterator[dict[str, Any]]:
-    """The entity's rows of the lifecycle ledger, oldest first: the one loop over the events file."""
-    for row in load_declared_jsonl(
-        lifecycle_events_path(base_dir), expected_surface="genesis_lifecycle_events"
-    ):
-        if row.get("entity_id") == entity_id:
-            yield row
+@dataclass(frozen=True)
+class InvalidLifecycleChain:
+    """An entity whose recorded rows are not a lawful lifecycle.
+
+    WHAT: the value ``current_lifecycle_state`` returns when replaying an
+    entity's own chain breaks a rule; ``reasons`` names each break. It is a
+    value, not a raise and not a state string: a reader that asks "is this
+    entity ACTIVE?" gets "no" without a crash, and a reader that needs the
+    cause finds it on the value.
+
+    WHY: the ledger is append-only but anyone who can append can write any
+    row. The state is therefore what the transition law yields when the rows
+    are replayed from nothing, never what the last row says it is.
+    """
+
+    entity_id: str
+    reasons: tuple[str, ...]
+
+    @property
+    def reason(self) -> str:
+        """The break as one named reason (``chain_invalid:<reasons>``), what a refusal carries."""
+        return "chain_invalid:" + ";".join(self.reasons)
+
+
+@dataclass(frozen=True)
+class ReplayedChain:
+    """One entity's replayed lifecycle: its state and the last row's evidence."""
+
+    state: GenesisState | None | InvalidLifecycleChain
+    latest_evidence: Mapping[str, Any]
+
+
+def _replay(entity_id: str, rows: list[dict[str, Any]], policy_root: Path) -> ReplayedChain:
+    """Replay ``rows`` (one entity's, in ledger order) through ``validate_transition`` from nothing.
+
+    The from-state of every step is the replayed one: a row's recorded
+    ``from_state`` is checked against it, never trusted. A row whose
+    ``to_state`` is not a known state, a recorded from-state that differs, an
+    illegal transition or an ACTIVE row without the kernel-computed proof each
+    make the chain invalid. A state later added to ``GENESIS_LIFECYCLE_STATES``
+    is read here without another rule.
+    """
+    state: GenesisState | None = None
+    reasons: list[str] = []
+    for row in rows:
+        to_state = row.get("to_state")
+        if to_state not in GENESIS_LIFECYCLE_STATES:
+            reasons.append(f"genesis_lifecycle_unknown_state:{to_state}")
+            continue
+        if row.get("from_state") != state:
+            reasons.append(f"genesis_from_state_mismatch:{row.get('from_state')!r}!={state!r}")
+        verdict = validate_transition(
+            from_state=state, to_state=to_state, evidence=row.get("evidence") or {}, repo_root=policy_root,
+        )
+        reasons.extend(verdict.reasons)
+        state = to_state
+    latest_evidence = (rows[-1].get("evidence") or {}) if rows else {}
+    return ReplayedChain(InvalidLifecycleChain(entity_id, tuple(reasons)) if reasons else state, latest_evidence)
+
+
+def _rows_by_entity(base_dir: str | Path | None) -> dict[str, list[dict[str, Any]]]:
+    rows_by_entity: dict[str, list[dict[str, Any]]] = {}
+    for row in load_declared_jsonl(lifecycle_events_path(base_dir), expected_surface="genesis_lifecycle_events"):
+        rows_by_entity.setdefault(str(row.get("entity_id") or ""), []).append(row)
+    return rows_by_entity
+
+
+def lifecycle_chains(base_dir: str | Path | None = None) -> dict[str, ReplayedChain]:
+    """Every entity in the ledger, replayed: one pass for a reader that needs them all."""
+    policy_root = bound_workspace_root(base_dir)
+    return {entity: _replay(entity, rows, policy_root) for entity, rows in _rows_by_entity(base_dir).items()}
 
 
 def current_lifecycle_state(
     *,
     entity_id: str,
     base_dir: str | Path | None = None,
-) -> GenesisState | None:
-    state: GenesisState | None = None
-    for row in _entity_rows(entity_id=entity_id, base_dir=base_dir):
-        next_state = row.get("to_state")
-        if next_state in GENESIS_LIFECYCLE_STATES:
-            state = next_state
-    return state
+) -> GenesisState | None | InvalidLifecycleChain:
+    """The entity's state as its own rows replay, ``None`` when it has none (see ``InvalidLifecycleChain``)."""
+    rows = _rows_by_entity(base_dir).get(entity_id, [])
+    return _replay(entity_id, rows, bound_workspace_root(base_dir)).state
+
+
+def production_block_reason(entity_id: str, *, base_dir: str | Path | None = None) -> str | None:
+    """Why ``entity_id`` may not take production traffic, or ``None`` when nothing blocks it.
+
+    ``"shadow"`` for a lawful SHADOW chain; ``"chain_invalid:<reasons>"`` when
+    the chain does not replay (fail-closed: a forged ACTIVE row over a SHADOW
+    chain must not unblock production). An entity with no chain (or no name)
+    is not a lifecycle entity and is not blocked.
+    """
+    if not entity_id:
+        return None
+    state = current_lifecycle_state(entity_id=entity_id, base_dir=base_dir)
+    if isinstance(state, InvalidLifecycleChain):
+        return state.reason
+    return "shadow" if state == "SHADOW" else None
 
 
 def eval_window_entered_at(
@@ -375,6 +452,8 @@ def record_transition(
     if to_state not in GENESIS_LIFECYCLE_STATES:
         raise GovernanceError(f"genesis_lifecycle_unknown_state:{to_state!r}")
     from_state = current_lifecycle_state(entity_id=entity_id, base_dir=base_dir)
+    if isinstance(from_state, InvalidLifecycleChain):
+        raise GovernanceError(f"genesis_lifecycle_chain_invalid:{entity_id}:" + ";".join(from_state.reasons))
     # ARIA-MEDIUM-468 — the production producer passes no repo_root. Operator policy
     # then comes from the workspace this tools store is bound to, the same
     # owner the cost and drain-capacity gates read.
@@ -482,8 +561,12 @@ __all__ = [
     "GENESIS_LIFECYCLE_STATES",
     "GenesisLifecycleVerdict",
     "GenesisState",
+    "InvalidLifecycleChain",
+    "ReplayedChain",
     "current_lifecycle_state",
+    "lifecycle_chains",
     "lifecycle_events_path",
+    "production_block_reason",
     "record_transition",
     "require_lifecycle_state",
     "validate_transition",

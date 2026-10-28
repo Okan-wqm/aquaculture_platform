@@ -13,7 +13,7 @@
 //!   - LoRaWAN, OPC-UA, S7, EtherNet/IP — Faz 1.x follow-on PRs.
 //!
 //! WHAT does NOT live here:
-//!   - I/O (transport is the caller's job — `rumqttc`, `rodbus`, etc.).
+//!   - I/O (transport is the caller's job — `rumqttc`, `tokio-modbus`, etc.).
 //!   - Tenant context (see `tenant-context` crate).
 //!   - Event publication (see `event-contracts-rs` + `nats-client`).
 //!   - Persistence (caller decides COPY/INSERT semantics).

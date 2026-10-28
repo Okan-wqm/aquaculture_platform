@@ -185,6 +185,8 @@ describe('AgentRunnerService held actuation (MOB-HIGH-001)', () => {
       userId,
       userRoles: ['operator'],
       resourcePermissions: [],
+      moduleAccess: {},
+      assignedSiteIds: [],
       schemaName: 'tenant_1111111111111111',
       correlationId: 'corr-1',
     };

@@ -104,6 +104,7 @@ def _judge_vote(
     verdict: str,
     group: str = "judge:tool-a:run-1:F-1",
     confidence: float = 0.9,
+    target_sha: str | None = None,
 ) -> None:
     record_operator_feedback(
         tool_id="tool-a",
@@ -117,6 +118,7 @@ def _judge_vote(
         confidence=confidence,
         evidence_refs=[f"aria-kernel/aria_kernel/judge_fanout.py:{len(judge_id)}"],
         judgment_group_id=group,
+        target_sha=target_sha,
         base_dir=tools,
     )
 
@@ -331,7 +333,7 @@ class ConsensusArbitrationMinterTest(_ToolsDirTest):
 
         splits = split_verdict_groups(tool_id="tool-a", base_dir=self.tools)
         result = dispatch_arbiter_for_split_verdicts(
-            tool_id="tool-a", base_dir=self.tools, cycle_id="cyc-1", target_sha="e" * 40,
+            tool_id="tool-a", base_dir=self.tools, cycle_id="cyc-1",
         )
 
         self.assertEqual(len(splits), 1)
@@ -588,8 +590,10 @@ class PhaseWiringTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             tools = Path(tmp) / "aria-tools"
             tools.mkdir(parents=True)
-            _judge_vote(tools, judge_id="aria-evidence-judge", verdict="true_positive")
-            _judge_vote(tools, judge_id="aria-adversarial-judge", verdict="false_positive")
+            # ARIA-HIGH-1084 — the pair judged tree "a"*40; HEAD (patched below) is
+            # "f"*40. The arbiter is minted at the tree the pair judged.
+            _judge_vote(tools, judge_id="aria-evidence-judge", verdict="true_positive", target_sha="a" * 40)
+            _judge_vote(tools, judge_id="aria-adversarial-judge", verdict="false_positive", target_sha="a" * 40)
             context = cycle_mod.build_phase_context(
                 cycle_id="cyc-arb", workspace_root=Path(tmp), base_dir=tools,
             )
@@ -607,7 +611,7 @@ class PhaseWiringTest(unittest.TestCase):
                 list_agent_invocation_requests(
                     base_dir=tools, role=CONSENSUS_ARBITRATION_ROLE,
                 )[0]["target_sha"],
-                "f" * 40,
+                "a" * 40,
             )
 
 

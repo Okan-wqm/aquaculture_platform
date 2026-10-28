@@ -5,10 +5,12 @@ WHY. A red post-merge CI (``own_pr_ci.load_post_merge_reds``) or a
 opened a revert, and nothing told a red the merge caused apart from a lane
 that was already red on ``main`` before it.
 
-TRIGGERS — both only for a merge ARIA ITSELF performed, i.e. one the merge
-authority recorded as ``decision == "merged"`` on
-``auto-merge-decisions.jsonl``. A PR a person merged (an ARIA branch included)
-is the person's; this producer does nothing about it.
+TRIGGERS — both for every ARIA merge, and only for one: a merge whose
+``merge_record`` merged row says the head was ARIA's delivered change
+(``merge_record.arias_merges``, F3.4), whoever merged it — the merge lane, or
+a person merging ARIA's PR as PR #1906 was. A merge whose head carries a
+person's commits is the person's; this producer does nothing about it. The
+head branch's name and the merge lane's decision are not a second rule.
 
 * ``post_merge_ci_red`` — the latest ``ci/merge-outcomes.jsonl`` row for the
   PR is ``red`` AND the red is ATTRIBUTABLE: it names at least one red job,
@@ -29,7 +31,7 @@ is the person's; this producer does nothing about it.
   ``regression`` for the change bound to the merged PR. The verdict is
   already an attribution (``change_outcome`` consumes the regression
   detector's event for the change's finding after its merge); the merge sha
-  is read from the post-merge ledger's row for that PR. So the freeze is
+  is the one the PR's ``merge_record`` merged row names. So the freeze is
   written FIRST, before the fetch that resolves the merge on ``main``: a
   remote that cannot be read never delays a freeze the evidence already
   earned.
@@ -163,7 +165,7 @@ from typing import Any, Callable, Mapping, Sequence
 from .change_paths import name_status_args, parse_name_status_z
 from .git_containment import KERNEL_GIT_NO_HOOKS_ARGS, without_ambient_git_config
 from .ledger import append_declared_jsonl, load_declared_jsonl
-from .merge_record import lifecycle_rows, pr_change_binding
+from .merge_record import arias_merges, lifecycle_rows, pr_change_binding
 from .pr_manager import ARIA_PR_BASE, REVERT_BRANCH_PREFIX
 from .self_merge_freeze import (
     FreezeNoticeWriter,
@@ -626,55 +628,6 @@ def prove_revert_purity(*, workspace: Path, merge_sha: str, revert_sha: str) -> 
 # ---------------------------------------------------------------- triggers
 
 
-# ARIA-HIGH-222 — decisions that name an ARIA merge ATTEMPT at an exact
-# head. A ``merge_intent`` row is published before the merge call, so it
-# survives a lane whose final ``merged`` row was lost with its runner; it
-# counts as ARIA's merge once the post-merge reconciler (``own_pr_ci``) has
-# recorded that PR merged AT THAT HEAD.
-#
-# ARIA-HIGH-221 — ``enqueued`` is the same kind of row: main merges through
-# a merge queue, so the merge call usually enqueues and the queue merges the
-# PR later. An enqueued PR the queue then merged at that head is ARIA's
-# merge, whether or not the merge lane has settled it into ``merged`` yet.
-_ATTEMPT_DECISIONS: frozenset[str] = frozenset({"merge_intent", "enqueued"})
-
-
-def _aria_merged_prs(base_dir: str | Path | None) -> set[int]:
-    path = ensure_tools_dir(base_dir) / "auto-merge-decisions.jsonl"
-    if not path.exists():
-        return set()
-    merged: set[int] = set()
-    attempts: set[tuple[int, str]] = set()
-    for row in load_declared_jsonl(path, expected_surface="auto_merge_decisions"):
-        if not isinstance(row.get("pr_number"), int):
-            continue
-        if row.get("decision") == "merged":
-            merged.add(int(row["pr_number"]))
-        elif row.get("decision") in _ATTEMPT_DECISIONS and isinstance(row.get("head_sha"), str):
-            attempts.add((int(row["pr_number"]), str(row["head_sha"])))
-    if attempts:
-        merged_at_head = {
-            (number, str(outcome.get("head_sha") or ""))
-            for number, outcome in _merge_outcome_heads(base_dir)
-        }
-        merged.update(number for number, head_sha in attempts if (number, head_sha) in merged_at_head)
-    return merged
-
-
-def _merge_outcome_heads(base_dir: str | Path | None) -> list[tuple[int, dict[str, Any]]]:
-    """Every merge-outcome row that names the head its PR merged at."""
-    from .own_pr_ci import merge_outcomes_path
-
-    path = merge_outcomes_path(base_dir)
-    if not path.exists():
-        return []
-    return [
-        (int(row["pr_number"]), row)
-        for row in load_declared_jsonl(path, expected_surface="merge_outcomes")
-        if isinstance(row.get("pr_number"), int) and row.get("head_sha")
-    ]
-
-
 def _latest_merge_outcomes(base_dir: str | Path | None) -> dict[int, dict[str, Any]]:
     from .own_pr_ci import merge_outcomes_path
 
@@ -705,7 +658,7 @@ def _post_merge_candidates(base_dir: str | Path | None) -> list[_Candidate]:
 
 
 def _regression_candidates(
-    base_dir: str | Path | None, skipped: list[dict[str, Any]],
+    base_dir: str | Path | None, skipped: list[dict[str, Any]], merges: Mapping[int, Mapping[str, Any]],
 ) -> list[_Candidate]:
     from .change_outcome import list_change_outcomes
 
@@ -718,15 +671,21 @@ def _regression_candidates(
         if not isinstance(pr_number, int):
             skipped.append({"change_id": row.get("change_id"), "reason": "regression_without_merged_pr"})
             continue
-        merge_row = outcomes.get(pr_number)
-        if merge_row is None or not merge_row.get("merge_sha"):
+        merged = merges.get(pr_number)
+        if merged is None:
+            skipped.append({"pr_number": pr_number, "reason": "not_an_aria_merge"})
+            continue
+        if not merged.get("merge_sha"):
             skipped.append({"pr_number": pr_number, "reason": "merge_sha_unresolved"})
             continue
+        # The merged row names no branch: the head branch is what the
+        # post-merge scan observed on GitHub, once it has scanned this merge.
+        observed = outcomes.get(pr_number) or {}
         candidates.append(_Candidate(
             trigger=TRIGGER_CHANGE_OUTCOME,
             pr_number=pr_number,
-            merge_sha=str(merge_row["merge_sha"]),
-            head_ref=str(merge_row.get("head_ref") or ""),
+            merge_sha=str(merged["merge_sha"]),
+            head_ref=str(observed.get("head_ref") or ""),
             evidence={"change_id": row.get("change_id"), "change_outcome_hash": row.get("ledger_hash")},
         ))
     return candidates
@@ -957,11 +916,11 @@ def run_self_revert_producer(
     skipped: list[dict[str, Any]] = []
     decisions: list[dict[str, Any]] = []
     candidates: list[_Candidate] = []
+    aria_merged = arias_merges(base_dir)
     if TRIGGER_POST_MERGE_CI in triggers:
         candidates.extend(_post_merge_candidates(base_dir))
     if TRIGGER_CHANGE_OUTCOME in triggers:
-        candidates.extend(_regression_candidates(base_dir, skipped))
-    aria_merged = _aria_merged_prs(base_dir)
+        candidates.extend(_regression_candidates(base_dir, skipped, aria_merged))
     for candidate in candidates:
         if candidate.pr_number not in aria_merged:
             skipped.append({"pr_number": candidate.pr_number, "reason": "not_an_aria_merge"})
@@ -1538,7 +1497,7 @@ def _pr_body(candidate: _Candidate, *, branch: str, base_sha: str, purity: dict[
 
 
 def _record_landed_reverts(
-    *, cycle_id: str, base_dir: str | Path | None, aria_merged: set[int],
+    *, cycle_id: str, base_dir: str | Path | None, aria_merged: Mapping[int, Mapping[str, Any]],
 ) -> list[dict[str, Any]]:
     """A revert ARIA merged whose own post-merge outcome is green landed:
     one ``revert_landed`` row and one ``rollback_success`` event."""

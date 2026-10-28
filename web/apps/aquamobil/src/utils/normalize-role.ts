@@ -14,21 +14,15 @@
 // FAILS CLOSED on anything unrecognized by returning the least-privileged
 // MODULE_USER so an unknown role can never inherit elevated access.
 
+import { isPlatformRole } from '@aquaculture/shared-contracts';
+
 import type { Role } from '../generated/graphql';
 
-const CANONICAL_ROLES: readonly Role[] = [
-  'SUPER_ADMIN',
-  'TENANT_ADMIN',
-  'MODULE_MANAGER',
-  'MODULE_USER',
-];
-
 // WHY a type-predicate (not an `as Role` cast): the project bans `as` casting.
-// `.includes` over the canonical list narrows the raw string to `Role` through
-// the compiler, so the guarded branch returns a real `Role` with no cast.
-function isCanonicalRole(raw: string): raw is Role {
-  return (CANONICAL_ROLES as readonly string[]).includes(raw);
-}
+// `isPlatformRole` narrows the raw string to a platform role through the
+// compiler, against the roles' one owner in shared-contracts (RBAC-MEDIUM-024),
+// and the generated `Role` is the same union, so the guarded branch returns a
+// real `Role` with no cast and no local copy of the role list.
 
 // Legacy -> canonical boundary mapping. Only consulted when the raw value is not
 // already canonical; it exists solely to absorb tokens minted before the role
@@ -45,7 +39,7 @@ const LEGACY_ROLE_MAP: Readonly<Record<string, Role>> = {
  * the least-privileged MODULE_USER.
  */
 export function normalizeRole(raw: string | null | undefined): Role {
-  if (raw && isCanonicalRole(raw)) {
+  if (isPlatformRole(raw)) {
     return raw;
   }
   if (raw && raw in LEGACY_ROLE_MAP) {

@@ -14,8 +14,8 @@ Keys starting with ``_`` are prose for the operator: never configuration,
 carried through unread so the parsed block is the registered block.
 
 WHAT: a schema is a dict whose values are either a nested schema (a dict) or a
-check ``(where, raw) -> value`` built by ``real``, ``whole``, ``one_of`` or
-``names``. ``parse_block`` applies it; ``refuse`` is the one refusal shape,
+check ``(where, raw) -> value`` built by ``real``, ``whole``, ``one_of``,
+``names`` or ``labels``. ``parse_block`` applies it; ``refuse`` is the one refusal shape,
 ``GovernanceError("genesis_policy_preregistered_<code>: <path> <detail>")``.
 """
 from __future__ import annotations
@@ -27,6 +27,7 @@ from typing import Any, Callable, NoReturn
 Check = Callable[[str, Any], Any]
 
 _SNAKE_CASE = re.compile(r"[a-z][a-z0-9_]*")
+_LABEL = re.compile(r"\S+")
 
 
 def refuse(code: str, where: str, detail: str) -> NoReturn:
@@ -89,6 +90,29 @@ def names(allowed: frozenset[str] | None = None, *, min_len: int = 1) -> Check:
                 refuse("value_not_a_name_list", where, f"entry {name!r} is not a snake_case name")
             if allowed is not None and name not in allowed:
                 refuse("value_not_in_vocabulary", where, f"entry {name!r} must be one of {sorted(allowed)}")
+        if len(set(raw)) != len(raw):
+            refuse("value_repeats_a_name", where, f"= {raw!r}")
+        return list(raw)
+
+    return check
+
+
+def labels(*, max_len: int) -> Check:
+    """A list, possibly empty, of distinct labels: non-empty strings without whitespace, at most ``max_len`` long.
+
+    ``names`` demands snake_case; an identifier an operator copies from a ledger
+    (``exp-auto-f-009``) carries ``-`` and ``.``, so it is a label, not a name.
+    """
+
+    def check(where: str, raw: Any) -> list[str]:
+        if not isinstance(raw, list):
+            refuse("value_not_a_label_list", where, f"= {raw!r} must be a list of labels")
+        for label in raw:
+            if not isinstance(label, str) or not _LABEL.fullmatch(label) or len(label) > max_len:
+                refuse(
+                    "value_not_a_label_list", where,
+                    f"entry {label!r} is not a label (a non-empty string without whitespace, at most {max_len} characters)",
+                )
         if len(set(raw)) != len(raw):
             refuse("value_repeats_a_name", where, f"= {raw!r}")
         return list(raw)

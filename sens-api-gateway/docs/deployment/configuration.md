@@ -136,7 +136,7 @@ modbus:
     poll_interval_ms: 500
 ```
 
-Evidence: `rodbus = "=1.4.0"` pin (`Cargo.toml:65-72`) — do not bump without re-testing server-only TLS. The systemd unit grants `/dev/ttyUSB0` + `/dev/ttyAMA0` via `DeviceAllow=` (`suderra-agent.service:161-162`).
+Evidence: `tokio-modbus = "~0.17"` + `tokio-rustls` + `tokio-serial` (`Cargo.toml:78-91`) — `tokio-modbus` is pinned to the 0.17 minor; bump it explicitly and re-run the `src/modbus.rs` transport tests (plain TCP, server-only TLS, mTLS, reconnect). The systemd unit grants `/dev/ttyUSB0` + `/dev/ttyAMA0` via `DeviceAllow=` (`suderra-agent.service:161-162`).
 
 ---
 

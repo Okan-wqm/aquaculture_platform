@@ -15,7 +15,7 @@
  */
 import type { Repository } from 'typeorm';
 
-import { HrModuleCode } from '../../common/enums';
+import { OWNER_MODULE, type OwnerModuleCode } from '@aquaculture/shared-contracts';
 import type { Employee } from '../../hr/entities/employee.entity';
 import type { LeaveRequest } from '../entities/leave-request.entity';
 import { GetLeaveRequestsQuery } from '../queries/get-leave-requests.query';
@@ -65,7 +65,7 @@ function repositoryOf<Entity extends object>(queryBuilder: QueryBuilderDouble): 
 function expectScopedTo(
   queryBuilder: QueryBuilderDouble,
   employeeAlias: string,
-  moduleCode: HrModuleCode,
+  moduleCode: OwnerModuleCode,
 ): void {
   expect(queryBuilder['innerJoin']).toHaveBeenCalledTimes(1);
   expect(queryBuilder['innerJoin']).toHaveBeenCalledWith(
@@ -95,12 +95,12 @@ describe('leave queries — module scope', () => {
           undefined,
           20,
           1,
-          HrModuleCode.FARM,
+          OWNER_MODULE.FARM,
         ),
       );
 
       expect(queryBuilder['where']).toHaveBeenCalledWith('lr.tenantId = :tenantId', { tenantId });
-      expectScopedTo(queryBuilder, 'employee', HrModuleCode.FARM);
+      expectScopedTo(queryBuilder, 'employee', OWNER_MODULE.FARM);
     });
 
     it('is untouched without a module (the Company view)', async () => {
@@ -138,22 +138,22 @@ describe('leave queries — module scope', () => {
           undefined,
           20,
           1,
-          HrModuleCode.HYDROPONICS,
+          OWNER_MODULE.HYDROPONICS,
         ),
       );
 
       expect(queryBuilder['where']).toHaveBeenCalledWith('lr.tenantId = :tenantId', { tenantId });
-      expectScopedTo(queryBuilder, 'employee', HrModuleCode.HYDROPONICS);
+      expectScopedTo(queryBuilder, 'employee', OWNER_MODULE.HYDROPONICS);
     });
 
     it("lets the module replace the approver's own-department narrowing", async () => {
       const queryBuilder = await run(
-        new GetPendingApprovalsQuery(tenantId, approverId, undefined, 20, 1, HrModuleCode.FARM),
+        new GetPendingApprovalsQuery(tenantId, approverId, undefined, 20, 1, OWNER_MODULE.FARM),
       );
 
       expect(queryBuilder['andWhere']).not.toHaveBeenCalledWith(...ownDepartmentNarrowing);
       expect(approverLookup).not.toHaveBeenCalled();
-      expectScopedTo(queryBuilder, 'employee', HrModuleCode.FARM);
+      expectScopedTo(queryBuilder, 'employee', OWNER_MODULE.FARM);
     });
 
     it('keeps an explicit department beside the module', async () => {
@@ -164,7 +164,7 @@ describe('leave queries — module scope', () => {
           'dept-explicit',
           20,
           1,
-          HrModuleCode.FARM,
+          OWNER_MODULE.FARM,
         ),
       );
 
@@ -174,7 +174,7 @@ describe('leave queries — module scope', () => {
           departmentId: 'dept-explicit',
         },
       );
-      expectScopedTo(queryBuilder, 'employee', HrModuleCode.FARM);
+      expectScopedTo(queryBuilder, 'employee', OWNER_MODULE.FARM);
     });
 
     it('narrows a manager to their own department in the Company view (no module, no department)', async () => {
@@ -204,10 +204,10 @@ describe('leave queries — module scope', () => {
 
     it('scopes an admin without an employee record to the module too', async () => {
       const queryBuilder = await run(
-        new GetPendingApprovalsQuery(tenantId, null, undefined, 20, 1, HrModuleCode.SENSOR),
+        new GetPendingApprovalsQuery(tenantId, null, undefined, 20, 1, OWNER_MODULE.SENSOR),
       );
 
-      expectScopedTo(queryBuilder, 'employee', HrModuleCode.SENSOR);
+      expectScopedTo(queryBuilder, 'employee', OWNER_MODULE.SENSOR);
     });
 
     it('is untouched without a module (the Company view)', async () => {
@@ -233,12 +233,12 @@ describe('leave queries — module scope', () => {
           undefined,
           '2026-10-22',
           '2026-10-22',
-          HrModuleCode.FARM,
+          OWNER_MODULE.FARM,
         ),
       );
 
       expect(queryBuilder['where']).toHaveBeenCalledWith('lr.tenantId = :tenantId', { tenantId });
-      expectScopedTo(queryBuilder, 'employee', HrModuleCode.FARM);
+      expectScopedTo(queryBuilder, 'employee', OWNER_MODULE.FARM);
     });
 
     it('is untouched without a module (the Company view)', async () => {

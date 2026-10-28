@@ -1,9 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
 
 import { useAuth } from './useAuth';
+import { useOfflineCacheScope } from './useOfflineCacheScope';
 
 import { GET_WAREHOUSE_SUMMARY } from '@/graphql/operations';
-import { cacheData, getCachedData } from '@/pwa/offline-queue';
+import { readThroughOfflineCache } from '@/pwa/offline-cache';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import type { WarehouseSummary } from '@/types';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
@@ -51,8 +52,7 @@ export function useWarehouseSummary(): {
   refetch: () => void;
 } {
   const { tenantId, isAuthenticated } = useAuth();
-
-  const cacheKey = `warehouseSummary-${tenantId}`;
+  const cacheScope = useOfflineCacheScope();
 
   const { data, isLoading, isError, refetch } = useQuery<WarehouseSummary>({
     // Tenant izolasyonu anahtar fabrikasının ['tenant', tenantId, ...] ön
@@ -60,28 +60,19 @@ export function useWarehouseSummary(): {
     // (FARM-LOW-236 anahtar hijyeni).
     queryKey: createTenantQueryKey(tenantId, 'warehouseSummary'),
     queryFn: async () => {
-      // WHY guard-throw: `enabled` gates execution on tenantId but does not
-      // narrow its type to string. An explicit throw narrows it for the
-      // tenant-isolated cache calls below without a non-null assertion.
-      if (!tenantId) throw new Error('useWarehouseSummary: tenantId is required');
-      try {
-        const result = await graphqlRequest(GET_WAREHOUSE_SUMMARY);
-        const summary = result.warehouseSummary;
-
-        // WHY fire-and-forget cache write: IndexedDB serves as offline fallback
-        // only. React Query's gcTime handles the in-memory caching layer.
-        // SECURITY (FE-CRITICAL-002): tenantId required for tenant-isolated caching
-        await cacheData(tenantId, cacheKey, summary, CACHE_TTL_1H);
-        return summary;
-      } catch (error) {
-        // WHY IndexedDB fallback first: warehouse staff on fish farms often
-        // have spotty connectivity. Showing stale stock levels is better than
-        // showing nothing.
-        const cached = await getCachedData<WarehouseSummary>(tenantId, cacheKey);
-        if (cached) return cached;
-
-        throw error;
-      }
+      // WHY the offline copy: warehouse staff on fish farms often have spotty
+      // connectivity, and stale stock levels beat nothing — but only while the
+      // server is unreachable; a refusal surfaces and purges it (MOB-MEDIUM-031).
+      // React Query's gcTime handles the in-memory layer.
+      const read = await readThroughOfflineCache(
+        cacheScope,
+        { key: 'warehouseSummary', ttlMs: CACHE_TTL_1H },
+        async (): Promise<WarehouseSummary> => {
+          const result = await graphqlRequest(GET_WAREHOUSE_SUMMARY);
+          return result.warehouseSummary;
+        },
+      );
+      return read.data;
     },
     enabled: isAuthenticated && !!tenantId,
     // WHY 5min staleTime: warehouse movements happen a few times per day.

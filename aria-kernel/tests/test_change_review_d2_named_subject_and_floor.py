@@ -79,9 +79,10 @@ class NamedSubjectIsTheOnlySubjectTests(unittest.TestCase):
         self._record(tools)
         with facts_without_contract_edges():
             dispatch = dispatch_change_intelligence(cycle_id="d2-r2-control", base_dir=tools, workspace=self.paths)
+        # SE-5 — the change touches one service (libs/zz-core) and a code root: its service seat and the lens.
         self.assertEqual(
             [m["subject_ref"] for m in dispatch["minted"]],
-            [f"merged-pr:{MERGED_PR_NUMBER}:{self.feature_head}"],
+            [f"merged-pr:{MERGED_PR_NUMBER}:{self.feature_head}"] * 2,
         )
 
     def test_a_named_subject_is_minted_and_the_merge_feed_mints_nothing_for_that_dispatch(self) -> None:
@@ -93,10 +94,11 @@ class NamedSubjectIsTheOnlySubjectTests(unittest.TestCase):
             dispatch = dispatch_change_intelligence(
                 cycle_id="d2-r2-named", base_dir=tools, subject=subject, workspace=self.paths,
             )
-        self.assertEqual([m["subject_ref"] for m in dispatch["minted"]], [subject.ref])
+        # SE-5 — the named change's two seats (the service seat of libs/zz-core and the lens), both about the subject.
+        self.assertEqual([m["subject_ref"] for m in dispatch["minted"]], [subject.ref] * 2)
         self.assertEqual(dispatch["skipped"], [], "the merged row beside the subject was considered, not ignored")
         refs = [row.get("subject_ref") for row in self._requests(tools)]
-        self.assertEqual(refs, [subject.ref], "the ledger holds a request that is not the named subject's")
+        self.assertEqual(refs, [subject.ref] * 2, "the ledger holds a request that is not the named subject's")
         self.assertFalse(any(str(ref).startswith("merged-pr:") for ref in refs), "the merge feed minted a request")
 
 

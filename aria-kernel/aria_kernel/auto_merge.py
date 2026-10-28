@@ -134,6 +134,11 @@ class GitHubAdapter(Protocol):
         head) or ``enqueued`` (it is in the merge queue, or armed to enter
         it, at that head). Neither true is an unconfirmed result, which the
         merge authority records as a failure, never as a merge.
+
+        F3.4 — the result names ``merge_commit_sha``: the merge commit GitHub
+        made when ``merged`` is true, else ``None``. The merge authority
+        records it on merge_record's merged row, and self-revert reverts the
+        commit that row names. :func:`merge_outcome` builds this shape.
         """
         ...
 
@@ -984,16 +989,20 @@ def merge_outcome(
     ``enqueued``: it is open at that head and in the merge queue, or armed
     to enter it. Anything else — no observation, another head, a closed PR —
     is neither, and the merge authority records it as unconfirmed.
+    ``merge_commit_sha`` is the merge commit GitHub reports for a ``merged``
+    result, and ``None`` for any other (F3.4).
     """
     if merge_state is None:
         return {
-            "merged": False, "enqueued": False, "method": method,
+            "merged": False, "enqueued": False, "merge_commit_sha": None, "method": method,
             "expected_head_sha": expected_head_sha, "observed": None,
         }
     at_head = merge_state.get("head_sha") == expected_head_sha
     pr_state = str(merge_state.get("state") or "")
+    merged = at_head and pr_state == "MERGED"
     return {
-        "merged": at_head and pr_state == "MERGED",
+        "merged": merged,
+        "merge_commit_sha": merge_state.get("merge_commit_sha") if merged else None,
         "enqueued": at_head and pr_state == "OPEN" and (
             merge_state.get("in_merge_queue") is True or merge_state.get("auto_merge_enabled") is True
         ),
@@ -1086,7 +1095,8 @@ class SnapshotGitHubAdapter:
     def merge_pr(self, number: int, *, method: str, expected_head_sha: str) -> dict[str, Any]:
         call = {"number": number, "method": method, "expected_head_sha": expected_head_sha}
         self.merge_calls.append(call)
-        return {"merged": True, **call}
+        # F3.4 — a merged result names its merge commit: the snapshot PR's.
+        return {"merged": True, "merge_commit_sha": self.payload.get("pr", {}).get("merge_commit_sha"), **call}
 
     def get_merge_state(self, number: int) -> dict[str, Any] | None:
         """The seeded ``github.merge_state``, or the PR's own state."""

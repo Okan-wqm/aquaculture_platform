@@ -450,12 +450,14 @@ TEST_COLLECTION_MEMBERS: tuple[str, ...] = (
 # impact a change-intelligence envelope carries and places their tags itself
 # (`text_safety.untrusted_block`), so a change to it changes what an agent
 # reads as data. `judge_fanout` joined with J3: it places an `untrusted_seat`
-# block per seat in the arbiter's weighing brief. A module that places a tag
+# block per seat in the arbiter's weighing brief. `pressure_evidence` joined
+# with F4.0b: it is the one producer of the planner's untrusted-context block
+# (`untrusted_context_fields`). A module that places a tag
 # is named here, not left to a guard's import closure;
 # `tests/test_derived_authority_set.py` finds every caller of
 # `untrusted_block` and fails when one is missing.
 TRUST_BOUNDARY_RENDERERS: tuple[str, ...] = tuple(f"{_KERNEL}{name}.py" for name in (
-    "agent_invocations", "untrusted_tree", "text_safety", "pr_tracking", "judge_fanout",
+    "agent_invocations", "untrusted_tree", "text_safety", "pr_tracking", "judge_fanout", "pressure_evidence",
 ))
 # Routing inputs (service-expertise SE-2, SK-01): the orchestrator routing
 # table is the ONE path -> agent map, and it picks the merge-time experts of

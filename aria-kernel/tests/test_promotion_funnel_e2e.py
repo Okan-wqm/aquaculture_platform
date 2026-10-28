@@ -219,7 +219,7 @@ class _Funnel:
 
     def judge_anchor(self, *, strip_fingerprint: bool = False) -> None:
         """The arbiter the anchor arm mints answers; the consensus re-settles at 3."""
-        dispatch_arbiter_for_anchor_groups(tool_id=TOOL_ID, base_dir=self.tools, target_sha=self.head)
+        dispatch_arbiter_for_anchor_groups(tool_id=TOOL_ID, base_dir=self.tools)
         for request in self.requests(role="consensus_arbitration"):
             self.answer(_without_fingerprint(request) if strip_fingerprint else request)
         generate_ai_consensus(tool_id=TOOL_ID, base_dir=self.tools)

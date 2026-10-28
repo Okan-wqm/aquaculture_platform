@@ -53,14 +53,17 @@ vi.mock('@tanstack/react-query', () => ({
   },
 }));
 
-vi.mock('@/pwa/offline-queue', () => ({
-  // useChannelDetail still uses the tenant-scoped helpers; useChannels now uses
-  // the user-scoped ones (MT-CRITICAL-051) — provide both so neither hook's
-  // queryFn hits an undefined import.
-  cacheData: vi.fn().mockResolvedValue(undefined),
-  getCachedData: vi.fn().mockResolvedValue(null),
-  cacheUserData: vi.fn().mockResolvedValue(undefined),
-  getCachedUserData: vi.fn().mockResolvedValue(null),
+// The offline read cache passes the network answer through: this spec is about
+// the wire casing, the cache policy is offline-cache.spec.ts's (MOB-MEDIUM-031).
+vi.mock('@/pwa/offline-cache', () => ({
+  readThroughOfflineCache: async (
+    _scope: unknown,
+    _read: unknown,
+    load: () => Promise<unknown>,
+  ) => ({
+    data: await load(),
+    servedFromCache: false,
+  }),
 }));
 
 vi.mock('@/services/authenticated-fetch', () => ({

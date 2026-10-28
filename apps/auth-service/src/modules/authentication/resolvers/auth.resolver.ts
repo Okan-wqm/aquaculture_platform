@@ -26,6 +26,7 @@ import {
   buildRefreshTokenCookieOptions,
   buildClearRefreshTokenCookieOptions,
 } from '../utils/refresh-token-cookie';
+import { REFRESH_RATE_LIMIT } from '../utils/refresh-rate-limit';
 
 /**
  * GraphQL context with req/res for cookie operations
@@ -137,7 +138,7 @@ export class AuthResolver {
     }
   }
 
-  @RateLimit({ name: 'refresh', limit: 10, windowMs: 5 * 60_000 })
+  @RateLimit(REFRESH_RATE_LIMIT)
   @Public()
   @Mutation(() => AuthPayload)
   async refreshToken(

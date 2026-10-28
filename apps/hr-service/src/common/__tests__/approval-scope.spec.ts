@@ -7,7 +7,7 @@
 import type { Repository, SelectQueryBuilder } from 'typeorm';
 
 import { Employee } from '../../hr/entities/employee.entity';
-import { HrModuleCode } from '../enums';
+import { OWNER_MODULE } from '@aquaculture/shared-contracts';
 import { applyApprovalDepartment, resolveApprovalDepartment } from '../approval-scope';
 
 const tenantId = 'tenant-1';
@@ -54,7 +54,7 @@ describe('resolveApprovalDepartment', () => {
     expect(findOne).not.toHaveBeenCalled();
   });
 
-  it.each([HrModuleCode.FARM, HrModuleCode.HYDROPONICS, HrModuleCode.SENSOR])(
+  it.each([OWNER_MODULE.FARM, OWNER_MODULE.HYDROPONICS, OWNER_MODULE.SENSOR])(
     'lets the module %s replace the own-department narrowing: the module IS the scope',
     async (moduleCode) => {
       const { repository, findOne } = employeeRepository(null);

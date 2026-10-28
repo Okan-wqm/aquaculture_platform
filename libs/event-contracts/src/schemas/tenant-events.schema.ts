@@ -17,6 +17,8 @@
  * @see libs/event-contracts/src/schemas/messaging-events.schema.ts
  * @see libs/event-contracts/src/schemas/validator.ts
  */
+import { PLATFORM_MODULE_CODES } from '@aquaculture/shared-contracts';
+
 import {
   BASE_EVENT_PROPERTIES,
   BASE_EVENT_REQUIRED,
@@ -80,9 +82,11 @@ const UUID_ARRAY = {
   maxItems: 1000,
 } as const;
 
-const SHORT_CODE_ARRAY = {
+// RBAC-MEDIUM-023: a module code crosses the boundary only as a code of the module dictionary
+// (shared-contracts PLATFORM_MODULE), the vocabulary the auth `modules` catalogue is seeded from.
+const MODULE_CODE_ARRAY = {
   type: 'array',
-  items: STRING,
+  items: { type: 'string', enum: [...PLATFORM_MODULE_CODES] },
   maxItems: 1000,
 } as const;
 
@@ -300,7 +304,7 @@ export const TENANT_EVENT_SCHEMAS = {
     'TenantModulesAssigned',
     {
       moduleIds: UUID_ARRAY,
-      moduleCodes: SHORT_CODE_ARRAY,
+      moduleCodes: MODULE_CODE_ARRAY,
       pricingMonthlyTotal: NON_NEGATIVE_INT,
       pricingAnnualTotal: NON_NEGATIVE_INT,
       pricingTier: STRING,

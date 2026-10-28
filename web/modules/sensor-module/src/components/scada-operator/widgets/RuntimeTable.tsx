@@ -232,7 +232,7 @@ const DataModeTable = memo<DataModeProps>(({ columns, tagValues, pageSize }) => 
                   <td className="px-2 py-1.5 font-medium text-gray-800 dark:text-gray-200 truncate max-w-[100px]">
                     {String(row.cells['label'] ?? '--')}
                   </td>
-                  <td className="px-2 py-1.5 font-mono text-gray-900 dark:text-gray-100">
+                  <td className="px-2 py-1.5 tabular-nums text-gray-900 dark:text-gray-100">
                     {formatCellValue(row.cells['value'], 'number', 2)}
                   </td>
                   <td className="px-2 py-1.5">
@@ -402,7 +402,7 @@ const HistoryModeTable = memo<HistoryModeProps>(({ tagIds, pageSize }) => {
                   <td className="px-2 py-1.5 text-gray-500 dark:text-gray-400 whitespace-nowrap">
                     {new Date(Number(row.cells['timestamp'])).toLocaleString()}
                   </td>
-                  <td className="px-2 py-1.5 font-mono text-gray-900 dark:text-gray-100">
+                  <td className="px-2 py-1.5 tabular-nums text-gray-900 dark:text-gray-100">
                     {formatCellValue(row.cells['value'], 'number', 3)}
                   </td>
                 </tr>
@@ -566,7 +566,7 @@ const AlarmsModeTable = memo<{ pageSize: number }>(({ pageSize }) => {
                   <td className="px-2 py-1.5 text-gray-600 dark:text-gray-400 truncate max-w-[160px]">
                     {String(row.cells['message'] ?? '--')}
                   </td>
-                  <td className="px-2 py-1.5 font-mono text-gray-900 dark:text-gray-100">
+                  <td className="px-2 py-1.5 tabular-nums text-gray-900 dark:text-gray-100">
                     {formatCellValue(row.cells['value'], 'number', 2)}
                   </td>
                   <td className="px-2 py-1.5">

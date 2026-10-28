@@ -1,4 +1,4 @@
-import { ObjectType, Field, ID, registerEnumType } from '@nestjs/graphql';
+import { ObjectType, Field, ID } from '@nestjs/graphql';
 import {
   Entity,
   Column,
@@ -7,25 +7,7 @@ import {
   UpdateDateColumn,
   Index,
 } from 'typeorm';
-import { colors } from '@aquaculture/shared-contracts';
-
-/**
- * Available module codes in the system.
- * Must stay in sync with MODULE_SCHEMAS in schema-manager.service.ts.
- */
-export enum ModuleCode {
-  FARM = 'farm',
-  HR = 'hr',
-  SENSOR = 'sensor',
-  HYDROPONICS = 'hydroponics',
-  ALERT = 'alert',
-  AI = 'ai',
-}
-
-registerEnumType(ModuleCode, {
-  name: 'ModuleCode',
-  description: 'Available module codes',
-});
+import { colors, PLATFORM_MODULE } from '@aquaculture/shared-contracts';
 
 /**
  * Module Entity
@@ -42,7 +24,7 @@ export class Module {
   id!: string;
 
   /**
-   * Unique module code (farm, hr, seapod, etc.)
+   * Unique module code: a code of the module dictionary (`PLATFORM_MODULE`, shared-contracts).
    */
   @Field()
   @Column({ type: 'varchar', unique: true, length: 50 })
@@ -132,13 +114,13 @@ export class Module {
   // ============================================
 
   /**
-   * Create default modules for seeding
-   * Updated: 3 core modules (Farm, HR, Sensor)
+   * The catalogue seed: one row per code of the module dictionary, in its order
+   * (`PLATFORM_MODULE`; `tests/invariants/module-dictionary-ssot.spec.ts` holds the two equal).
    */
   static createDefaults(): Partial<Module>[] {
     return [
       {
-        code: ModuleCode.FARM,
+        code: PLATFORM_MODULE.FARM,
         name: 'Fish Farm Management',
         description:
           'Comprehensive fish farm management: pond management, stock tracking, feeding programs, growth analysis, water quality monitoring, harvest planning, inventory and detailed analytics',
@@ -168,7 +150,7 @@ export class Module {
         ],
       },
       {
-        code: ModuleCode.HR,
+        code: PLATFORM_MODULE.HR,
         name: 'Human Resources',
         description:
           'Human resources management: personnel tracking, department management, attendance control, leave management, payroll, performance evaluation, training tracking and HR analytics',
@@ -191,7 +173,7 @@ export class Module {
         ],
       },
       {
-        code: ModuleCode.SENSOR,
+        code: PLATFORM_MODULE.SENSOR,
         name: 'Sensor Monitoring',
         description:
           'IoT sensor management, real-time data monitoring, alerts and analytics',
@@ -211,7 +193,7 @@ export class Module {
         ],
       },
       {
-        code: ModuleCode.HYDROPONICS,
+        code: PLATFORM_MODULE.HYDROPONICS,
         name: 'Hydroponics Management',
         description:
           'Hydroponic system management: growing systems, nutrient solutions, growing beds, climate control, harvest tracking and analytics',
@@ -229,7 +211,7 @@ export class Module {
         ],
       },
       {
-        code: ModuleCode.ALERT,
+        code: PLATFORM_MODULE.ALERT,
         name: 'Alert Engine',
         description:
           'Real-time alert rules, incident management, escalation policies, and alert history for proactive monitoring',
@@ -246,7 +228,7 @@ export class Module {
         ],
       },
       {
-        code: ModuleCode.AI,
+        code: PLATFORM_MODULE.AI,
         name: 'AI Analytics',
         description:
           'AI-powered analytics: conversational agents, predictive insights, anomaly detection, and intelligent recommendations',

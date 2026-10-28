@@ -49,7 +49,7 @@ import {
   ScheduledJobRunner,
   type ScheduledJobExecutor,
 } from '@aquaculture/backend-common/scheduling';
-import { listTenantSchemas, runInTenantTransaction } from '@aquaculture/backend-common/database';
+import { findTenantsMatching, runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { OutboxPublisher } from '@platform/outbox';
 import {
   createBaseEvent,
@@ -322,7 +322,12 @@ export class FeedingCronV2Service {
     const started = Date.now();
     try {
       const complete = await this.runJob(jobName, tenantId, clock);
-      await this.jobRuns.settle(runId, complete, complete ? undefined : 'incomplete: page cap hit');
+      await this.jobRuns.settle(
+        tenantId,
+        runId,
+        complete,
+        complete ? undefined : 'incomplete: page cap hit',
+      );
       if (!complete) {
         this.logger.warn(
           `Feeding job ${jobName} incomplete for tenant ${tenantId} (${clock.localDate}); ` +
@@ -336,7 +341,7 @@ export class FeedingCronV2Service {
       }
     } catch (error) {
       const message = (error as Error).message;
-      await this.jobRuns.settle(runId, false, message);
+      await this.jobRuns.settle(tenantId, runId, false, message);
       this.logger.error(`Feeding job ${jobName} failed for tenant ${tenantId}: ${message}`);
     }
   }
@@ -1323,14 +1328,15 @@ export class FeedingCronV2Service {
     for (const tenantId of tenants) {
       try {
         await this.purgeTenantRetention(tenantId);
+        // Koşu kaydı (W5) de tenant başına: defter RLS altındadır, tenant
+        // bağlamı dışında hiçbir satırı göremez.
+        await this.jobRuns.purgeOlderThanRetention(tenantId);
       } catch (error) {
         this.logger.error(
           `Retention cleanup failed for tenant ${tenantId}: ${(error as Error).message}`,
         );
       }
     }
-    // Cross-tenant koşu kaydı (W5) — tenant döngüsünün dışında, tek seferde.
-    await this.jobRuns.purgeOlderThanRetention();
   }
 
   async purgeTenantRetention(tenantId: string): Promise<void> {
@@ -1406,32 +1412,27 @@ export class FeedingCronV2Service {
    * Retention keşfi: day plan VEYA makbuz taşıyan tüm tenant'lar — aktif
    * atama/batch filtreleri retention için fazla dar olurdu (tarihsel veri,
    * atamaları biten tenant'ta da yaşar).
+   *
+   * `private` DEĞİL: `feedingTenants` ile aynı gerekçe — keşif kendi başına
+   * doğrulanabilir bir davranıştır (gerçek RLS spec'i doğrudan çağırır).
    */
-  private async tenantsForRetention(): Promise<string[]> {
-    const tenantSchemas = await listTenantSchemas(this.dataSource);
-    const tenantIds = new Set<string>();
-    for (const schema of tenantSchemas) {
-      const runner = this.dataSource.createQueryRunner();
-      await runner.connect();
-      try {
-        await runner.query(`SET search_path TO "${schema}", farm, public`);
-        const rows: Array<{ tenantId: string }> = await runner.query(
-          `SELECT DISTINCT "tenantId" FROM "feeding_day_plans"
-           UNION
-           SELECT DISTINCT "tenantId" FROM "farm_mobile_command_receipts"
-           UNION
-           SELECT DISTINCT "tenantId" FROM "feeding_forecast_snapshots"`,
+  async tenantsForRetention(): Promise<string[]> {
+    // `retained`: retention must also reach a tenant the platform has suspended
+    // or is deleting — its history is exactly what the purge is for.
+    return findTenantsMatching(
+      this.dataSource,
+      'farm',
+      async (queryRunner) => {
+        const rows: unknown[] = await queryRunner.query(
+          `SELECT 1 WHERE EXISTS (SELECT 1 FROM "feeding_day_plans")
+              OR EXISTS (SELECT 1 FROM "farm_mobile_command_receipts")
+              OR EXISTS (SELECT 1 FROM "feeding_forecast_snapshots")
+              OR EXISTS (SELECT 1 FROM farm.feeding_job_runs)`,
         );
-        for (const row of rows) tenantIds.add(row.tenantId);
-      } catch (error) {
-        this.logger.warn(
-          `Tenant discovery failed for schema ${schema}: ${(error as Error).message}`,
-        );
-      } finally {
-        await runner.release();
-      }
-    }
-    return [...tenantIds];
+        return rows.length > 0;
+      },
+      { scope: 'retained' },
+    );
   }
 
   /**
@@ -1459,33 +1460,19 @@ export class FeedingCronV2Service {
    * zorunda kalmamalıdır.
    */
   async feedingTenants(): Promise<string[]> {
-    const tenantSchemas = await listTenantSchemas(this.dataSource);
-    const tenantIds = new Set<string>();
-    for (const schema of tenantSchemas) {
-      const runner = this.dataSource.createQueryRunner();
-      await runner.connect();
-      try {
-        await runner.query(`SET search_path TO "${schema}", farm, public`);
-        const rows: Array<{ tenantId: string }> = await runner.query(
-          `SELECT DISTINCT "tenantId" FROM "feeding_protocol_assignments"
-             WHERE status IN ('active', 'paused')
-           UNION
-           SELECT DISTINCT "tenantId" FROM "feeding_day_plans"
-             WHERE "planDate" >= (CURRENT_DATE - INTERVAL '${ROLLUP_LOOKBACK_DAYS} days')
-           UNION
-           SELECT DISTINCT "tenantId" FROM "tank_batches" WHERE "totalQuantity" > 0
-           UNION
-           SELECT DISTINCT "tenantId" FROM "batches_v2" WHERE "isActive" = true`,
-        );
-        for (const row of rows) tenantIds.add(row.tenantId);
-      } catch (error) {
-        this.logger.warn(
-          `Tenant discovery failed for schema ${schema}: ${(error as Error).message}`,
-        );
-      } finally {
-        await runner.release();
-      }
-    }
-    return [...tenantIds];
+    // Each tenant answers for itself under its own RLS context (see
+    // findTenantsMatching): a bare QueryRunner sees zero rows of these FORCE-RLS
+    // tables, which silently emptied this list and stopped the whole engine.
+    return findTenantsMatching(this.dataSource, 'farm', async (queryRunner) => {
+      const rows: unknown[] = await queryRunner.query(
+        `SELECT 1 WHERE EXISTS (SELECT 1 FROM "feeding_protocol_assignments"
+                                 WHERE status IN ('active', 'paused'))
+              OR EXISTS (SELECT 1 FROM "feeding_day_plans"
+                          WHERE "planDate" >= (CURRENT_DATE - INTERVAL '${ROLLUP_LOOKBACK_DAYS} days'))
+              OR EXISTS (SELECT 1 FROM "tank_batches" WHERE "totalQuantity" > 0)
+              OR EXISTS (SELECT 1 FROM "batches_v2" WHERE "isActive" = true)`,
+      );
+      return rows.length > 0;
+    });
   }
 }

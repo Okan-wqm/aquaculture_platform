@@ -9,7 +9,21 @@ import { MobileCommandEnvelopeInput } from '@aquaculture/backend-common/mobile-c
 import { StandardPaginatedResponse } from '@aquaculture/backend-common/pagination';
 import { ID, Float, Field, InputType, Int, ObjectType, registerEnumType } from '@nestjs/graphql';
 import { Type } from 'class-transformer';
-import { IsEnum, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, IsUUID, MaxLength, Min, ValidateNested } from 'class-validator';
+import {
+  IsArray,
+  IsBoolean,
+  IsDate,
+  IsEnum,
+  IsInt,
+  IsNotEmpty,
+  IsNumber,
+  IsOptional,
+  IsString,
+  IsUUID,
+  MaxLength,
+  Min,
+  ValidateNested,
+} from 'class-validator';
 import { GraphQLJSON } from 'graphql-type-json';
 
 /**
@@ -61,11 +75,11 @@ export class BatchDocumentResponse {
 
 @InputType()
 export class UpdateBatchInput implements UpdateBatchPayload {
-  @Field(() => ID) id!: string;
-  @Field({ nullable: true }) name?: string;
-  @Field({ nullable: true }) expectedHarvestDate?: Date;
-  @Field(() => Float, { nullable: true }) targetFCR?: number;
-  @Field({ nullable: true }) notes?: string;
+  @Field(() => ID) @IsNotEmpty() @IsUUID() id!: string;
+  @Field({ nullable: true }) @IsOptional() @IsString() @IsNotEmpty() @MaxLength(255) name?: string;
+  @Field({ nullable: true }) @IsOptional() @IsDate() @Type(() => Date) expectedHarvestDate?: Date;
+  @Field(() => Float, { nullable: true }) @IsOptional() @IsNumber() @Min(0) targetFCR?: number;
+  @Field({ nullable: true }) @IsOptional() @IsString() notes?: string;
 }
 
 @InputType()
@@ -158,17 +172,17 @@ export class RecordGradingInput extends MobileCommandEnvelopeInput {
 
 @InputType()
 export class BatchFilterInput implements BatchFilter {
-  @Field(() => [BatchStatus], { nullable: true }) status?: BatchStatus[];
-  @Field(() => ID, { nullable: true }) speciesId?: string;
-  @Field(() => BatchInputType, { nullable: true }) inputType?: BatchInputType;
-  @Field(() => ID, { nullable: true }) supplierId?: string;
-  @Field(() => ID, { nullable: true }) tankId?: string;
-  @Field(() => ID, { nullable: true, description: 'Filter by site' }) siteId?: string;
-  @Field(() => ID, { nullable: true, description: 'Filter by department' }) departmentId?: string;
-  @Field({ nullable: true }) isActive?: boolean;
-  @Field({ nullable: true }) stockedAfter?: Date;
-  @Field({ nullable: true }) stockedBefore?: Date;
-  @Field({ nullable: true }) searchTerm?: string;
+  @Field(() => [BatchStatus], { nullable: true }) @IsOptional() @IsArray() @IsEnum(BatchStatus, { each: true }) status?: BatchStatus[];
+  @Field(() => ID, { nullable: true }) @IsOptional() @IsUUID() speciesId?: string;
+  @Field(() => BatchInputType, { nullable: true }) @IsOptional() @IsEnum(BatchInputType) inputType?: BatchInputType;
+  @Field(() => ID, { nullable: true }) @IsOptional() @IsUUID() supplierId?: string;
+  @Field(() => ID, { nullable: true }) @IsOptional() @IsUUID() tankId?: string;
+  @Field(() => ID, { nullable: true, description: 'Filter by site' }) @IsOptional() @IsUUID() siteId?: string;
+  @Field(() => ID, { nullable: true, description: 'Filter by department' }) @IsOptional() @IsUUID() departmentId?: string;
+  @Field({ nullable: true }) @IsOptional() @IsBoolean() isActive?: boolean;
+  @Field({ nullable: true }) @IsOptional() @IsDate() @Type(() => Date) stockedAfter?: Date;
+  @Field({ nullable: true }) @IsOptional() @IsDate() @Type(() => Date) stockedBefore?: Date;
+  @Field({ nullable: true }) @IsOptional() @IsString() @MaxLength(200) searchTerm?: string;
 }
 
 // ============================================================================

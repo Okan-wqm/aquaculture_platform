@@ -377,7 +377,7 @@ class Merge(unittest.TestCase):
 
             def merge_pr(self, number: int, **kwargs: Any) -> dict:
                 calls.append("merge")
-                return {"merged": True}
+                return {"merged": True, "merge_commit_sha": "c" * 40}
 
             def get_pr_diff(self, number: int) -> tuple[str | None, str | None]:
                 return diff, None
@@ -487,6 +487,79 @@ class JudgeFanout(unittest.TestCase):
                 self.assertEqual([(m["role"], m["judgment_group_id"]) for m in on["minted"]],
                                  [(m["role"], m["judgment_group_id"]) for m in off["minted"]])
                 assert_rows_for(self, behaviour, rows(tools))
+
+
+class JudgeFanoutAsksAboutTheLineTheFindingCites(unittest.TestCase):
+    """ARIA-HIGH-1083 audit gap R11 - the shadow ask is about the line the ONE owner reads.
+
+    A sampled adapter finding cites its location as ``evidence`` dicts
+    ``{"path", "line"}`` (19 of 19 adapters). ``item_citations.cited_line`` is the
+    one reader of that shape; ``system_one_points._cited_line`` was a fifth,
+    strings-only reader that falls back to line 1: for ``{"path": P, "evidence":
+    [{"path": P, "line": 120}]}`` the owner says 120 and the shadow reader says
+    ``(P, 1)``, so Jev J1 is asked about the head of the file instead of the cited
+    line. Driven through the real fan-out (the only production caller of
+    ``shadow_judge_fanout``) and the scripted vendor, never the private reader, so
+    the pin holds whatever the reader is called or wherever it lives.
+    """
+
+    P = "src/farm.ts"
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+
+    def _store(self) -> tuple[Path, Path]:
+        """A repo whose file has 300 numbered lines, its public origin and an enabled registry."""
+        repo = self.root / "repo"
+        (repo / "src").mkdir(parents=True)
+        (repo / self.P).write_text("".join(f"line {i}\n" for i in range(1, 301)), encoding="utf-8")
+        registry = repo / REGISTRY_FINDINGS
+        registry.parent.mkdir(parents=True)
+        registry.write_text(registry_row("FARM-HIGH-001") + "\n", encoding="utf-8")
+        git(repo, "init", "-q")
+        commit_all(repo, "init")
+        origin_context = public_origin()
+        origin = origin_context.__enter__()
+        self.addCleanup(origin_context.__exit__, None, None, None)
+        git(repo, "push", "-q", str(origin), "HEAD:main")
+        write_registry(repo)
+        tools = ensure_tools_dir(repo / "aria-tools")
+        from tests._helpers.rule_contracts import DEFAULT_RULE_CONTRACT, register_contracted_tool
+
+        register_contracted_tool(tools, "tenant-scoping-adapter", rules={"missing-tenant-guard": dict(DEFAULT_RULE_CONTRACT)})
+        return repo, tools
+
+    def _lines_asked_about(self, evidence: list[Any]) -> list[int]:
+        """The line numbers of the excerpt Jev J1 was handed for a finding that cites ``evidence``."""
+        from aria_kernel.judge_fanout import dispatch_judges_for_sample
+
+        repo, tools = self._store()
+        item = {"tool_id": "tenant-scoping-adapter", "run_id": "r", "cycle_id": "c1", "finding_id": "FARM-HIGH-001",
+                "rule": "missing-tenant-guard", "severity": "high", "path": self.P,
+                "message": "query without tenant scope", "evidence": evidence, "finding_fingerprint": "fp1"}
+        vendor = Vendor()
+        with patch("aria_kernel.system_one._transport", vendor):
+            minted = dispatch_judges_for_sample(sample={"cycle_id": "c1", "items": [item]}, base_dir=tools, repo_root=repo)
+        self.assertEqual(minted["minted_count"], 2, minted["skipped"])
+        self.assertEqual([r["question_id"] for r in rows(tools)], ["J1-tenant-scoping"], "one shadow ask per minted finding")
+        [payload] = vendor.payloads
+        state = json.loads(payload["state"])
+        self.assertEqual(state["file"], self.P)
+        return [int(row.split(":", 1)[0]) for row in state["excerpt"].splitlines()]
+
+    def test_an_adapter_finding_is_asked_about_its_cited_line_not_the_head_of_the_file(self) -> None:
+        numbers = self._lines_asked_about([{"path": self.P, "line": 120}])
+        self.assertIn(120, numbers)
+        self.assertGreater(min(numbers), 1, "the excerpt is the head of the file, not the cited line")
+
+    def test_the_first_line_bearing_evidence_of_its_own_file_names_the_line(self) -> None:
+        # The owner's law (``cited_line``): the FIRST evidence ref that carries a line for the item's own path.
+        numbers = self._lines_asked_about(
+            [{"path": "src/other.ts", "line": 7}, {"path": self.P, "line": 200}, {"path": self.P, "line": 120}])
+        self.assertIn(200, numbers)
+        self.assertNotIn(120, numbers)
 
 
 class CandidateFiles(unittest.TestCase):

@@ -207,6 +207,39 @@ function recordFinding(fixture: string, row: Pick<Finding, 'id' | 'severity' | '
   });
 }
 
+/**
+ * The seed is ONE commit, so the fixture's history holds no `Closes:` trailer. A
+ * finding the repository's own history closed (a CRITICAL fixed by a merged
+ * trailer, whose truth-table row the same PR removed, as the debt plan requires)
+ * would therefore project OPEN here and demand a row the real table rightly
+ * lacks, and no PR could ever close an active CRITICAL: the fixture wants the
+ * row, the debt-plan contract wants it gone. The base replays the repository's
+ * closures: one empty commit whose trailers name every finding the repository's
+ * projection holds RESOLVED and the fixture's does not.
+ */
+function replayRepositoryClosures(fixture: string): void {
+  const inFixture = new Map(projectRegistry(fixture).map((row) => [row.id, row.state]));
+  const trailers = projectRegistry(REPO_ROOT)
+    .filter(
+      (row) =>
+        row.state === 'RESOLVED' &&
+        inFixture.get(row.id) !== 'RESOLVED' &&
+        typeof row.review_file === 'string' &&
+        row.review_file !== '',
+    )
+    .map((row) => `Closes: ${row.review_file}#${row.id}`);
+  if (trailers.length === 0) return;
+  git(fixture, [
+    'commit',
+    '-q',
+    '--allow-empty',
+    '-m',
+    "chore: replay the repository's closures onto the fixture base",
+    '-m',
+    trailers.join('\n'),
+  ]);
+}
+
 function appendLine(fixture: string, rel: string, line: string): void {
   const path = join(fixture, rel);
   writeFileSync(path, `${readFileSync(path, 'utf8')}${line}\n`, 'utf8');
@@ -281,6 +314,7 @@ describe('PROC-HIGH-046 + MF-2 — concurrent ARIA and registry PRs merge withou
     mkdirSync(dirname(join(fixture, FIXTURE_REVIEW_FILE)), { recursive: true });
     writeFileSync(join(fixture, FIXTURE_REVIEW_FILE), '# MF-2 derived-merge fixture review\n');
     commitAll(fixture, 'chore: seed the real formerly pinned files and the registry');
+    replayRepositoryClosures(fixture);
     base = git(fixture, ['rev-parse', 'HEAD']).trim();
     baseProjectionSize = projectRegistry(fixture).length;
   });

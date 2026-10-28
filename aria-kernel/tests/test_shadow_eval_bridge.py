@@ -2,7 +2,9 @@
 
 Deliberate-break of the whole C4 arc: C4-a minted operator approvals,
 C4-b derived sandbox evidence, C4-c recorded the prefix chain up to
-DRAFT — yet `_target_is_shadow` had never once flipped TRUE through a
+DRAFT — yet the claim-side SHADOW predicate (now
+`genesis_lifecycle.production_block_reason`, formerly
+`agent_invocations._target_is_shadow`) had never once flipped TRUE through a
 production-shaped path, because nothing joined a completed invocation's
 ledger rows to `run_agent_eval` and the two
 REAL_SANDBOX/SHADOW transitions. These tests prove the bridge closes
@@ -21,8 +23,8 @@ from pathlib import Path
 
 from aria_kernel.agent_eval import add_fixture
 from aria_kernel.agent_genesis import record_draft_lifecycle_chain
+from aria_kernel import genesis_lifecycle
 from aria_kernel.agent_invocations import (
-    _target_is_shadow,
     create_agent_invocation_request,
     record_transcript,
 )
@@ -236,6 +238,14 @@ class ShadowEvalBridgeTests(unittest.TestCase):
             for path in sorted(self.tools.rglob("*.jsonl"))
         }
 
+    def _in_shadow(self) -> bool:
+        """The claim-side predicate: the lifecycle owner says this agent is blocked from production as SHADOW."""
+        owner = getattr(genesis_lifecycle, "production_block_reason", None)
+        self.assertIsNotNone(
+            owner, "genesis_lifecycle.production_block_reason does not exist: the claim-side SHADOW predicate has no owner"
+        )
+        return owner(AGENT, base_dir=self.tools) == "shadow"
+
     def _bridge(self) -> dict:
         return bridge_shadow_eval_from_invocation(
             invocation_id=INVOCATION_ID,
@@ -250,7 +260,7 @@ class ShadowEvalBridgeTests(unittest.TestCase):
 
     def test_bridge_flips_target_to_shadow_first_time(self) -> None:
         self._seed_chain()
-        self.assertFalse(_target_is_shadow(self.tools, AGENT))
+        self.assertFalse(self._in_shadow())
         self.assertEqual(
             current_lifecycle_state(entity_id=AGENT, base_dir=self.tools), "DRAFT"
         )
@@ -258,7 +268,7 @@ class ShadowEvalBridgeTests(unittest.TestCase):
         out = self._bridge()
 
         # The first production-shaped SHADOW in the arc's history.
-        self.assertTrue(_target_is_shadow(self.tools, AGENT))
+        self.assertTrue(self._in_shadow())
         self.assertEqual(
             current_lifecycle_state(entity_id=AGENT, base_dir=self.tools), "SHADOW"
         )
@@ -299,7 +309,7 @@ class ShadowEvalBridgeTests(unittest.TestCase):
         self.assertEqual(
             current_lifecycle_state(entity_id=AGENT, base_dir=self.tools), "DRAFT"
         )
-        self.assertFalse(_target_is_shadow(self.tools, AGENT))
+        self.assertFalse(self._in_shadow())
 
     def test_non_passing_fixture_run_refuses_before_any_eval_write(self) -> None:
         self._seed_chain()
@@ -353,7 +363,7 @@ class ShadowEvalBridgeTests(unittest.TestCase):
         self.assertEqual(
             current_lifecycle_state(entity_id=AGENT, base_dir=self.tools), "DRAFT"
         )
-        self.assertFalse(_target_is_shadow(self.tools, AGENT))
+        self.assertFalse(self._in_shadow())
 
     def test_missing_operator_provenance_row_refuses(self) -> None:
         self._seed_chain(mint_operator=False)
@@ -364,7 +374,7 @@ class ShadowEvalBridgeTests(unittest.TestCase):
         self.assertEqual(
             current_lifecycle_state(entity_id=AGENT, base_dir=self.tools), "DRAFT"
         )
-        self.assertFalse(_target_is_shadow(self.tools, AGENT))
+        self.assertFalse(self._in_shadow())
 
     def test_an_unscoped_operator_approval_refuses_before_any_eval_write(self) -> None:
         # ARIA-MEDIUM-512 — the bridge compared the approval's target_agent

@@ -559,8 +559,8 @@ export function StockTransferPage(): JSX.Element {
               How much of {selectedItem?.name ?? 'this item'} are you transferring?
             </p>
             <div className="relative">
-              {/* The v4 hero numeral: mono at 700 so the digits are tabular and
-                  the figure is readable at arm's length. */}
+              {/* The v4 hero numeral: Inter at 700 with tabular digits so the
+                  figure is readable at arm's length (mono is for code and IDs only). */}
               <input
                 ref={quantityInputRef}
                 type="number"
@@ -568,7 +568,7 @@ export function StockTransferPage(): JSX.Element {
                 placeholder="0"
                 value={quantity}
                 onChange={(e) => setQuantity(e.target.value)}
-                className="w-full text-center text-hero font-mono font-bold tabular-nums py-6 rounded-2xl border-2 border-line bg-surface-1 text-ink-1 focus:outline-none focus:ring-2 focus:ring-acc focus:border-transparent"
+                className="w-full text-center text-hero font-bold tabular-nums py-6 rounded-2xl border-2 border-line bg-surface-1 text-ink-1 focus:outline-none focus:ring-2 focus:ring-acc focus:border-transparent"
               />
               {selectedItem && (
                 <span className="absolute right-4 top-1/2 -translate-y-1/2 text-title text-ink-3 font-medium">

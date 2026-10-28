@@ -74,7 +74,7 @@ The full zone-conduit diagram (including DMZ topology for air-gapped deployments
 | Conduit | Transport | Authentication | Integrity | Confidentiality | Availability |
 |---------|-----------|----------------|-----------|-----------------|--------------|
 | C-IT-OT (edge ↔ SaaS) | MQTT 5 over TLS 1.3 (primary), NATS over TLS 1.3 (control plane) | mTLS client cert; cert-CN = identity per ADR-015; no CONNECT-frame user/pass | TLS 1.3 AEAD + signed command envelope (ADR-024) for actuator writes | TLS 1.3 AEAD (ChaCha20-Poly1305 / AES-256-GCM per `docs/security/crypto-inventory.md`) | Dual-broker failover (`src/mqtt_failover.rs`), offline queue (`src/offline_queue.rs`) |
-| C-OT-FIELD (edge ↔ PLC / field) | Per-protocol — Modbus/TCP, OPC UA, S7comm, EtherNet/IP, ADS, Codesys, LoRaWAN | Protocol-native: OPC UA x509 certificates + UserIdentityToken; Modbus/TCP mTLS per `src/modbus.rs` (rodbus 1.4 `TlsMode`); LoRaWAN AppSKey + NwkSKey | Protocol-native checksums + at the process-image boundary `BoundedRange` enforcement (`src/bounded.rs`) | Protocol-native: Modbus/TCP TLS 1.2+, OPC UA secure channel, LoRaWAN AES-128 | Circuit breakers + retry budgets in `src/resilience/` |
+| C-OT-FIELD (edge ↔ PLC / field) | Per-protocol — Modbus/TCP, OPC UA, S7comm, EtherNet/IP, ADS, Codesys, LoRaWAN | Protocol-native: OPC UA x509 certificates + UserIdentityToken; Modbus/TCP mTLS per `src/modbus.rs` (`tokio-modbus` over `tokio-rustls`, `TlsMode`); LoRaWAN AppSKey + NwkSKey | Protocol-native checksums + at the process-image boundary `BoundedRange` enforcement (`src/bounded.rs`) | Protocol-native: Modbus/TCP TLS 1.2+, OPC UA secure channel, LoRaWAN AES-128 | Circuit breakers + retry budgets in `src/resilience/` |
 
 ## ISA-99 conformance posture
 

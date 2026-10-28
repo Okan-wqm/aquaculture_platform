@@ -59,7 +59,12 @@ CAPACITY_DU_MAX_UNAVAILABLE_RECORDS=64
 CAPACITY_DU_MAX_RESULT_BYTES=8192
 
 GIB=$((1024 * 1024 * 1024))
-FULL_HARD_FREE_GIB="${FULL_HARD_FREE_GIB:-35}"
+# 20 GiB absolute floor (was 35), owner decision (Okan, 2026-10-28). Production ran the
+# 2026-10-22 build for six days because every full deploy was refused here: the disk sat at
+# 21.5 GiB free (91% used) against a 35 GiB floor, a 10% floor and a 20 GiB projected reserve.
+# The new floor is the selective floor (15 GiB) plus the headroom the gate itself needs while it
+# runs; the real remedy is more disk, tracked as a finding.
+FULL_HARD_FREE_GIB="${FULL_HARD_FREE_GIB:-20}"
 # 45 GiB warn (was 50): the healthy droplet baseline sits at ~49.8 GiB free, so a
 # 50 GiB warn fired on EVERY deploy (alert fatigue). 45 stays well above the 35 GiB
 # hard floor while still warning before the box is genuinely tight. Non-blocking (returns 1).
@@ -68,15 +73,24 @@ FULL_WARN_FREE_GIB="${FULL_WARN_FREE_GIB:-45}"
 # which is above the 45 GiB warn line, so the percent term and not the 35 GiB floor was the binding
 # hard limit: a deploy was refused at 19% free (44 GiB) on 2026-10-23. The 35 GiB absolute floor and
 # the projected-pull reserve below stay the guards. Owner decision (Okan, 2026-10-23).
-FULL_HARD_FREE_PERCENT="${FULL_HARD_FREE_PERCENT:-10}"
+# Percent floor 5 (was 10), owner decision (Okan, 2026-10-28): at 91% used the 10% floor refused
+# the deploy outright; 5% is 11 GiB on this 227 GiB droplet, below the 20 GiB absolute floor, so the
+# byte floor and the projected reserve are the binding guards again.
+FULL_HARD_FREE_PERCENT="${FULL_HARD_FREE_PERCENT:-5}"
 SELECTIVE_HARD_FREE_GIB="${SELECTIVE_HARD_FREE_GIB:-15}"
 SELECTIVE_WARN_FREE_GIB="${SELECTIVE_WARN_FREE_GIB:-25}"
 SELECTIVE_HARD_FREE_PERCENT="${SELECTIVE_HARD_FREE_PERCENT:-10}"
 HARD_INODE_FREE_PERCENT="${HARD_INODE_FREE_PERCENT:-5}"
 WARN_INODE_FREE_PERCENT="${WARN_INODE_FREE_PERCENT:-10}"
-FULL_PULL_ESTIMATE_GIB="${FULL_PULL_ESTIMATE_GIB:-20}"
+# 17 GiB full-pull estimate (was 20), measured 2026-10-28 with `docker system df -v`: 16 backend
+# images carry ~1.0 GB of layers of their own over a shared 322 MB base and the web images add
+# ~0.1 GB, so even a pull in which no layer is reused from the running generation stays at ~16.2 GiB.
+FULL_PULL_ESTIMATE_GIB="${FULL_PULL_ESTIMATE_GIB:-17}"
 SERVICE_PULL_ESTIMATE_GIB="${SERVICE_PULL_ESTIMATE_GIB:-2}"
-FULL_PROJECTED_RESERVE_GIB="${FULL_PROJECTED_RESERVE_GIB:-20}"
+# 3 GiB projected reserve (was 20), owner decision (Okan, 2026-10-28). After the worst-case pull
+# the droplet is left with ~4.5 GiB free (2%); the superseded generation is untagged afterwards and
+# `safe-image-gc` returns its ~16 GiB. Disk capacity is the open finding, not this number.
+FULL_PROJECTED_RESERVE_GIB="${FULL_PROJECTED_RESERVE_GIB:-3}"
 SELECTIVE_PROJECTED_RESERVE_GIB="${SELECTIVE_PROJECTED_RESERVE_GIB:-10}"
 
 # --- Broker/JetStream capacity floors (100-tenant readiness Task 0) ---

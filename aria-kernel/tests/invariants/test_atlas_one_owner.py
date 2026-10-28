@@ -145,19 +145,6 @@ def _generator() -> ModuleType:
 
 
 def _owner_sources() -> dict[str, str]:
-    # A missing owner file is reported by ``test_every_declared_owner_module_exists``, by name; the scans below
-    # read the owners that exist, so one new family's absent module does not fail the families that stand.
-    return {
-        path: (_REPO_ROOT / path).read_text(encoding="utf-8")
-        for path in sorted(set(SINGLE_OWNER.values()))
-        if (_REPO_ROOT / path).is_file()
-    }
-
-
-class SingleOwnerFamiliesKeepOneOwner(unittest.TestCase):
-    def test_every_declared_owner_module_exists(self) -> None:
-        missing = sorted(path for path in set(SINGLE_OWNER.values()) if not (_REPO_ROOT / path).is_file())
-        self.assertEqual(missing, [], "a single-owner family whose owner module does not exist (J4: item_citations.py)")
     # An owner module that does not exist yet contributes no source here; ``test_every_owner_module_exists`` is what
     # says so (by assertion), so one missing owner does not turn every planted-forgery test into a file error.
     return {path: (_REPO_ROOT / path).read_text(encoding="utf-8")

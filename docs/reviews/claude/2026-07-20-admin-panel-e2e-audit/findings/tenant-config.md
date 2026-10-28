@@ -19,6 +19,17 @@
 
 ## TenantConfigurationPage — `/admin/tenants/:tenantId/configuration` — verdict: **MOCK_ONLY**
 
+**Decision of record:** The remedy for this surface is the APA-034 Fix design on this page: Tier 1,
+complete the retirement symmetrically — delete the fabricator, the controller and the orphaned page
+in one commit, plus the Tier-3 retired-endpoint-symmetry gate. The APA-033 LOCAL APPLICATION facade
+rebuild and the Files-to-change inventory it drives are superseded, and executing that inventory is
+prohibited: it would re-expose per-tenant MFA policy, IP whitelists, tenant API keys, webhooks and
+domain verification, which have no enforcement implementation anywhere in the platform. Residual
+exposure stands until a code-scoped cycle executes the adopted inventory — every mutation on this
+surface still returns 410 (APA-033 Evidence, tenant-configuration.service.ts:94-95) and every read
+still returns fabricated identical defaults (APA-034 Evidence,
+tenant-configuration.service.ts:349-358).
+
 **Chain:** Routing and auth verified working: FE tenantConfigApi
 (web/modules/admin-panel/src/services/api/tenant-config.ts) hits '/api/settings/tenant/:tenantId/_',
 nginx rewrites ^/api/(._) to /api/v1/$1 (infrastructure/nginx/droplet.conf:382), matching
@@ -144,6 +155,17 @@ controller routes wholesale under a tracked product finding with owner+deadline.
 a Save button is the one forbidden outcome. (4) Apply the same facade conversion to
 SystemSettingService (SYSTEM_TENANT_ID scope) — the pattern gate makes skipping it impossible.
 
+- **Supersession:** The LOCAL APPLICATION facade rebuild above, and the Files-to-change inventory
+  below that it drives, are SUPERSEDED by the APA-034 Fix design on this page, which is the adopted
+  execution contract for this surface. PATTERN LEVEL (A), the Tier-3 route-liveness contract, is
+  RETAINED and belongs to the adopted gate set — it turns any future 'retire the backend, forget the
+  FE' into a red PR across the whole admin surface, independently of which remedy this page takes.
+  PATTERN LEVEL (B), the shared-contracts SSoT for the nine section shapes, is NOT part of the
+  adopted inventory: its consumer pair was admin-api DTOs plus the hand-written frontend mirror
+  interfaces, and the adopted design deletes those mirrors together with the page, so the contract
+  lib would be left with nothing to bind. Executing the facade inventory is PROHIBITED — it would
+  re-expose per-tenant MFA policy, IP whitelists, tenant API keys, webhooks and domain verification,
+  which have no enforcement implementation anywhere in the platform.
 - **Files to change:**
   - `libs/tenant-config-contracts/src/index.ts`
   - `libs/tenant-config-contracts/src/sections/*.ts`
@@ -266,6 +288,28 @@ SystemSettingService (SYSTEM_TENANT_ID scope) — the pattern gate makes skippin
   '/settings/tenant/:param/webhooks/:param/test' KNOWN_EXCEPTIONS entry and update the backend
   endpoint snapshot (603 minus the deleted tenant-config routes); trim the
   TenantConfigurationService mock in tenant-provisioning.service.spec.ts to the kept surface.
+- **Adopted decision:** This Fix design is the execution contract for the `settings/tenant/*`
+  surface; the APA-033 LOCAL APPLICATION facade rebuild is superseded. The adopting reasons are this
+  page's own verified text: every read funnels into the fabricator (Evidence,
+  tenant-configuration.service.ts:349-358); the route is an orphan whose only registration is
+  Module.tsx:114, every write returns 410, and the surfaces admins actually reach (TenantDetailPage,
+  ModulesPage) already serve real data (Verification above); and the per-tenant capabilities the page
+  promises have no enforcement implementation anywhere in the platform. Rebuilding the facade would
+  therefore re-create the provenance-blind drift this finding's own Root cause names as the class the
+  existence-only contract gate let survive CI. Scope note: the Tier-3 retired-endpoint-symmetry spec,
+  the APA-033 PATTERN LEVEL (A) route-liveness spec, and the same-commit bookkeeping named above
+  (contract-validation.spec.ts KNOWN_EXCEPTIONS trim, backend endpoint snapshot update,
+  TenantConfigurationService mock trim in tenant-provisioning.service.spec.ts) are INSIDE this
+  inventory, not additions to it.
+- **Product-gap commitment:** Per-tenant MFA policy, IP whitelists, tenant API keys, webhooks and
+  domain verification have no enforcement implementation anywhere in the platform, so deleting the
+  page removes no working capability — the surfaces admins actually reach (TenantDetailPage,
+  ModulesPage) already serve real data from auth.tenants and auth.tenant_modules. Owner:
+  admin-panel/product. Source of truth for any future per-tenant security policy: auth-service
+  enforcement plus config-service storage, under its own ADR. The tracked product finding MUST be
+  minted with an explicit owner and an explicit due date BEFORE the adopted inventory lands, because
+  an unminted commitment is exactly how the retirement prescribed above became half-finished in the
+  first place.
 - **Files to change:**
   - `apps/admin-api-service/src/settings/controllers/tenant-configuration.controller.ts`
   - `apps/admin-api-service/src/settings/controllers/index.ts`

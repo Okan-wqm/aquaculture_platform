@@ -164,6 +164,13 @@ CONFIDENCE_SOURCES = ("self_reported", "provider_reported")
 # Consensus never treats two identical index sets as independent
 # corroboration.
 EVIDENCE_SELECTIONS = ("ref", "index")
+# J3 (SEPT-HARVEST S2/S3) — what the evidence-weighing arbiter rules on each
+# SIDE of a group (a verdict the seats voted) before it gives its own verdict:
+# the side's evidence holds (`upheld`), the refs it cites are not in the tree
+# (`evidence_missing`), the tree contradicts what it cites
+# (`evidence_contradicts`), or it is argument with nothing checkable
+# (`speculative`). Recorded on the arbiter's row as `side_rulings`.
+SIDE_RULINGS = ("upheld", "evidence_missing", "evidence_contradicts", "speculative")
 # Typed-judgment plan Phase 6 — the label queue's own sample (label_queue.py):
 # items are the judge groups themselves, in strata, so a label lands on the
 # exact group the judges voted on.
@@ -839,6 +846,9 @@ def record_operator_feedback(
     label_provenance: dict[str, Any] | None = None,
     request_ids: list[str] | None = None,
     target_sha: str | None = None,
+    # J3 — the arbiter's ruling on each side it weighed, each naming the seat
+    # answers (request ids) on that side. None on every other row.
+    side_rulings: list[dict[str, Any]] | None = None,
     # J1 (ARIA-MEDIUM-783) — the code identity the consensus judged, stamped
     # by its one producer (generate_ai_consensus via _store_cited_code_hash).
     # None stamps nothing: a row without it cannot say what code it judged.
@@ -881,6 +891,12 @@ def record_operator_feedback(
     # folds), never inferred later from whichever request is newest.
     if request_ids is not None and not _valid_string_list(request_ids):
         raise GovernanceError("request_ids must be an array of non-empty strings")
+    if side_rulings is not None:
+        for ruled in side_rulings:
+            if ruled.get("verdict") not in FEEDBACK_VERDICTS or ruled.get("ruling") not in SIDE_RULINGS:
+                raise GovernanceError(f"unknown side ruling: {ruled!r}")
+            if not _valid_string_list(ruled.get("request_ids")):
+                raise GovernanceError("side ruling request_ids must be an array of non-empty strings")
     if cost_usd is not None and (isinstance(cost_usd, bool) or not isinstance(cost_usd, (int, float))
                                  or cost_usd < 0 or cost_usd != cost_usd):
         raise GovernanceError("cost_usd must be a finite non-negative number")
@@ -1037,6 +1053,8 @@ def record_operator_feedback(
         # different commits). funnel_health joins the learning funnel on them.
         "request_ids": sorted(set(request_ids)) if request_ids else [],
         "target_sha": target_sha,
+        # J3 — present only on an arbiter row that weighed its sides.
+        **({"side_rulings": side_rulings} if side_rulings is not None else {}),
         # J1 — present only when stamped, so a legacy row reads as exactly
         # what it is: an anchor that cannot name the code it judged.
         **({"cited_code_hash": cited_code_hash} if cited_code_hash is not None else {}),
@@ -1205,11 +1223,14 @@ def record_ai_feedback_file(
 
 
 def _has_unverifiable_evidence(rows: list[dict[str, Any]], workspace_root: str | Path) -> bool:
-    """Plan 024 §C — True if any judge in the group cites an evidence ref that
+    """Plan 024 §C — True if any judge in ``rows`` cites an evidence ref that
     positively does not resolve in the repo (``missing`` / ``invalid``). A ref
     that exists but is unverified at a pinned sha (``worktree_candidate``) is
     given the benefit of the doubt — this gate catches fabricated evidence, not
-    sha-pinning uncertainty, so it cannot flood escalation on a clean repo."""
+    sha-pinning uncertainty, so it cannot flood escalation on a clean repo.
+    The caller passes the judges the consensus row speaks for (JJ-1): a side
+    the arbiter ruled ``evidence_missing`` dissents, and the row neither
+    publishes its refs nor needs them to resolve."""
     from .evidence_trust import classify_evidence_ref
     for row in rows:
         for ref in _optional_string_list(row.get("evidence_refs")):
@@ -1434,9 +1455,13 @@ def generate_ai_consensus(
         # Plan 024 §C — evidence-gated arbiter. When a workspace is supplied, the
         # union of judge evidence is only published as consensus if it actually
         # resolves in the repo; a judge citing fabricated evidence escalates to a
-        # human instead of being rubber-stamped. Opt-in: legacy callers without
-        # workspace_root keep the pure mechanical gate.
-        if workspace_root is not None and _has_unverifiable_evidence(rows, workspace_root):
+        # human instead of being rubber-stamped. Scoped to the agreeing judges
+        # (JJ-1): the arbiter's per-side `evidence_missing` ruling is what turns
+        # the losing side's missing ref into a dissent, and a second judge of the
+        # same ref over every row would hold that group in the arbiter lane
+        # forever. Opt-in: legacy callers without workspace_root keep the pure
+        # mechanical gate.
+        if workspace_root is not None and _has_unverifiable_evidence(agreeing, workspace_root):
             uncertainties.append(_consensus_uncertainty(tool_id, run_id, finding_id, group_id, "evidence_not_repo_verified"))
             continue
         # ARIA-HIGH-325 — what a true_positive may stand on. Unconditional:
@@ -2307,8 +2332,9 @@ def record_arbiter_uncertainty(
     """F0.7 — the arbiter lane has ONE non-verdict: the terminal one.
 
     The arbiter is the last judgment lane, so whatever registered reason it
-    states for not answering (a legacy split's aggregation gate fails by
-    construction: ``judge_disagreement``), the group is recorded
+    states for not answering (``unverifiable`` when the evidence cannot be
+    weighed; ``judge_disagreement`` from an envelope minted before J3, whose
+    aggregation gate a split fails by construction), the group is recorded
     ``TERMINAL_UNCERTAINTY_REASON`` — outside truth, never re-asked, and
     counted by ``unverifiable_rate`` under its ceiling. A non-terminal reason
     here would leave the group owed to an arbiter that already answered at

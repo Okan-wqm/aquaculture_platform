@@ -91,6 +91,7 @@ Wiring (Phase 1.B dispatch site integration)
 - change_ledger.emit_change_committed (action_kind='change_committed')
 - change_ledger.emit_change_validated (action_kind='change_validated')
 - pr_manager.open_pr_for_action (action_kind='pr_open')
+- pr_manager.push_prepared_branch (action_kind='pr_push')
 
 `enforce_profile_for_write` is wired at the TOP of tool_runner.run_tool
 (surface_kind='tool_runs') as the single chokepoint for every adapter / spine
@@ -179,6 +180,14 @@ ACTION_PERMISSIONS: dict[str, frozenset[str]] = {
     "change_validated": frozenset({"standard", "strict", "autonomous"}),
     "pr_create": frozenset({"strict", "autonomous"}),
     "pr_open": frozenset({"strict", "autonomous"}),
+    # ARIA-MEDIUM-1109 — the GitHub-facing half of `pr_create`: the push that
+    # puts the proposal's `aria/*` branch on the remote
+    # (`pr_manager.push_prepared_branch`). Same set as `pr_create`, because a
+    # profile that may not open a pull request may not put its branch on the
+    # remote either; before this cell the step ran under every profile, with
+    # the external-effects intent write (which `standard` is admitted to) as
+    # its only gate.
+    "pr_push": frozenset({"strict", "autonomous"}),
     "pr_merge": frozenset({"autonomous"}),
     # ORPHAN-CRITICAL-728 — the two governed actions the convergence-to-PR
     # producer added. `plan_stage` mints a machine approval and opens a
@@ -1082,6 +1091,7 @@ def enforce_profile_for_action(
     - change_ledger.emit_change_committed      → 'change_committed'
     - change_ledger.emit_change_validated      → 'change_validated'
     - pr_manager.open_pr_for_action            → 'pr_open'
+    - pr_manager.push_prepared_branch          → 'pr_push'
 
     Plan 024 §B-4 — when get_profile falls back to FROZEN_PROFILE due
     to corrupt / unknown state file, the diagnostic is best-effort

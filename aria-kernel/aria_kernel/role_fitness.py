@@ -14,14 +14,31 @@ an active goldset:
 
 * the adapter: its version in force (``tool_health.current_emission_scope``,
   the latest ok run's fingerprints) against the goldset's labelled items —
-  precision over the labelled findings it emits, recall over the true
-  positives it should emit;
+  precision over the labelled findings it emits, and its
+  adapter retention rate (stored under ``recall``): the share of the goldset's
+  true positives it still emits. That is one adapter's memory of its own gold
+  findings, not the stage-2 discovery recall, which the discovery block below
+  measures;
 * each judge: its verdicts on that tool's replay groups
   (``judge_calibration.score_judges`` over ``replay:<tool>:``) — precision,
-  recall and expected calibration error.
+  recall and expected calibration error;
+* ARIA's own discovery (WP-D9, ``measure_discovery_recall``): over DEV cases
+  and the subject-keyed reports any mechanism made on them, the share of known
+  defects reported (a hit is a report on the same change in the same file whose
+  lines overlap the gold hunk window and that names the defect's class, however
+  it was found) and the share of clean control commits that drew any report,
+  each with ``n`` and the Wilson interval of ``judge_calibration.wilson_interval``.
+  The zoo scorer (``score_zoo_discovery``, WP-D3) is the same measurement over the
+  defect zoo's labels and the change review's claims: both are callers of ONE fold
+  (``_score_known_defects``) and ONE matcher (``_defect_is_hit``), differing only in
+  the window around a defect's lines (``GOLD_LINE_WINDOW`` | ``ZOO_LINE_WINDOW``).
+  The DEV-train misses are fed to memory as ``missed_signal`` rows
+  (``feed_dev_misses``); a DEV-check case never writes memory.
 
 A role with nothing to be scored against is ``unmeasured:<why>``, never a
-score: no active goldset, no ok run, no labelled emission, no replay verdict.
+score: no active goldset, no ok run, no labelled emission, no replay verdict,
+no discovery cases.
+
 The nightly fitness report (``fitness.generate_fitness_report``) records the
 measurement, named by the goldset it read (``goldset_hash``), after the judge
 replay that minted that night's replay verdicts.
@@ -37,7 +54,12 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Iterable
+from typing import TYPE_CHECKING, Any, Iterable, NamedTuple, Sequence
+
+from .digest import sha256_hex
+
+if TYPE_CHECKING:
+    from .workspace import WorkspacePaths
 
 ROLE_FITNESS_SCHEMA = "aria/role-fitness/v1"
 MEASURED = "measured"
@@ -51,6 +73,14 @@ UNMEASURED_NO_REPLAY_VERDICT = "unmeasured:no_replay_verdict"
 # panel verdicts yet is a canary lane that has not drained, not a finding.
 UNMEASURED_NO_CANARY_CORPUS = "unmeasured:no_registered_canary_corpus"
 UNMEASURED_NO_CANARY_VERDICTS = "unmeasured:no_canary_verdicts"
+# WP-D9 — the discovery block is scored on DEV cases handed to it; without any
+# it is unmeasured, never a zero recall.
+UNMEASURED_NO_DISCOVERY_CASES = "unmeasured:no_discovery_cases"
+
+# WP-D9 — the two sides of the DEV split. DEV-train feeds memory; DEV-check only
+# gates what memory produced and never writes it.
+DEV_TRAIN = "dev_train"
+DEV_CHECK = "dev_check"
 
 # The blockers the read side names; each is the reason an autonomous lane
 # refuses (``adapter_fitness_blocker``).
@@ -58,8 +88,11 @@ FITNESS_UNMEASURED = "fitness_unmeasured"
 FITNESS_STALE = "fitness_stale"
 FITNESS_BELOW_THRESHOLD = "fitness_below_threshold"
 
-# WP-D3 — the zoo's own scoring rule (ZOO-REPORT): a claim hits a defect when it names the labelled file and
-# its lines come within this many lines of the labelled ones.
+# The window around a known defect's lines inside which a report still hits it: the caller's choice, one matcher.
+# The gold corpus's hunks are exact (WP-D9: a report hits only by overlapping the hunk); the zoo's labels are
+# approximate (WP-D3, ZOO-REPORT: a claim hits when it names the labelled file and its lines come within this many
+# lines of the labelled ones).
+GOLD_LINE_WINDOW = 0
 ZOO_LINE_WINDOW = 10
 
 
@@ -99,6 +132,8 @@ def _adapter_row(
     hits = len(emitted & true_positives)
     labelled = len(emitted & (true_positives | false_positives))
     precision = _ratio(hits, labelled)
+    # The adapter retention rate (stored under ``recall``): this adapter's own
+    # gold true positives it still emits, not ARIA's discovery recall.
     recall = _ratio(hits, len(true_positives))
     status = (
         UNMEASURED_NO_OK_RUN if scope.run_id is None
@@ -236,11 +271,16 @@ def measure_role_fitness(
     *,
     base_dir: str | Path | None = None,
     runs: list[dict[str, Any]] | None = None,
+    discovery_cases: Sequence[dict[str, Any]] = (),
+    discovery_reports: Sequence[dict[str, Any]] = (),
 ) -> dict[str, Any]:
-    """Per adapter and per judge, precision and recall against the gold corpus.
+    """Per adapter and per judge, precision and recall against the gold corpus,
+    and ARIA's own discovery recall over the DEV cases handed in.
 
     ``runs`` is the run ledger the caller already read (the fitness report
     reads it once for every dimension); without it the ledger is read here.
+    ``discovery_cases`` and ``discovery_reports`` are :func:`measure_discovery_recall`'s
+    inputs; without cases the discovery block is unmeasured.
     """
     from .goldset import load_active_goldset
     from .runs_reader import read_runs_rows
@@ -270,29 +310,232 @@ def measure_role_fitness(
         # WP-J D-2 — the panel's canary self-exam, beside the per-adapter
         # rows: precision/recall against a corpus whose labels nobody judged.
         "mutation_canary": _canary_row(root),
+        # WP-D9 — ARIA's own discovery, subject-keyed and mechanism-independent.
+        "discovery_recall": measure_discovery_recall(discovery_cases, discovery_reports),
     }
+
+
+def _proportion(count: int, n: int) -> dict[str, Any]:
+    """``count`` of ``n`` with its Wilson interval: the one spelling of the interval in this module.
+
+    The interval is ``judge_calibration.wilson_interval``, the one owner (None without trials). The rate is the
+    plain quotient: a scorer that rounds its rate rounds it beside this, the interval is never re-derived.
+    """
+    from .judge_calibration import wilson_interval
+
+    return {"rate": count / n if n else None, "wilson": wilson_interval(count, n)}
+
+
+def _reports_by_subject(reports: Iterable[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    by_subject: dict[str, list[dict[str, Any]]] = {}
+    for report in reports:
+        by_subject.setdefault(str(report["subject_ref"]), []).append(report)
+    return by_subject
+
+
+def _defect_is_hit(defect: dict[str, Any], reports_on_change: Iterable[dict[str, Any]], window: int) -> bool:
+    """The one matcher: does a report on the defect's change hit the defect?
+
+    A report hits a known defect when it is on the same file and its lines overlap the defect's lines widened by
+    ``window`` on each side (both ends inclusive), and, when the defect names a ``defect_class`` (gold defects
+    always do, the zoo's labels carry none), the report names that class. Which mechanism reported (an adapter, a
+    model claim, a drift seeder) is not read: the block scores ARIA, not its parts. The window is the caller's:
+    ``GOLD_LINE_WINDOW`` for the gold corpus, ``ZOO_LINE_WINDOW`` for the zoo.
+    """
+    defect_class = defect.get("defect_class")
+    return any(
+        report["path"] == defect["path"]
+        and (defect_class is None or report["defect_class"] == defect_class)
+        and report["start_line"] <= defect["end_line"] + window
+        and defect["start_line"] - window <= report["end_line"]
+        for report in reports_on_change
+    )
+
+
+class _KnownDefectScore(NamedTuple):
+    """What the one fold says about (cases, reports): the hits, the misses and the clean commits with their reports."""
+
+    hits: list[tuple[dict[str, Any], dict[str, Any]]]
+    misses: list[tuple[dict[str, Any], dict[str, Any]]]
+    clean: list[tuple[dict[str, Any], list[dict[str, Any]]]]
+
+    @property
+    def alarmed(self) -> list[dict[str, Any]]:
+        """The clean commits on which any report was made (a report on a commit with a known defect is never one)."""
+        return [case for case, on_change in self.clean if on_change]
+
+
+def _score_known_defects(
+    cases: Sequence[dict[str, Any]], reports: Iterable[dict[str, Any]], window: int,
+) -> _KnownDefectScore:
+    """The one fold over (cases, reports): which known defects are hit, which are missed, which clean commits drew a report.
+
+    ``cases`` are ``{"subject_ref", "defects": [{"path", "start_line", "end_line"[, "defect_class"]}, ...]}``; a case
+    with no defects is a clean control commit. ``reports`` are ``{"subject_ref", "path", "start_line", "end_line"[,
+    "defect_class"]}`` keyed by the change they were made on; a report on a change with no case is ignored, and
+    many reports on one defect are one hit. Both public scorers, the DEV miss feed and every later reader of "was
+    this known defect found" take it from here, so they cannot disagree about a miss.
+    """
+    by_subject = _reports_by_subject(reports)
+    hits: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    misses: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    clean: list[tuple[dict[str, Any], list[dict[str, Any]]]] = []
+    for case in cases:
+        on_change = by_subject.get(case["subject_ref"], [])
+        if not case["defects"]:
+            clean.append((case, on_change))
+        for defect in case["defects"]:
+            (hits if _defect_is_hit(defect, on_change, window) else misses).append((case, defect))
+    return _KnownDefectScore(hits, misses, clean)
+
+
+def _bounds(count: int, n: int) -> tuple[float | None, float | None]:
+    """The lower and upper end of ``_proportion``'s interval; (None, None) over no trials."""
+    interval = _proportion(count, n)["wilson"]
+    return (None, None) if interval is None else interval
+
+
+def measure_discovery_recall(
+    cases: Sequence[dict[str, Any]], reports: Sequence[dict[str, Any]],
+) -> dict[str, Any]:
+    """ARIA's own discovery over DEV cases: defects found, clean commits alarmed.
+
+    ``cases`` are ``{"subject_ref", "x_sha", "defects": [{"defect_id", "path",
+    "start_line", "end_line", "defect_class"}, ...]}``; a case with no defects is
+    a clean control commit. ``reports`` are ``{"subject_ref", "path",
+    "start_line", "end_line", "defect_class"}`` rows from any mechanism, keyed
+    by the change they were made on (a report on a change with no case is
+    ignored). Per known defect: a hit or a miss (many reports on one defect are
+    one hit; the matcher is ``_defect_is_hit`` at ``GOLD_LINE_WINDOW``). Per clean
+    commit: a false alarm when any report was made on it (a report on a bug commit
+    is never a false alarm). Each part carries ``n``, its rate and a Wilson
+    interval; a part with nothing to score has no rate and no interval.
+    """
+    if not cases:
+        return {"status": UNMEASURED_NO_DISCOVERY_CASES}
+    score = _score_known_defects(cases, reports, GOLD_LINE_WINDOW)
+    defects, hits = len(score.hits) + len(score.misses), len(score.hits)
+    clean, alarmed = len(score.clean), len(score.alarmed)
+    recall_lower, recall_upper = _bounds(hits, defects)
+    alarm_lower, alarm_upper = _bounds(alarmed, clean)
+    return {
+        "status": MEASURED,
+        "defects": {
+            "n": defects,
+            "hits": hits,
+            "misses": len(score.misses),
+            "recall": _ratio(hits, defects),
+            "wilson_lower": recall_lower,
+            "wilson_upper": recall_upper,
+        },
+        "clean_commits": {
+            "n": clean,
+            "false_alarms": alarmed,
+            "false_alarm_rate": _ratio(alarmed, clean),
+            "reports": sum(len(on_change) for _, on_change in score.clean),
+            "wilson_lower": alarm_lower,
+            "wilson_upper": alarm_upper,
+        },
+    }
+
+
+def dev_split(x_sha: str, seed: str) -> str:
+    """Which side of DEV a case is on: ``DEV_TRAIN`` or ``DEV_CHECK``.
+
+    A pure function of the case's X sha and the seed recorded before the first
+    DEV run (DESIGN-discovery §c): no file is read and no case id is listed
+    anywhere, so the split cannot drift from the rule or be edited per case.
+    Half the shas fall on each side; the seed moves which half.
+    """
+    return DEV_TRAIN if int(sha256_hex(f"{seed}\x1f{x_sha}".encode("utf-8")), 16) % 2 else DEV_CHECK
+
+
+def feed_dev_misses(
+    paths: WorkspacePaths,
+    cases: Sequence[dict[str, Any]],
+    reports: Sequence[dict[str, Any]],
+    *,
+    seed: str,
+    tools: Sequence[dict[str, Any]],
+) -> int:
+    """Mint one ``missed_signal`` (source ``replay_dev``) per known DEV-train miss.
+
+    ``paths`` is the workspace whose memory learns. A DEV-check case is never
+    scored into it, so memory cannot hold a lesson the activation gate will
+    later be asked to confirm. Each row carries the defect's class, the hunk
+    (``refs`` is ``path:start_line``, ``hunk`` the whole window) and its
+    ``miss_class``, minted here once against ``tools`` (the live registry rows)
+    by ``observation_coverage.miss_class`` and never re-derived. A miss already
+    in memory (same change, same defect) is not minted again. Returns the number
+    of rows minted.
+    """
+    from .feedback import add_feedback, list_feedback
+    from .observation_coverage import miss_class
+
+    train = [case for case in cases if dev_split(case["x_sha"], seed) == DEV_TRAIN]
+    minted = {
+        (row.get("subject_ref"), row.get("defect_id"))
+        for row in list_feedback(paths, kind="missed_signal")
+        if row.get("source") == "replay_dev"
+    }
+    count = 0
+    for case, defect in _score_known_defects(train, reports, GOLD_LINE_WINDOW).misses:
+        key = (case["subject_ref"], defect["defect_id"])
+        if key in minted:
+            continue
+        add_feedback(paths, {
+            "kind": "missed_signal",
+            "source": "replay_dev",
+            "refs": [f"{defect['path']}:{defect['start_line']}"],
+            "summary": f"{defect['defect_class']} defect at {defect['path']}:{defect['start_line']}-{defect['end_line']} "
+                       f"was not reported on {case['subject_ref']}",
+            "subject_ref": case["subject_ref"],
+            "defect_id": defect["defect_id"],
+            "defect_class": defect["defect_class"],
+            "miss_class": miss_class(defect["path"], tools),
+            "hunk": {"path": defect["path"], "start_line": defect["start_line"], "end_line": defect["end_line"]},
+        })
+        minted.add(key)
+        count += 1
+    return count
+
+
 
 
 def _is_line_number(value: Any) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
 
 
-def _claim_hits(claim: Any, label: dict[str, Any]) -> bool:
-    """Does one defect claim name the label's file within ``ZOO_LINE_WINDOW`` lines of its lines?"""
-    return (
-        isinstance(claim, dict)
-        and claim.get("file") == label["file"]
-        and _is_line_number(claim.get("start_line"))
-        and _is_line_number(claim.get("end_line"))
-        and claim["start_line"] <= label["line_end"] + ZOO_LINE_WINDOW
-        and claim["end_line"] >= label["line_start"] - ZOO_LINE_WINDOW
-    )
+def _zoo_cases(labels: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The zoo's labels as cases: a defect label is a case with one classless defect, a control is a clean commit."""
+    return [
+        {
+            "subject_ref": str(label["id"]),
+            "defects": [] if label["kind"] == "control" else [
+                {"path": label["file"], "start_line": label["line_start"], "end_line": label["line_end"]},
+            ],
+        }
+        for label in sorted(labels, key=lambda record: str(record["id"]))
+    ]
 
 
-def _proportion(count: int, n: int) -> dict[str, Any]:
-    from .judge_calibration import wilson_interval
+def _zoo_reports(responses: dict[str, Any]) -> list[dict[str, Any]]:
+    """The change review's defect claims as reports, keyed by the label they were made on.
 
-    return {"rate": count / n if n else None, "wilson": wilson_interval(count, n)}
+    A claim whose lines are not line numbers (a float, a bool, a string, a missing key, a claim that is no object)
+    cannot hit a defect, but it is still a claim: a control that draws any claim is a false alarm (D3's rule), so it
+    is a report on its subject that no defect can match (no file, lines 0 to 0).
+    """
+    reports: list[dict[str, Any]] = []
+    for label_id, response in responses.items():
+        for claim in (response.get("details") or {}).get("defect_claims") or []:
+            if isinstance(claim, dict) and _is_line_number(claim.get("start_line")) and _is_line_number(claim.get("end_line")):
+                reports.append(
+                    {"subject_ref": label_id, "path": claim.get("file"), "start_line": claim["start_line"], "end_line": claim["end_line"]}
+                )
+            else:
+                reports.append({"subject_ref": label_id, "path": None, "start_line": 0, "end_line": 0})
+    return reports
 
 
 def score_zoo_discovery(responses: dict[str, Any], labels: list[dict[str, Any]]) -> dict[str, Any]:
@@ -300,11 +543,12 @@ def score_zoo_discovery(responses: dict[str, Any], labels: list[dict[str, Any]])
 
     ``labels`` are the zoo's records (``id``, ``kind`` ``defect`` | ``control``, ``file``, ``line_start``,
     ``line_end``); ``responses`` maps a label id to the change-intelligence answer given for that change, whose
-    ``details.defect_claims`` are the claims (an answer without any holds none). A defect with a claim that
-    hits it is a hit, otherwise a miss; a control that draws any claim is a false alarm. Each proportion
-    carries its n and the 95% Wilson interval of ``judge_calibration.wilson_interval``, the one owner.
-    A label without an answer, or an answer for no label, is refused by name: a change nobody asked about is
-    neither a miss nor a clean control. Reads nothing but its arguments and calls no model; the exit metric
+    ``details.defect_claims`` are the claims (an answer without any holds none). It is the gold corpus's
+    measurement (``_score_known_defects``) over the zoo's cases and the claims as reports, at ``ZOO_LINE_WINDOW``:
+    a defect with a claim that hits it is a hit, otherwise a miss; a control that draws any claim is a false alarm.
+    Each proportion carries its n and the 95% Wilson interval of ``judge_calibration.wilson_interval``, the one
+    owner. A label without an answer, or an answer for no label, is refused by name: a change nobody asked about
+    is neither a miss nor a clean control. Reads nothing but its arguments and calls no model; the exit metric
     (recall against the plain-model arm) is measured later on DEV with this hook.
     """
     from .tool_registry import GovernanceError
@@ -313,26 +557,14 @@ def score_zoo_discovery(responses: dict[str, Any], labels: list[dict[str, Any]])
     unanswered, unknown = sorted(known - set(responses)), sorted(set(responses) - known)
     if unanswered or unknown:
         raise GovernanceError(f"zoo_scoring_ids_disagree: no answer for {unanswered}; answers for no label {unknown}")
-    hits: list[str] = []
-    misses: list[str] = []
-    false_alarms: list[str] = []
-    controls = 0
-    for label in sorted(labels, key=lambda record: str(record["id"])):
-        label_id = str(label["id"])
-        claims = (responses[label_id].get("details") or {}).get("defect_claims") or []
-        if label["kind"] == "control":
-            controls += 1
-            if claims:
-                false_alarms.append(label_id)
-        elif any(_claim_hits(claim, label) for claim in claims):
-            hits.append(label_id)
-        else:
-            misses.append(label_id)
-    defects = len(hits) + len(misses)
-    recall, false_alarm = _proportion(len(hits), defects), _proportion(len(false_alarms), controls)
+    score = _score_known_defects(_zoo_cases(labels), _zoo_reports(responses), ZOO_LINE_WINDOW)
+    hits, misses = [case["subject_ref"] for case, _ in score.hits], [case["subject_ref"] for case, _ in score.misses]
+    false_alarms = [case["subject_ref"] for case in score.alarmed]
+    recall = _proportion(len(hits), len(hits) + len(misses))
+    false_alarm = _proportion(len(false_alarms), len(score.clean))
     return {
-        "defects": {"n": defects, "hits": hits, "misses": misses, "recall": recall["rate"], "wilson": recall["wilson"]},
-        "controls": {"n": controls, "false_alarms": false_alarms, "rate": false_alarm["rate"], "wilson": false_alarm["wilson"]},
+        "defects": {"n": len(hits) + len(misses), "hits": hits, "misses": misses, "recall": recall["rate"], "wilson": recall["wilson"]},
+        "controls": {"n": len(score.clean), "false_alarms": false_alarms, "rate": false_alarm["rate"], "wilson": false_alarm["wilson"]},
     }
 
 
@@ -357,8 +589,8 @@ def adapter_fitness_blocker(
     otherwise), be no older than the tool's freshness window and describe
     its current version, manifest and active goldset (``fitness_stale``),
     and put its precision at or above its ``precision_min``
-    (``fitness_below_threshold``). Recall is reported beside it and not
-    gated: no recall floor has been set for any adapter.
+    (``fitness_below_threshold``). The retention rate (``recall``) is reported
+    beside it and not gated: no retention floor has been set for any adapter.
     """
     from .fitness import list_fitness_reports
     from .fixture_runner import tool_manifest_hash
@@ -392,20 +624,27 @@ def adapter_fitness_blocker(
 
 
 __all__ = [
+    "DEV_CHECK",
+    "DEV_TRAIN",
     "FITNESS_BELOW_THRESHOLD",
     "FITNESS_STALE",
     "FITNESS_UNMEASURED",
+    "GOLD_LINE_WINDOW",
     "MEASURED",
     "ROLE_FITNESS_SCHEMA",
     "UNMEASURED_NO_CANARY_CORPUS",
     "UNMEASURED_NO_CANARY_VERDICTS",
+    "UNMEASURED_NO_DISCOVERY_CASES",
     "UNMEASURED_NO_GOLDSET",
     "UNMEASURED_NO_LABELLED_EMISSION",
     "UNMEASURED_NO_OK_RUN",
     "UNMEASURED_NO_REPLAY_VERDICT",
     "ZOO_LINE_WINDOW",
     "adapter_fitness_blocker",
+    "dev_split",
+    "feed_dev_misses",
     "goldset_hash",
+    "measure_discovery_recall",
     "measure_role_fitness",
     "score_zoo_discovery",
 ]

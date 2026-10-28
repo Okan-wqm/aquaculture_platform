@@ -24,6 +24,14 @@ tier-0 gate, the judge fan-out and the verdict-cache key read ONE list) and
 the arbiter's producer ask ONE predicate). At the branch base neither family
 exists in the atlas and ``item_citations.py`` does not exist, which each new
 test reports as an assertion failure.
+
+D9a (ARIA-HIGH-758, ARIA-MEDIUM-761) adds one family, ``discovery_scoring``, owned by role_fitness: the matcher
+that says whether a report hits a known defect and the one fold over (cases, reports) that ``score_zoo_discovery``
+(D3) and ``measure_discovery_recall`` (D9) both call. Its retired spellings are ``_claim_hits`` and ``_reports_hit``
+(the two matchers); the atlas cannot see inside the owner's own module, so the three retired spellings
+(``_wilson_interval`` too), the one matcher and the one Wilson route are also pinned on role_fitness's own source
+(``TheDiscoveryScoringOwnerHoldsOneMatcherAndOneWilsonRoute``). At the branch base the family does not exist and
+role_fitness holds both matchers and a second Wilson spelling, which each of those tests reports as an assertion.
 """
 from __future__ import annotations
 
@@ -57,6 +65,8 @@ SINGLE_OWNER = {
     "python_source_facts": f"{_KERNEL}source_facts.py",
     # F1.1 — the learning journal: memory.record_learning_event, no other writer (goldset and pr_tracking routed).
     "learning_log": f"{_KERNEL}memory.py",
+    # F1.8(a) — the paired gain decision: compare_eval_windows' paired mode, its e-process and the one McNemar tail.
+    "paired_gain_decision": f"{_KERNEL}agent_eval.py",
     # J4 — one reading of an item's citations (the retired private readers: tier0._item_refs, judgment_funnel._item_cited_refs).
     "item_citations": f"{_KERNEL}item_citations.py",
     # J4 — one mixed-tree predicate (the retired private spellings: feedback_store._target_shas, ._common_target_sha).
@@ -83,6 +93,9 @@ SINGLE_OWNER = {
     "decision_stamp": f"{_KERNEL}decision_stamp.py",
     # "this subject's change is in flight": the one fold the F loop guard reads.
     "change_in_flight": f"{_KERNEL}finding_grounding.py",
+    # D9a — "a known defect was hit or missed, a clean commit was alarmed": one matcher and one fold in role_fitness,
+    # called by the zoo scorer (window ZOO_LINE_WINDOW, no class) and the gold-corpus block (window 0, the defect's class).
+    "discovery_scoring": f"{_KERNEL}role_fitness.py",
 }
 
 # One planted second owner per family: a second writer of the family's ledger
@@ -113,6 +126,13 @@ _PLANTED = {
         "append_declared_jsonl(root / 'memory' / 'learning-events.jsonl', row, expected_surface='memory_learning_events')\n",
         "append_jsonl(root / 'memory' / 'learning-events.jsonl', row)\n",
         "append_declared_jsonl(path, row, expected_surface='memory_learning_events')\n",
+    ),
+    # A second e-value, a second sequential verdict or a second McNemar tail under the owner's names (F1.8(a)).
+    "paired_gain_decision": (
+        "def paired_e_value(candidate_only, incumbent_only):\n    return 1\n",
+        "def sequential_paired_verdict(candidate_only, incumbent_only, *, alpha, min_discordant_pairs):\n"
+        "    return ('flat', 1, 1)\n",
+        "def _upper_tail(successes, trials):\n    return 0.5\n",
     ),
     # J4 — a second reader of the item's citations under the owner's name, the cited-line helper, and the two retired names.
     "item_citations": (
@@ -160,6 +180,12 @@ _PLANTED = {
         "def stamp_route_key(stamp):\n    return 'unstamped'\n",
     ),
     "change_in_flight": ("def _in_flight_state(plan_id, tools_root, lifecycle):\n    return None\n",),
+    # D9a — the two retired matchers: the zoo's (same file, +-10 lines, no class) and the gold corpus's (same path,
+    # overlap, same class). Either returning in another module is a second matcher.
+    "discovery_scoring": (
+        "def _claim_hits(claim, label):\n    return False\n",
+        "def _reports_hit(defect, reports_on_change):\n    return False\n",
+    ),
 }
 
 
@@ -278,6 +304,175 @@ class AFifthReaderOfTheCitedLineIsRed(unittest.TestCase):
                     [o for o in offenders if o.startswith(f"{_FORGED}:")],
                     [f"{_FORGED}:1:item_citations"],
                 )
+
+
+# --- D9a: what the atlas cannot see, the owner's own module ---------------------------------------------------------
+_ROLE_FITNESS = f"{_KERNEL}role_fitness.py"
+_RETIRED_DISCOVERY_SPELLINGS = ("_claim_hits", "_reports_hit", "_wilson_interval")
+# The fields a defect and a report locate themselves by (the gold corpus's and the zoo label's spellings).
+_LINE_FIELDS = frozenset({"start_line", "end_line", "line_start", "line_end"})
+_ORDERING = (ast.Lt, ast.LtE, ast.Gt, ast.GtE)
+_WILSON_OWNER_NAME = "wilson_interval"
+_WILSON_ROUTE = "_proportion"
+
+
+def _spelled(node: ast.AST) -> list[str]:
+    """Every identifier a node introduces or uses: definitions, names, attributes, imports (and their aliases), parameters."""
+    return [getattr(node, attr) for attr in ("name", "id", "attr", "asname", "arg") if isinstance(getattr(node, attr, None), str)]
+
+
+def _retired_spellings(source: str) -> list[str]:
+    tree = ast.parse(source)
+    return sorted({spelled for node in ast.walk(tree) for spelled in _spelled(node) if spelled in _RETIRED_DISCOVERY_SPELLINGS})
+
+
+def _own_nodes(function: ast.AST) -> list[ast.AST]:
+    """The nodes of a function's own body: a nested function is another function and answers for its own nodes."""
+    nodes: list[ast.AST] = []
+    pending = list(ast.iter_child_nodes(function))
+    while pending:
+        node = pending.pop()
+        nodes.append(node)
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            pending.extend(ast.iter_child_nodes(node))
+    return nodes
+
+
+def _line_matchers(source: str) -> list[str]:
+    """The functions that ORDER the line fields of two records (``report["start_line"] <= defect["end_line"] + window``).
+
+    One function that compares lines is one matcher: an ordering comparison one of whose operands names a line
+    field as a string key (a subscript, or a ``.get`` argument). The zoo adapter that turns labels into cases and
+    claims into reports builds dicts and calls the matcher; it orders no line fields itself.
+    """
+    matchers = []
+    for function in ast.walk(ast.parse(source)):
+        if not isinstance(function, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        for node in _own_nodes(function):
+            if (isinstance(node, ast.Compare) and any(isinstance(op, _ORDERING) for op in node.ops)
+                    and any(isinstance(leaf, ast.Constant) and leaf.value in _LINE_FIELDS for leaf in ast.walk(node))):
+                matchers.append(function.name)
+                break
+    return sorted(matchers)
+
+
+def _wilson_routes(source: str) -> tuple[list[str], int]:
+    """(offenders, uses of the owner inside the one route).
+
+    A second Wilson spelling is a definition, an import or a call whose name mentions "wilson" and is not
+    ``judge_calibration.wilson_interval``; a use of that owner (a name or an attribute read, not its import) is an
+    offender unless it sits in ``_proportion``. A variable that merely carries an interval's bound is no spelling.
+    """
+    tree = ast.parse(source)
+    inside = {id(node) for function in ast.walk(tree) if isinstance(function, ast.FunctionDef) and function.name == _WILSON_ROUTE
+              for node in ast.walk(function)}
+    offenders, uses_inside = [], 0
+    for node in ast.walk(tree):
+        line = getattr(node, "lineno", 0)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.alias)):
+            if "wilson" in node.name.lower() and node.name != _WILSON_OWNER_NAME:
+                offenders.append(f"{line}:{node.name}")
+        elif isinstance(node, ast.Call):
+            callee = node.func.id if isinstance(node.func, ast.Name) else node.func.attr if isinstance(node.func, ast.Attribute) else ""
+            if "wilson" in callee.lower() and callee != _WILSON_OWNER_NAME:
+                offenders.append(f"{line}:{callee}")
+        if isinstance(node, (ast.Name, ast.Attribute)) and isinstance(node.ctx, ast.Load) and _spelled(node) == [_WILSON_OWNER_NAME]:
+            if id(node) in inside:
+                uses_inside += 1
+            else:
+                offenders.append(f"{line}:{_WILSON_OWNER_NAME} outside {_WILSON_ROUTE}")
+    return sorted(offenders), uses_inside
+
+
+class TheDiscoveryScoringScansCatchEveryShape(unittest.TestCase):
+    """The scans are pinned on planted shapes first (green at the base: they test the scans, not role_fitness)."""
+
+    _FIRST_MATCHER = (
+        "def _reports_hit(defect, reports):\n"
+        "    return any(r['path'] == defect['path'] and r['start_line'] <= defect['end_line']\n"
+        "               and defect['start_line'] <= r['end_line'] for r in reports)\n"
+    )
+    _SECOND_MATCHER = (
+        "def _claim_hits(claim, label):\n"
+        "    return claim.get('start_line') <= label['line_end'] + 10 and claim['end_line'] >= label['line_start'] - 10\n"
+    )
+    _ONE_MATCHER_WITH_A_WINDOW = (
+        "def lines_hit(defect, report, window):\n"
+        "    return report['start_line'] <= defect['end_line'] + window and defect['start_line'] - window <= report['end_line']\n"
+    )
+    _ADAPTER = (
+        "def as_cases(labels):\n"
+        "    return [{'start_line': label['line_start'], 'end_line': label['line_end']} for label in labels if len(label) > 0]\n"
+    )
+
+    def test_a_line_matcher_is_found_in_either_spelling_and_in_a_unified_one(self) -> None:
+        for shape, expected in ((self._FIRST_MATCHER, ["_reports_hit"]), (self._SECOND_MATCHER, ["_claim_hits"]),
+                                (self._ONE_MATCHER_WITH_A_WINDOW, ["lines_hit"])):
+            with self.subTest(shape=shape.splitlines()[0]):
+                self.assertEqual(_line_matchers(shape), expected)
+
+    def test_a_second_matcher_beside_the_first_is_counted_and_an_adapter_is_not_one(self) -> None:
+        self.assertEqual(_line_matchers(self._ONE_MATCHER_WITH_A_WINDOW + "\n" + self._SECOND_MATCHER), ["_claim_hits", "lines_hit"])
+        self.assertEqual(_line_matchers(self._ONE_MATCHER_WITH_A_WINDOW + "\n" + self._ADAPTER), ["lines_hit"])
+
+    def test_a_nested_matcher_is_counted_once_under_its_own_name(self) -> None:
+        nested = "def outer(a, b):\n    def inner(x, y):\n        return x['start_line'] <= y['end_line']\n    return inner(a, b)\n"
+        self.assertEqual(_line_matchers(nested), ["inner"])
+
+    def test_every_retired_spelling_is_found_as_a_definition_a_call_an_import_and_an_alias(self) -> None:
+        for name in _RETIRED_DISCOVERY_SPELLINGS:
+            for shape in (f"def {name}(a, b):\n    return a\n", f"x = {name}(1, 2)\n", f"from .m import {name}\n",
+                          f"from .m import other as {name}\n", f"y = module.{name}\n"):
+                with self.subTest(name=name, shape=shape.splitlines()[0]):
+                    self.assertEqual(_retired_spellings(shape), [name])
+
+    def test_a_second_wilson_spelling_is_an_offender_and_the_one_route_is_not(self) -> None:
+        route = f"def {_WILSON_ROUTE}(count, n):\n    return {_WILSON_OWNER_NAME}(count, n)\n"
+        self.assertEqual(_wilson_routes(route), ([], 1))
+        lazy = (f"def {_WILSON_ROUTE}(count, n):\n    from .judge_calibration import {_WILSON_OWNER_NAME}\n"
+                f"    return {_WILSON_OWNER_NAME}(count, n)\n")
+        self.assertEqual(_wilson_routes(lazy), ([], 1))
+        for forged, shape in (
+            ("a second spelling", "def _wilson_interval(k, n):\n    return None, None\n"),
+            ("a renamed second spelling", "def _interval_wilson_pair(k, n):\n    return None, None\n"),
+            ("the lower bound's owner name", "from .judge_calibration import wilson_lower\n"),
+            ("the owner called outside the route", route + "\ndef other(k, n):\n    return wilson_interval(k, n)\n"),
+            ("the owner reached by attribute outside the route", route + "\ndef other(k, n):\n    return calibration.wilson_interval(k, n)\n"),
+        ):
+            with self.subTest(forged):
+                self.assertTrue(_wilson_routes(shape)[0], shape)
+
+
+class TheDiscoveryScoringOwnerHoldsOneMatcherAndOneWilsonRoute(unittest.TestCase):
+    """SPEC D9a ruling 1 and 3, on role_fitness's own source (the atlas exempts the owner's module)."""
+
+    @staticmethod
+    def _source() -> str:
+        return (_REPO_ROOT / _ROLE_FITNESS).read_text(encoding="utf-8")
+
+    def test_the_retired_spellings_are_gone(self) -> None:
+        self.assertEqual(
+            _retired_spellings(self._source()), [],
+            "role_fitness still holds a retired spelling of the matcher or of the Wilson interval: one matcher with "
+            "one name remains (`_claim_hits` and `_reports_hit` are retired), one Wilson spelling "
+            "(`_wilson_interval` is retired; `judge_calibration.wilson_interval` through `_proportion`)",
+        )
+
+    def test_exactly_one_function_orders_the_line_fields_of_a_defect_and_a_report(self) -> None:
+        matchers = _line_matchers(self._source())
+        self.assertEqual(
+            len(matchers), 1,
+            f"role_fitness has {len(matchers)} line matchers {matchers}: the zoo scorer and the gold-corpus block call ONE "
+            "matcher (a report hits a defect on the same file when its lines overlap the defect's widened by the "
+            "caller's window; the class agrees when, and only when, the defect names one)",
+        )
+
+    def test_the_one_wilson_route_is_judge_calibration_wilson_interval_through_proportion(self) -> None:
+        offenders, uses = _wilson_routes(self._source())
+        self.assertEqual(offenders, [], "role_fitness spells the Wilson interval some way other than `_proportion` -> "
+                                        "`judge_calibration.wilson_interval`")
+        self.assertGreaterEqual(uses, 1, f"`{_WILSON_ROUTE}` does not call `judge_calibration.{_WILSON_OWNER_NAME}`")
 
 
 if __name__ == "__main__":

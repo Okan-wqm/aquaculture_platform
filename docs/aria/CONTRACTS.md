@@ -1269,8 +1269,14 @@ positives, confirmed signals, unknown capabilities, external contradictions, and
 Allowed `kind` values: `missed_signal`, `false_positive`, `confirmed_signal`, `unknown_capability`,
 `external_contradiction`, `closed_signal` (`aria_kernel/feedback.py::FEEDBACK_KINDS`).
 
-Allowed `source` values: `self`, `operator`, `external_scanner`, `ai_judge`, `manual_audit`
+Allowed `source` values: `self`, `operator`, `external_scanner`, `ai_judge`, `manual_audit`, `replay_dev`
 (`aria_kernel/feedback.py::FEEDBACK_SOURCES`).
+
+A `replay_dev` row is ARIA's own miss on a replayed DEV-train change, minted once per known miss by
+`role_fitness.feed_dev_misses`; a DEV-check case never produces one. Besides the fields above it carries
+`subject_ref`, `defect_id`, `defect_class`, `hunk` (`path`, `start_line`, `end_line`; `refs` is
+`path:start_line`) and `miss_class`, fixed at mint time (`no_coverage` when no adapter observes the file,
+else `observed_unreported`; both owned by `aria_kernel/observation_coverage.py`).
 
 `capability_gap_key` is deterministic: `surface:failure_mode:parser_kind`. Three independent
 feedback refs with the same key may produce pressure, but Phase 0 cannot execute skill birth.

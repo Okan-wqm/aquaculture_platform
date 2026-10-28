@@ -1,0 +1,33 @@
+{
+  "name": "semantic-file-name-records",
+  "lane": "semantic_regression",
+  "input": {
+    "roots": [
+      "tools/aria-adapters/fixtures/doc-staleness-adapter/workspaces/file-name-records/docs"
+    ]
+  },
+  "expected": {
+    "status": "ok",
+    "required_findings": ["doc_references_missing_path"],
+    "findings_count": 4
+  },
+  "curation": {
+    "curator": "claude/ARIA-MEDIUM-1108 doc-staleness point-in-time file name (a base name holding the token report, review, audit, verification, spec, plan, inventory, findings or retro is a record)",
+    "gold_set": {
+      "true_positive_count": 4,
+      "known_false_positive_count": 9,
+      "true_positive_shapes": ["name_contains_token_as_substring", "token_only_in_directory_name"],
+      "false_positive_classes": [
+        "name_token_report",
+        "name_token_review",
+        "name_token_audit",
+        "name_token_verification",
+        "name_token_spec",
+        "name_token_plan",
+        "name_token_inventory",
+        "name_token_findings",
+        "name_token_retro"
+      ]
+    }
+  }
+}

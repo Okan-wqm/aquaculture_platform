@@ -1,0 +1,32 @@
+{
+  "name": "semantic-create-table-rows",
+  "lane": "semantic_regression",
+  "input": {
+    "roots": [
+      "tools/aria-adapters/fixtures/doc-staleness-adapter/workspaces/create-table-rows/docs"
+    ]
+  },
+  "expected": {
+    "status": "ok",
+    "required_findings": ["doc_references_missing_path"],
+    "findings_count": 3
+  },
+  "curation": {
+    "curator": "claude/ARIA-MEDIUM-1108 doc-staleness Create or New table row (a table cell that is exactly Create, New, Oluştur or YENİ marks the file in its row as to be created)",
+    "gold_set": {
+      "true_positive_count": 3,
+      "known_false_positive_count": 4,
+      "true_positive_shapes": [
+        "modify_row",
+        "cell_renewal_is_not_new",
+        "cell_created_is_not_create"
+      ],
+      "false_positive_classes": [
+        "table_row_create",
+        "table_row_new",
+        "table_row_olustur",
+        "table_row_yeni"
+      ]
+    }
+  }
+}

@@ -55,6 +55,14 @@ learning router sends that gap to adapter authoring — because a root
 nothing can parse needs a READER, and a review agent is not one. The
 per-root `unparsed_file_types` is what makes the gap an assignment rather
 than a complaint: it names the parser that has to exist.
+
+THE CLASS OF A MISS (WP-D9, PLAN-v2 'Kacirma sinifi'). A known defect ARIA did
+not report is classed ONCE, when its `missed_signal` is minted, by the one
+question this module already answers: does any adapter observe the file? No
+adapter observing it is `NO_COVERAGE` (a blind spot: the remedy is a reader);
+an observed file ARIA still did not report is
+`OBSERVED_UNREPORTED` (the remedy is a better detector, not a wider scope).
+There is no separate "miss analysis" run, and the two literals live here only.
 """
 from __future__ import annotations
 
@@ -143,6 +151,17 @@ def _matches(path: str, glob: str) -> bool:
     return matches_repo_glob(path, glob)
 
 
+def _observing_scopes(tools: Sequence[dict[str, Any]]) -> dict[str, tuple[str, ...]]:
+    """Each observing row's typed globs: the one reading of which rows observe."""
+    from .tool_registry import observing_globs
+
+    return {str(tool["tool_id"]): globs for tool in tools if (globs := observing_globs(tool))}
+
+
+def _observers_of(path: str, scopes: dict[str, tuple[str, ...]]) -> list[str]:
+    return [tool for tool, globs in scopes.items() if any(_matches(path, g) for g in globs)]
+
+
 def _root_of(path: str) -> str:
     return path.split("/", 1)[0] if "/" in path else "(repository root)"
 
@@ -204,13 +223,9 @@ def derive_observation_map(
     files: Iterable[str] | None = None,
 ) -> tuple[RootCoverage, ...]:
     """Per-root coverage of the tracked tree by the observing globs of ``tools``."""
-    from .tool_registry import observing_globs
-
     root = Path(workspace_root)
     tracked = list(files) if files is not None else _tracked_files(root)
-    scopes = {
-        str(tool["tool_id"]): globs for tool in tools if (globs := observing_globs(tool))
-    }
+    scopes = _observing_scopes(tools)
     policy = load_policy(root)
     unowned: dict[str, str] = {
         str(entry.get("root")): str(entry.get("reason") or "")
@@ -231,7 +246,7 @@ def derive_observation_map(
     parsable_types: set[str] = set()
     for paths in by_root.values():
         for path in paths:
-            hit = [tool for tool, globs in scopes.items() if any(_matches(path, g) for g in globs)]
+            hit = _observers_of(path, scopes)
             if hit:
                 hits_by_path[path] = hit
                 parsable_types.add(file_type_of(path))
@@ -280,6 +295,22 @@ def derive_observation_map(
             )
         )
     return tuple(rows)
+
+
+# The class a missed_signal carries (WP-D9). The vocabulary is owned here, with
+# the question that decides it: whether any adapter observes the missed file.
+NO_COVERAGE: str = "no_coverage"
+OBSERVED_UNREPORTED: str = "observed_unreported"
+
+
+def miss_class(path: str, tools: Sequence[dict[str, Any]]) -> str:
+    """The class of a miss on ``path`` against the registry rows ``tools``.
+
+    ``NO_COVERAGE`` when no adapter observes the file, else
+    ``OBSERVED_UNREPORTED``. The caller mints it once with the missed_signal and
+    never re-derives it: the registry may have grown a reader since.
+    """
+    return OBSERVED_UNREPORTED if _observers_of(path, _observing_scopes(tools)) else NO_COVERAGE
 
 
 def evaluate_observation_coverage(

@@ -19,7 +19,7 @@ vi.mock('@aquaculture/shared-ui', async () =>
   (await import('../../../test-utils/sharedUiMock')).createSharedUiMock(),
 );
 
-import { requestMock } from '../../../test-utils/sharedUiMock';
+import { requestMock, TEST_USER_ID } from '../../../test-utils/sharedUiMock';
 import { routeGraphql } from '../../../test-utils/mockGraphqlClient';
 import { renderWithProviders } from '../../../test-utils/renderWithProviders';
 import TanksPage from '../TanksPage';
@@ -409,6 +409,11 @@ describe('TanksPage', () => {
       expect(input.input.batchId).toBe('batch-1');
       expect(input.input.individualMeasurements).toHaveLength(3);
       expect(input.input.updateBatchWeight).toBe(true);
+      // FARM-HIGH-482 — the wire contract: enum NAMES (a lowercase value dies at
+      // variable coercion) and the measurer as a user id (a name is not a uuid).
+      expect(input.input.measurementType).toBe('ROUTINE');
+      expect(input.input.measurementMethod).toBe('MANUAL_SCALE');
+      expect(input.input.measuredBy).toBe(TEST_USER_ID);
     });
   });
 

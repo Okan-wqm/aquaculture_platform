@@ -64,10 +64,17 @@ so the Board's agreement is measured against reality and never the
 reverse.
 
 PRECONDITION on ``gain_confirmed`` (F3.3b, D3): no F4.1 counter, episode,
-lift or any other learning reader may consume it before F3.3c
+lift or any other learning reader may rely on it before F3.3c
 (``post_merge_ci`` and ``reverted``) lands. #1906 was red after its merge
 and reads ``gain_confirmed`` through ``closure_by_any_author`` while
-those two metrics are still unread.
+those two metrics are still unread. One reader ALREADY exists:
+``convention_usefulness.measure_convention_lift`` counts ``gain_confirmed``
+as a success and runs nightly through ``fitness`` into the operator inbox, so
+a reconciler-closed merge of the #1906 shape counts as a success there from
+this change. The impact is bounded today (the lift needs three matched
+requests, none of the recorded requests carried a convention, and the report
+is observational); it is registered as a finding with this change and F3.3c
+closes it.
 
 The aggregate lands in ``cycles_rejected`` — the column after
 ``cycles_merged`` in ``knowledge-graph/pressure-source-effectiveness

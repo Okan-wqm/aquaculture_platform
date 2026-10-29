@@ -240,6 +240,46 @@ fixed by an upgrade. None is excepted.
 - Dev only: module-federation type generation and Testcontainers.
 - Fix: the override `^7.30.1`, the floor and the lock move to 7.30.1.
 
+## 2026-10-29: advisories published on 2026-10-28 turn root-production and root-full red
+
+On main 645c5313 every leg was clean at 2026-10-28T16:05Z (CI - Affected run
+40721325914). The advisories below were published later that evening. On
+2026-10-29 the gate failed `root-production` and `root-full` on a PR that does
+not touch either package (run 40947682648). Every open PR inherits the red legs.
+
+### SUPPLY-HIGH-038 — graphql-scalars: PhoneNumber ReDoS
+
+- GHSA-x8rm-f576-gq67 (high), published 2026-10-28T21:13Z: the `PhoneNumber`
+  scalar's pattern is vulnerable to regular-expression denial of service.
+  Affected `<=2.0.0`, patched 2.0.1. No 1.x release is patched.
+- npm suggests 2.0.1 and marks it breaking. The 2.0.0 breaking changes are:
+  - support for graphql-js below 16 is dropped. The root graph resolves
+    graphql 16.14.2, and the new peer range is `^16.0.0 || ^17.0.0`;
+  - support for Node.js 20 is dropped. CI and every backend image run
+    Node 22. `.nvmrc` still pins 20.11.0 and the root `engines.node` is
+    `>=20.11.0`; the package still declares `engines.node >=10`, and its
+    JSON scalars behave on Node 20.11.0 as on Node 22 (below).
+  Neither change breaks this repository.
+- The platform uses one export. 60 files (57 in sensor-service, 3 in
+  hydroponics-service) import `{ GraphQLJSON } from 'graphql-scalars'`.
+  Nothing imports `PhoneNumber`.
+- The published 1.25.0 and 2.0.1 trees differ in `error.js` and
+  `scalars/PhoneNumber.js` (CommonJS and ESM) and in `package.json` only.
+  `scalars/json`, its typings and the index files are byte-identical. The
+  package layout and the `exports` map are the same.
+- `scalars/json/utils.js` throws through `error.js` when a `JSONObject`
+  literal is not an object, so that change is on the platform's path. It
+  wraps a single AST node into an array before the graphql-16 `GraphQLError`
+  constructor, which graphql 16.14.2 already does itself. On one graphql
+  16.14.2 instance, 1.25.0 and 2.0.1 give identical results for 17 queries
+  through a schema that uses both JSON scalars, and identical errors, field
+  by field (`nodes`, `locations`, `positions`), for 5 non-object literals, on
+  Node 22 and on Node 20.11.0.
+- Not excepted: a patched release exists.
+- Fix: the root dependency `^2.0.1`, a dependency-security floor
+  (`graphql-scalars: '2.0.1'`, declared in `dependencies`) and the lock move
+  to 2.0.1.
+
 ## SUPPLY-MEDIUM-020 — tailwind 3 postcss-selector-parser is quadratic (open, excepted)
 
 - `postcss-selector-parser` below 7.1.6 (GHSA-rj75-hqrm-r3gf), reached through

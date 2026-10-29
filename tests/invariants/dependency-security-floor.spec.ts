@@ -129,6 +129,11 @@ const ROOT_SECURITY_FLOORS = {
   // GHSA-qqmp-wf37-98f9: the instrumentations bundled before 0.81.0 put the
   // database user name on every span as db.user.
   '@opentelemetry/auto-instrumentations-node': '0.81.0',
+  // GHSA-x8rm-f576-gq67 (high, fixed in 2.0.1): ReDoS in the PhoneNumber
+  // scalar. Every release up to 2.0.0 is affected; no 1.x is patched. The
+  // platform imports only GraphQLJSON, whose code 2.0.1 ships unchanged
+  // (SUPPLY-HIGH-038).
+  'graphql-scalars': '2.0.1',
 } as const satisfies Readonly<Record<string, SecurityFloor>>;
 
 interface RootFloorDeclaration {
@@ -155,6 +160,7 @@ const ROOT_FLOOR_DECLARATIONS: readonly RootFloorDeclaration[] = [
   { dependency: 'undici', field: 'overrides' },
   { dependency: 'proxy-addr', field: 'overrides' },
   { dependency: '@opentelemetry/auto-instrumentations-node', field: 'dependencies' },
+  { dependency: 'graphql-scalars', field: 'dependencies' },
 ];
 
 /**

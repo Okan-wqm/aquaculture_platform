@@ -134,6 +134,11 @@ const ROOT_SECURITY_FLOORS = {
   // platform imports only GraphQLJSON, whose code 2.0.1 ships unchanged
   // (SUPPLY-HIGH-038).
   'graphql-scalars': '2.0.1',
+  // GHSA-rmxm-3fg6-px4f (moderate, fixed in 2.1.3): serveStatic decodes the
+  // request path a second time. Reached through @modelcontextprotocol/sdk's
+  // `^1.19.9 || ^2.0.5`, so the lock is the only place this floor lives
+  // (SUPPLY-MEDIUM-039).
+  '@hono/node-server': '2.1.3',
 } as const satisfies Readonly<Record<string, SecurityFloor>>;
 
 interface RootFloorDeclaration {

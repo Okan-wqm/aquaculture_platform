@@ -280,6 +280,21 @@ not touch either package (run 40947682648). Every open PR inherits the red legs.
   (`graphql-scalars: '2.0.1'`, declared in `dependencies`) and the lock move
   to 2.0.1.
 
+### SUPPLY-MEDIUM-039 — @hono/node-server: serveStatic double decoding
+
+- GHSA-rmxm-3fg6-px4f (moderate), published 2026-10-28T21:05Z: `serveStatic`
+  decodes the request path a second time, so middleware on static paths can
+  be bypassed. Affected `>=1.19.10 <2.1.3`, patched 2.1.3. Only the
+  root-production leg turns red, because the advisory is moderate.
+- The lock resolved 2.1.0. Its only dependent is `@modelcontextprotocol/sdk`,
+  which asks for `^1.19.9 || ^2.0.5`. No workspace declares hono or
+  `@hono/node-server`, and no source file imports either.
+- The gate reported "a non-breaking fix is available". Not excepted.
+- Fix: a lock-only lift to 2.1.5 (2026-10-13), the latest 2.1.x. 2.1.1 to
+  2.1.5 are patch releases. 2.1.4 widens the peer range to
+  `hono ^4 || ^5.0.0-0`, and hono stays 4.13.13. The floor table carries
+  `@hono/node-server: '2.1.3'`.
+
 ## SUPPLY-MEDIUM-020 — tailwind 3 postcss-selector-parser is quadratic (open, excepted)
 
 - `postcss-selector-parser` below 7.1.6 (GHSA-rj75-hqrm-r3gf), reached through

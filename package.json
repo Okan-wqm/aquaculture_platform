@@ -241,7 +241,7 @@
     "graphql": "^16.12.0",
     "graphql-depth-limit": "^1.1.0",
     "graphql-query-complexity": "^1.1.0",
-    "graphql-scalars": "^1.25.0",
+    "graphql-scalars": "^2.0.1",
     "graphql-type-json": "^0.3.2",
     "helmet": "^7.2.0",
     "immer": "^11.1.4",

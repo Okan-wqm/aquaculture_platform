@@ -240,6 +240,84 @@ fixed by an upgrade. None is excepted.
 - Dev only: module-federation type generation and Testcontainers.
 - Fix: the override `^7.30.1`, the floor and the lock move to 7.30.1.
 
+## 2026-10-29: advisories published on 2026-10-28 turn root-production and root-full red
+
+On main 645c5313 every leg was clean at 2026-10-28T16:05Z (CI - Affected run
+40721325914). The advisories below were published later that evening. On
+2026-10-29 the gate failed `root-production` and `root-full` on a PR that does
+not touch either package (run 40947682648). Every open PR inherits the red legs.
+
+### SUPPLY-HIGH-038 — graphql-scalars: PhoneNumber ReDoS
+
+- GHSA-x8rm-f576-gq67 (high), published 2026-10-28T21:13Z: the `PhoneNumber`
+  scalar's pattern is vulnerable to regular-expression denial of service.
+  Affected `<=2.0.0`, patched 2.0.1. No 1.x release is patched.
+- npm suggests 2.0.1 and marks it breaking. Neither of the two 2.0.0 breaking
+  changes breaks this repository:
+  - support for graphql-js below 16 is dropped. The root graph resolves
+    graphql 16.14.2, and the new peer range is `^16.0.0 || ^17.0.0`;
+  - support for Node.js 20 is dropped. CI and every backend image run
+    Node 22. `.nvmrc` still pins 20.11.0 and the root `engines.node` is
+    `>=20.11.0`; the package still declares `engines.node >=10`, and its
+    JSON scalars behave on Node 20.11.0 as on Node 22 (below).
+- The platform uses one export. 60 files (57 in sensor-service, 3 in
+  hydroponics-service) import `{ GraphQLJSON } from 'graphql-scalars'`.
+  Nothing imports `PhoneNumber`.
+- The published 1.25.0 and 2.0.1 trees differ in `error.js` and
+  `scalars/PhoneNumber.js` (CommonJS and ESM) and in `package.json` only.
+  `scalars/json`, its typings and the index files are byte-identical. The
+  package layout and the `exports` map are the same.
+- `scalars/json/utils.js` throws through `error.js` when a `JSONObject`
+  literal is not an object, so that change is on the platform's path. It
+  wraps a single AST node into an array before the graphql-16 `GraphQLError`
+  constructor, which graphql 16.14.2 already does itself. On one graphql
+  16.14.2 instance, 1.25.0 and 2.0.1 give identical results for 17 queries
+  through a schema that uses both JSON scalars, and identical errors, field
+  by field (`nodes`, `locations`, `positions`), for 5 non-object literals, on
+  Node 22 and on Node 20.11.0.
+- Not excepted: a patched release exists.
+- Fix: the root dependency `^2.0.1`, a dependency-security floor
+  (`graphql-scalars: '2.0.1'`, declared in `dependencies`) and the lock move
+  to 2.0.1.
+
+### SUPPLY-MEDIUM-039 — @hono/node-server: serveStatic double decoding
+
+- GHSA-rmxm-3fg6-px4f (moderate), published 2026-10-28T21:05Z: `serveStatic`
+  decodes the request path a second time, so middleware on static paths can
+  be bypassed. Affected `>=1.19.10 <2.1.3`, patched 2.1.3. Only the
+  root-production leg turns red, because the advisory is moderate.
+- The lock resolved 2.1.0. Its only dependent is `@modelcontextprotocol/sdk`,
+  which asks for `^1.19.9 || ^2.0.5`. No workspace declares hono or
+  `@hono/node-server`, and no source file imports either.
+- The gate reported "a non-breaking fix is available". Not excepted.
+- Fix: a lock-only lift to 2.1.5 (2026-10-13), the latest 2.1.x. 2.1.1 to
+  2.1.5 are patch releases. 2.1.4 widens the peer range to
+  `hono ^4 || ^5.0.0-0`, and hono stays 4.13.13. The floor table carries
+  `@hono/node-server: '2.1.3'`.
+
+## 2026-10-29: systeminformation
+
+GHSA-3f7j-7jwc-fxfj was published at 2026-10-28T22:42Z, after the two
+advisories above. On main 645c5313 it turns `root-production` and `root-full`
+red as well.
+
+### SUPPLY-HIGH-041 — systeminformation 5.33.15: Windows command injection in services()
+
+- GHSA-3f7j-7jwc-fxfj (high): command injection in `services()` on Windows.
+  Affected `<5.33.16`, patched 5.33.16.
+- Reached in production through `@opentelemetry/auto-instrumentations-node`,
+  whose `@opentelemetry/instrumentation-host-metrics` asks for `^5.31.6`. No
+  manifest declares systeminformation. The lock resolved 5.33.15.
+- The flaw needs Windows, and every backend image is Linux. It is fixed anyway:
+  a patched release exists inside the declared range.
+- The gate reported "a non-breaking fix is available". Not excepted. Not
+  CRITICAL, so the debt-plan truth table does not change.
+- Fix: a lock-only lift to 5.33.18, the npm `latest` on 2026-10-29; npm
+  changes only this entry. The floor table carries
+  `systeminformation: '5.33.16'`, the first patched release, so a lock refresh
+  cannot slide back. No manifest declares the package, so it has no
+  `ROOT_FLOOR_DECLARATIONS` entry, like `engine.io` and `body-parser`.
+
 ## SUPPLY-MEDIUM-020 — tailwind 3 postcss-selector-parser is quadratic (open, excepted)
 
 - `postcss-selector-parser` below 7.1.6 (GHSA-rj75-hqrm-r3gf), reached through

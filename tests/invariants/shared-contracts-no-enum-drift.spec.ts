@@ -110,6 +110,9 @@ describe('INVARIANT (ORPHAN-087): shared-contracts declares no domain enums', ()
       // throws them, the device page words them in the user's language — one
       // frozen object, so the two cannot drift.
       './measurement/sensor-placement',
+      // Sensor broker-credential refusal codes (ADR-047): the same shape, for
+      // issuing and rotating a sensor's own MQTT principal.
+      './measurement/sensor-mqtt-identity',
       // The module dictionary (RBAC-MEDIUM-023): the one declaration of the
       // platform's module codes, read by the backend services, the GraphQL
       // enums, the migrations' invariant and the web nav alike. Frozen objects,

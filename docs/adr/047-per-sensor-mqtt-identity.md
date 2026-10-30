@@ -198,3 +198,36 @@ unchanged: the gateway is the principal.
 - Migrating the existing simulator needs three credential issues (one per stream) plus
   a Node-RED flow edit.
 - The sidecar keeps reading edge-gateway traffic only, until the conditions in §4 hold.
+
+## Implementation notes
+
+Recorded as each part lands (SENSOR-CRITICAL-173).
+
+### Principal, directory and credentials (2026-10-30)
+
+- The credential lives on the tenant `sensors` row: `mqtt_username`, `mqtt_secret_hmac` and
+  `mqtt_secret_key_id` (migration 1826000000000). Database checks keep the three together,
+  keep the username to the issued shape and keep it off child rows. The entity marks them
+  insert- and update-false; `SensorMqttIdentityService` is their one writer
+  (`tests/invariants/sensor-mqtt-identity-single-writer.spec.ts`).
+- `sensor.sensor_mqtt_directory` is written by a trigger on every tenant's `sensors` table,
+  not by service code. Issuing, rotating or clearing a username, and deleting the sensor,
+  change the directory in the same statement, so no code path can leave a stale route.
+  Tenant erasure purges it with the other route tables (`RouteDirectoryPurgeHook`).
+- The peppers are one keyring, `MQTT_SENSOR_SECRET_KEYRING`: a JSON array of
+  `{ kid, secret, status }` with exactly one `active` key, the shape of
+  `SERVICE_IDENTITY_KEYRING`. The deploy bootstrap generates it once per droplet
+  (`scripts/deploy/lib/required-env-secrets.sh`); production refuses to start without it.
+  A pepper rotates by adding a new active key and keeping the old one as `previous` until
+  no sensor names it.
+- `rotateSensorMqttCredentials` issues the first credential of a sensor registered before
+  this ADR, or replaces the one it holds. Issuing removes the broker-connection settings
+  from `protocol_configuration` (broker, free-text topic, wizard-typed credentials), so
+  the legacy topic stops reaching the sensor once it holds a principal (§7).
+- No `broker_mode` column. The platform broker is the only mode, so every MQTT sensor
+  that talks to the broker (a standalone sensor or a parent) is a platform sensor, and a
+  stored mode could only repeat that. The ADR for customer-operated brokers adds the
+  discriminator together with its second value.
+- §7 says wizard-typed broker credentials are stored in clear. They are encrypted at rest
+  (AES-256-GCM since migration 1811000000000); they are still dead data, and issuing
+  removes them.

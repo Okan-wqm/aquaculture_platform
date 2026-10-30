@@ -10087,6 +10087,7 @@ export type Mutation = {
   rollbackDeployedProgram: DeploymentResult;
   rollbackScadaPackageDeploy: DeployScadaPackageResultType;
   rollbackVfdChangeSet: VfdChangeSet;
+  rotateSensorMqttCredentials: SensorMqttCredentials;
   saveDashboardLayout: DashboardLayout;
   saveDiscoveredChannels: Array<DataChannelType>;
   saveFeederCalibrations: Array<FeederCalibrationResponse>;
@@ -12585,6 +12586,11 @@ export type MutationRollbackScadaPackageDeployArgs = {
 
 export type MutationRollbackVfdChangeSetArgs = {
   input: RollbackVfdChangeSetInput;
+};
+
+
+export type MutationRotateSensorMqttCredentialsArgs = {
+  sensorId: Scalars['ID']['input'];
 };
 
 
@@ -20213,6 +20219,7 @@ export type Sensor = {
   metadata?: Maybe<Scalars['JSON']['output']>;
   minValue?: Maybe<Scalars['Float']['output']>;
   model?: Maybe<Scalars['String']['output']>;
+  mqttUsername?: Maybe<Scalars['String']['output']>;
   name: Scalars['String']['output'];
   parentId?: Maybe<Scalars['ID']['output']>;
   parentSensor?: Maybe<Sensor>;
@@ -20348,6 +20355,17 @@ export type SensorListType = {
   total: Scalars['Int']['output'];
   /** Total number of pages */
   totalPages: Scalars['Int']['output'];
+};
+
+export type SensorMqttCredentials = {
+  clientId: Scalars['String']['output'];
+  host: Scalars['String']['output'];
+  password: Scalars['String']['output'];
+  port: Scalars['Int']['output'];
+  sensorId: Scalars['ID']['output'];
+  tls: Scalars['Boolean']['output'];
+  topic: Scalars['String']['output'];
+  username: Scalars['String']['output'];
 };
 
 export type SensorPaginationInput = {

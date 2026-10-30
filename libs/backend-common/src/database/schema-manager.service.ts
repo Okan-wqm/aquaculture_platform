@@ -280,6 +280,7 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'vfd_register_mappings',
       'edge_device_directory',
       'tenant_provisioning_key_directory',
+      'sensor_mqtt_directory',
       'scada_alarms',
       'scada_alarm_chronicle',
       'scada_tag_history',

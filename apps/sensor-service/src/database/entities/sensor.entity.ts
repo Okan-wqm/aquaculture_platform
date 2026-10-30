@@ -268,6 +268,48 @@ export class Sensor {
   @Column({ type: 'timestamptz', name: 'placed_at', nullable: true, update: false })
   placedAt?: Date | null;
 
+  // ADR-047 §1: the sensor's own broker principal. Issued, rotated and
+  // revoked only by SensorMqttIdentityService in one SQL statement; no ORM
+  // insert or update writes these columns, so a copy loaded before a rotation
+  // cannot put the old username back. The trigger on this table keeps
+  // sensor.sensor_mqtt_directory in step with mqtt_username.
+
+  /** The broker username (and client ID) this sensor connects with; null when it holds none. */
+  @Field(() => String, { nullable: true })
+  @Column({
+    type: 'varchar',
+    name: 'mqtt_username',
+    length: 23,
+    nullable: true,
+    insert: false,
+    update: false,
+  })
+  mqttUsername?: string | null;
+
+  /** HMAC-SHA-256 (hex) of the issued secret under the pepper `mqttSecretKeyId` names. */
+  @Column({
+    type: 'char',
+    name: 'mqtt_secret_hmac',
+    length: 64,
+    nullable: true,
+    insert: false,
+    update: false,
+    select: false,
+  })
+  mqttSecretHmac?: string | null;
+
+  /** Which pepper of the keyring `mqttSecretHmac` was computed under. */
+  @Column({
+    type: 'varchar',
+    name: 'mqtt_secret_key_id',
+    length: 64,
+    nullable: true,
+    insert: false,
+    update: false,
+    select: false,
+  })
+  mqttSecretKeyId?: string | null;
+
   @Field({ nullable: true })
   @Column({ type: 'text', nullable: true })
   description?: string;

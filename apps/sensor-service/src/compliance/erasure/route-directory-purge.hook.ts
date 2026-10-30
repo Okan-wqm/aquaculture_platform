@@ -6,23 +6,28 @@ import { SENSOR_SOURCE_SCHEMA } from '@aquaculture/backend-common/database';
 import type { TenantErasureRequestedEvent } from '@platform/event-contracts';
 
 /**
- * Purge the erased tenant's rows from the two cross-tenant route tables,
- * `sensor.edge_device_directory` and `sensor.tenant_provisioning_key_directory`
- * (SENSOR-HIGH-175).
+ * Purge the erased tenant's rows from the cross-tenant route tables:
+ * `sensor.edge_device_directory`, `sensor.tenant_provisioning_key_directory`
+ * (SENSOR-HIGH-175) and `sensor.sensor_mqtt_directory` (ADR-047).
  *
  * WHY: sensor-service is a `tenant-schema-module` erasure target — the executor
  * empties the tenant's own schema and never touches source-schema tables. The
  * routes live once in `sensor`, so without this hook an erased tenant's device
- * identifiers and key routes would outlive the erasure. They resolve nothing
- * afterwards (the tenant rows they point at are gone), but a route is still
- * data about the tenant. Runs in the erasure transaction, after the sweep and
- * before the proof, like PublishedOutboxPurgeHook.
+ * identifiers, key routes and sensor broker usernames would outlive the
+ * erasure. They resolve nothing afterwards (the tenant rows they point at are
+ * gone), but a route is still data about the tenant. Runs in the erasure
+ * transaction, after the sweep and before the proof, like
+ * PublishedOutboxPurgeHook.
  */
-const ROUTE_TABLES = ['edge_device_directory', 'tenant_provisioning_key_directory'] as const;
+const ROUTE_TABLES = [
+  'edge_device_directory',
+  'tenant_provisioning_key_directory',
+  'sensor_mqtt_directory',
+] as const;
 
 @Injectable()
-export class EdgeRouteDirectoryPurgeHook implements TenantErasurePostErasureHook {
-  readonly hookName = 'sensor-edge-route-directory-purge';
+export class RouteDirectoryPurgeHook implements TenantErasurePostErasureHook {
+  readonly hookName = 'sensor-route-directory-purge';
 
   async onTenantErased(
     event: TenantErasureRequestedEvent,
@@ -40,7 +45,7 @@ export class EdgeRouteDirectoryPurgeHook implements TenantErasurePostErasureHook
       const deleted = Array.isArray(result) ? Number(result[1] ?? 0) : 0;
       total += deleted;
       if (deleted > 0) {
-        new Logger(EdgeRouteDirectoryPurgeHook.name).log(
+        new Logger(RouteDirectoryPurgeHook.name).log(
           `Purged ${deleted} ${table} rows for erased tenant ${event.tenantId.slice(0, 8)}…`,
         );
       }

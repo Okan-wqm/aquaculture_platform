@@ -603,6 +603,28 @@ jobs:
           NX_NO_CLOUD: 'true'
           NODE_OPTIONS: '--max-old-space-size=4096'
 
+      # ADR-047 §3: the broker ACL is what makes a sensor's topic name its
+      # publisher, so its decisions are proved on the real broker — the
+      # platform mosquitto image with go-auth, booted from
+      # infrastructure/mosquitto/mosquitto-production.conf (cache off, as in
+      # production) — against the real MqttAuthService. Runs whenever the
+      # broker config, the harness or the auth/identity code changes; the
+      # GHCR login above lets testcontainers pull the image.
+      - name: Run broker ACL tests on real Mosquitto
+        run: |
+          BASE_REF="${{ needs.detect-changes.outputs.base_sha }}"
+          HEAD_REF="${{ needs.detect-changes.outputs.head_sha }}"
+          if git diff --name-only "$BASE_REF" "$HEAD_REF" -- | grep -Eq '^(\.github/workflows/ci-affected\.yml|infrastructure/mosquitto/|libs/mqtt-test-harness/|apps/sensor-service/(project\.json|src/(edge-device|mqtt-identity|shared-mqtt|ingestion)/))'; then
+            node tools/toolchain/run.mjs npx nx run sensor-service:test:broker
+          else
+            echo "No broker, harness or MQTT auth files changed; skipping the real-broker ACL gate."
+          fi
+        timeout-minutes: 15
+        env:
+          NX_DAEMON: 'false'
+          NX_NO_CLOUD: 'true'
+          NODE_OPTIONS: '--max-old-space-size=4096'
+
       - name: Run focused farm water-chemistry tests
         run: |
           BASE_REF="${{ needs.detect-changes.outputs.base_sha }}"

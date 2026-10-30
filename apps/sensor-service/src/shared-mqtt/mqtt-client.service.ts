@@ -7,6 +7,8 @@ import client from 'prom-client';
 import { ServiceMetricsService } from '@aquaculture/backend-common/metrics';
 import { emitBootInvariantSignal } from '@aquaculture/backend-common/constants';
 
+import { sensorServiceListenerClientId } from './sensor-service-client-id';
+
 /**
  * MQTT subscription callback type
  */
@@ -117,7 +119,7 @@ export class MqttClientService implements OnModuleInit, OnModuleDestroy {
     // SENSOR-CRITICAL-086: fail closed at boot. A missing stable identity
     // would silently degrade to per-process clientIds, discarding the
     // broker-side session (and its unacked QoS1 backlog) on every restart.
-    this.requireClientIdPrefix();
+    this.requireClientId();
 
     // Delay MQTT connection to allow HTTP server to fully start first.
     // go-auth calls back to our /mqtt/auth endpoint during CONNECT,
@@ -181,7 +183,7 @@ export class MqttClientService implements OnModuleInit, OnModuleDestroy {
     // PID/timestamp clientId made every restart a NEW client, so the broker
     // dropped the persistent session — and with it every unacked QoS1
     // message — each time the process recycled (SENSOR-CRITICAL-086).
-    const clientId = `${this.requireClientIdPrefix()}-main`;
+    const clientId = this.requireClientId();
 
     this.logger.log(`Connecting to MQTT broker: ${brokerUrl}`);
     this.connectionState = MqttConnectionState.CONNECTING;
@@ -610,19 +612,19 @@ export class MqttClientService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * The stable client-identity prefix (SENSOR-CRITICAL-086). Required:
-   * without it the clientId degenerates to per-process randomness and the
-   * broker-side session is destroyed on every restart.
+   * The stable client identity (SENSOR-CRITICAL-086). Required: without it
+   * the clientId degenerates to per-process randomness and the broker-side
+   * session is destroyed on every restart.
    */
-  private requireClientIdPrefix(): string {
-    const prefix = this.configService.get<string>('MQTT_CLIENT_ID');
-    if (!prefix || prefix.trim().length === 0) {
+  private requireClientId(): string {
+    const clientId = sensorServiceListenerClientId(this.configService);
+    if (!clientId) {
       throw new Error(
         'MQTT_CLIENT_ID is required: persistent QoS1 sessions need a stable client identity ' +
           '(SENSOR-CRITICAL-086). Set e.g. MQTT_CLIENT_ID=aqua-sensor-service in the service environment.',
       );
     }
-    return prefix.trim();
+    return clientId;
   }
 
   /**

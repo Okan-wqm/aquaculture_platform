@@ -11,7 +11,17 @@ import { bootMosquittoContainer, type MqttHarness } from '@platform/mqtt-test-ha
 import { DeviceDirectoryService } from '../device-directory.service';
 import { DeviceLifecycleState, EdgeDevice } from '../entities/edge-device.entity';
 import { MqttAuthService } from '../mqtt-auth.service';
+import { SensorRegistrationStatus } from '../../database/entities/sensor.entity';
 import { SENSOR_SERVICE_SUBSCRIPTION_FILTERS } from '../../ingestion/mqtt-listener.service';
+import { SensorMqttBrokerAccess } from '../../mqtt-identity/sensor-mqtt-broker-access.service';
+import type {
+  SensorMqttIdentityService,
+  SensorMqttPrincipal,
+} from '../../mqtt-identity/sensor-mqtt-identity.service';
+import {
+  SENSOR_MQTT_DATA_FILTER,
+  sensorMqttDataTopic,
+} from '../../mqtt-identity/sensor-mqtt-topic';
 
 /**
  * SENSOR-HIGH-118 end-to-end: real Mosquitto + real go-auth + the real
@@ -22,7 +32,10 @@ import { SENSOR_SERVICE_SUBSCRIPTION_FILTERS } from '../../ingestion/mqtt-listen
  *
  * Gated behind MQTT_ACL_E2E=1 (same convention as
  * SENSOR_INGEST_EQUIVALENCE_E2E) because it needs Docker and the platform
- * mosquitto image (override with MQTT_TEST_BROKER_IMAGE).
+ * mosquitto image (override with MQTT_TEST_BROKER_IMAGE). CI runs it through
+ * `sensor-service:test:broker` whenever the broker config, the harness or the
+ * MQTT auth and identity code changes (ADR-047 §3: a sensor's topic names its
+ * publisher only because this ACL holds).
  */
 
 const RUN = process.env['MQTT_ACL_E2E'] === '1';
@@ -32,6 +45,15 @@ const TENANT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const GATEWAY_PASSWORD = 'test-gateway-password';
 const ACTIVE_GATEWAY = 'edge-aaaaaaaa-pond-01';
 const PENDING_GATEWAY = 'edge-aaaaaaaa-pond-02';
+/** sensor_service's listener connects as MQTT_CLIENT_ID + '-main'. */
+const LISTENER_CLIENT_ID = 'aqua-sensor-service-main';
+/** A sensor's own principal (ADR-047) and the one topic it may publish to. */
+const SENSOR_USERNAME = `s${'k'.repeat(22)}`;
+const SENSOR_SECRET = 'test-sensor-principal-secret';
+const SENSOR_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+const OTHER_SENSOR_ID = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+const SENSOR_TOPIC = sensorMqttDataTopic(TENANT, SENSOR_ID);
+const OTHER_SENSOR_TOPIC = sensorMqttDataTopic(TENANT, OTHER_SENSOR_ID);
 
 function mosquittoHash(password: string): string {
   const salt = randomBytes(12);
@@ -56,6 +78,7 @@ function makeAuthService(): MqttAuthService {
     MQTT_AUTH_MODE: 'http',
     MQTT_SENSOR_SERVICE_HASH: mosquittoHash(SENSOR_SERVICE_PASSWORD),
     MQTT_AUTH_SECRET: SECRET,
+    MQTT_CLIENT_ID: 'aqua-sensor-service',
   });
   const gateways = new Map<string, EdgeDevice>([
     [ACTIVE_GATEWAY, gateway(ACTIVE_GATEWAY, DeviceLifecycleState.ACTIVE)],
@@ -68,7 +91,27 @@ function makeAuthService(): MqttAuthService {
     directory,
     'DeviceDirectoryService',
   );
-  return new MqttAuthService(cfg, directoryCollaborator);
+  // The sensor principal's lookup stands in for the directory and tenant
+  // read; SensorMqttBrokerAccess and MqttAuthService decide as in production.
+  const principal: SensorMqttPrincipal = {
+    username: SENSOR_USERNAME,
+    tenantId: TENANT,
+    sensorId: SENSOR_ID,
+    registrationStatus: SensorRegistrationStatus.DRAFT,
+    secret: { hmac: 'unused', kid: 'unused' },
+  };
+  const identity = collaborator<SensorMqttIdentityService>(
+    {
+      findPrincipal: jest.fn(async (username: string) =>
+        username === SENSOR_USERNAME ? principal : null,
+      ),
+      verifySecret: jest.fn(
+        (_principal: SensorMqttPrincipal, presented: string) => presented === SENSOR_SECRET,
+      ),
+    },
+    'SensorMqttIdentityService',
+  );
+  return new MqttAuthService(cfg, directoryCollaborator, new SensorMqttBrokerAccess(identity));
 }
 
 /** Minimal stand-in for MqttAuthController's three go-auth endpoints. */
@@ -163,7 +206,7 @@ function subscribeGrants(
       client = await mqtt.connectAsync(`mqtt://${harness.host}:${harness.port}`, {
         username: 'sensor_service',
         password: SENSOR_SERVICE_PASSWORD,
-        clientId: 'acl-e2e-test',
+        clientId: LISTENER_CLIENT_ID,
         clean: true,
         connectTimeout: 10_000,
       });
@@ -232,6 +275,94 @@ function subscribeGrants(
           reconnectPeriod: 0,
         }),
       ).rejects.toThrow();
+    });
+
+    it('refuses sensor_service under a client ID that is not its own (ADR-047 §1)', async () => {
+      await expect(
+        mqtt.connectAsync(`mqtt://${harness!.host}:${harness!.port}`, {
+          username: 'sensor_service',
+          password: SENSOR_SERVICE_PASSWORD,
+          clientId: 'acl-e2e-test',
+          clean: true,
+          connectTimeout: 10_000,
+          reconnectPeriod: 0,
+        }),
+      ).rejects.toThrow();
+    });
+
+    describe("a sensor's own principal (ADR-047)", () => {
+      let sensor: mqtt.MqttClient | undefined;
+      const received: Array<{ topic: string; payload: string }> = [];
+
+      beforeAll(async () => {
+        await subscribeGrants(client!, [SENSOR_MQTT_DATA_FILTER]);
+        client!.on('message', (topic, payload) => {
+          if (topic.includes('/sensors/')) {
+            received.push({ topic, payload: payload.toString('utf8') });
+          }
+        });
+        sensor = await mqtt.connectAsync(`mqtt://${harness!.host}:${harness!.port}`, {
+          username: SENSOR_USERNAME,
+          password: SENSOR_SECRET,
+          clientId: SENSOR_USERNAME,
+          clean: true,
+          connectTimeout: 10_000,
+          reconnectPeriod: 0,
+        });
+      });
+
+      afterAll(async () => {
+        await sensor?.endAsync().catch(() => undefined);
+      });
+
+      async function settle(): Promise<void> {
+        await new Promise((resolve) => setTimeout(resolve, 1_500));
+      }
+
+      it('connects under its username as client ID, and under no other', async () => {
+        expect(sensor?.connected).toBe(true);
+        await expect(
+          mqtt.connectAsync(`mqtt://${harness!.host}:${harness!.port}`, {
+            username: SENSOR_USERNAME,
+            password: SENSOR_SECRET,
+            clientId: `${SENSOR_USERNAME}-2`,
+            clean: true,
+            connectTimeout: 10_000,
+            reconnectPeriod: 0,
+          }),
+        ).rejects.toThrow();
+        await expect(
+          mqtt.connectAsync(`mqtt://${harness!.host}:${harness!.port}`, {
+            username: SENSOR_USERNAME,
+            password: 'not-the-secret',
+            clientId: SENSOR_USERNAME,
+            clean: true,
+            connectTimeout: 10_000,
+            reconnectPeriod: 0,
+          }),
+        ).rejects.toThrow();
+      });
+
+      it('publishes to its own data topic, which the listener filter receives', async () => {
+        await sensor!.publishAsync(SENSOR_TOPIC, JSON.stringify({ ph: 7.1 }), { qos: 1 });
+        await settle();
+        expect(received).toContainEqual({ topic: SENSOR_TOPIC, payload: '{"ph":7.1}' });
+      });
+
+      it("cannot publish to another sensor's topic, nor subscribe to anything", async () => {
+        received.length = 0;
+        await sensor!.publishAsync(OTHER_SENSOR_TOPIC, JSON.stringify({ ph: 1 }), { qos: 1 });
+        await settle();
+        expect(received).toEqual([]);
+        await expect(subscribeGrants(sensor!, [SENSOR_TOPIC])).rejects.toThrow();
+      });
+
+      it("is the only publisher of its topic: sensor_service's PUBLISH there is dropped", async () => {
+        received.length = 0;
+        await client!.publishAsync(SENSOR_TOPIC, JSON.stringify({ ph: 2 }), { qos: 1 });
+        await settle();
+        expect(received).toEqual([]);
+      });
     });
 
     it('delivers a published sensor message through sensors/# end-to-end', async () => {

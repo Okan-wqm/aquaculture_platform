@@ -8,6 +8,12 @@ import { collaborator } from '@aquaculture/testing';
 
 import { DeviceDirectoryService } from '../device-directory.service';
 import { MqttAuthService } from '../mqtt-auth.service';
+import type { SensorMqttBrokerAccess } from '../../mqtt-identity/sensor-mqtt-broker-access.service';
+
+// These checks never reach a sensor's own principal (ADR-047): an empty
+// double, so touching it throws and names the member.
+const noSensorPrincipals = (): SensorMqttBrokerAccess =>
+  collaborator<SensorMqttBrokerAccess>({}, 'SensorMqttBrokerAccess');
 
 // File-mode startup never resolves a device, so the directory double defines
 // nothing: touching it would throw and name the missing member.
@@ -15,6 +21,7 @@ const buildService = (env: Record<string, string>): MqttAuthService =>
   new MqttAuthService(
     new ConfigService(env),
     collaborator<DeviceDirectoryService>({}, 'DeviceDirectoryService'),
+    noSensorPrincipals(),
   );
 
 describe('MqttAuthService legacy file mode guard (SENSOR-LOW-008)', () => {

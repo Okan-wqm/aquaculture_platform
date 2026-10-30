@@ -29,8 +29,14 @@ import { TenantProvisioningKeyDirectory } from '../entities/tenant-provisioning-
 import { TenantProvisioningKey } from '../entities/tenant-provisioning-key.entity';
 import { InstallerScriptService, type ProvisioningConfig } from '../installer-script.service';
 import { MqttAuthService } from '../mqtt-auth.service';
+import type { SensorMqttBrokerAccess } from '../../mqtt-identity/sensor-mqtt-broker-access.service';
 import { ProvisioningService } from '../provisioning.service';
 import { TenantKeyService } from '../tenant-key.service';
+
+// These checks never reach a sensor's own principal (ADR-047): an empty
+// double, so touching it throws and names the member.
+const noSensorPrincipals = (): SensorMqttBrokerAccess =>
+  collaborator<SensorMqttBrokerAccess>({}, 'SensorMqttBrokerAccess');
 
 /**
  * SENSOR-HIGH-175 on real Postgres: a self-registering agent presents a tenant
@@ -157,7 +163,11 @@ describe('tenant-key self-register under FORCE RLS (SENSOR-HIGH-175)', () => {
       ),
       runtime,
       new ConfigService({}),
-      new MqttAuthService(new ConfigService({ MQTT_AUTH_MODE: 'http' }), directory),
+      new MqttAuthService(
+        new ConfigService({ MQTT_AUTH_MODE: 'http' }),
+        directory,
+        noSensorPrincipals(),
+      ),
       installer,
       tenantKeys,
       collaborator<DeviceEventService>({ logDeviceEvent: jest.fn() }, 'DeviceEventService'),

@@ -231,3 +231,23 @@ Recorded as each part lands (SENSOR-CRITICAL-173).
 - §7 says wizard-typed broker credentials are stored in clear. They are encrypted at rest
   (AES-256-GCM since migration 1811000000000); they are still dead data, and issuing
   removes them.
+
+### Broker acceptance and client-ID bindings (2026-10-30)
+
+- `/mqtt/auth` refuses a CONNECT without a client ID. A service account connects only
+  under its own client IDs: `sensor_service` under the listener's
+  (`MQTT_CLIENT_ID` + `-main`, `sensorServiceListenerClientId`) and the legacy publishers'
+  still on it (`LEGACY_SENSOR_SERVICE_PUBLISHERS`, SENSOR-HIGH-207). No platform component
+  connects as `backend_service` or `alert_service`, so neither admits a session. Every
+  other principal presenting one of those IDs is refused.
+- A username of the issued shape is a sensor principal and is never looked up as an edge
+  device. `SensorMqttBrokerAccess` admits it when the client ID is the username, the
+  directory and the tenant row still name it, the sensor is not suspended, and the secret
+  verifies; and grants it PUBLISH to its own data topic only.
+- No service account holds an access with the write bit on a sensor data topic;
+  `sensor_service` reads and subscribes there, `alert_service` keeps its read grant.
+- The broker ACL spec runs on the real broker in CI (`sensor-service:test:broker`, step
+  "Run broker ACL tests on real Mosquitto" in `ci-affected.yml`) whenever the broker
+  config, the harness or the MQTT auth and identity code changes. Production's go-auth
+  cache is off (`mosquitto-production.conf`), which the harness boots from.
+- The broker states `max_packet_size 1048576`, the edge gateway client's own limit.

@@ -6,6 +6,13 @@ import { promisify } from 'util';
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
+import { LEGACY_SENSOR_SERVICE_PUBLISHERS } from '../mqtt-identity/legacy-mqtt-publishers';
+import {
+  SensorMqttBrokerAccess,
+  type SensorConnectDenial,
+} from '../mqtt-identity/sensor-mqtt-broker-access.service';
+import { SENSOR_MQTT_USERNAME_PATTERN } from '../mqtt-identity/sensor-mqtt-secret';
+import { sensorServiceListenerClientId } from '../shared-mqtt/sensor-service-client-id';
 import { DeviceDirectoryService } from './device-directory.service';
 import {
   type DeviceLifecycleState,
@@ -18,13 +25,22 @@ const execFileAsync = promisify(execFile);
 // request in the process for each CONNECT. The async form runs on libuv's pool.
 const pbkdf2Async = promisify(pbkdf2);
 
-/** Why a device CONNECT was refused — logged, never returned to the broker. */
+/** Why a CONNECT was refused — logged, never returned to the broker. */
 type DeviceAuthDenial =
+  | 'no_client_id'
+  | 'reserved_client_id'
   | 'device_not_found'
   | 'lifecycle_state'
   | 'client_id_mismatch'
   | 'no_password_hash'
-  | 'password_mismatch';
+  | 'password_mismatch'
+  | `sensor_${SensorConnectDenial}`;
+
+/**
+ * A sensor principal's data topic, concrete or as the filter: no service
+ * account writes there (ADR-047 §3), so the topic identifies its publisher.
+ */
+const SENSOR_DATA_TOPIC = /^tenants\/[^/]+\/sensors\/[^/]+\/data$/;
 
 /**
  * MQTT Authentication Service
@@ -63,6 +79,13 @@ export class MqttAuthService implements OnModuleInit {
   // Service accounts with per-topic-pattern grants (no superuser access)
   private readonly serviceAccountNames = new Set(['backend_service', 'sensor_service', 'alert_service']);
 
+  // ADR-047 §1: the client IDs each service account connects with, and no
+  // other principal may present. sensor_service: the ingestion listener, plus
+  // the legacy publishers still on that account (SENSOR-HIGH-207). No platform
+  // component connects as backend_service or alert_service, so neither has one.
+  private readonly serviceClientIds: ReadonlyMap<string, ReadonlySet<string>>;
+  private readonly reservedClientIds: ReadonlySet<string>;
+
   // PBKDF2 iteration counts per auth mode
   // HTTP mode: Mosquitto never parses the hash - our service verifies it, so use OWASP-recommended count
   // File mode: Mosquitto's password_file parser needs to handle the hash, keep at 101 for compatibility
@@ -87,6 +110,7 @@ export class MqttAuthService implements OnModuleInit {
   constructor(
     private readonly configService: ConfigService,
     private readonly deviceDirectory: DeviceDirectoryService,
+    private readonly sensorPrincipals: SensorMqttBrokerAccess,
   ) {
     // SENSOR-LOW-008: default to the DB-backed HTTP backend. File mode hashes
     // at only 101 PBKDF2 iterations (Mosquitto password_file parser limit),
@@ -110,6 +134,19 @@ export class MqttAuthService implements OnModuleInit {
     for (const [name, hash] of serviceHashes) {
       if (hash) this.serviceAccounts.set(name, hash);
     }
+
+    const listener = sensorServiceListenerClientId(this.configService);
+    this.serviceClientIds = new Map<string, ReadonlySet<string>>([
+      [
+        'sensor_service',
+        new Set([...(listener ? [listener] : []), ...LEGACY_SENSOR_SERVICE_PUBLISHERS]),
+      ],
+      ['backend_service', new Set()],
+      ['alert_service', new Set()],
+    ]);
+    this.reservedClientIds = new Set(
+      [...this.serviceClientIds.values()].flatMap((ids) => [...ids]),
+    );
   }
 
   async onModuleInit(): Promise<void> {
@@ -149,17 +186,46 @@ export class MqttAuthService implements OnModuleInit {
    * Verify MQTT credentials against the database.
    * Called by MqttAuthController for HTTP auth backend.
    *
-   * Checks service accounts first, then device credentials in DB.
+   * Every principal class has one client-ID binding (ADR-047 §1), so no
+   * principal can take over another's session: a service account connects
+   * only under its own reserved IDs, which every other principal is refused;
+   * a sensor principal only under its username; an edge device only under its
+   * username or `${username}-${deviceCode}`. A CONNECT without a client ID is
+   * refused.
    */
   async verifyDeviceCredentials(
     username: string,
     password: string,
     clientId: string | undefined,
   ): Promise<boolean> {
-    // Check service accounts first
+    if (!clientId) {
+      this.logAuthDenied('no_client_id', username);
+      return false;
+    }
+
+    // Service accounts first
     const serviceHash = this.serviceAccounts.get(username);
     if (serviceHash) {
+      const ownClientIds = this.serviceClientIds.get(username);
+      if (ownClientIds === undefined || !ownClientIds.has(clientId)) {
+        this.logAuthDenied('client_id_mismatch', username);
+        return false;
+      }
       return this.verifyPassword(password, serviceHash);
+    }
+    if (this.reservedClientIds.has(clientId)) {
+      this.logAuthDenied('reserved_client_id', username);
+      return false;
+    }
+
+    // A sensor's own principal (ADR-047): its shape is disjoint from every
+    // edge username, so it is never looked up as a device.
+    if (SENSOR_MQTT_USERNAME_PATTERN.test(username)) {
+      const denial = await this.sensorPrincipals.connectDenial(username, password, clientId);
+      if (denial) {
+        this.logAuthDenied(`sensor_${denial}`, username);
+      }
+      return denial === null;
     }
 
     const device = await this.findSessionDevice(username);
@@ -271,6 +337,12 @@ export class MqttAuthService implements OnModuleInit {
       return this.checkServiceAccountAccess(username, topic, acc);
     }
 
+    // A sensor's own principal (ADR-047 §3): evaluated before any development
+    // topic allowance, and granted PUBLISH to its one data topic only.
+    if (SENSOR_MQTT_USERNAME_PATTERN.test(username)) {
+      return this.sensorPrincipals.mayAccess(username, topic, acc);
+    }
+
     // SENSOR-MEDIUM-005: subscribe (acc=4) is NO LONGER blanket-allowed for
     // device accounts. It flows through the same tenant-topic verification as
     // read (acc=1), so a device can only subscribe within its own
@@ -355,6 +427,15 @@ export class MqttAuthService implements OnModuleInit {
    * Each service account is scoped to specific topic patterns instead of superuser.
    */
   private checkServiceAccountAccess(username: string, topic: string, acc: number): boolean {
+    // ADR-047 §3: a sensor principal's data topic has one publisher, the
+    // sensor. No service account holds any access with the write bit there
+    // (acc & 2, so acc=3 too); sensor_service reads and subscribes to it, and
+    // alert_service keeps its read grant below.
+    if (SENSOR_DATA_TOPIC.test(topic)) {
+      if (acc & 2) return false;
+      if (username === 'sensor_service') return true;
+    }
+
     // Tenant-scoped topic pattern: tenants/{tenantId}/sensors/#, tenants/{tenantId}/devices/#
     const isTenantTopic = /^tenants\/[a-f0-9-]+\/(sensors|devices|alerts|commands)\//.test(topic);
 

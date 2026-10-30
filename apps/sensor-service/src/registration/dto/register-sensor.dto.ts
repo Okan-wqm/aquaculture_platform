@@ -340,6 +340,17 @@ export class RegisteredSensorType {
   @Field(() => [DataChannelType], { nullable: true })
   dataChannels?: DataChannelType[];
 
+  /**
+   * ADR-047: the sensor's data, not a cloud test, activates it (an MQTT sensor
+   * on the platform broker), so the device page offers its broker credential.
+   */
+  @Field()
+  activatedByData!: boolean;
+
+  /** ADR-047: the broker username (and client ID) the sensor connects as; null when it holds none. */
+  @Field(() => String, { nullable: true })
+  mqttUsername?: string | null;
+
   @Field()
   createdAt!: Date;
 

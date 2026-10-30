@@ -39,6 +39,7 @@ import {
 import { ChannelManagerPanel } from '../components/channels/ChannelManagerPanel';
 import { DeviceLocationSummary } from '../components/location/DeviceLocationSummary';
 import { RelocateSensorDialog } from '../components/location/RelocateSensorDialog';
+import { BrokerConnectionSection } from '../components/mqtt/BrokerConnectionSection';
 import { useVfdRealtimeReadings, getVfdStatus } from '../hooks/useVfdReadings';
 import { useVfdCommands } from '../hooks/useVfdCommands';
 
@@ -73,6 +74,9 @@ interface SensorDevice {
   equipmentId?: string | null;
   isParentDevice?: boolean;
   parentId?: string | null;
+  /** ADR-047: the device's data activates it; it holds its own broker credential. */
+  activatedByData?: boolean;
+  mqttUsername?: string | null;
   connectionStatus?: SensorConnectionStatus;
   protocolConfiguration?: Record<string, unknown>;
   firmwareVersion?: string;
@@ -123,6 +127,8 @@ export const GET_SENSOR_QUERY = `
       equipmentId
       isParentDevice
       parentId
+      activatedByData
+      mqttUsername
       connectionStatus {
         isConnected
         lastTestedAt
@@ -284,6 +290,7 @@ const DeviceDetailPage: React.FC = () => {
   const { toast } = useToast();
   const { t } = useI18n();
   const canRelocate = useCanMutateSensor('relocateSensor');
+  const canIssueCredential = useCanMutateSensor('rotateSensorMqttCredentials');
   const { deviceId } = useParams();
   const navigate = useNavigate();
 
@@ -629,6 +636,21 @@ const DeviceDetailPage: React.FC = () => {
                 </div>
               </div>
             </div>
+
+            {/* ADR-047: a device its data activates connects with its own
+                credential; a child sensor uses its parent device's. */}
+            {deviceId && device.activatedByData === true && !device.parentId && (
+              <BrokerConnectionSection
+                sensorId={deviceId}
+                mqttUsername={device.mqttUsername ?? null}
+                canIssue={canIssueCredential}
+                onIssued={(username) =>
+                  setDevice((shown) =>
+                    shown === null ? shown : { ...shown, mqttUsername: username },
+                  )
+                }
+              />
+            )}
 
             {/* Recent Readings */}
             <div className="bg-white dark:bg-gray-900 rounded-xl shadow-(--shadow-sd-sm) border border-gray-100 dark:border-gray-700 p-6">

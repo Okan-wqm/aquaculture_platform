@@ -153,8 +153,21 @@ type RegisteredSensorType {
   firmwareVersion: String
   lastCalibratedAt: DateTime
   dataChannels: [DataChannelType!]
+  activatedByData: Boolean!
+  mqttUsername: String
   createdAt: DateTime!
   updatedAt: DateTime!
+}
+
+type SensorMqttCredentials {
+  sensorId: ID!
+  host: String!
+  port: Int!
+  tls: Boolean!
+  clientId: String!
+  username: String!
+  password: String!
+  topic: String!
 }
 
 # Registration inputs (SENSOR-HIGH-140), copied from the emitted sensor SDL.
@@ -370,6 +383,7 @@ type Query {
 
 type Mutation {
   relocateSensor(input: RelocateSensorInput!): RegisteredSensorType!
+  rotateSensorMqttCredentials(sensorId: ID!): SensorMqttCredentials!
 }
 
 scalar DateTime

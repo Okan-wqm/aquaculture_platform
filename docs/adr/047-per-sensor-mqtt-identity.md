@@ -301,3 +301,16 @@ Recorded as each part lands (SENSOR-CRITICAL-173).
   promotes it. §6 has reactivation rotate the credential itself; a credential nobody can read
   would be issued for nothing, so the issue is the separate, explicit step, and the old one
   stays dead either way.
+
+### Wizard and device page (2026-10-30)
+
+- Protocol info and the device's read model carry `activatedByData`, computed by the backend
+  from the one classification, so the screens never compare protocol codes.
+- The wizard asks an MQTT device for no broker settings and runs no test; both steps say why.
+  The registration answer carries the credential, and the wizard shows it once — host, port,
+  client ID, username, password, topic, the device settings and the message shape its sensors
+  read — before it reports the registration done.
+- The device page shows the username a device connects as, or that it holds none, and issues
+  a new credential (`rotateSensorMqttCredentials`, asked first when one would be replaced).
+  The mutation keeps no state (`gcTime: 0`) and the dialog holds the password only while it
+  is open. Refusals are worded by their code.

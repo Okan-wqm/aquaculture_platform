@@ -2205,6 +2205,46 @@ export const en = {
     "A child sensor moves with its parent device; change the parent device's location.",
   'sensor.location.error.PLACEMENT_UNAVAILABLE':
     'The location cannot be checked right now. Try again shortly.',
+  'sensor.mqtt.title': 'Broker connection',
+  'sensor.mqtt.help':
+    'This sensor publishes its readings to the platform broker with its own credential. Its first data activates it.',
+  'sensor.mqtt.noCredential': 'No credential yet. Issue one and configure the sensor with it.',
+  'sensor.mqtt.issue': 'Issue credential',
+  'sensor.mqtt.rotate': 'Issue new credential',
+  'sensor.mqtt.rotateConfirmTitle': 'Issue a new credential?',
+  'sensor.mqtt.rotateConfirm':
+    'The credential the sensor uses now stops working at once. Configure the sensor with the new one.',
+  'sensor.mqtt.issuedTitle': 'Configure the sensor with this connection',
+  'sensor.mqtt.issueFailed': 'The credential could not be issued',
+  'sensor.mqtt.shownOnce':
+    'Copy the password now: it is shown only this once and cannot be read again. If it is lost, issue a new credential.',
+  'sensor.mqtt.host': 'Host',
+  'sensor.mqtt.port': 'Port',
+  'sensor.mqtt.portTls': '{port} (TLS)',
+  'sensor.mqtt.clientId': 'Client ID',
+  'sensor.mqtt.username': 'Username',
+  'sensor.mqtt.password': 'Password',
+  'sensor.mqtt.topic': 'Topic',
+  'sensor.mqtt.settings':
+    'MQTT 3.1.1 or 5, TLS 1.2 or later, QoS 1, retain off, no Will, keepalive at most 300 seconds, at most one message a second.',
+  'sensor.mqtt.payload':
+    'Publish one JSON object per message; each channel reads the number under its data path, for example:',
+  'sensor.mqtt.copy': 'Copy',
+  'sensor.mqtt.copied': 'Copied',
+  'sensor.mqtt.done': 'Done',
+  'sensor.mqtt.wizard.configHelp':
+    'An MQTT sensor connects to the platform broker. Its host, port, client ID, username, password and topic are issued after registration; nothing is typed here.',
+  'sensor.mqtt.wizard.testHelp':
+    "The platform does not dial an MQTT sensor, so there is no connection test. Add its sensors on the next steps: each one's data path is the key of its number in the sensor's JSON message. The device becomes active when its first data arrives.",
+  'sensor.mqtt.error.MQTT_IDENTITY_NOT_MQTT':
+    'Only a sensor that speaks MQTT itself holds a broker credential.',
+  'sensor.mqtt.error.MQTT_IDENTITY_FOLLOWS_PARENT':
+    "A child sensor uses its parent device's connection; issue the credential on the parent device.",
+  'sensor.mqtt.error.MQTT_IDENTITY_SUSPENDED': 'The sensor is suspended. Reactivate it first.',
+  'sensor.mqtt.error.MQTT_IDENTITY_UNAVAILABLE':
+    'Credentials cannot be issued right now. Try again shortly.',
+  'sensor.mqtt.error.MQTT_IDENTITY_ACTIVATED_BY_DATA':
+    'An MQTT sensor becomes active when its first data arrives; it is not tested or activated by hand.',
 } as const;
 
 export type MessageKey = keyof typeof en;

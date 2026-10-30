@@ -4,6 +4,7 @@ import { Tenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/de
 import { GraphQLJSON } from 'graphql-scalars';
 
 import { Sensor } from '../../database/entities/sensor.entity';
+import { isActivatedByData } from '../../protocol/adapters/protocol-implementation-status';
 import { redactProtocolSecrets } from '../../common/redact-protocol-secrets';
 import {
   RegisterSensorInput,
@@ -305,6 +306,8 @@ export class RegistrationResolver {
       // SENSOR-MEDIUM-071: surface the attached custom type-definition on read-back.
       typeDefinitionId: sensor.typeDefinitionId,
       protocolCode: sensor.protocol?.code || '',
+      activatedByData: isActivatedByData(sensor.protocol?.code ?? ''),
+      mqttUsername: sensor.mqttUsername ?? null,
       // SENSOR-HIGH-081: never echo live device credentials through a read model.
       protocolConfiguration: redactProtocolSecrets(sensor.protocolConfiguration),
       connectionStatus: sensor.connectionStatus,

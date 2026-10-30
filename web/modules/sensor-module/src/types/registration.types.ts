@@ -2,6 +2,7 @@ import type {
   RegisterChildSensorInput,
   RegisterParentDeviceInput,
 } from '@platform/shared-ui/generated/graphql-types';
+import type { SensorMqttCredentials } from '../hooks/useRotateMqttCredentials';
 
 // Protocol types
 export enum ProtocolCategory {
@@ -74,6 +75,11 @@ export interface ProtocolInfo {
   connectionType: ConnectionType | string;
   capabilities?: ProtocolCapabilities;
   isActive?: boolean;
+  /**
+   * ADR-047: the device's data activates it — it publishes to the platform
+   * broker with a credential issued at registration, and is never tested.
+   */
+  activatedByData?: boolean;
 }
 
 export interface ProtocolSummary {
@@ -633,6 +639,8 @@ export interface ParentWithChildrenResult {
   error?: string;
   connectionTestPassed?: boolean;
   latencyMs?: number;
+  /** ADR-047: the MQTT device's broker credential — the only copy of its password. */
+  mqttCredentials?: SensorMqttCredentials | null;
 }
 
 /**

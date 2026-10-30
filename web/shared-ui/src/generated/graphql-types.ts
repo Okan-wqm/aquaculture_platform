@@ -15500,6 +15500,7 @@ export type ProtocolFeedForecastTransition = {
 };
 
 export type ProtocolInfoType = {
+  activatedByData: Scalars['Boolean']['output'];
   capabilities: ProtocolCapabilitiesType;
   category: ProtocolCategory;
   code: Scalars['String']['output'];
@@ -19329,6 +19330,7 @@ export type RegisterVfdInput = {
 };
 
 export type RegisteredSensorType = {
+  activatedByData: Scalars['Boolean']['output'];
   connectionStatus?: Maybe<SensorConnectionStatusType>;
   createdAt: Scalars['DateTime']['output'];
   dataChannels?: Maybe<Array<DataChannelType>>;
@@ -19345,6 +19347,7 @@ export type RegisteredSensorType = {
   manufacturer?: Maybe<Scalars['String']['output']>;
   metadata?: Maybe<Scalars['JSON']['output']>;
   model?: Maybe<Scalars['String']['output']>;
+  mqttUsername?: Maybe<Scalars['String']['output']>;
   name: Scalars['String']['output'];
   parentId?: Maybe<Scalars['ID']['output']>;
   pondId?: Maybe<Scalars['ID']['output']>;

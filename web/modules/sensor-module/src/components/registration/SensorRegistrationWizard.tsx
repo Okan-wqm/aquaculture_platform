@@ -1,5 +1,7 @@
 import React, { useState, useCallback } from 'react';
-import { Modal, Spinner, Button } from '@aquaculture/shared-ui';
+import { Modal, Spinner, Button, useI18n } from '@aquaculture/shared-ui';
+import { SensorMqttCredentialsPanel } from '../mqtt/SensorMqttCredentialsPanel';
+import type { SensorMqttCredentials } from '../../hooks/useRotateMqttCredentials';
 import { ProtocolSelectionStep } from './steps/ProtocolSelectionStep';
 import { ProtocolConfigurationStep } from './steps/ProtocolConfigurationStep';
 import { ConnectionTestStep } from './steps/ConnectionTestStep';
@@ -44,8 +46,18 @@ export function SensorRegistrationWizard({
   onClose,
   onSuccess,
 }: SensorRegistrationWizardProps) {
+  const { t } = useI18n();
   // Registration hook
   const { registerParentWithChildren, loading: registrationLoading } = useSensorRegistration();
+
+  // ADR-047: an MQTT device's credential, shown once after registration. While
+  // it is set the wizard shows it alone; Done finishes the registration.
+  const [issued, setIssued] = useState<{
+    credentials: SensorMqttCredentials;
+    parentId: string;
+    childIds: string[];
+    channelKeys: string[];
+  } | null>(null);
 
   // Wizard state
   const [currentStep, setCurrentStep] = useState(0);
@@ -56,6 +68,9 @@ export function SensorRegistrationWizard({
   const [selectedProtocol, setSelectedProtocol] = useState<string | null>(null);
   const [selectedProtocolInfo, setSelectedProtocolInfo] = useState<ProtocolInfo | null>(null);
   const [protocolConfig, setProtocolConfig] = useState<Record<string, unknown>>({});
+  // ADR-047: an MQTT device publishes to the platform broker: nothing to
+  // configure, no connection test, its credential issued at registration.
+  const activatedByData = selectedProtocolInfo?.activatedByData === true;
 
   // Connection test state
   const [connectionTestResult, setConnectionTestResult] = useState<ConnectionTestResult | null>(
@@ -81,6 +96,7 @@ export function SensorRegistrationWizard({
         case 0:
           return !!selectedProtocol;
         case 1: {
+          if (activatedByData) return true;
           // BUG-008: validate all required fields from the protocol schema, not just non-empty object
           // ProtocolDetails (which extends ProtocolInfo) holds the schema as `configurationSchema`
           const required: string[] =
@@ -110,7 +126,7 @@ export function SensorRegistrationWizard({
           return false;
       }
     },
-    [selectedProtocol, protocolConfig, parentDeviceInfo, childSensors],
+    [selectedProtocol, protocolConfig, parentDeviceInfo, childSensors, activatedByData],
   );
 
   const canProceed = validateStep(currentStep);
@@ -143,6 +159,7 @@ export function SensorRegistrationWizard({
     setParentDeviceInfo({});
     setChildSensors([]);
     setIsSubmitting(false);
+    setIssued(null);
   };
 
   // Protocol selection handler
@@ -243,6 +260,15 @@ export function SensorRegistrationWizard({
         const parentId = result.parent.id;
         const childIds = result.children?.map((c) => c.id) || [];
 
+        if (result.mqttCredentials) {
+          setIssued({
+            credentials: result.mqttCredentials,
+            parentId,
+            childIds,
+            channelKeys: selectedChildren.map((child) => child.dataPath),
+          });
+          return;
+        }
         reset();
         onSuccess?.(parentId, childIds);
         onClose();
@@ -261,7 +287,36 @@ export function SensorRegistrationWizard({
     onClose();
   };
 
+  // The credential was shown; the registration is finished.
+  const finishIssued = () => {
+    if (issued) {
+      onSuccess?.(issued.parentId, issued.childIds);
+    }
+    handleClose();
+  };
+
   if (!isOpen) return null;
+
+  if (issued) {
+    return (
+      <Modal
+        isOpen={isOpen}
+        onClose={finishIssued}
+        size="lg"
+        title={t('sensor.mqtt.issuedTitle')}
+        footer={
+          <div className="flex justify-end">
+            <Button onClick={finishIssued}>{t('sensor.mqtt.done')}</Button>
+          </div>
+        }
+      >
+        <SensorMqttCredentialsPanel
+          credentials={issued.credentials}
+          channelKeys={issued.channelKeys}
+        />
+      </Modal>
+    );
+  }
 
   return (
     <Modal
@@ -368,14 +423,24 @@ export function SensorRegistrationWizard({
             onSelect={handleProtocolSelect}
           />
         )}
-        {currentStep === 1 && selectedProtocol && (
+        {currentStep === 1 && selectedProtocol && activatedByData && (
+          <p className="rounded-lg bg-info-50 p-4 text-sm text-info-800 dark:bg-info-900 dark:text-info-200">
+            {t('sensor.mqtt.wizard.configHelp')}
+          </p>
+        )}
+        {currentStep === 1 && selectedProtocol && !activatedByData && (
           <ProtocolConfigurationStep
             protocolCode={selectedProtocol}
             values={protocolConfig}
             onChange={handleProtocolConfigChange}
           />
         )}
-        {currentStep === 2 && selectedProtocol && (
+        {currentStep === 2 && selectedProtocol && activatedByData && (
+          <p className="rounded-lg bg-info-50 p-4 text-sm text-info-800 dark:bg-info-900 dark:text-info-200">
+            {t('sensor.mqtt.wizard.testHelp')}
+          </p>
+        )}
+        {currentStep === 2 && selectedProtocol && !activatedByData && (
           <ConnectionTestStep
             protocolCode={selectedProtocol}
             config={protocolConfig}

@@ -295,6 +295,29 @@ not touch either package (run 40947682648). Every open PR inherits the red legs.
   `hono ^4 || ^5.0.0-0`, and hono stays 4.13.13. The floor table carries
   `@hono/node-server: '2.1.3'`.
 
+## 2026-10-29: systeminformation
+
+GHSA-3f7j-7jwc-fxfj was published at 2026-10-28T22:42Z, after the two
+advisories above. On main 645c5313 it turns `root-production` and `root-full`
+red as well.
+
+### SUPPLY-HIGH-041 — systeminformation 5.33.15: Windows command injection in services()
+
+- GHSA-3f7j-7jwc-fxfj (high): command injection in `services()` on Windows.
+  Affected `<5.33.16`, patched 5.33.16.
+- Reached in production through `@opentelemetry/auto-instrumentations-node`,
+  whose `@opentelemetry/instrumentation-host-metrics` asks for `^5.31.6`. No
+  manifest declares systeminformation. The lock resolved 5.33.15.
+- The flaw needs Windows, and every backend image is Linux. It is fixed anyway:
+  a patched release exists inside the declared range.
+- The gate reported "a non-breaking fix is available". Not excepted. Not
+  CRITICAL, so the debt-plan truth table does not change.
+- Fix: a lock-only lift to 5.33.18, the npm `latest`; npm changes only this
+  entry. The floor table carries `systeminformation: '5.33.16'`, the first
+  patched release, so a lock refresh cannot slide back. No manifest declares
+  the package, so it has no `ROOT_FLOOR_DECLARATIONS` entry, like `engine.io`
+  and `body-parser`.
+
 ## SUPPLY-MEDIUM-020 — tailwind 3 postcss-selector-parser is quadratic (open, excepted)
 
 - `postcss-selector-parser` below 7.1.6 (GHSA-rj75-hqrm-r3gf), reached through

@@ -139,6 +139,12 @@ const ROOT_SECURITY_FLOORS = {
   // `^1.19.9 || ^2.0.5`, so the lock is the only place this floor lives
   // (SUPPLY-MEDIUM-039).
   '@hono/node-server': '2.1.3',
+  // GHSA-3f7j-7jwc-fxfj (high, fixed in 5.33.16): command injection in
+  // services(), Windows only. Reached through
+  // @opentelemetry/auto-instrumentations-node ->
+  // @opentelemetry/instrumentation-host-metrics `^5.31.6`, so the lock is the
+  // only place this floor lives (SUPPLY-HIGH-041).
+  systeminformation: '5.33.16',
 } as const satisfies Readonly<Record<string, SecurityFloor>>;
 
 interface RootFloorDeclaration {

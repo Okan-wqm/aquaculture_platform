@@ -215,40 +215,58 @@ export class Sensor {
   @Index()
   tenantId!: string;
 
-  @Field({ nullable: true })
-  @Column({ name: 'pond_id', nullable: true })
-  @Index()
-  pondId?: string;
+  // ── Where the sensor stands (SENSOR-MEDIUM-161/206) ──────────────────────
+  // Written when the row is inserted and, after that, only by
+  // SensorPlacementService's move. `update: false` keeps every ORM update —
+  // a save() of a row loaded before a move, a batch edit — from writing them,
+  // so a stale copy can never put a moved sensor back where it was.
 
-  @Field({ nullable: true })
-  @Column({ name: 'farm_id', nullable: true })
-  farmId?: string;
-
-  @Field({ nullable: true })
-  @Column({ name: 'tank_id', nullable: true })
+  /** Legacy pond the sensor stood in; a move ends it. */
+  @Field(() => String, { nullable: true })
+  @Column({ type: 'varchar', name: 'pond_id', nullable: true, update: false })
   @Index()
-  tankId?: string;
+  pondId?: string | null;
 
-  // New location hierarchy fields (Sites/Departments/Systems/Equipment)
-  @Field({ nullable: true })
-  @Column({ name: 'site_id', nullable: true })
-  @Index()
-  siteId?: string;
+  /** Legacy farm the sensor stood at; a move ends it. */
+  @Field(() => String, { nullable: true })
+  @Column({ type: 'varchar', name: 'farm_id', nullable: true, update: false })
+  farmId?: string | null;
 
-  @Field({ nullable: true })
-  @Column({ name: 'department_id', nullable: true })
+  /** The tank, pond or cage the sensor stands in, as farm classified it. */
+  @Field(() => String, { nullable: true })
+  @Column({ type: 'varchar', name: 'tank_id', nullable: true, update: false })
   @Index()
-  departmentId?: string;
+  tankId?: string | null;
 
-  @Field({ nullable: true })
-  @Column({ name: 'system_id', nullable: true })
+  @Field(() => String, { nullable: true })
+  @Column({ type: 'varchar', name: 'site_id', nullable: true, update: false })
   @Index()
-  systemId?: string;
+  siteId?: string | null;
 
-  @Field({ nullable: true })
-  @Column({ name: 'equipment_id', nullable: true })
+  @Field(() => String, { nullable: true })
+  @Column({ type: 'varchar', name: 'department_id', nullable: true, update: false })
   @Index()
-  equipmentId?: string;
+  departmentId?: string | null;
+
+  @Field(() => String, { nullable: true })
+  @Column({ type: 'varchar', name: 'system_id', nullable: true, update: false })
+  @Index()
+  systemId?: string | null;
+
+  /** Other water equipment the sensor stands at, as farm classified it. */
+  @Field(() => String, { nullable: true })
+  @Column({ type: 'varchar', name: 'equipment_id', nullable: true, update: false })
+  @Index()
+  equipmentId?: string | null;
+
+  /**
+   * When the sensor was placed where it stands; null when it has not moved
+   * since tracking began. A sample older than this was taken somewhere else,
+   * so no reader pairs it with the current place.
+   */
+  @Field(() => Date, { nullable: true })
+  @Column({ type: 'timestamptz', name: 'placed_at', nullable: true, update: false })
+  placedAt?: Date | null;
 
   @Field({ nullable: true })
   @Column({ type: 'text', nullable: true })

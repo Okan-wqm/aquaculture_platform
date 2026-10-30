@@ -44,13 +44,10 @@ export interface AddMemberInput {
 }
 
 /**
- * Input for batch-updating sensor fields
+ * Input for batch-updating sensor fields. A sensor's place is not among them:
+ * it moves through SensorPlacementService.relocate (SENSOR-MEDIUM-206).
  */
 export interface BatchUpdateSensorsInput {
-  siteId?: string;
-  departmentId?: string;
-  systemId?: string;
-  equipmentId?: string;
   status?: SensorStatus;
   isActive?: boolean;
 }
@@ -341,10 +338,6 @@ export class DeviceGroupService {
     }
 
     const updates: Partial<Sensor> = {};
-    if (input.siteId !== undefined) updates.siteId = input.siteId;
-    if (input.departmentId !== undefined) updates.departmentId = input.departmentId;
-    if (input.systemId !== undefined) updates.systemId = input.systemId;
-    if (input.equipmentId !== undefined) updates.equipmentId = input.equipmentId;
     if (input.status !== undefined) updates.status = input.status;
     if (input.isActive !== undefined) updates.isActive = input.isActive;
 

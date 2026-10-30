@@ -47,6 +47,12 @@ interface ActiveConnection {
   errorCount: number;
 }
 
+/** The columns that say where a sensor stands, as a reading records them. */
+type SensorPlace = Pick<
+  Sensor,
+  'id' | 'siteId' | 'departmentId' | 'systemId' | 'tankId' | 'equipmentId' | 'pondId' | 'farmId'
+>;
+
 /**
  * Data Ingestion Service
  * Manages active sensor connections and writes readings to database
@@ -205,6 +211,25 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
     );
   }
 
+  /** A sensor's current place, read inside its tenant's boundary; null once it is deleted. */
+  private async currentPlace(sensor: Pick<Sensor, 'id' | 'tenantId'>): Promise<SensorPlace | null> {
+    return runInTenantRead(this.dataSource, SENSOR_SOURCE_SCHEMA, sensor.tenantId, (qr) =>
+      tenantManagerRepo(qr.manager, Sensor).findOne({
+        where: { id: sensor.id },
+        select: {
+          id: true,
+          siteId: true,
+          departmentId: true,
+          systemId: true,
+          tankId: true,
+          equipmentId: true,
+          pondId: true,
+          farmId: true,
+        },
+      }),
+    );
+  }
+
   /** Re-read a sensor (with its protocol) inside its tenant's boundary. */
   private async reloadSensor(sensorId: string, tenantId: string): Promise<Sensor | null> {
     return runInTenantRead(this.dataSource, SENSOR_SOURCE_SCHEMA, tenantId, (qr) =>
@@ -332,6 +357,15 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
       const sourceTimestamp = data.timestamp || now;
       const ingestionLatencyMs = now.getTime() - sourceTimestamp.getTime();
 
+      // Where the sensor stands NOW, not where it stood when the connection
+      // opened: a move (SensorPlacementService.relocate) must reach this
+      // reading's rows and event (SENSOR-MEDIUM-206). A sensor deleted since
+      // stores nothing.
+      const place = await this.currentPlace(sensor);
+      if (place === null) {
+        return;
+      }
+
       // Get all channels for this sensor (cached — 60-second TTL)
       const channels = await this.getChannelsCached(sensor.id, sensor.tenantId);
 
@@ -378,13 +412,13 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
           sensorId: sensor.id,
           channelId: channel.id,
           tenantId: sensor.tenantId,
-          siteId: sensor.siteId,
-          departmentId: sensor.departmentId,
-          systemId: sensor.systemId,
-          equipmentId: sensor.equipmentId,
-          tankId: sensor.tankId,
-          pondId: sensor.pondId,
-          farmId: sensor.farmId,
+          siteId: place.siteId,
+          departmentId: place.departmentId,
+          systemId: place.systemId,
+          equipmentId: place.equipmentId,
+          tankId: place.tankId,
+          pondId: place.pondId,
+          farmId: place.farmId,
           rawValue: numericRawValue,
           value: calibratedValue,
           qualityCode,
@@ -398,9 +432,9 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
         persisted.push({
           channelKey: channel.channelKey,
           value: calibratedValue,
-          farmId: sensor.farmId,
-          pondId: sensor.pondId,
-          tankId: sensor.tankId,
+          farmId: place.farmId,
+          pondId: place.pondId,
+          tankId: place.tankId,
         });
       }
 
@@ -419,7 +453,7 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
       // not stored, under a scope that excluded every farm-scoped rule.
       const projection = projectPersistedReadings(persisted);
       if (this.eventBus && projection.mappedCount > 0) {
-        const siteId = siteOfSensor(sensor);
+        const siteId = siteOfSensor(place);
         try {
           await this.eventBus.publish({
             ...createBaseEvent('SensorReading', sensor.tenantId, {

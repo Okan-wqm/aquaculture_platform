@@ -2168,6 +2168,43 @@ export const en = {
   'tenant.memberHome.announcements.title': 'Announcements',
   'tenant.memberHome.announcements.previewReason':
     'Announcements are readable by tenant admins only today; members need a read of their own.',
+  'sensor.location.title': 'Location',
+  'sensor.location.site': 'Site',
+  'sensor.location.department': 'Department',
+  'sensor.location.system': 'System',
+  'sensor.location.unit': 'Tank or equipment',
+  'sensor.location.chooseSite': 'Choose a site',
+  'sensor.location.chooseDepartment': 'Choose a department',
+  'sensor.location.noSystem': 'No system',
+  'sensor.location.noUnit': 'No tank or equipment',
+  'sensor.location.siteFirst': 'Choose a site first',
+  'sensor.location.departmentFirst': 'Choose a department first',
+  'sensor.location.loading': 'Loading…',
+  'sensor.location.notSet': 'Not set',
+  'sensor.location.unknown': 'Not found or inactive',
+  'sensor.location.change': 'Change location',
+  'sensor.location.dialogTitle': 'Where is this device installed?',
+  'sensor.location.dialogHelp':
+    "Water-chemistry channel bindings use this place. Readings taken before the move are not shown as the new place's values.",
+  'sensor.location.childrenMove': 'The child sensors of this device move with it.',
+  'sensor.location.saved': 'Location saved',
+  'sensor.location.saveFailed': 'Location could not be saved',
+  'sensor.location.sectionHelp': 'Where the device is installed. Site and department are required.',
+  'sensor.location.currentNotListed': 'Current place (not in the list)',
+  'sensor.location.listFailed': 'The list could not be loaded',
+  'sensor.location.unavailable': 'Could not be read',
+  'sensor.location.error.PLACEMENT_REFUSED_SITE': 'The site does not exist or is not active.',
+  'sensor.location.error.PLACEMENT_REFUSED_DEPARTMENT':
+    'The department is not active or is not at this site.',
+  'sensor.location.error.PLACEMENT_REFUSED_SYSTEM':
+    'The system is not active or is not at this site and department.',
+  'sensor.location.error.PLACEMENT_REFUSED_UNIT':
+    'The tank or equipment is not active or is not in this department and system.',
+  'sensor.location.error.PLACEMENT_INCOMPLETE': 'Choose the department of the system or tank.',
+  'sensor.location.error.PLACEMENT_FOLLOWS_PARENT':
+    "A child sensor moves with its parent device; change the parent device's location.",
+  'sensor.location.error.PLACEMENT_UNAVAILABLE':
+    'The location cannot be checked right now. Try again shortly.',
 } as const;
 
 export type MessageKey = keyof typeof en;

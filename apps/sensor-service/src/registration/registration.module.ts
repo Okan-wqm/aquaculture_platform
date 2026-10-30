@@ -10,6 +10,7 @@ import { ChannelResolver } from './resolvers/channel.resolver';
 import { RegistrationResolver } from './resolvers/registration.resolver';
 import { ChannelDiscoveryService } from './services/channel-discovery.service';
 import { ChannelManagementService } from './services/channel-management.service';
+import { SensorPlacementService } from './services/sensor-placement.service';
 import { SensorRegistrationService } from './services/sensor-registration.service';
 
 @Module({
@@ -23,6 +24,7 @@ import { SensorRegistrationService } from './services/sensor-registration.servic
     SensorRegistrationService,
     ChannelDiscoveryService,
     ChannelManagementService,
+    SensorPlacementService,
     RegistrationResolver,
     ChannelResolver,
   ],

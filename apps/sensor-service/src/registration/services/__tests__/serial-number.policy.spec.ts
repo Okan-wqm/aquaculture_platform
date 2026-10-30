@@ -12,6 +12,7 @@ import { ProtocolValidatorService } from '../../../protocol/services/protocol-va
 import { ChannelManagementService } from '../channel-management.service';
 import { SensorTypeService } from '../../../sensor-type/sensor-type.service';
 import { SensorRegistrationService } from '../sensor-registration.service';
+import { SensorPlacementService, UNPLACED } from '../sensor-placement.service';
 import {
   generateSerialNumber,
   resolveSerialNumber,
@@ -138,6 +139,11 @@ describe('SensorRegistrationService serial-number handling (SENSOR-MEDIUM-072)',
         { provide: ChannelManagementService, useValue: { createChannelsForSensor: jest.fn() } },
         { provide: SensorTypeService, useValue: { createChannelsFromTypeDefinition: jest.fn() } },
         { provide: OutboxPublisher, useValue: { enqueue: jest.fn() } },
+        // No place named: registration stores no placement (farm is not asked).
+        {
+          provide: SensorPlacementService,
+          useValue: { resolve: jest.fn().mockResolvedValue(UNPLACED) },
+        },
       ],
     }).compile();
 

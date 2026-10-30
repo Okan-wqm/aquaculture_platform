@@ -10,6 +10,7 @@ import { ProtocolValidatorService } from '../../protocol/services/protocol-valid
 import { ChannelDisplaySettings } from '../../database/entities/sensor-data-channel.entity';
 import { CreateDataChannelInput } from '../dto/data-channel.dto';
 import { ChannelManagementService, CreateChannelInput } from './channel-management.service';
+import { placementRequestOf, SensorPlacementService } from './sensor-placement.service';
 import { resolveSerialNumber, throwIfSerialNumberConflict } from './serial-number.policy';
 import { SensorTypeService } from '../../sensor-type/sensor-type.service';
 import { safeSortField, safeSortOrder, createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
@@ -91,6 +92,9 @@ export class SensorRegistrationService {
     // that no cross-service consumer could observe. OutboxPublisher is provided
     // globally by SensorOutboxModule.
     private readonly outboxPublisher: OutboxPublisher,
+    // SENSOR-MEDIUM-161: a sensor's site, department, system and unit are
+    // stored only as farm accepts them.
+    private readonly placement: SensorPlacementService,
   ) {}
 
   // ── SENSOR-LOW-007 event builders (createBaseEvent, flat contract shape) ──
@@ -116,8 +120,8 @@ export class SensorRegistrationService {
         aggregateType: 'Sensor',
       }),
       sensorId: sensor.id,
-      farmId: sensor.farmId,
-      pondId: sensor.pondId,
+      farmId: sensor.farmId ?? undefined,
+      pondId: sensor.pondId ?? undefined,
       sensorType: sensor.type,
       manufacturer: sensor.manufacturer,
       model: sensor.model,
@@ -137,8 +141,8 @@ export class SensorRegistrationService {
       sensorId: sensor.id,
       sensorName: sensor.name,
       protocolCode,
-      farmId: sensor.farmId,
-      pondId: sensor.pondId,
+      farmId: sensor.farmId ?? undefined,
+      pondId: sensor.pondId ?? undefined,
       connectionTestPassed,
     };
   }
@@ -198,6 +202,10 @@ export class SensorRegistrationService {
     // reaches parity with the parent path and never nulls the column.
     const serialNumber = resolveSerialNumber(input.serialNumber, 'SENSOR');
 
+    // SENSOR-MEDIUM-161: farm checks the place before anything is written, and
+    // its answer decides whether the unit is stored as a tank or as equipment.
+    const placement = await this.placement.resolve(tenantId, placementRequestOf(input));
+
     // Create sensor entity
     const sensor = this.sensorRepository.create({
       name: input.name,
@@ -211,14 +219,7 @@ export class SensorRegistrationService {
       model: input.model,
       serialNumber,
       description: input.description,
-      farmId: input.farmId,
-      pondId: input.pondId,
-      tankId: input.tankId,
-      // New location hierarchy fields
-      siteId: input.siteId,
-      departmentId: input.departmentId,
-      systemId: input.systemId,
-      equipmentId: input.equipmentId,
+      ...placement,
       location: input.location,
       metadata: input.metadata as Record<string, unknown>,
       tenantId,
@@ -597,14 +598,9 @@ export class SensorRegistrationService {
     if (input.model !== undefined) sensor.model = input.model;
     if (input.serialNumber !== undefined) sensor.serialNumber = input.serialNumber;
     if (input.description !== undefined) sensor.description = input.description;
-    if (input.farmId !== undefined) sensor.farmId = input.farmId;
-    if (input.pondId !== undefined) sensor.pondId = input.pondId;
-    if (input.tankId !== undefined) sensor.tankId = input.tankId;
-    // New location hierarchy fields
-    if (input.siteId !== undefined) sensor.siteId = input.siteId;
-    if (input.departmentId !== undefined) sensor.departmentId = input.departmentId;
-    if (input.systemId !== undefined) sensor.systemId = input.systemId;
-    if (input.equipmentId !== undefined) sensor.equipmentId = input.equipmentId;
+    // Where the sensor stands (site, department, system, unit, and the legacy
+    // farm and pond) is not edited here: a move goes through
+    // SensorPlacementService.relocate, which farm checks.
     if (input.location !== undefined) sensor.location = input.location;
     if (input.metadata !== undefined) sensor.metadata = input.metadata as Record<string, unknown>;
 
@@ -818,6 +814,10 @@ export class SensorRegistrationService {
       };
     }
 
+    // SENSOR-MEDIUM-161: farm checks the place before anything is written; the
+    // children stand where the parent stands.
+    const placement = await this.placement.resolve(tenantId, placementRequestOf(parent));
+
     // Start transaction
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
@@ -852,14 +852,7 @@ export class SensorRegistrationService {
         // this create object (the single-sensor path persists it) — the wizard
         // notes silently vanished. Map it so read-back matches what was saved.
         description: parent.description,
-        farmId: parent.farmId,
-        pondId: parent.pondId,
-        tankId: parent.tankId,
-        // New location hierarchy fields
-        siteId: parent.siteId,
-        departmentId: parent.departmentId,
-        systemId: parent.systemId,
-        equipmentId: parent.equipmentId,
+        ...placement,
         location: parent.location,
         metadata: parent.metadata as Record<string, unknown>,
         tenantId,
@@ -888,14 +881,8 @@ export class SensorRegistrationService {
           typeDefinitionId: childInput.typeDefinitionId,
           serialNumber: childSerialNumber,
           tenantId,
-          farmId: parent.farmId,
-          pondId: parent.pondId,
-          tankId: parent.tankId,
-          // Inherit location hierarchy from parent
-          siteId: parent.siteId,
-          departmentId: parent.departmentId,
-          systemId: parent.systemId,
-          equipmentId: parent.equipmentId,
+          // Children stand where the parent stands.
+          ...placement,
           registrationStatus: SensorRegistrationStatus.DRAFT,
           connectionStatus: { isConnected: false },
           isActive: false,

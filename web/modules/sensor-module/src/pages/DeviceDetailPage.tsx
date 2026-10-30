@@ -5,12 +5,19 @@
  */
 
 import React, { useEffect, useState, useCallback } from 'react';
-import { useConfirm, useToast, Spinner, PageHeader, Button } from '@aquaculture/shared-ui';
+import {
+  useConfirm,
+  useToast,
+  Spinner,
+  PageHeader,
+  Button,
+  useI18n,
+  useCanMutateSensor,
+} from '@aquaculture/shared-ui';
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { graphqlFetch } from '../config/api';
 import {
   ArrowLeft,
-  Edit,
   Cpu,
   MapPin,
   Clock,
@@ -30,6 +37,8 @@ import {
   AlertOctagon,
 } from 'lucide-react';
 import { ChannelManagerPanel } from '../components/channels/ChannelManagerPanel';
+import { DeviceLocationSummary } from '../components/location/DeviceLocationSummary';
+import { RelocateSensorDialog } from '../components/location/RelocateSensorDialog';
 import { useVfdRealtimeReadings, getVfdStatus } from '../hooks/useVfdReadings';
 import { useVfdCommands } from '../hooks/useVfdCommands';
 
@@ -57,8 +66,13 @@ interface SensorDevice {
   manufacturer?: string;
   model?: string;
   description?: string;
-  siteId?: string;
-  departmentId?: string;
+  siteId?: string | null;
+  departmentId?: string | null;
+  systemId?: string | null;
+  tankId?: string | null;
+  equipmentId?: string | null;
+  isParentDevice?: boolean;
+  parentId?: string | null;
   connectionStatus?: SensorConnectionStatus;
   protocolConfiguration?: Record<string, unknown>;
   firmwareVersion?: string;
@@ -104,6 +118,11 @@ export const GET_SENSOR_QUERY = `
       description
       siteId
       departmentId
+      systemId
+      tankId
+      equipmentId
+      isParentDevice
+      parentId
       connectionStatus {
         isConnected
         lastTestedAt
@@ -263,6 +282,8 @@ function getUnitForType(type: string): string {
 const DeviceDetailPage: React.FC = () => {
   const confirm = useConfirm();
   const { toast } = useToast();
+  const { t } = useI18n();
+  const canRelocate = useCanMutateSensor('relocateSensor');
   const { deviceId } = useParams();
   const navigate = useNavigate();
 
@@ -272,6 +293,7 @@ const DeviceDetailPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [relocating, setRelocating] = useState(false);
   // `?tab=channels&channel=<key>` opens a channel directly — the link a
   // water-chemistry source problem (CHANNEL_HAS_NO_QUANTITY, QUANTITY_MISMATCH…)
   // fixes from.
@@ -390,6 +412,13 @@ const DeviceDetailPage: React.FC = () => {
   }
 
   const statusInfo = getStatusInfo(device.connectionStatus?.isConnected ? 'online' : 'offline');
+  // The unit is stored as a tank or as equipment by farm's answer; the picker names it once.
+  const location = {
+    siteId: device.siteId ?? undefined,
+    departmentId: device.departmentId ?? undefined,
+    systemId: device.systemId ?? undefined,
+    unitId: device.tankId ?? device.equipmentId ?? undefined,
+  };
   const unit = getUnitForType(device.type);
   const lastSeenDate = device.connectionStatus?.lastSeenAt || device.updatedAt;
 
@@ -417,16 +446,40 @@ const DeviceDetailPage: React.FC = () => {
             >
               Yenile
             </Button>
-            <Link
-              to={`/sensor/devices/${deviceId}/edit`}
-              className="flex items-center gap-2 px-4 py-2 bg-info-600 text-white rounded-lg hover:bg-info-700 transition-colors"
-            >
-              <Edit className="w-4 h-4" />
-              Düzenle
-            </Link>
+            {/* A child sensor moves with its parent device, and only a role the
+                resolver admits may move a sensor. */}
+            {canRelocate && !device.parentId && (
+              <Button leftIcon={<MapPin className="w-4 h-4" />} onClick={() => setRelocating(true)}>
+                {t('sensor.location.change')}
+              </Button>
+            )}
           </div>
         }
       />
+
+      {/* Mounted only while open: each opening starts from where the device stands. */}
+      {deviceId && relocating && (
+        <RelocateSensorDialog
+          sensorId={deviceId}
+          current={location}
+          isParentDevice={device.isParentDevice === true}
+          onClose={() => setRelocating(false)}
+          onMoved={(moved) =>
+            setDevice((shown) =>
+              shown === null
+                ? shown
+                : {
+                    ...shown,
+                    siteId: moved.siteId,
+                    departmentId: moved.departmentId,
+                    systemId: moved.systemId,
+                    tankId: moved.tankId,
+                    equipmentId: moved.equipmentId,
+                  },
+            )
+          }
+        />
+      )}
 
       {/* Tab Bar (L1: Turkish labels) */}
       <div className="flex border-b border-gray-200 dark:border-gray-700">
@@ -481,12 +534,12 @@ const DeviceDetailPage: React.FC = () => {
             </div>
 
             <div className="mt-6 space-y-4">
-              <div className="flex items-center justify-between py-2 border-b border-gray-100 dark:border-gray-700">
-                <span className="text-gray-500 dark:text-gray-400">Site/Departman</span>
-                <span className="font-medium text-gray-900 dark:text-gray-100 flex items-center gap-1">
+              <div className="py-2 border-b border-gray-100 dark:border-gray-700">
+                <p className="mb-2 flex items-center gap-1 text-gray-500 dark:text-gray-400">
                   <MapPin className="w-4 h-4" />
-                  {device.siteId || device.departmentId || 'Belirtilmemiş'}
-                </span>
+                  {t('sensor.location.title')}
+                </p>
+                <DeviceLocationSummary location={location} />
               </div>
               {device.connectionStatus?.batteryLevel !== undefined && (
                 <div className="flex items-center justify-between py-2 border-b border-gray-100 dark:border-gray-700">

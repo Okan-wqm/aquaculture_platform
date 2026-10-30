@@ -346,13 +346,13 @@ export interface SensorMetricInput {
   qualityBits?: number;
   sourceProtocol?: string;
   sourceTimestamp?: Date;
-  siteId?: string;
-  departmentId?: string;
-  systemId?: string;
-  equipmentId?: string;
-  tankId?: string;
-  pondId?: string;
-  farmId?: string;
+  siteId?: string | null;
+  departmentId?: string | null;
+  systemId?: string | null;
+  equipmentId?: string | null;
+  tankId?: string | null;
+  pondId?: string | null;
+  farmId?: string | null;
   batchId?: string;
 }
 

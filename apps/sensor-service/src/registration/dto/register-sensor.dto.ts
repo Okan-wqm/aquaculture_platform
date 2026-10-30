@@ -93,21 +93,6 @@ export class RegisterSensorInput {
   @IsString()
   description?: string;
 
-  @Field(() => ID, { nullable: true })
-  @IsOptional()
-  @IsUUID()
-  farmId?: string;
-
-  @Field(() => ID, { nullable: true })
-  @IsOptional()
-  @IsUUID()
-  pondId?: string;
-
-  @Field(() => ID, { nullable: true })
-  @IsOptional()
-  @IsUUID()
-  tankId?: string;
-
   // New location hierarchy fields
   @Field(() => ID, { nullable: true })
   @IsOptional()
@@ -124,10 +109,13 @@ export class RegisterSensorInput {
   @IsUUID()
   systemId?: string;
 
-  @Field(() => ID, { nullable: true })
+  @Field(() => ID, {
+    nullable: true,
+    description: 'A tank, pond or cage, or other water equipment; farm says which',
+  })
   @IsOptional()
   @IsUUID()
-  equipmentId?: string;
+  unitId?: string;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -204,42 +192,6 @@ export class UpdateSensorInfoInput {
   @IsString()
   description?: string;
 
-  @Field(() => ID, { nullable: true })
-  @IsOptional()
-  @IsUUID()
-  farmId?: string;
-
-  @Field(() => ID, { nullable: true })
-  @IsOptional()
-  @IsUUID()
-  pondId?: string;
-
-  @Field(() => ID, { nullable: true })
-  @IsOptional()
-  @IsUUID()
-  tankId?: string;
-
-  // New location hierarchy fields
-  @Field(() => ID, { nullable: true })
-  @IsOptional()
-  @IsUUID()
-  siteId?: string;
-
-  @Field(() => ID, { nullable: true })
-  @IsOptional()
-  @IsUUID()
-  departmentId?: string;
-
-  @Field(() => ID, { nullable: true })
-  @IsOptional()
-  @IsUUID()
-  systemId?: string;
-
-  @Field(() => ID, { nullable: true })
-  @IsOptional()
-  @IsUUID()
-  equipmentId?: string;
-
   @Field({ nullable: true })
   @IsOptional()
   @IsString()
@@ -249,6 +201,41 @@ export class UpdateSensorInfoInput {
   @IsOptional()
   @IsObject()
   metadata?: object;
+}
+
+/**
+ * Where a sensor now stands. Its placement is written only here (and at
+ * registration), after farm accepts the path: the site, then optionally a
+ * department, a system and a unit below it. Farm says whether the unit is a
+ * tank or other water equipment. A parent device moves with its child sensors.
+ */
+@InputType({ description: 'Move a sensor to a place in the farm topology; farm checks the path' })
+export class RelocateSensorInput {
+  @Field(() => ID)
+  @IsUUID()
+  sensorId!: string;
+
+  @Field(() => ID)
+  @IsUUID()
+  siteId!: string;
+
+  @Field(() => ID, { nullable: true })
+  @IsOptional()
+  @IsUUID()
+  departmentId?: string | null;
+
+  @Field(() => ID, { nullable: true })
+  @IsOptional()
+  @IsUUID()
+  systemId?: string | null;
+
+  @Field(() => ID, {
+    nullable: true,
+    description: 'A tank, pond or cage, or other water equipment; farm says which',
+  })
+  @IsOptional()
+  @IsUUID()
+  unitId?: string | null;
 }
 
 // Output Types
@@ -299,26 +286,26 @@ export class RegisteredSensorType {
   description?: string;
 
   @Field(() => ID, { nullable: true })
-  farmId?: string;
+  farmId?: string | null;
 
   @Field(() => ID, { nullable: true })
-  pondId?: string;
+  pondId?: string | null;
 
   @Field(() => ID, { nullable: true })
-  tankId?: string;
+  tankId?: string | null;
 
   // New location hierarchy fields
   @Field(() => ID, { nullable: true })
-  siteId?: string;
+  siteId?: string | null;
 
   @Field(() => ID, { nullable: true })
-  departmentId?: string;
+  departmentId?: string | null;
 
   @Field(() => ID, { nullable: true })
-  systemId?: string;
+  systemId?: string | null;
 
   @Field(() => ID, { nullable: true })
-  equipmentId?: string;
+  equipmentId?: string | null;
 
   @Field({ nullable: true })
   location?: string;
@@ -557,21 +544,6 @@ export class RegisterParentDeviceInput {
   @IsString()
   description?: string;
 
-  @Field(() => ID, { nullable: true })
-  @IsOptional()
-  @IsUUID()
-  farmId?: string;
-
-  @Field(() => ID, { nullable: true })
-  @IsOptional()
-  @IsUUID()
-  pondId?: string;
-
-  @Field(() => ID, { nullable: true })
-  @IsOptional()
-  @IsUUID()
-  tankId?: string;
-
   // New location hierarchy fields
   @Field(() => ID, { nullable: true })
   @IsOptional()
@@ -588,10 +560,13 @@ export class RegisterParentDeviceInput {
   @IsUUID()
   systemId?: string;
 
-  @Field(() => ID, { nullable: true })
+  @Field(() => ID, {
+    nullable: true,
+    description: 'A tank, pond or cage, or other water equipment; farm says which',
+  })
   @IsOptional()
   @IsUUID()
-  equipmentId?: string;
+  unitId?: string;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -813,13 +788,13 @@ export class ParentDeviceType {
   description?: string;
 
   @Field(() => ID, { nullable: true })
-  farmId?: string;
+  farmId?: string | null;
 
   @Field(() => ID, { nullable: true })
-  pondId?: string;
+  pondId?: string | null;
 
   @Field(() => ID, { nullable: true })
-  tankId?: string;
+  tankId?: string | null;
 
   // New location hierarchy fields
   @Field(() => ID, { nullable: true })

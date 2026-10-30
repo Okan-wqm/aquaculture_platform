@@ -7,16 +7,21 @@
  */
 import type { UserRole } from '../types';
 
-export type SensorMutationName = 'declareChannelQuantity' | 'clearChannelQuantity';
+export type SensorMutationName =
+  | 'declareChannelQuantity'
+  | 'clearChannelQuantity'
+  | 'relocateSensor';
 
 /** Where each mirrored mutation's resolver lives (relative to the repo root). */
 export const SENSOR_MUTATION_RESOLVERS: Readonly<Record<SensorMutationName, string>> = {
   declareChannelQuantity: 'apps/sensor-service/src/registration/resolvers/channel.resolver.ts',
   clearChannelQuantity: 'apps/sensor-service/src/registration/resolvers/channel.resolver.ts',
+  relocateSensor: 'apps/sensor-service/src/registration/resolvers/registration.resolver.ts',
 };
 
 export const SENSOR_MUTATION_ROLES: Readonly<Record<SensorMutationName, readonly UserRole[]>> =
   Object.freeze({
     declareChannelQuantity: ['MODULE_MANAGER', 'TENANT_ADMIN'],
     clearChannelQuantity: ['MODULE_MANAGER', 'TENANT_ADMIN'],
+    relocateSensor: ['MODULE_MANAGER', 'TENANT_ADMIN'],
   });

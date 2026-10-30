@@ -91,6 +91,7 @@ export * from './upcasters';
 // Runtime JSON Schema validators for trust-boundary crossing (H-3)
 export * from './auth-user-queries';
 export * from './auth-credential-queries';
+export * from './farm-device-placement-queries';
 export * from './farm-site-access-queries';
 export * from './farm-time-zone-queries';
 export * from './sensor-channel-queries';

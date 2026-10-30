@@ -236,9 +236,11 @@ export interface RegisterSensorInput {
   model?: string;
   serialNumber?: string;
   description?: string;
-  farmId?: string;
-  pondId?: string;
-  tankId?: string;
+  // Where it stands; farm checks the path and classifies the unit.
+  siteId?: string;
+  departmentId?: string;
+  systemId?: string;
+  unitId?: string;
   location?: string;
   metadata?: Record<string, unknown>;
   skipConnectionTest?: boolean;
@@ -259,9 +261,6 @@ export interface UpdateSensorInfoInput {
   model?: string;
   serialNumber?: string;
   description?: string;
-  farmId?: string;
-  pondId?: string;
-  tankId?: string;
   location?: string;
   metadata?: Record<string, unknown>;
 }
@@ -449,17 +448,12 @@ export interface ParentDeviceInfo {
   model?: string;
   serialNumber?: string;
   description?: string;
-  // Legacy location fields (deprecated)
-  farmId?: string;
-  pondId?: string;
-  // Location hierarchy. The placement unit is exactly one of tankId (a tank,
-  // pond or cage — its tanks.id) or equipmentId (non-tank water equipment);
-  // see steps/devicePlacement.ts.
+  // Location hierarchy. The unit is a tank, pond or cage, or other water
+  // equipment; farm decides which when the device is registered.
   siteId?: string;
   departmentId?: string;
   systemId?: string;
-  tankId?: string;
-  equipmentId?: string;
+  unitId?: string;
   location?: string;
   metadata?: Record<string, unknown>;
 }
@@ -554,9 +548,8 @@ export function toRegisterChildInput(child: ChildSensorConfig): RegisterChildSen
 
 /**
  * Build the wire input for the wizard's parent device. The location hierarchy
- * is sent as collected (SENSOR-HIGH-024), the placement unit as the one key
- * devicePlacement chose: a tank's id as tankId, other water equipment as
- * equipmentId (SENSOR-MEDIUM-172).
+ * is sent as collected (SENSOR-HIGH-024); farm checks it and classifies the
+ * unit as a tank or as equipment (SENSOR-MEDIUM-161).
  */
 export function toRegisterParentInput(
   info: ParentDeviceInfo,
@@ -574,8 +567,7 @@ export function toRegisterParentInput(
     siteId: info.siteId,
     departmentId: info.departmentId,
     systemId: info.systemId,
-    tankId: info.tankId,
-    equipmentId: info.equipmentId,
+    unitId: info.unitId,
     location: info.location,
   };
 }

@@ -2159,4 +2159,41 @@ export const tr: Record<MessageKey, string> = {
   'tenant.memberHome.announcements.title': 'Duyurular',
   'tenant.memberHome.announcements.previewReason':
     'Duyuruları bugün yalnızca kiracı yöneticileri okuyabiliyor; üyeler için ayrı bir okuma gerekiyor.',
+  'sensor.location.title': 'Konum',
+  'sensor.location.site': 'Saha',
+  'sensor.location.department': 'Departman',
+  'sensor.location.system': 'Sistem',
+  'sensor.location.unit': 'Tank veya ekipman',
+  'sensor.location.chooseSite': 'Saha seçin',
+  'sensor.location.chooseDepartment': 'Departman seçin',
+  'sensor.location.noSystem': 'Sistem yok',
+  'sensor.location.noUnit': 'Tank veya ekipman yok',
+  'sensor.location.siteFirst': 'Önce saha seçin',
+  'sensor.location.departmentFirst': 'Önce departman seçin',
+  'sensor.location.loading': 'Yükleniyor…',
+  'sensor.location.notSet': 'Belirtilmemiş',
+  'sensor.location.unknown': 'Bulunamadı veya etkin değil',
+  'sensor.location.change': 'Konumu değiştir',
+  'sensor.location.dialogTitle': 'Cihaz nerede kurulu?',
+  'sensor.location.dialogHelp':
+    'Su kimyası kanal eşlemeleri bu konumu kullanır. Taşımadan önce alınan okumalar yeni konumun değeri olarak gösterilmez.',
+  'sensor.location.childrenMove': 'Bu cihazın alt sensörleri de onunla birlikte taşınır.',
+  'sensor.location.saved': 'Konum kaydedildi',
+  'sensor.location.saveFailed': 'Konum kaydedilemedi',
+  'sensor.location.sectionHelp': 'Cihazın kurulu olduğu yer. Saha ve departman zorunludur.',
+  'sensor.location.currentNotListed': 'Mevcut konum (listede yok)',
+  'sensor.location.listFailed': 'Liste yüklenemedi',
+  'sensor.location.unavailable': 'Okunamadı',
+  'sensor.location.error.PLACEMENT_REFUSED_SITE': 'Saha bulunamadı ya da etkin değil.',
+  'sensor.location.error.PLACEMENT_REFUSED_DEPARTMENT':
+    'Departman etkin değil ya da bu sahada değil.',
+  'sensor.location.error.PLACEMENT_REFUSED_SYSTEM':
+    'Sistem etkin değil ya da bu saha ve departmanda değil.',
+  'sensor.location.error.PLACEMENT_REFUSED_UNIT':
+    'Tank veya ekipman etkin değil ya da bu departman ve sistemde değil.',
+  'sensor.location.error.PLACEMENT_INCOMPLETE': 'Sistemin veya tankın departmanını seçin.',
+  'sensor.location.error.PLACEMENT_FOLLOWS_PARENT':
+    'Alt sensör ana cihazıyla birlikte taşınır; ana cihazın konumunu değiştirin.',
+  'sensor.location.error.PLACEMENT_UNAVAILABLE':
+    'Konum şu anda kontrol edilemiyor. Biraz sonra yeniden deneyin.',
 };

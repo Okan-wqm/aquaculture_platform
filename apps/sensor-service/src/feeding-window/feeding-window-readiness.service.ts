@@ -176,6 +176,9 @@ export class FeedingWindowReadinessService {
                     WHERE rr.sensor_id = s.id
                       AND rr.tenant_id = $2
                       AND rr."timestamp" >= $3
+                      -- Never oxygen measured where the probe stood before it
+                      -- was moved to this unit (SENSOR-MEDIUM-206).
+                      AND (s.placed_at IS NULL OR rr."timestamp" >= s.placed_at)
                       AND rr.readings ? 'dissolvedOxygen'
                     ORDER BY rr."timestamp" DESC
                     LIMIT 1

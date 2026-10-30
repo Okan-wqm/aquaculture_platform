@@ -75,6 +75,11 @@ const VFD_COMMAND_AUDIT_LOG_QUERY = documentFromSource(
   'VFD_COMMAND_AUDIT_LOG_QUERY',
 );
 
+const RELOCATE_SENSOR_MUTATION = documentFromSource(
+  'hooks/useRelocateSensor.ts',
+  'RELOCATE_SENSOR_MUTATION',
+);
+
 const documents: Array<[string, string]> = [
   ['command-log.VFD_COMMAND_AUDIT_LOG_QUERY', VFD_COMMAND_AUDIT_LOG_QUERY],
   ['channelReadings.CHANNEL_LATEST_VALUES_QUERY', CHANNEL_LATEST_VALUES_QUERY],
@@ -83,6 +88,7 @@ const documents: Array<[string, string]> = [
   ['sensorRegistrationApi.GET_SENSOR', GET_SENSOR],
   ['useWidgetData.GET_SENSOR_INFO_QUERY', GET_SENSOR_INFO_QUERY],
   ['DeviceDetailPage.GET_SENSOR_QUERY', DETAIL_GET_SENSOR],
+  ['useRelocateSensor.RELOCATE_SENSOR_MUTATION', RELOCATE_SENSOR_MUTATION],
 ];
 
 describe('sensor-module GraphQL documents × sensor subgraph excerpt', () => {

@@ -1,3 +1,4 @@
+import { collaborator } from '@aquaculture/testing';
 /**
  * SENSOR-LOW-007 — registration lifecycle events publish through the outbox.
  *
@@ -7,6 +8,7 @@
  * cross-service consumer could observe.
  */
 import { SensorRegistrationService } from '../services/sensor-registration.service';
+import { SensorPlacementService, UNPLACED } from '../services/sensor-placement.service';
 import { SensorRegistrationStatus } from '../../database/entities/sensor.entity';
 
 describe('SensorRegistrationService — outbox registration events (SENSOR-LOW-007)', () => {
@@ -64,6 +66,10 @@ describe('SensorRegistrationService — outbox registration events (SENSOR-LOW-0
       channelManagement as never,
       sensorTypeService as never,
       outboxPublisher as never,
+      collaborator<SensorPlacementService>(
+        { resolve: jest.fn().mockResolvedValue(UNPLACED) },
+        'SensorPlacementService',
+      ),
     );
   });
 

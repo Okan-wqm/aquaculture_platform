@@ -15,6 +15,7 @@ import { ProtocolValidatorService } from '../../protocol/services/protocol-valid
 import { SensorTypeService } from '../../sensor-type/sensor-type.service';
 import { ChannelManagementService } from '../services/channel-management.service';
 import { SensorRegistrationService } from '../services/sensor-registration.service';
+import { SensorPlacementService, UNPLACED } from '../services/sensor-placement.service';
 
 /**
  * SENSOR-MEDIUM-071: registerSensor can attach a custom SensorTypeDefinition and
@@ -76,6 +77,11 @@ describe('registerSensor typeDefinitionId bootstrap (SENSOR-MEDIUM-071)', () => 
         { provide: ChannelManagementService, useValue: { createChannelsForSensor: jest.fn() } },
         { provide: SensorTypeService, useValue: { createChannelsFromTypeDefinition: bootstrap } },
         { provide: OutboxPublisher, useValue: { enqueue: jest.fn() } },
+        // No place named: registration stores no placement (farm is not asked).
+        {
+          provide: SensorPlacementService,
+          useValue: { resolve: jest.fn().mockResolvedValue(UNPLACED) },
+        },
       ],
     }).compile();
 

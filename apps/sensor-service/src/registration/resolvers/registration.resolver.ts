@@ -9,6 +9,7 @@ import {
   RegisterSensorInput,
   UpdateSensorProtocolInput,
   UpdateSensorInfoInput,
+  RelocateSensorInput,
   SensorFilterInput,
   PaginationInput,
   RegisteredSensorType,
@@ -20,6 +21,7 @@ import {
   ParentDeviceType,
   ChildSensorType,
 } from '../dto/register-sensor.dto';
+import { SensorPlacementService } from '../services/sensor-placement.service';
 import { SensorRegistrationService } from '../services/sensor-registration.service';
 
 /**
@@ -50,7 +52,10 @@ class SensorStatsType {
 export class RegistrationResolver {
   private readonly logger = new Logger(RegistrationResolver.name);
 
-  constructor(private registrationService: SensorRegistrationService) {}
+  constructor(
+    private registrationService: SensorRegistrationService,
+    private readonly placementService: SensorPlacementService,
+  ) {}
 
   /**
    * SENSOR-HIGH-021: fail closed on missing tenant context. The global
@@ -238,6 +243,34 @@ export class RegistrationResolver {
   ): Promise<RegisteredSensorType> {
     this.logger.log(`Updating info for sensor ${input.sensorId}`);
     const sensor = await this.registrationService.updateSensorInfo(input, tenantId);
+    return this.mapSensorToType(sensor);
+  }
+
+  /**
+   * Move a sensor to a place in the farm topology. Farm checks the path and
+   * says whether the unit is a tank or other water equipment; a parent device
+   * moves with its child sensors. Who moved it, and from where to where, is
+   * recorded in sensor_audit_logs inside the move's transaction.
+   * SECURITY: Requires TENANT_ADMIN or MODULE_MANAGER, like updateSensorInfo.
+   */
+  @Mutation(() => RegisteredSensorType, { name: 'relocateSensor' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async relocateSensor(
+    @Args('input') input: RelocateSensorInput,
+    @Tenant() tenantId: string,
+    @CurrentUser() user: UserContext,
+  ): Promise<RegisteredSensorType> {
+    const sensor = await this.placementService.relocate(
+      tenantId,
+      input.sensorId,
+      {
+        siteId: input.siteId,
+        departmentId: input.departmentId ?? null,
+        systemId: input.systemId ?? null,
+        unitId: input.unitId ?? null,
+      },
+      user.sub,
+    );
     return this.mapSensorToType(sensor);
   }
 

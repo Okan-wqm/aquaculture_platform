@@ -1405,12 +1405,8 @@ export type BatchType =
   | 'PRODUCTION';
 
 export type BatchUpdateSensorsInputType = {
-  departmentId?: InputMaybe<Scalars['String']['input']>;
-  equipmentId?: InputMaybe<Scalars['String']['input']>;
   isActive?: InputMaybe<Scalars['Boolean']['input']>;
-  siteId?: InputMaybe<Scalars['String']['input']>;
   status?: InputMaybe<SensorStatus>;
-  systemId?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type BillingAddress = {
@@ -10026,6 +10022,7 @@ export type Mutation = {
   rejectLeaveRequest: LeaveRequest;
   rejectProgram: AutomationProgram;
   rejectVfdChangeSet: VfdChangeSet;
+  relocateSensor: RegisteredSensorType;
   /** Remove a member from a channel */
   removeChannelMember: Scalars['Boolean']['output'];
   removeChemicalDocument: Scalars['Boolean']['output'];
@@ -12294,6 +12291,11 @@ export type MutationRejectProgramArgs = {
 
 export type MutationRejectVfdChangeSetArgs = {
   input: RejectVfdChangeSetInput;
+};
+
+
+export type MutationRelocateSensorArgs = {
+  input: RelocateSensorInput;
 };
 
 
@@ -19258,20 +19260,18 @@ export type RegisterEdgeDeviceInput = {
 export type RegisterParentDeviceInput = {
   departmentId?: InputMaybe<Scalars['ID']['input']>;
   description?: InputMaybe<Scalars['String']['input']>;
-  equipmentId?: InputMaybe<Scalars['ID']['input']>;
-  farmId?: InputMaybe<Scalars['ID']['input']>;
   location?: InputMaybe<Scalars['String']['input']>;
   manufacturer?: InputMaybe<Scalars['String']['input']>;
   metadata?: InputMaybe<Scalars['JSON']['input']>;
   model?: InputMaybe<Scalars['String']['input']>;
   name: Scalars['String']['input'];
-  pondId?: InputMaybe<Scalars['ID']['input']>;
   protocolCode: Scalars['String']['input'];
   protocolConfiguration: Scalars['JSON']['input'];
   serialNumber?: InputMaybe<Scalars['String']['input']>;
   siteId?: InputMaybe<Scalars['ID']['input']>;
   systemId?: InputMaybe<Scalars['ID']['input']>;
-  tankId?: InputMaybe<Scalars['ID']['input']>;
+  /** A tank, pond or cage, or other water equipment; farm says which */
+  unitId?: InputMaybe<Scalars['ID']['input']>;
 };
 
 export type RegisterParentWithChildrenInput = {
@@ -19284,23 +19284,21 @@ export type RegisterSensorInput = {
   dataChannels?: InputMaybe<Array<CreateDataChannelInput>>;
   departmentId?: InputMaybe<Scalars['ID']['input']>;
   description?: InputMaybe<Scalars['String']['input']>;
-  equipmentId?: InputMaybe<Scalars['ID']['input']>;
-  farmId?: InputMaybe<Scalars['ID']['input']>;
   location?: InputMaybe<Scalars['String']['input']>;
   manufacturer?: InputMaybe<Scalars['String']['input']>;
   metadata?: InputMaybe<Scalars['JSON']['input']>;
   model?: InputMaybe<Scalars['String']['input']>;
   name: Scalars['String']['input'];
-  pondId?: InputMaybe<Scalars['ID']['input']>;
   protocolCode: Scalars['String']['input'];
   protocolConfiguration: Scalars['JSON']['input'];
   serialNumber?: InputMaybe<Scalars['String']['input']>;
   siteId?: InputMaybe<Scalars['ID']['input']>;
   skipConnectionTest?: InputMaybe<Scalars['Boolean']['input']>;
   systemId?: InputMaybe<Scalars['ID']['input']>;
-  tankId?: InputMaybe<Scalars['ID']['input']>;
   type: SensorType;
   typeDefinitionId?: InputMaybe<Scalars['ID']['input']>;
+  /** A tank, pond or cage, or other water equipment; farm says which */
+  unitId?: InputMaybe<Scalars['ID']['input']>;
 };
 
 export type RegisterVfdInput = {
@@ -19484,6 +19482,16 @@ export type RelatedAssetInput = {
   assetId: Scalars['ID']['input'];
   assetName?: InputMaybe<Scalars['String']['input']>;
   assetType: AssetType;
+};
+
+/** Move a sensor to a place in the farm topology; farm checks the path */
+export type RelocateSensorInput = {
+  departmentId?: InputMaybe<Scalars['ID']['input']>;
+  sensorId: Scalars['ID']['input'];
+  siteId: Scalars['ID']['input'];
+  systemId?: InputMaybe<Scalars['ID']['input']>;
+  /** A tank, pond or cage, or other water equipment; farm says which */
+  unitId?: InputMaybe<Scalars['ID']['input']>;
 };
 
 export type RemoveCleanerFishInput = {
@@ -20208,6 +20216,7 @@ export type Sensor = {
   name: Scalars['String']['output'];
   parentId?: Maybe<Scalars['ID']['output']>;
   parentSensor?: Maybe<Sensor>;
+  placedAt?: Maybe<Scalars['DateTime']['output']>;
   pondId?: Maybe<Scalars['String']['output']>;
   protocol?: Maybe<SensorProtocol>;
   protocolConfiguration?: Maybe<Scalars['JSON']['output']>;
@@ -24493,21 +24502,14 @@ export type UpdateSchedulingSettingsInput = {
 };
 
 export type UpdateSensorInfoInput = {
-  departmentId?: InputMaybe<Scalars['ID']['input']>;
   description?: InputMaybe<Scalars['String']['input']>;
-  equipmentId?: InputMaybe<Scalars['ID']['input']>;
-  farmId?: InputMaybe<Scalars['ID']['input']>;
   location?: InputMaybe<Scalars['String']['input']>;
   manufacturer?: InputMaybe<Scalars['String']['input']>;
   metadata?: InputMaybe<Scalars['JSON']['input']>;
   model?: InputMaybe<Scalars['String']['input']>;
   name?: InputMaybe<Scalars['String']['input']>;
-  pondId?: InputMaybe<Scalars['ID']['input']>;
   sensorId: Scalars['ID']['input'];
   serialNumber?: InputMaybe<Scalars['String']['input']>;
-  siteId?: InputMaybe<Scalars['ID']['input']>;
-  systemId?: InputMaybe<Scalars['ID']['input']>;
-  tankId?: InputMaybe<Scalars['ID']['input']>;
   type?: InputMaybe<SensorType>;
 };
 

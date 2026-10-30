@@ -264,6 +264,24 @@ describe('sensor ingestion paths under FORCE RLS (SENSOR-HIGH-148)', () => {
       );
       expect(await storedByChannel(TENANT_A, PARENTS[TENANT_A]!)).toEqual({ oxygen: [6.4] });
 
+      // SENSOR-MEDIUM-206: a move while the connection is open reaches the next
+      // reading's rows — the place is read per message, not kept from connect.
+      const schema = stage!.schemaOf(TENANT_A);
+      const movedTo = '9d1f3c2a-6b4e-4f7a-8c5d-2e1b0a9f8c7d';
+      await stage!.admin.query(`UPDATE "${schema}".sensors SET site_id = $2 WHERE id = $1`, [
+        PARENTS[TENANT_A]!,
+        movedTo,
+      ]);
+      delivered[0]!({ ...payload, timestamp: new Date('2026-10-06T10:03:00Z') });
+      await eventually(
+        async () => (await storedByChannel(TENANT_A, PARENTS[TENANT_A]!))['oxygen']?.length === 2,
+      );
+      const sites: Array<{ site_id: string | null }> = await stage!.admin.query(
+        `SELECT site_id FROM "${schema}".sensor_metrics WHERE sensor_id = $1 ORDER BY time`,
+        [PARENTS[TENANT_A]!],
+      );
+      expect(sites.at(-1)?.site_id).toBe(movedTo);
+
       await plane.onModuleDestroy();
       expect(await lastSeen(TENANT_A, PARENTS[TENANT_A]!)).not.toBeNull();
     });

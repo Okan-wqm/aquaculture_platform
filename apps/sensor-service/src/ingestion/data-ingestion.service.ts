@@ -50,7 +50,15 @@ interface ActiveConnection {
 /** The columns that say where a sensor stands, as a reading records them. */
 type SensorPlace = Pick<
   Sensor,
-  'id' | 'siteId' | 'departmentId' | 'systemId' | 'tankId' | 'equipmentId' | 'pondId' | 'farmId'
+  | 'id'
+  | 'siteId'
+  | 'departmentId'
+  | 'systemId'
+  | 'tankId'
+  | 'equipmentId'
+  | 'pondId'
+  | 'farmId'
+  | 'mqttUsername'
 >;
 
 /**
@@ -215,7 +223,10 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
     );
   }
 
-  /** A sensor's current place, read inside its tenant's boundary; null once it is deleted. */
+  /**
+   * A sensor's current place, and whether it holds its own broker principal,
+   * read inside its tenant's boundary; null once it is deleted.
+   */
   private async currentPlace(sensor: Pick<Sensor, 'id' | 'tenantId'>): Promise<SensorPlace | null> {
     return runInTenantRead(this.dataSource, SENSOR_SOURCE_SCHEMA, sensor.tenantId, (qr) =>
       tenantManagerRepo(qr.manager, Sensor).findOne({
@@ -229,6 +240,7 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
           equipmentId: true,
           pondId: true,
           farmId: true,
+          mqttUsername: true,
         },
       }),
     );
@@ -377,6 +389,16 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
       // stores nothing.
       const place = await this.currentPlace(sensor);
       if (place === null) {
+        return;
+      }
+      // ADR-047 §7: issued its own broker principal since this connection
+      // opened, the sensor publishes to the platform broker now; the dialled
+      // connection ends and stores nothing more.
+      if (place.mqttUsername) {
+        this.logger.log(
+          `Sensor ${sensor.id} now publishes with its own broker principal; closing its collector connection`,
+        );
+        await this.stopSensorDataCollection(sensor.id);
         return;
       }
 

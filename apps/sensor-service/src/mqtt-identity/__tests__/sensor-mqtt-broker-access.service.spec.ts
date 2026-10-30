@@ -1,7 +1,7 @@
 import { collaborator } from '@aquaculture/testing';
 
 import { SensorRegistrationStatus } from '../../database/entities/sensor.entity';
-import { SensorMqttBrokerAccess } from '../sensor-mqtt-broker-access.service';
+import { SENSOR_DATA_RATE, SensorMqttBrokerAccess } from '../sensor-mqtt-broker-access.service';
 import type {
   SensorMqttIdentityService,
   SensorMqttPrincipal,
@@ -113,6 +113,20 @@ describe('SensorMqttBrokerAccess', () => {
       await expect(
         access(SensorRegistrationStatus.ACTIVE).access.mayAccess(USERNAME, topic, 2),
       ).resolves.toBe(false);
+    });
+
+    it('caps PUBLISH at the stated rate before reading the principal', async () => {
+      const { access: subject, findPrincipal } = access(SensorRegistrationStatus.ACTIVE);
+      const now = 1_000_000;
+      const outcomes = [];
+      for (let i = 0; i < SENSOR_DATA_RATE.burst + 1; i += 1) {
+        outcomes.push(await subject.mayAccess(USERNAME, own, 2, now));
+      }
+      expect(outcomes.filter(Boolean)).toHaveLength(SENSOR_DATA_RATE.burst);
+      expect(outcomes.at(-1)).toBe(false);
+      expect(findPrincipal).toHaveBeenCalledTimes(SENSOR_DATA_RATE.burst);
+      // A second later one more token has come back.
+      await expect(subject.mayAccess(USERNAME, own, 2, now + 1_000)).resolves.toBe(true);
     });
 
     it('refuses a suspended or vanished principal on its own topic', async () => {

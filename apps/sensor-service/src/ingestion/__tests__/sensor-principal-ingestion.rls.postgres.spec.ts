@@ -27,9 +27,10 @@ import { SensorReadingRecorder } from '../sensor-reading-recorder.service';
  * the first message that stores a reading promotes the sensor and its child
  * to ACTIVE and enqueues one SensorRegistrationCompleted with it; later
  * messages only store readings; numeric strings, retained messages, a topic
- * naming another tenant, a suspended or credential-less sensor, an erased
- * tenant and a flood are dropped without writing; an untrusted timestamp
- * falls back to the receive time.
+ * naming another tenant, a suspended or credential-less sensor and an erased
+ * tenant are dropped without writing, and a deprovisioned tenant's held
+ * message is ACK-dropped; an untrusted timestamp falls back to the receive
+ * time; a burst is stored (the rate cap is metered at the broker).
  */
 
 const TENANT_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -262,14 +263,30 @@ describe('SensorPrincipalIngestion under FORCE RLS', () => {
     expect(metrics.some((row) => row.time.getTime() === receivedAt.getTime())).toBe(true);
   });
 
-  it('caps one sensor at its burst before any database work', async () => {
-    const at = new Date();
+  it('stores a reading at its receive time when the payload time is not RFC 3339 with an offset', async () => {
+    const receivedAt = new Date(Date.now() + 9_000);
+    await expect(
+      send(topicOf('principal'), { ph: 6.8, timestamp: 1793393700 }, false, receivedAt),
+    ).resolves.toMatchObject({ kind: 'recorded' });
+    const metrics = await metricsOf('principal');
+    expect(metrics.some((row) => row.time.getTime() === receivedAt.getTime())).toBe(true);
+  });
+
+  it('stores a burst the broker delivers at once (a backlog after a restart): no cap here', async () => {
+    const at = new Date(Date.now() + 20_000);
     const outcomes = [];
-    for (let i = 0; i < 11; i += 1) {
-      outcomes.push(await send(topicOf('flooded'), { ph: 7 }, false, at));
+    for (let i = 0; i < 15; i += 1) {
+      outcomes.push(await send(topicOf('flooded'), { ph: 7, n: i }, false, at));
     }
-    expect(outcomes.filter((outcome) => outcome.kind === 'recorded')).toHaveLength(10);
-    expect(outcomes[10]).toEqual({ kind: 'dropped', reason: 'rate_limited' });
+    expect(outcomes.every((outcome) => outcome.kind === 'recorded')).toBe(true);
+  });
+
+  it('ACK-drops a held message of a tenant deprovisioned since, instead of redelivering it forever', async () => {
+    await stage!.deprovisionTenant(TENANT_B);
+    await expect(send(topicOf('principal', TENANT_B), { ph: 7 })).resolves.toEqual({
+      kind: 'dropped',
+      reason: 'tenant_inactive',
+    });
   });
 
   it("drops an erased tenant's message first", async () => {

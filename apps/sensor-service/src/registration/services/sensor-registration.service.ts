@@ -559,6 +559,13 @@ export class SensorRegistrationService {
       };
     }
 
+    // ADR-047: a sensor that stops speaking MQTT loses its broker credential
+    // in the transaction that changes its protocol (below); one that starts
+    // speaking MQTT starts over in DRAFT, to be issued a credential and
+    // activated by its data.
+    const wasActivatedByData = isActivatedByData(sensor.protocol?.code ?? '');
+    const activatedByData = isActivatedByData(protocolCode);
+
     // Update protocol if changed
     if (input.protocolCode && input.protocolCode !== sensor.protocol?.code) {
       const newProtocol = await this.protocolRegistry.getProtocolDetails(input.protocolCode);
@@ -570,11 +577,20 @@ export class SensorRegistrationService {
     sensor.protocolConfiguration = input.protocolConfiguration as Record<string, unknown>;
     // ADR-047 §5: a sensor its data activates is never put up for a test; its
     // status stays as its data left it.
-    if (!isActivatedByData(protocolCode)) {
+    if (!activatedByData) {
       sensor.registrationStatus = SensorRegistrationStatus.PENDING_TEST;
+    } else if (!wasActivatedByData) {
+      sensor.registrationStatus = SensorRegistrationStatus.DRAFT;
+      sensor.isActive = false;
     }
 
-    const savedSensor = await this.sensorRepository.save(sensor);
+    const savedSensor = await this.dataSource.transaction(async (manager) => {
+      const saved = await manager.save(Sensor, sensor);
+      if (wasActivatedByData && !activatedByData) {
+        await this.mqttIdentity.revoke(manager, tenantId, sensor.id, null);
+      }
+      return saved;
+    });
 
     // Emit event
     this.eventEmitter.emit('sensor.protocol.changed', {
@@ -1159,6 +1175,8 @@ export class SensorRegistrationService {
         error: 'No protocol configured for this parent device',
       };
     }
+    // ADR-047 §5: no cloud-initiated test touches a parent its data activates.
+    refuseIfActivatedByData(protocolCode, 'tested');
 
     // Update status to testing
     parent.registrationStatus = SensorRegistrationStatus.TESTING;

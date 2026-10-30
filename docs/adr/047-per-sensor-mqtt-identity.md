@@ -327,3 +327,29 @@ Recorded as each part lands (SENSOR-CRITICAL-173).
   repository simulator. The repository simulator's broker authenticates from a password file,
   not the platform's HTTP backend, so it cannot admit an issued principal at all; moving it
   means running the platform broker image in the simulator stack, which that finding owns.
+
+### Review corrections (2026-10-30)
+
+Two independent reviews of the parts above (security, sensor domain) found no authentication
+or authorization bypass; these corrections follow from them.
+
+- The per-sensor rate cap is metered when the sensor publishes, at the broker's ACL check,
+  before the principal is read (`SensorMqttBrokerAccess`), not at ingestion. Metering at
+  ingestion dropped the backlog the broker delivers at once after a listener restart, and
+  every redelivery spent a token. A PUBLISH over the cap is refused at the broker and counted.
+- A held message for a tenant deprovisioned since is ACK-dropped (`tenant_inactive`) instead
+  of being redelivered forever on the one shared connection, as the legacy route already does.
+- Promotion starts from any status but ACTIVE and SUSPENDED: a sensor registered before this
+  ADR may be left in PENDING_TEST or TESTING, which no test ends for it now.
+- A protocol change away from MQTT withdraws the credential in the same transaction; a change
+  to MQTT starts the sensor over in DRAFT. `testParentConnection` refuses a parent its data
+  activates, like `testSensorConnection`.
+- A payload `timestamp` may be any scalar; only RFC 3339 with an offset within the skew is the
+  sample time. A device whose clock format is off still delivers its readings at arrival time.
+- Only a legacy MQTT sensor without a principal claims a legacy topic
+  (`SensorTopicCacheService`): before, any protocol's `topic` key could claim one across
+  tenants. The legacy route and the per-sensor collector stop at a sensor that holds a
+  principal, and issuing or withdrawing a credential enqueues `SensorConfigurationUpdated`.
+- go-auth no longer asks the superuser endpoint (`auth_opt_disable_superuser`), one HTTP
+  round trip less per check; an ACL denial is logged as a structured debug record with the
+  username's fingerprint; a malformed keyring's error does not quote it.

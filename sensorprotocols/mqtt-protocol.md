@@ -43,15 +43,16 @@ One JSON object per message, at most 16 KiB, nested at most three levels below t
   `sensors.mid`, `values[0]`); with no data path, its channel key. The value must be a JSON
   number. A numeric string (`"7.1"`) is refused.
 - An optional `timestamp`, RFC 3339 with an offset (`2026-10-30T20:15:00Z`), is the sample time
-  when it lies between an hour before and a minute after the message arrives; otherwise the
-  arrival time is used.
+  when it lies between an hour before and a minute after the message arrives. In any other
+  form, or outside that window, it is ignored and the arrival time is used.
 - Other keys are ignored.
 
 ```json
 { "timestamp": "2026-10-30T20:15:00Z", "ph": 7.1, "temperature": 18.4 }
 ```
 
-At most one message a second per sensor is stored, with a burst of ten.
+At most one message a second per sensor is accepted, with a burst of ten; the broker refuses
+a PUBLISH over that rate (`sensor_principal_publishes_rate_limited_total`).
 
 ## Activation
 
@@ -70,8 +71,8 @@ ACTIVE while data arrives.
 
 Nothing is stored, and `sensor_principal_messages_dropped_total` counts the reason, for: a
 retained message, a message over the size limit, one that is not JSON or not of the shape above,
-one over the rate, one for a sensor that no longer holds its credential or is suspended, and one
-in which no channel finds a number.
+one for a sensor that no longer holds its credential or is suspended, one for a tenant no longer
+active, and one in which no channel finds a number.
 
 ## Legacy topics
 

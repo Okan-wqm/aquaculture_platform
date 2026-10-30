@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 
 import {
+  listActiveTenantSchemaIdentities,
   runInTenantTransaction,
   SENSOR_SOURCE_SCHEMA,
   tenantManagerRepo,
@@ -10,7 +11,9 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import {
   deriveEventId,
+  type EventId,
   SENSOR_DATA_PAYLOAD_MAX_BYTES,
+  SENSOR_DATA_TIMESTAMP_PATTERN,
   validateSensorDataPayload,
 } from '@platform/event-contracts';
 import client from 'prom-client';
@@ -22,7 +25,6 @@ import { Sensor, SensorRegistrationStatus } from '../database/entities/sensor.en
 import { SensorDataPromotion } from '../mqtt-identity/sensor-data-promotion.service';
 import { parseSensorMqttDataTopic } from '../mqtt-identity/sensor-mqtt-topic';
 import { valueAtPath } from './payload-path';
-import { RateBuckets } from './sensor-rate-buckets';
 import { SensorReadingRecorder } from './sensor-reading-recorder.service';
 
 /** Why a message on a sensor data topic was dropped (ACKed, nothing stored). */
@@ -30,12 +32,12 @@ export type SensorDataDropReason =
   | 'malformed_topic'
   | 'erased_tenant'
   | 'retained'
-  | 'rate_limited'
   | 'too_large'
   | 'not_json'
   | 'schema'
   | 'no_sensor'
-  | 'no_channel_value';
+  | 'no_channel_value'
+  | 'tenant_inactive';
 
 /** What became of one message on `tenants/{tenantId}/sensors/{sensorId}/data`. */
 export type SensorDataDisposition =
@@ -49,22 +51,12 @@ export type SensorDataDisposition =
   | { readonly kind: 'dropped'; readonly reason: SensorDataDropReason };
 
 /**
- * The stated per-sensor rate cap (ADR-047 §8): one message a second
- * sustained, ten at once. A water-quality sensor reports every few seconds at
- * most; the cap bounds what one leaked credential can cost before any
- * database work.
- */
-export const SENSOR_DATA_RATE = { perSecond: 1, burst: 10 } as const;
-
-/**
  * How far a payload's own `timestamp` may lie from the receive time and still
  * be trusted (ADR-047 §8): an hour back (a message held by the broker through
  * a listener restart keeps its sample time), a minute ahead (clock drift).
  * Outside it, or absent, the receive time is the sample time.
  */
 export const SENSOR_DATA_TIMESTAMP_SKEW_MS = { past: 3_600_000, future: 60_000 } as const;
-
-const RATE_BUCKET_KEYS = 100_000;
 
 /**
  * Ingestion of `tenants/{tenantId}/sensors/{sensorId}/data`, the topic only a
@@ -74,8 +66,10 @@ const RATE_BUCKET_KEYS = 100_000;
  *
  * In order, and before any database work where it can be: the erased-tenant
  * tombstone; a retained message (a sensor publishes with retain=false; a
- * retained one would replay to every new subscriber); the per-sensor rate
- * cap; the wire size; the payload schema. The sensor is then read inside its
+ * retained one would replay to every new subscriber); the wire size; the
+ * payload schema. The per-sensor rate cap is metered earlier, at the broker
+ * when the sensor publishes (SensorMqttBrokerAccess), so a backlog the broker
+ * delivers at once after a listener restart is stored, not dropped. The sensor is then read inside its
  * tenant's boundary and must still hold its principal and not be suspended.
  * Each enabled channel's value must be a JSON number (numeric strings are
  * refused on this route). The readings are written through
@@ -87,12 +81,6 @@ const RATE_BUCKET_KEYS = 100_000;
 @Injectable()
 export class SensorPrincipalIngestion {
   private readonly logger = new Logger(SensorPrincipalIngestion.name);
-  private readonly buckets = new RateBuckets(
-    SENSOR_DATA_RATE.perSecond,
-    SENSOR_DATA_RATE.burst,
-    RATE_BUCKET_KEYS,
-  );
-
   private readonly registry = new client.Registry();
   private readonly dropped = new client.Counter<'reason'>({
     name: 'sensor_principal_messages_dropped_total',
@@ -141,9 +129,6 @@ export class SensorPrincipalIngestion {
     if (flags.retain) {
       return this.drop('retained');
     }
-    if (!this.buckets.take(`${target.tenantId}:${target.sensorId}`, receivedAt.getTime())) {
-      return this.drop('rate_limited');
-    }
     if (wire.length > SENSOR_DATA_PAYLOAD_MAX_BYTES) {
       return this.drop('too_large');
     }
@@ -162,6 +147,28 @@ export class SensorPrincipalIngestion {
       [target.tenantId, target.sensorId, sampledAt.toISOString(), sha256Hex(wire)].join('\u0000'),
     );
 
+    try {
+      return await this.store(target, data, sampledAt, eventId, receivedAt);
+    } catch (error) {
+      // A message the broker held for a tenant deprovisioned since: its schema
+      // is gone, so every attempt fails the tenant boundary, and holding PUBACK
+      // would reconnect the one shared connection forever. A tenant the
+      // platform no longer lists as active is ACK-dropped; a live tenant's
+      // failure, or one whose liveness cannot be read, is redelivered.
+      if (await this.tenantGone(target.tenantId)) {
+        return this.drop('tenant_inactive');
+      }
+      throw error;
+    }
+  }
+
+  private async store(
+    target: { tenantId: string; sensorId: string },
+    data: Record<string, unknown>,
+    sampledAt: Date,
+    eventId: EventId,
+    receivedAt: Date,
+  ): Promise<SensorDataDisposition> {
     return runInTenantTransaction(
       this.dataSource,
       SENSOR_SOURCE_SCHEMA,
@@ -195,6 +202,16 @@ export class SensorPrincipalIngestion {
     );
   }
 
+  /** True only when the platform's tenant ledger reads and no longer lists the tenant. */
+  private async tenantGone(tenantId: string): Promise<boolean> {
+    const active = await listActiveTenantSchemaIdentities(this.dataSource).catch(() => null);
+    if (active === null) {
+      return false;
+    }
+    const normalized = tenantId.toLowerCase();
+    return !active.some((identity) => identity.tenantId === normalized);
+  }
+
   /** The channel's value when it is a finite JSON number; numeric strings are refused here. */
   private numberOf(data: Record<string, unknown>, channel: SensorDataChannel): number | undefined {
     const value = channel.dataPath ? valueAtPath(data, channel.dataPath) : data[channel.channelKey];
@@ -208,10 +225,17 @@ export class SensorPrincipalIngestion {
     return undefined;
   }
 
-  /** The payload's timestamp when it lies within the trusted skew, else the receive time. */
+  /**
+   * The payload's timestamp when it is RFC 3339 with an offset and lies within
+   * the trusted skew; else the receive time, counted by why.
+   */
   private sampleTime(timestamp: unknown, receivedAt: Date): Date {
-    if (typeof timestamp !== 'string') {
+    if (timestamp === undefined || timestamp === null) {
       this.untrustedTimestamps.inc({ reason: 'absent' });
+      return receivedAt;
+    }
+    if (typeof timestamp !== 'string' || !SENSOR_DATA_TIMESTAMP_PATTERN.test(timestamp)) {
+      this.untrustedTimestamps.inc({ reason: 'unusable' });
       return receivedAt;
     }
     const sampled = new Date(timestamp);

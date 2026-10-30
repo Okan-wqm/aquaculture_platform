@@ -14,8 +14,56 @@ import type { SensorMqttCredentials } from '../../hooks/useRotateMqttCredentials
 
 export interface SensorMqttCredentialsPanelProps {
   credentials: SensorMqttCredentials;
-  /** The keys the sensor's channels read in a message; an example payload is shown when given. */
+  /** The data paths the sensor's channels read in a message; an example is shown when given. */
   channelKeys?: readonly string[];
+}
+
+type MessageNode = { [key: string]: MessageValue };
+type MessageValue = number | MessageNode | MessageValue[];
+
+/**
+ * An example message in which each data path names a number, nested the way
+ * the ingestion reads it (`sensors.mid` → `{"sensors":{"mid":0}}`, `values[0]`
+ * → `{"values":[0]}`), so a device built from it stores every channel.
+ */
+export function exampleMessage(paths: readonly string[]): MessageNode {
+  const root: MessageNode = {};
+  for (const path of paths) {
+    const segments = path.split('.');
+    let node: MessageNode = root;
+    segments.forEach((segment, depth) => {
+      const leaf = depth === segments.length - 1;
+      const indexed = /^(\w+)\[(\d+)\]$/.exec(segment);
+      if (indexed?.[1] !== undefined && indexed[2] !== undefined) {
+        const existing = node[indexed[1]];
+        const list: MessageValue[] = Array.isArray(existing) ? existing : [];
+        node[indexed[1]] = list;
+        const index = Number(indexed[2]);
+        const item = list[index];
+        if (leaf) {
+          list[index] = 0;
+        } else {
+          const child: MessageNode =
+            item !== undefined && typeof item === 'object' && !Array.isArray(item) ? item : {};
+          list[index] = child;
+          node = child;
+        }
+        return;
+      }
+      const existing = node[segment];
+      if (leaf) {
+        node[segment] = 0;
+      } else {
+        const child: MessageNode =
+          existing !== undefined && typeof existing === 'object' && !Array.isArray(existing)
+            ? existing
+            : {};
+        node[segment] = child;
+        node = child;
+      }
+    });
+  }
+  return root;
 }
 
 function CopyValue({ label, value }: { label: string; value: string }): React.ReactElement {
@@ -54,9 +102,7 @@ export function SensorMqttCredentialsPanel({
   channelKeys = [],
 }: SensorMqttCredentialsPanelProps): React.ReactElement {
   const { t } = useI18n();
-  const example = channelKeys.length
-    ? JSON.stringify(Object.fromEntries(channelKeys.map((key) => [key, 0])), null, 2)
-    : null;
+  const example = channelKeys.length ? JSON.stringify(exampleMessage(channelKeys), null, 2) : null;
   return (
     <div className="space-y-4">
       <p

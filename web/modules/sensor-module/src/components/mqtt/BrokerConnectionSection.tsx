@@ -28,6 +28,11 @@ export interface BrokerConnectionSectionProps {
   sensorId: string;
   /** The username the sensor connects as; null when it holds no credential. */
   mqttUsername: string | null;
+  /**
+   * The legacy topic the sensor's data arrives on today (registered before
+   * ADR-047); issuing its first credential ends it, so the page asks first.
+   */
+  legacyTopic: string | null;
   /** Whether the user's role may issue a credential (the resolver's @Roles). */
   canIssue: boolean;
   onIssued: (username: string) => void;
@@ -36,6 +41,7 @@ export interface BrokerConnectionSectionProps {
 export function BrokerConnectionSection({
   sensorId,
   mqttUsername,
+  legacyTopic,
   canIssue,
   onIssued,
 }: BrokerConnectionSectionProps): React.ReactElement {
@@ -59,6 +65,14 @@ export function BrokerConnectionSection({
         message: t('sensor.mqtt.rotateConfirm'),
         confirmText: t('sensor.mqtt.rotate'),
         variant: 'danger',
+      });
+      if (!proceed) return;
+    } else if (legacyTopic !== null) {
+      const proceed = await confirm({
+        title: t('sensor.mqtt.firstIssueConfirmTitle'),
+        message: t('sensor.mqtt.firstIssueConfirm', { topic: legacyTopic }),
+        confirmText: t('sensor.mqtt.issue'),
+        variant: 'warning',
       });
       if (!proceed) return;
     }

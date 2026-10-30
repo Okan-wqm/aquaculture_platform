@@ -2205,6 +2205,9 @@ export const tr: Record<MessageKey, string> = {
   'sensor.mqtt.rotateConfirmTitle': 'Yeni kimlik oluşturulsun mu?',
   'sensor.mqtt.rotateConfirm':
     'Sensörün şu an kullandığı kimlik hemen geçersiz olur. Sensörü yeni kimlikle ayarlayın.',
+  'sensor.mqtt.firstIssueConfirmTitle': 'İlk kimlik oluşturulsun mu?',
+  'sensor.mqtt.firstIssueConfirm':
+    'Verisi bugün {topic} üzerinden geliyor. Kimlik oluşturulduktan sonra bu topic ona ulaşmaz; cihaz yeni bağlantıyla yayın yapana kadar veri gelmez.',
   'sensor.mqtt.issuedTitle': 'Sensörü bu bağlantıyla ayarlayın',
   'sensor.mqtt.issueFailed': 'Kimlik oluşturulamadı',
   'sensor.mqtt.shownOnce':

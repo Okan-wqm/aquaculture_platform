@@ -3,6 +3,7 @@ import { SENSOR_MQTT_IDENTITY_ERROR } from '@aquaculture/shared-contracts';
 import { collaborator } from '@aquaculture/testing';
 import { HttpException, NotFoundException } from '@nestjs/common';
 import type { ConfigService } from '@nestjs/config';
+import type { OutboxPublisher } from '@platform/outbox';
 import type { DataSource, QueryRunner } from 'typeorm';
 
 import {
@@ -100,6 +101,7 @@ describe('SensorMqttIdentityService under FORCE RLS', () => {
   let stage: SensorRlsHarness | undefined;
   let service: SensorMqttIdentityService;
   const ids: Record<string, string> = {};
+  const enqueue = jest.fn().mockResolvedValue(undefined);
 
   beforeAll(async () => {
     stage = await bootSensorRlsHarness({
@@ -160,6 +162,7 @@ describe('SensorMqttIdentityService under FORCE RLS', () => {
       stage.runtime,
       keyringService(KEYRING),
       endpointConfig(),
+      collaborator<OutboxPublisher>({ enqueue }, 'OutboxPublisher'),
     );
   });
 
@@ -216,6 +219,14 @@ describe('SensorMqttIdentityService under FORCE RLS', () => {
       `SELECT changed_by, previous_value, new_value FROM sensor.sensor_audit_logs
         WHERE entity_id = $1`,
       [ids['standalone']],
+    );
+    expect(enqueue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'SensorConfigurationUpdated',
+        sensorId: ids['standalone'],
+        changedFields: ['mqttUsername', 'protocolConfiguration'],
+      }),
+      expect.anything(),
     );
     expect(audit).toMatchObject({
       changed_by: OPERATOR,
@@ -332,6 +343,7 @@ describe('SensorMqttIdentityService under FORCE RLS', () => {
       stage!.runtime,
       keyringService(undefined),
       endpointConfig(),
+      collaborator<OutboxPublisher>({ enqueue }, 'OutboxPublisher'),
     );
     expect(await refusal(closed.rotate(TENANT_A, ids['standalone']!, OPERATOR))).toMatchObject({
       code: SENSOR_MQTT_IDENTITY_ERROR.UNAVAILABLE,

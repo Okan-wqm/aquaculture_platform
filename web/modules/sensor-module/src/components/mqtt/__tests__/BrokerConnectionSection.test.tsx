@@ -46,6 +46,7 @@ function renderSection(props: Partial<React.ComponentProps<typeof BrokerConnecti
       <BrokerConnectionSection
         sensorId="sensor-1"
         mqttUsername={null}
+        legacyTopic={null}
         canIssue
         onIssued={onIssued}
         {...props}
@@ -94,6 +95,21 @@ describe('BrokerConnectionSection', () => {
 
     await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1));
     expect(graphqlFetch).not.toHaveBeenCalled();
+  });
+
+  it('asks before a first credential ends the legacy topic the data arrives on today', async () => {
+    confirm.mockResolvedValue(true);
+    renderSection({ legacyTopic: 'sensors/codex-test/water-temp-01' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Issue credential' }));
+
+    await screen.findByRole('dialog');
+    expect(confirm).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.stringContaining('sensors/codex-test/water-temp-01'),
+      }),
+    );
+    expect(graphqlFetch).toHaveBeenCalledTimes(1);
   });
 
   it('words a refusal by its code in the user’s language', async () => {

@@ -13,6 +13,8 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { createBaseEvent, type SensorConfigurationUpdatedEvent } from '@platform/event-contracts';
+import { OutboxPublisher } from '@platform/outbox';
 import { DataSource, type EntityManager } from 'typeorm';
 
 import { Sensor, SensorRegistrationStatus } from '../database/entities/sensor.entity';
@@ -123,6 +125,9 @@ export class SensorMqttIdentityService {
     private readonly dataSource: DataSource,
     private readonly keyring: SensorMqttKeyringService,
     config: ConfigService,
+    // The issue or withdrawal is announced (SensorConfigurationUpdated), so
+    // caches that map a legacy topic or a sensor drop their copy.
+    private readonly outboxPublisher: OutboxPublisher,
   ) {
     this.endpoint = resolvePublicBrokerEndpoint(config);
   }
@@ -195,6 +200,10 @@ export class SensorMqttIdentityService {
       next: { mqttUsername: username, mqttTopic: topic },
       changedBy: actorId,
     });
+    await this.outboxPublisher.enqueue(
+      credentialChanged(tenantId, sensorId, ['mqttUsername', 'protocolConfiguration']),
+      manager,
+    );
     this.logger.log(
       JSON.stringify({
         event:
@@ -259,6 +268,10 @@ export class SensorMqttIdentityService {
       next: { mqttUsername: null },
       changedBy: actorId,
     });
+    await this.outboxPublisher.enqueue(
+      credentialChanged(tenantId, sensorId, ['mqttUsername']),
+      manager,
+    );
     this.logger.log(JSON.stringify({ event: 'sensor_mqtt_identity_revoked', tenantId, sensorId }));
   }
 
@@ -361,4 +374,21 @@ async function lockPrincipal(
     });
   }
   return row;
+}
+
+/** The sensor's broker credential (and, on issue, its legacy connection) changed. */
+function credentialChanged(
+  tenantId: string,
+  sensorId: string,
+  changedFields: string[],
+): SensorConfigurationUpdatedEvent {
+  return {
+    ...createBaseEvent<SensorConfigurationUpdatedEvent>('SensorConfigurationUpdated', tenantId, {
+      aggregateId: sensorId,
+      aggregateType: 'Sensor',
+    }),
+    sensorId,
+    protocolCode: 'MQTT',
+    changedFields,
+  };
 }

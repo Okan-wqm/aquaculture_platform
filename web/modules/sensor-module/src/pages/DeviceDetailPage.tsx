@@ -643,6 +643,11 @@ const DeviceDetailPage: React.FC = () => {
               <BrokerConnectionSection
                 sensorId={deviceId}
                 mqttUsername={device.mqttUsername ?? null}
+                legacyTopic={
+                  typeof device.protocolConfiguration?.['topic'] === 'string'
+                    ? device.protocolConfiguration['topic']
+                    : null
+                }
                 canIssue={canIssueCredential}
                 onIssued={(username) =>
                   setDevice((shown) =>

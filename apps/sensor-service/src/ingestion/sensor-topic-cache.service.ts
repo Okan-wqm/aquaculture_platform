@@ -9,6 +9,17 @@ import { RedisService } from '@aquaculture/backend-common/redis';
 import { DataSource } from 'typeorm';
 
 /**
+ * Which sensors a legacy topic may name (ADR-047 §7, SENSOR-HIGH-207): an
+ * MQTT sensor registered before ADR-047 that does not yet hold its own broker
+ * principal. A sensor of another protocol carrying a `topic` key, or one
+ * moved to its own principal, never claims a legacy topic — otherwise any
+ * tenant could store a `sensors/#` topic on some other device and capture the
+ * legacy streams of every tenant scanned after it.
+ */
+const LEGACY_TOPIC_HOLDER = `mqtt_username IS NULL
+              AND protocol_id IN (SELECT id FROM sensor_protocols WHERE code = 'MQTT')`;
+
+/**
  * Cached sensor data structure for topic lookups
  * Contains minimal data needed for message routing
  */
@@ -267,6 +278,7 @@ export class SensorTopicCacheService implements OnModuleInit {
             SELECT id, name, type, tenant_id AS "tenantId", protocol_configuration AS "protocolConfiguration", metadata
             FROM sensors
             WHERE protocol_configuration->>'topic' IS NOT NULL
+              AND ${LEGACY_TOPIC_HOLDER}
           `),
           );
 
@@ -313,6 +325,7 @@ export class SensorTopicCacheService implements OnModuleInit {
             SELECT id, name, type, tenant_id AS "tenantId", protocol_configuration AS "protocolConfiguration", metadata
             FROM sensors
             WHERE protocol_configuration->>'topic' = $1
+              AND ${LEGACY_TOPIC_HOLDER}
             LIMIT 1
           `,
               [topic],
@@ -330,8 +343,9 @@ export class SensorTopicCacheService implements OnModuleInit {
               `
             SELECT id, name, type, tenant_id AS "tenantId", protocol_configuration AS "protocolConfiguration", metadata
             FROM sensors
-            WHERE protocol_configuration->>'topic' LIKE '%#%'
-               OR protocol_configuration->>'topic' LIKE '%+%'
+            WHERE (protocol_configuration->>'topic' LIKE '%#%'
+               OR protocol_configuration->>'topic' LIKE '%+%')
+              AND ${LEGACY_TOPIC_HOLDER}
           `,
             ),
           );

@@ -2214,6 +2214,9 @@ export const en = {
   'sensor.mqtt.rotateConfirmTitle': 'Issue a new credential?',
   'sensor.mqtt.rotateConfirm':
     'The credential the sensor uses now stops working at once. Configure the sensor with the new one.',
+  'sensor.mqtt.firstIssueConfirmTitle': 'Issue the first credential?',
+  'sensor.mqtt.firstIssueConfirm':
+    'Its data arrives on {topic} today. After the credential is issued that topic no longer reaches it, until the device publishes with the new connection.',
   'sensor.mqtt.issuedTitle': 'Configure the sensor with this connection',
   'sensor.mqtt.issueFailed': 'The credential could not be issued',
   'sensor.mqtt.shownOnce':

@@ -15,7 +15,10 @@ const MQTT_PROTOCOL_CODE = 'MQTT';
  * device proves itself by publishing over the identity it was issued.
  *
  * The first message that persists at least one metric moves the principal's
- * row and its children from DRAFT or TEST_FAILED to ACTIVE with isActive set,
+ * row and its children to ACTIVE with isActive set from any status but
+ * SUSPENDED — DRAFT and TEST_FAILED, and the PENDING_TEST or TESTING a sensor
+ * registered before ADR-047 may still be left in (no test ever ends those for
+ * it now) —
  * stamps last_seen_at, records the change in sensor_audit_logs, and enqueues
  * SensorRegistrationCompleted with connectionTestPassed = true — in the
  * caller's ingestion transaction, so a promotion commits with the reading
@@ -36,7 +39,7 @@ export class SensorDataPromotion {
          SELECT id, registration_status AS previous, is_active AS previous_active
            FROM sensors
           WHERE tenant_id = $1 AND (id = $2 OR parent_id = $2)
-            AND registration_status IN ($4, $5)
+            AND registration_status IN ($4, $5, $8, $9)
           FOR UPDATE
        )
        UPDATE sensors s
@@ -56,6 +59,8 @@ export class SensorDataPromotion {
         SensorRegistrationStatus.TEST_FAILED,
         SensorRegistrationStatus.ACTIVE,
         SensorStatus.ACTIVE,
+        SensorRegistrationStatus.PENDING_TEST,
+        SensorRegistrationStatus.TESTING,
       ],
     )) as [
       Array<{ id: string; previous: SensorRegistrationStatus; previous_active: boolean }>,

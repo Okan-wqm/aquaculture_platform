@@ -576,6 +576,14 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
         return;
       }
 
+      // ADR-047 §7: a sensor issued its own broker principal has left its
+      // legacy topic; a mapping cached before the issue, or a publisher still
+      // on the service account, does not reach it any more.
+      if (sensor.mqttUsername) {
+        this.logger.debug(`Legacy topic ${topic} names a sensor that now holds its own principal`);
+        return;
+      }
+
       // Parse message payload
       const data = this.parsePayload(payload, sensor);
 

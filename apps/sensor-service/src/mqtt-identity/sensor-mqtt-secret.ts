@@ -57,8 +57,10 @@ export function parseSensorSecretKeyring(raw: string): SensorSecretKeyring {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
-  } catch (error) {
-    throw new Error(`${SENSOR_MQTT_SECRET_KEYRING_ENV} must be JSON: ${(error as Error).message}`);
+  } catch {
+    // The parser's own message quotes the input around the error, which here
+    // is pepper material: say only that it is not JSON.
+    throw new Error(`${SENSOR_MQTT_SECRET_KEYRING_ENV} must be JSON`);
   }
   if (!Array.isArray(parsed)) {
     throw new Error(`${SENSOR_MQTT_SECRET_KEYRING_ENV} must be a JSON array of keys`);

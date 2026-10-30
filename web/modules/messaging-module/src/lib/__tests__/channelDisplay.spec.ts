@@ -1,7 +1,11 @@
+
+import { en } from '@aquaculture/shared-ui/i18n/locales/en';
+import { tr } from '@aquaculture/shared-ui/i18n/locales/tr';
 import { describe, it, expect } from 'vitest';
 
 import type { Channel } from '../../types/messaging';
-import { channelTitle } from '../channelDisplay';
+import type { Translate } from '../aiPersona';
+import { channelHeading, channelTitle } from '../channelDisplay';
 
 function makeChannel(overrides: Partial<Channel>): Channel {
   return {
@@ -30,8 +34,18 @@ describe('channelTitle', () => {
   it('derives a DM title from the other members full names', () => {
     const channel = makeChannel({
       members: [
-        { id: 'm1', userId: 'u1', role: 'MEMBER', user: { id: 'u1', firstName: 'Ayşe', lastName: 'Yılmaz', profileImageUrl: null } },
-        { id: 'm2', userId: 'u2', role: 'MEMBER', user: { id: 'u2', firstName: 'Mehmet', lastName: 'Demir', profileImageUrl: null } },
+        {
+          id: 'm1',
+          userId: 'u1',
+          role: 'MEMBER',
+          user: { id: 'u1', firstName: 'Ayşe', lastName: 'Yılmaz', profileImageUrl: null },
+        },
+        {
+          id: 'm2',
+          userId: 'u2',
+          role: 'MEMBER',
+          user: { id: 'u2', firstName: 'Mehmet', lastName: 'Demir', profileImageUrl: null },
+        },
       ],
     });
     expect(channelTitle(channel)).toBe('Ayşe Yılmaz, Mehmet Demir');
@@ -40,8 +54,18 @@ describe('channelTitle', () => {
   it('excludes MY OWN membership from a DM title (FAZ 1: DM header must not contain my name)', () => {
     const channel = makeChannel({
       members: [
-        { id: 'm1', userId: 'me', role: 'MEMBER', user: { id: 'me', firstName: 'Ben', lastName: 'Kendim', profileImageUrl: null } },
-        { id: 'm2', userId: 'u2', role: 'MEMBER', user: { id: 'u2', firstName: 'Mehmet', lastName: 'Demir', profileImageUrl: null } },
+        {
+          id: 'm1',
+          userId: 'me',
+          role: 'MEMBER',
+          user: { id: 'me', firstName: 'Ben', lastName: 'Kendim', profileImageUrl: null },
+        },
+        {
+          id: 'm2',
+          userId: 'u2',
+          role: 'MEMBER',
+          user: { id: 'u2', firstName: 'Mehmet', lastName: 'Demir', profileImageUrl: null },
+        },
       ],
     });
     expect(channelTitle(channel, 'me')).toBe('Mehmet Demir');
@@ -51,7 +75,12 @@ describe('channelTitle', () => {
     const channel = makeChannel({
       members: [
         { id: 'm1', userId: 'me', role: 'MEMBER', user: null },
-        { id: 'm2', userId: 'u2', role: 'MEMBER', user: { id: 'u2', firstName: 'Ada', lastName: null, profileImageUrl: null } },
+        {
+          id: 'm2',
+          userId: 'u2',
+          role: 'MEMBER',
+          user: { id: 'u2', firstName: 'Ada', lastName: null, profileImageUrl: null },
+        },
       ],
     });
     expect(channelTitle(channel, 'me')).toBe('Ada');
@@ -60,7 +89,12 @@ describe('channelTitle', () => {
   it('falls back to "Direct message" when only my own membership remains', () => {
     const channel = makeChannel({
       members: [
-        { id: 'm1', userId: 'me', role: 'MEMBER', user: { id: 'me', firstName: 'Ben', lastName: null, profileImageUrl: null } },
+        {
+          id: 'm1',
+          userId: 'me',
+          role: 'MEMBER',
+          user: { id: 'me', firstName: 'Ben', lastName: null, profileImageUrl: null },
+        },
       ],
     });
     expect(channelTitle(channel, 'me')).toBe('Direct message');
@@ -69,7 +103,12 @@ describe('channelTitle', () => {
   it('falls back to first name only when the last name is missing', () => {
     const channel = makeChannel({
       members: [
-        { id: 'm1', userId: 'u1', role: 'MEMBER', user: { id: 'u1', firstName: 'Ada', lastName: null, profileImageUrl: null } },
+        {
+          id: 'm1',
+          userId: 'u1',
+          role: 'MEMBER',
+          user: { id: 'u1', firstName: 'Ada', lastName: null, profileImageUrl: null },
+        },
       ],
     });
     expect(channelTitle(channel)).toBe('Ada');
@@ -78,7 +117,12 @@ describe('channelTitle', () => {
   it('labels a nameless member "Member"', () => {
     const channel = makeChannel({
       members: [
-        { id: 'm1', userId: 'u1', role: 'MEMBER', user: { id: 'u1', firstName: null, lastName: null, profileImageUrl: null } },
+        {
+          id: 'm1',
+          userId: 'u1',
+          role: 'MEMBER',
+          user: { id: 'u1', firstName: null, lastName: null, profileImageUrl: null },
+        },
       ],
     });
     expect(channelTitle(channel)).toBe('Member');
@@ -87,5 +131,43 @@ describe('channelTitle', () => {
   it('returns "Direct message" when there are no members', () => {
     expect(channelTitle(makeChannel({ members: null }))).toBe('Direct message');
     expect(channelTitle(makeChannel({ members: [] }))).toBe('Direct message');
+  });
+});
+
+describe('channelHeading', () => {
+  const tEn: Translate = (key) => en[key];
+  const tTr: Translate = (key) => tr[key];
+
+  it("calls an AI room by its agent's job and tier in the caller's language, not its stored name", () => {
+    const room = makeChannel({
+      type: 'AI',
+      name: 'Production Specialist (Expert)',
+      aiPersona: 'expert-farm-production-v1',
+    });
+    expect(channelHeading(room, 'me', tTr)).toEqual({ title: 'Üretim Uzmanı', tierLabel: 'Uzman' });
+    expect(channelHeading(room, 'me', tEn)).toEqual({
+      title: 'Production Specialist',
+      tierLabel: 'Expert',
+    });
+  });
+
+  it('calls a tenant-default AI room the generic assistant, without a tier', () => {
+    const room = makeChannel({ type: 'AI', name: 'General AI Assistant', aiPersona: null });
+    expect(channelHeading(room, 'me', tTr)).toEqual({
+      title: 'Yapay Zekâ Asistanı',
+      tierLabel: null,
+    });
+  });
+
+  it("falls back to the room's stored name for a persona the panel cannot resolve", () => {
+    const room = makeChannel({ type: 'AI', name: 'Future Bot', aiPersona: 'future-persona-9' });
+    expect(channelHeading(room, 'me', tTr)).toEqual({ title: 'Future Bot', tierLabel: null });
+  });
+
+  it('keeps channelTitle for people rooms', () => {
+    expect(channelHeading(makeChannel({ type: 'GROUP', name: 'Ops Team' }), 'me', tTr)).toEqual({
+      title: 'Ops Team',
+      tierLabel: null,
+    });
   });
 });

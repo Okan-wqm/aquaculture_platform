@@ -455,15 +455,39 @@ describe('ChatRoomPage — FAZ 2.4 AI visibility', () => {
     ]);
   }
 
-  it('credits AI messages to the channel persona (shared catalogue name), not a hard-coded name', async () => {
+  it("credits AI messages to the channel persona's job, not a hard-coded name", async () => {
     routeAiThread([makeMessage('ai-1', 'hello from ai', AI_SENDER_ID, { isAiGenerated: true })]);
     renderRoom(newQueryClient());
 
     expect(await screen.findByText('hello from ai')).toBeVisible();
-    // aiPersona 'expert-farm-production-v1' maps to the catalogue display name…
-    expect(screen.getByText('Production Specialist (Expert)')).toBeVisible();
+    // aiPersona 'expert-farm-production-v1' maps to the localised job on the author line…
+    expect(within(screen.getByRole('log')).getByText('Production Specialist')).toHaveClass(
+      'sd-msg-author',
+    );
     // …and the generic label does NOT appear alongside it.
     expect(screen.queryByText('AI Assistant')).not.toBeInTheDocument();
+  });
+
+  it("titles an AI room with its agent's face, job and tier — not the stored English name", async () => {
+    routeAiThread([]);
+    renderRoom(newQueryClient());
+
+    await waitFor(() =>
+      expect(screen.getByTestId('room-title')).toHaveTextContent('Production Specialist'),
+    );
+    expect(screen.getByText('Expert')).toHaveClass('sd-chip');
+    // The room's face is decorative; the title carries the name and the spoken "(AI)".
+    expect(screen.getByTestId('persona-avatar')).toHaveAttribute('aria-hidden', 'true');
+    expect(screen.getByTestId('room-title')).toHaveTextContent('Production Specialist (AI)');
+    expect(screen.queryByText('AI — Production Specialist')).not.toBeInTheDocument();
+  });
+
+  it("puts a person's face beside their message", async () => {
+    routeAiThread([makeMessage('u-1', 'from a person', 'u2')]);
+    renderRoom(newQueryClient());
+
+    const row = (await screen.findByText('from a person')).closest('.sd-msg-row');
+    expect(row?.querySelector('[data-testid="member-avatar"]')).not.toBeNull();
   });
 
   it('shows the consent switch in an AI room and sends the opt-in (FE-MEDIUM-065)', async () => {
@@ -510,17 +534,19 @@ describe('ChatRoomPage — FAZ 2.4 AI visibility', () => {
     });
     renderRoom(newQueryClient());
 
-    expect(await screen.findByText('AI Assistant')).toBeVisible();
+    await screen.findByText('hello from ai');
+    expect(within(screen.getByRole('log')).getByText('AI Assistant')).toBeVisible();
   });
 
-  it('renders an unknown persona id verbatim instead of hiding the persona', async () => {
+  it("names an unknown persona by the room's stored name instead of hiding it", async () => {
     routeAiThread([makeMessage('ai-1', 'hello from ai', AI_SENDER_ID, { isAiGenerated: true })], {
       ...AI_CHANNEL,
       aiPersona: 'future-persona-9',
     });
     renderRoom(newQueryClient());
 
-    expect(await screen.findByText('future-persona-9')).toBeVisible();
+    await screen.findByText('hello from ai');
+    expect(within(screen.getByRole('log')).getByText('AI — Production Specialist')).toBeVisible();
   });
 
   it('renders SYSTEM+metadata.error notices as a neutral system line, NOT an AI bubble', async () => {
@@ -538,7 +564,7 @@ describe('ChatRoomPage — FAZ 2.4 AI visibility', () => {
     // Distinct from a normal AI answer: no AI bubble, no raw notice payload.
     expect(document.querySelector('.sd-msg--ai')).toBeNull();
     expect(screen.queryByText('AI upstream failed')).not.toBeInTheDocument();
-    expect(screen.queryByText('Production Specialist (Expert)')).not.toBeInTheDocument();
+    expect(document.querySelector('.sd-msg-author')).toBeNull();
   });
 
   it('ignores a user-forged metadata.error on a TEXT message (no system notice)', async () => {

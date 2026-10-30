@@ -1,8 +1,10 @@
 # ADR-047: Per-sensor MQTT identity for directly publishing sensors
 
 - **Status:** Accepted — direction chosen by the operator; revised after the edge-expert
-  review (2026-10-06) and three sensor-expert rounds (2026-10-08). Implementation is
-  tracked as SENSOR-CRITICAL-173 (`docs/reviews/claude/2026-10-08-sensor-mqtt-identity.md`).
+  review (2026-10-06) and three sensor-expert rounds (2026-10-08). Implemented 2026-10-30
+  (SENSOR-CRITICAL-173, `docs/reviews/claude/2026-10-08-sensor-mqtt-identity.md`; see
+  "Implementation notes"). The legacy publishers still on the service account are listed
+  and tracked as SENSOR-HIGH-207.
 - **Date:** 2026-10-06
 - **Deciders:** okan (operator decision, 2026-10-06: "sensör başına kimlik"),
   claude (sensor-service); edge-expert review required for the broker contract
@@ -314,3 +316,14 @@ Recorded as each part lands (SENSOR-CRITICAL-173).
   a new credential (`rotateSensorMqttCredentials`, asked first when one would be replaced).
   The mutation keeps no state (`gcTime: 0`) and the dialog holds the password only while it
   is open. Refusals are worded by their code.
+
+### Device contract and the legacy list (2026-10-30)
+
+- `sensorprotocols/mqtt-protocol.md` is the device contract above, replacing the client-form
+  design that told sensors to retain readings, set a Will and publish under
+  `sensors/{location}`.
+- The pepper keyring's rotation is in `docs/runbooks/secret-rotation.md`.
+- The legacy publishers (§7) are SENSOR-HIGH-207: the production codex simulator and the
+  repository simulator. The repository simulator's broker authenticates from a password file,
+  not the platform's HTTP backend, so it cannot admit an issued principal at all; moving it
+  means running the platform broker image in the simulator stack, which that finding owns.

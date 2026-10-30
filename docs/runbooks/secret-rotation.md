@@ -268,6 +268,36 @@ change-management with a maintenance window.
 key as `CREDENTIAL_ENCRYPTION_KEY` and root-cause before retrying — the old
 ciphertext is unchanged until the re-encryption migration commits.
 
+## Sensor broker-credential peppers (`MQTT_SENSOR_SECRET_KEYRING`)
+
+The keyring sensor-service HMACs each sensor's own broker secret under
+(ADR-047, `apps/sensor-service/src/mqtt-identity/sensor-mqtt-secret.ts`). A
+JSON array of `{ "kid", "secret", "status" }`: one `active` key issues, any
+number of `previous` keys still verify, a `disabled` or removed key verifies
+nothing. Each sensor row keeps the HMAC and the `kid` it was made under, so a
+pepper rotates with no outage and no reissue. The deploy bootstrap generates
+the first keyring once per droplet; production refuses to start without one.
+
+**Never replace the value outright**: every issued credential names its `kid`,
+and a keyring without that `kid` refuses those sensors at their next CONNECT.
+
+**Steps:**
+
+1. Generate a key: `openssl rand -hex 32`.
+2. Edit the `.env` line: add `{"kid":"k-<date>","secret":"<hex>","status":"active"}`
+   and set the current key's `status` to `previous`. Exactly one `active` key.
+3. Roll sensor-service. New credentials (registrations, reissues) use the new
+   key; existing ones keep verifying under the previous key.
+4. When no sensor names the old `kid` any more (`SELECT count(*) FROM
+tenant_*.sensors WHERE mqtt_secret_key_id = '<old kid>'` across tenant
+   schemas, or after every sensor was reissued), remove the old entry.
+
+**On a suspected pepper leak**: mark the old key `disabled` at once and reissue
+every sensor's credential (device page, "Issue new credential"); the sensors
+are refused until they are reconfigured. A leaked pepper alone does not let
+anyone connect (it needs the secret too), but it removes the offline-guessing
+protection of the stored HMACs.
+
 ## Rotation cadence
 
 Closes `docs/reviews/infra-expert/2026-04-14-infrastructure-hardening.md#INFRA-ROTATION-001`. Without an explicit cadence, secrets drift toward "rotate never" by default. The cadence below is the baseline; an observed compromise or suspected leak collapses the interval to "now" and triggers the incident-response runbook instead.
@@ -281,6 +311,7 @@ Closes `docs/reviews/infra-expert/2026-04-14-infrastructure-hardening.md#INFRA-R
 | `PASSWORD_PEPPER`                                            | 180 days (or on incident)                        | 30 days            | auth-service oncall   | §"Password pepper" (incident-response only outside cadence)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `REDIS_PASSWORD`                                             | 180 days                                         | 30 days            | infra oncall          | roll via droplet env + `docker compose up -d redis`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `CREDENTIAL_ENCRYPTION_KEY` (sensor at-rest)                 | 180 days (or on incident)                        | 30 days            | sensor-service oncall | §"Sensor credential-vault key" — scheduled re-encryption via `credential-crypto`; NOT zero-downtime (no key-version tag)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `MQTT_SENSOR_SECRET_KEYRING` (sensor broker peppers)         | 365 days (or on incident)                        | 30 days            | sensor-service oncall | §"Sensor broker-credential peppers" — add a new active key, keep the old as `previous` until no sensor names it; zero-downtime                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | NATS mTLS client certs                                       | 12 months                                        | 30 days            | infra oncall          | `scripts/generate-internal-certs.sh` regenerates in lockstep with `infrastructure/nats/services.yaml`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | Droplet SSH host key/fingerprint                             | on authorized host-key change or compromise      | n/a                | infra oncall          | obtain the new fingerprint out of band → update `DROPLET_SSH_FINGERPRINT` → require native OpenSSH exact-match preflight before any remote command                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | Backup broker operation SSH keys                             | 90 days or immediately on suspected disclosure   | 14 days            | infra oncall          | while pre-cutover, rotate only the matching broker key/fingerprint → install its public key through the root-owned provisioner → pass that account's attestation and cross-key denial matrix; after cutover, repeat the operation proof before revoking the old key                                                                                                                                                                                                                                                                                                                                                                                |

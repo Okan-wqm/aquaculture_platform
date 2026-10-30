@@ -19,6 +19,10 @@ The list, as of 2026-10-30:
 | `nodered-codex-sim-01` | production codex simulator (Node-RED, `/var/lib/aqua/simulators`) | `sensors/codex-test/water-temp-01`  |
 | `nodered-simulator`    | repository simulator (`infrastructure/simulators/nodered`)        | three `sensors/farm-01/...` streams |
 
+The repository simulator's own broker (`infrastructure/simulators/mosquitto`) authenticates
+from a password file, not the platform's HTTP backend, so no issued principal can connect to it;
+moving that publisher includes running the platform broker image there.
+
 Until a publisher moves, its client ID stays reserved to `sensor_service`
 (`LEGACY_SENSOR_SERVICE_PUBLISHERS`), so the broker binding admits it and no other principal
 can take it.

@@ -11,7 +11,6 @@ import { bootMosquittoContainer, type MqttHarness } from '@platform/mqtt-test-ha
 import { DeviceDirectoryService } from '../device-directory.service';
 import { DeviceLifecycleState, EdgeDevice } from '../entities/edge-device.entity';
 import { MqttAuthService } from '../mqtt-auth.service';
-import { SensorRegistrationStatus } from '../../database/entities/sensor.entity';
 import { SENSOR_SERVICE_SUBSCRIPTION_FILTERS } from '../../ingestion/mqtt-listener.service';
 import { SensorMqttBrokerAccess } from '../../mqtt-identity/sensor-mqtt-broker-access.service';
 import type {
@@ -97,7 +96,6 @@ function makeAuthService(): MqttAuthService {
     username: SENSOR_USERNAME,
     tenantId: TENANT,
     sensorId: SENSOR_ID,
-    registrationStatus: SensorRegistrationStatus.DRAFT,
     secret: { hmac: 'unused', kid: 'unused' },
   };
   const identity = collaborator<SensorMqttIdentityService>(

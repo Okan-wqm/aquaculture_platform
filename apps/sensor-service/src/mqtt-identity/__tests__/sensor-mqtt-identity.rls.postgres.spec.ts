@@ -172,7 +172,7 @@ describe('SensorMqttIdentityService under FORCE RLS', () => {
 
   async function stored(name: string): Promise<Record<string, unknown>> {
     const [row] = await stage!.admin.query(
-      `SELECT mqtt_username, mqtt_secret_hmac, mqtt_secret_key_id, protocol_configuration, name
+      `SELECT mqtt_username, protocol_configuration, name, registration_status
          FROM "${stage!.schemaOf(TENANT_A)}".sensors WHERE id = $1`,
       [ids[name]],
     );
@@ -184,6 +184,14 @@ describe('SensorMqttIdentityService under FORCE RLS', () => {
       `SELECT mqtt_username, sensor_id, tenant_id FROM sensor.sensor_mqtt_directory WHERE ${where} = $1`,
       [value],
     );
+  }
+
+  async function credentialOf(username: string): Promise<Record<string, unknown> | undefined> {
+    const [row] = await stage!.admin.query(
+      `SELECT secret_hmac, secret_key_id FROM sensor.sensor_mqtt_directory WHERE mqtt_username = $1`,
+      [username],
+    );
+    return row;
   }
 
   it('issues a credential: stores its HMAC, routes the username and drops the legacy topic', async () => {
@@ -202,9 +210,12 @@ describe('SensorMqttIdentityService under FORCE RLS', () => {
 
     const row = await stored('standalone');
     expect(row['mqtt_username']).toBe(issued.username);
-    expect(row['mqtt_secret_key_id']).toBe('k-test-1');
-    expect(row['mqtt_secret_hmac']).toMatch(/^[0-9a-f]{64}$/);
     expect(JSON.stringify(row)).not.toContain(issued.password);
+    // The credential's one home is its route: the HMAC under the active pepper.
+    const credential = await credentialOf(issued.username);
+    expect(credential?.['secret_key_id']).toBe('k-test-1');
+    expect(credential?.['secret_hmac']).toMatch(/^[0-9a-f]{64}$/);
+    expect(JSON.stringify(credential)).not.toContain(issued.password);
     expect(row['protocol_configuration']).toEqual({ payloadFormat: 'json' });
     expect(await routes('mqtt_username', issued.username)).toEqual([
       { mqtt_username: issued.username, sensor_id: ids['standalone'], tenant_id: TENANT_A },
@@ -284,11 +295,7 @@ describe('SensorMqttIdentityService under FORCE RLS', () => {
       service.revoke(qr.manager, TENANT_A, ids['standalone']!, OPERATOR),
     );
 
-    expect(await stored('standalone')).toMatchObject({
-      mqtt_username: null,
-      mqtt_secret_hmac: null,
-      mqtt_secret_key_id: null,
-    });
+    expect(await stored('standalone')).toMatchObject({ mqtt_username: null });
     expect(await routes('mqtt_username', issued.username)).toEqual([]);
     expect(await service.findPrincipal(issued.username)).toBeNull();
     const audits: Array<{ new_value: Record<string, unknown> }> = await stage!.admin.query(
@@ -350,14 +357,48 @@ describe('SensorMqttIdentityService under FORCE RLS', () => {
     });
   });
 
-  it('keeps a username off a child sensor at the database too', async () => {
+  async function refusedAtCommit(sql: string, params: unknown[]): Promise<string> {
+    const qr = stage!.admin.createQueryRunner();
+    try {
+      await qr.startTransaction();
+      const error = await qr.query(sql, params).then(
+        async () => qr.commitTransaction().then(() => null),
+        (caught: unknown) => caught,
+      );
+      if (qr.isTransactionActive) await qr.rollbackTransaction();
+      return error instanceof Error ? error.message : 'committed';
+    } catch (error) {
+      if (qr.isTransactionActive) await qr.rollbackTransaction();
+      return error instanceof Error ? error.message : String(error);
+    } finally {
+      await qr.release();
+    }
+  }
+
+  it('keeps a username off a child sensor and off a suspended one at the database too', async () => {
+    const schema = stage!.schemaOf(TENANT_A);
+    await expect(
+      stage!.admin.query(`UPDATE "${schema}".sensors SET mqtt_username = $2 WHERE id = $1`, [
+        ids['child'],
+        `s${'c'.repeat(22)}`,
+      ]),
+    ).rejects.toThrow(/CHK_sensors_mqtt_identity_principal/);
     await expect(
       stage!.admin.query(
-        `UPDATE "${stage!.schemaOf(TENANT_A)}".sensors
-            SET mqtt_username = $2, mqtt_secret_hmac = $3, mqtt_secret_key_id = 'k-test-1'
+        `UPDATE "${schema}".sensors SET mqtt_username = $2, registration_status = 'suspended'
           WHERE id = $1`,
-        [ids['child'], `s${'c'.repeat(22)}`, 'f'.repeat(64)],
+        [ids['parent'], `s${'d'.repeat(22)}`],
       ),
-    ).rejects.toThrow(/CHK_sensors_mqtt_identity_principal/);
+    ).rejects.toThrow(/CHK_sensors_mqtt_identity_not_suspended/);
+  });
+
+  it('refuses at commit a sensor naming a username no route holds', async () => {
+    const schema = stage!.schemaOf(TENANT_A);
+    const message = await refusedAtCommit(
+      `UPDATE "${schema}".sensors SET mqtt_username = $2 WHERE id = $1`,
+      [ids['standalone'], `s${'e'.repeat(22)}`],
+    );
+    expect(message).toMatch(/no route holds/);
+    expect((await stored('standalone'))['mqtt_username']).toBeNull();
   });
 });

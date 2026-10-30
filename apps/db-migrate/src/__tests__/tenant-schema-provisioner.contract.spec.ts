@@ -135,6 +135,19 @@ describe('tenant schema provisioner contract', () => {
     );
   });
 
+  it('purges the tenant’s source routes in the proof-gated delete transaction, before the drop', () => {
+    const deleteJob = worker.slice(
+      worker.indexOf('async function processDeleteJob'),
+      worker.indexOf('function asRecord'),
+    );
+    const purge = deleteJob.indexOf('await purgeTenantRoutes(queryRunner, job.tenantId)');
+    expect(purge).toBeGreaterThan(-1);
+    expect(deleteJob.indexOf('assertDeleteProof(job)')).toBeLessThan(purge);
+    expect(deleteJob.indexOf('await queryRunner.startTransaction()')).toBeLessThan(purge);
+    expect(purge).toBeLessThan(deleteJob.indexOf('DROP SCHEMA IF EXISTS'));
+    expect(deleteJob).toContain('sourceRoutesDeleted');
+  });
+
   it('does not treat service target proofs as global erasure completion before schema deletion', () => {
     const deletionGate = tenantErasureWorkflow.indexOf(
       'if (!this.isSchemaDeletionComplete(schemaDeletion))',

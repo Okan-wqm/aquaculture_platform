@@ -4,7 +4,10 @@ import {
   getTenantErasureTargetOptions,
   TenantErasureTargetExecutor,
 } from '@aquaculture/backend-common/compliance';
-import { getTenantSchemaName } from '@aquaculture/backend-common/database';
+import {
+  getTenantSchemaName,
+  SENSOR_TENANT_ROUTE_TABLES,
+} from '@aquaculture/backend-common/database';
 import { createBaseEvent, type TenantErasureRequestedEvent } from '@platform/event-contracts';
 import { buildTenantErasureTargetProofLedgerUpSql } from '@platform/outbox';
 import { type DataSource } from 'typeorm';
@@ -117,9 +120,10 @@ describe('sensor-service tenant erasure under pool RLS (tenant-schema-module)', 
         [randomBytes(32).toString('hex'), randomUUID(), tenantId],
       );
       await admin.query(
-        `INSERT INTO sensor.sensor_mqtt_directory (mqtt_username, sensor_id, tenant_id)
-         VALUES ($1, $2, $3)`,
-        [`s${tenantId.slice(0, 1).repeat(22)}`, randomUUID(), tenantId],
+        `INSERT INTO sensor.sensor_mqtt_directory
+           (mqtt_username, sensor_id, tenant_id, secret_hmac, secret_key_id)
+         VALUES ($1, $2, $3, $4, 'k1')`,
+        [`s${tenantId.slice(0, 1).repeat(22)}`, randomUUID(), tenantId, 'e'.repeat(64)],
       );
     }
     for (const sql of buildTenantErasureTargetProofLedgerUpSql({
@@ -158,11 +162,7 @@ describe('sensor-service tenant erasure under pool RLS (tenant-schema-module)', 
     const schemaB = getTenantSchemaName(TENANT_B);
     expect(await count(`SELECT count(*) AS n FROM "${schemaA}".edge_devices`)).toBe(0);
     expect(await count(`SELECT count(*) AS n FROM "${schemaB}".edge_devices`)).toBe(2);
-    for (const table of [
-      'edge_device_directory',
-      'tenant_provisioning_key_directory',
-      'sensor_mqtt_directory',
-    ]) {
+    for (const table of SENSOR_TENANT_ROUTE_TABLES) {
       expect(
         await count(`SELECT count(*) AS n FROM sensor.${table} WHERE tenant_id = $1`, [TENANT_A]),
       ).toBe(0);

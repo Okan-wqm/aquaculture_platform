@@ -21,7 +21,7 @@ import { DataSource } from 'typeorm';
 
 import { ErasedTenantTombstoneService } from '../compliance/erasure/erased-tenant-tombstone.service';
 import type { SensorDataChannel } from '../database/entities/sensor-data-channel.entity';
-import { Sensor, SensorRegistrationStatus } from '../database/entities/sensor.entity';
+import { Sensor } from '../database/entities/sensor.entity';
 import { SensorDataPromotion } from '../mqtt-identity/sensor-data-promotion.service';
 import { parseSensorMqttDataTopic } from '../mqtt-identity/sensor-mqtt-topic';
 import { valueAtPath } from './payload-path';
@@ -178,13 +178,9 @@ export class SensorPrincipalIngestion {
           where: { id: target.sensorId },
         });
         // The sensor must still hold its principal: a message published
-        // just before a suspension or deletion is not stored after it.
-        if (
-          !sensor ||
-          sensor.parentId ||
-          !sensor.mqttUsername ||
-          sensor.registrationStatus === SensorRegistrationStatus.SUSPENDED
-        ) {
+        // just before a rotation, suspension (which withdraws it) or deletion
+        // is not stored after it.
+        if (!sensor || sensor.parentId || !sensor.mqttUsername) {
           return this.drop('no_sensor');
         }
         const rows = await this.recorder.record(qr.manager, {

@@ -207,15 +207,27 @@ Recorded as each part lands (SENSOR-CRITICAL-173).
 
 ### Principal, directory and credentials (2026-10-30)
 
-- The credential lives on the tenant `sensors` row: `mqtt_username`, `mqtt_secret_hmac` and
-  `mqtt_secret_key_id` (migration 1826000000000). Database checks keep the three together,
-  keep the username to the issued shape and keep it off child rows. The entity marks them
-  insert- and update-false; `SensorMqttIdentityService` is their one writer
-  (`tests/invariants/sensor-mqtt-identity-single-writer.spec.ts`).
-- `sensor.sensor_mqtt_directory` is written by a trigger on every tenant's `sensors` table,
-  not by service code. Issuing, rotating or clearing a username, and deleting the sensor,
-  change the directory in the same statement, so no code path can leave a stale route.
-  Tenant erasure purges it with the other route tables (`RouteDirectoryPurgeHook`).
+- The principal lives in one row of `sensor.sensor_mqtt_directory`: username, tenant,
+  sensor, `secret_hmac` and `secret_key_id` (migration 1826000000000). §1 puts the HMAC on
+  the tenant `sensors` row; it is in the directory instead, so the broker's CONNECT and ACL
+  checks are one indexed read with no tenant context. The tenant row keeps only
+  `mqtt_username`, the link: checks keep it to the issued shape, off child rows and off
+  suspended rows.
+- The database keeps the two sides one fact. A trigger on every tenant's `sensors` table
+  removes the route when the username is cleared or changed or the sensor deleted; a
+  constraint trigger checked at commit refuses a sensor naming a username no route holds
+  for it. So a route exists exactly while a live, unsuspended sensor holds it, and the broker
+  needs no second read to know that.
+- `SensorMqttIdentityService` is the one writer: it sets the username and inserts the route
+  in one transaction, and withdraws by clearing the username. The entity marks
+  `mqtt_username` insert- and update-false, and nothing else updates, deletes or ORM-saves a
+  route (`tests/invariants/sensor-mqtt-identity-single-writer.spec.ts`).
+- A tenant's routes go with the tenant. `MODULE_SCHEMAS[].tenantRouteTables` names the route
+  tables (sensor: the edge device, provisioning key and sensor broker directories). Tenant
+  erasure purges them (`RouteDirectoryPurgeHook`), and the db-migrate schema delete job
+  purges them in the transaction that drops the schema (`purgeTenantRoutes`), because a
+  DROP SCHEMA fires no row trigger. Before this the edge and key directories outlived a
+  deleted schema too.
 - The peppers are one keyring, `MQTT_SENSOR_SECRET_KEYRING`: a JSON array of
   `{ kid, secret, status }` with exactly one `active` key, the shape of
   `SERVICE_IDENTITY_KEYRING`. The deploy bootstrap generates it once per droplet
@@ -243,9 +255,9 @@ Recorded as each part lands (SENSOR-CRITICAL-173).
   connects as `backend_service` or `alert_service`, so neither admits a session. Every
   other principal presenting one of those IDs is refused.
 - A username of the issued shape is a sensor principal and is never looked up as an edge
-  device. `SensorMqttBrokerAccess` admits it when the client ID is the username, the
-  directory and the tenant row still name it, the sensor is not suspended, and the secret
-  verifies; and grants it PUBLISH to its own data topic only.
+  device. `SensorMqttBrokerAccess` admits it when the client ID is the username, its
+  directory row exists and the secret verifies; and grants it PUBLISH to its own data topic
+  only. Each check reads that one row.
 - No service account holds an access with the write bit on a sensor data topic;
   `sensor_service` reads and subscribes there, `alert_service` keeps its read grant.
 - The broker ACL spec runs on the real broker in CI (`sensor-service:test:broker`, step
@@ -266,8 +278,8 @@ Recorded as each part lands (SENSOR-CRITICAL-173).
   64 keys or items per level, 256 characters per string; one message a second per sensor
   with a burst of ten; a payload `timestamp` is trusted from an hour before to a minute after
   the receive time.
-- The sensor is read inside its tenant's boundary and must still hold its principal and not
-  be suspended. A channel value must be a JSON number. The readings are written through
+- The sensor is read inside its tenant's boundary and must still hold its principal (a
+  suspended sensor holds none). A channel value must be a JSON number. The readings are written through
   `SensorReadingRecorder`, the one writer the legacy topic route now shares, so the two
   routes cannot diverge on calibration, quality codes, placement or the `SensorReading`
   event.
@@ -297,12 +309,12 @@ Recorded as each part lands (SENSOR-CRITICAL-173).
   data's promotion enqueues `SensorRegistrationCompleted`.
 - `testSensorConnection` and `activateSensor` refuse it (`MQTT_IDENTITY_ACTIVATED_BY_DATA`);
   `updateProtocolConfig` leaves its status as it is.
-- `suspendSensor` withdraws the credential in the transaction that suspends it, with the
-  suspending user in the audit row. `reactivateSensor` returns it to DRAFT with no test and no
-  credential; the device page issues a new one (`rotateSensorMqttCredentials`), whose data
-  promotes it. §6 has reactivation rotate the credential itself; a credential nobody can read
-  would be issued for nothing, so the issue is the separate, explicit step, and the old one
-  stays dead either way.
+- `suspendSensor` withdraws the credential in the transaction that suspends it, before the
+  status changes, with the suspending user in the audit row. `reactivateSensor` returns it
+  to DRAFT with no test and no credential; the device page issues a new one
+  (`rotateSensorMqttCredentials`), whose data promotes it. §6 has reactivation rotate the
+  credential itself; a credential nobody can read would be issued for nothing, so the issue
+  is the separate, explicit step, and the old one stays dead either way.
 
 ### Wizard and device page (2026-10-30)
 

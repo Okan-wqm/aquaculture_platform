@@ -76,6 +76,17 @@ export interface ModuleSchema {
    * will DROP the newly-created table.
    */
   strictOwnership?: boolean;
+  /**
+   * Cross-tenant tables in `sourceSchema` that route an outside identifier
+   * (a device identifier, a provisioning key, a broker username) to a tenant
+   * by their `tenant_id`. Each is also an infrastructure table. A route must
+   * not outlive the tenant rows it points at, so the tenant's rows go with
+   * the tenant: tenant erasure purges them (sensor-service
+   * RouteDirectoryPurgeHook), and the db-migrate schema delete job purges
+   * them in the transaction that drops the tenant's schema — a DROP SCHEMA
+   * fires no row trigger, so nothing else would.
+   */
+  tenantRouteTables?: readonly string[];
 }
 
 export interface SyncTenantSchemaOptions {
@@ -252,6 +263,19 @@ const TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES = [
   TENANT_ERASURE_TARGET_PROOF_LEDGER_TABLE,
 ] as const;
 
+/**
+ * sensor-service's route directories — its MODULE_SCHEMAS entry's
+ * `tenantRouteTables` (see ModuleSchema.tenantRouteTables), and the tables
+ * its RouteDirectoryPurgeHook empties of an erased tenant's rows:
+ * edge_device_directory (SENSOR-MEDIUM-004), tenant_provisioning_key_directory
+ * (SENSOR-HIGH-175), sensor_mqtt_directory (ADR-047).
+ */
+export const SENSOR_TENANT_ROUTE_TABLES = [
+  'edge_device_directory',
+  'tenant_provisioning_key_directory',
+  'sensor_mqtt_directory',
+] as const;
+
 export const MODULE_SCHEMAS: ModuleSchema[] = [
   {
     moduleName: 'sensor',
@@ -278,15 +302,14 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'sensor_audit_logs',
       'sensor_outbox',
       'vfd_register_mappings',
-      'edge_device_directory',
-      'tenant_provisioning_key_directory',
-      'sensor_mqtt_directory',
+      ...SENSOR_TENANT_ROUTE_TABLES,
       'scada_alarms',
       'scada_alarm_chronicle',
       'scada_tag_history',
       'vfd_command_audit_logs',
       ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES,
     ],
+    tenantRouteTables: SENSOR_TENANT_ROUTE_TABLES,
     referenceDataTables: ['sensor_protocols', 'sensor_type_definitions', 'industry_templates'],
     tables: [
       // Core sensor entities

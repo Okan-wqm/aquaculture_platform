@@ -71,8 +71,8 @@ describe('SensorPrincipalIngestion under FORCE RLS', () => {
           const [row] = await owner.query(
             `INSERT INTO "${schema}".sensors
                  (tenant_id, name, serial_number, type, status, is_active, registration_status,
-                  parent_id, is_parent_device, mqtt_username, mqtt_secret_hmac, mqtt_secret_key_id)
-               VALUES ($1, $2, $2, 'multi_parameter', 'inactive', false, $3, $4, $5, $6, $7, $8)
+                  parent_id, is_parent_device, mqtt_username)
+               VALUES ($1, $2, $2, 'multi_parameter', 'inactive', false, $3, $4, $5, $6)
              RETURNING id`,
             [
               tenantId,
@@ -81,8 +81,6 @@ describe('SensorPrincipalIngestion under FORCE RLS', () => {
               extra.parent ?? null,
               name === 'principal',
               extra.username ?? null,
-              extra.username ? 'f'.repeat(64) : null,
-              extra.username ? 'k1' : null,
             ],
           );
           ids[name] = row.id;
@@ -101,10 +99,9 @@ describe('SensorPrincipalIngestion under FORCE RLS', () => {
         await insert('child', { parent: principal });
         await channel(principal, 'ph', 1);
         await channel(principal, 'temperature', 2);
-        const suspended = await insert('suspended', {
-          username: `s${'b'.repeat(22)}`,
-          status: 'suspended',
-        });
+        // Suspension withdraws the credential (and the database refuses a
+        // suspended sensor holding one): a suspended sensor holds none.
+        const suspended = await insert('suspended', { status: 'suspended' });
         await channel(suspended, 'ph', 1);
         const legacy = await insert('legacy');
         await channel(legacy, 'ph', 1);

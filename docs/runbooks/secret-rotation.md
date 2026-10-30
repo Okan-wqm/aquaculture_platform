@@ -288,9 +288,10 @@ and a keyring without that `kid` refuses those sensors at their next CONNECT.
    and set the current key's `status` to `previous`. Exactly one `active` key.
 3. Roll sensor-service. New credentials (registrations, reissues) use the new
    key; existing ones keep verifying under the previous key.
-4. When no sensor names the old `kid` any more (`SELECT count(*) FROM
-tenant_*.sensors WHERE mqtt_secret_key_id = '<old kid>'` across tenant
-   schemas, or after every sensor was reissued), remove the old entry.
+4. When no credential names the old `kid` any more, remove the old entry. As
+   the database owner,
+   `SELECT count(*) FROM sensor.sensor_mqtt_directory WHERE secret_key_id = '<old kid>'`
+   returns 0 then.
 
 **On a suspected pepper leak**: mark the old key `disabled` at once and reissue
 every sensor's credential (device page, "Issue new credential"); the sensors

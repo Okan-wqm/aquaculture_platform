@@ -2,7 +2,6 @@ import { ServiceMetricsService } from '@aquaculture/backend-common/metrics';
 import { Injectable, Optional } from '@nestjs/common';
 import client from 'prom-client';
 
-import { SensorRegistrationStatus } from '../database/entities/sensor.entity';
 import { RateBuckets } from './rate-buckets';
 import { SensorMqttIdentityService } from './sensor-mqtt-identity.service';
 import { parseSensorMqttDataTopic } from './sensor-mqtt-topic';
@@ -22,19 +21,16 @@ export const SENSOR_DATA_RATE = { perSecond: 1, burst: 10 } as const;
 const RATE_BUCKET_KEYS = 100_000;
 
 /** Why a sensor principal's CONNECT was refused — logged, never returned to the broker. */
-export type SensorConnectDenial =
-  | 'client_id_mismatch'
-  | 'principal_not_found'
-  | 'suspended'
-  | 'secret_mismatch';
+export type SensorConnectDenial = 'client_id_mismatch' | 'principal_not_found' | 'secret_mismatch';
 
 /**
  * What the broker lets a sensor's own principal do (ADR-047 §1, §3): CONNECT
  * under its username as client ID with its secret, then PUBLISH to its one
  * data topic. Nothing else — no subscribe, no read, no development topic, no
- * other sensor or tenant. The principal is read on every check (the broker's
- * cache is off and nothing here caches a grant), so a rotation, suspension or
- * deletion stops the old session at its next PUBLISH.
+ * other sensor or tenant. The principal is read on every check — one indexed
+ * read of its directory row (the broker's cache is off and nothing here caches
+ * a grant). A rotation, suspension or deletion removes that row in its own
+ * statement, so the old session stops at its next PUBLISH.
  */
 @Injectable()
 export class SensorMqttBrokerAccess {
@@ -72,9 +68,6 @@ export class SensorMqttBrokerAccess {
     if (!principal) {
       return 'principal_not_found';
     }
-    if (principal.registrationStatus === SensorRegistrationStatus.SUSPENDED) {
-      return 'suspended';
-    }
     return this.identity.verifySecret(principal, password) ? null : 'secret_mismatch';
   }
 
@@ -99,7 +92,6 @@ export class SensorMqttBrokerAccess {
     const principal = await this.identity.findPrincipal(username);
     return (
       principal !== null &&
-      principal.registrationStatus !== SensorRegistrationStatus.SUSPENDED &&
       principal.tenantId === target.tenantId &&
       principal.sensorId === target.sensorId
     );

@@ -67,8 +67,8 @@ describe('SensorTopicCacheService under FORCE RLS (SENSOR-HIGH-119)', () => {
           await owner.query(
             `INSERT INTO "${schema}".sensors
                (tenant_id, name, serial_number, type, protocol_configuration, is_parent_device,
-                protocol_id, mqtt_username, mqtt_secret_hmac, mqtt_secret_key_id)
-             VALUES ($1, $2, $3, 'temperature', $4::jsonb, true, $5, $6, $7, $8)`,
+                protocol_id, mqtt_username)
+             VALUES ($1, $2, $3, 'temperature', $4::jsonb, true, $5, $6)`,
             [
               tenantId,
               `${name} ${schema.slice(0, 12)}`,
@@ -76,8 +76,6 @@ describe('SensorTopicCacheService under FORCE RLS (SENSOR-HIGH-119)', () => {
               JSON.stringify({ topic }),
               protocolId,
               mqttUsername,
-              mqttUsername === null ? null : 'f'.repeat(64),
-              mqttUsername === null ? null : 'k1',
             ],
           );
         };

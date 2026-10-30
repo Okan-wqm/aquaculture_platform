@@ -1,6 +1,5 @@
 import {
   runInSourceRead,
-  runInTenantRead,
   runInTenantTransaction,
   SENSOR_SOURCE_SCHEMA,
 } from '@aquaculture/backend-common/database';
@@ -49,12 +48,16 @@ export interface SensorMqttCredentials {
   readonly topic: string;
 }
 
-/** A sensor's broker principal as the broker's CONNECT and ACL hooks see it. */
+/**
+ * A sensor's broker principal as the broker's CONNECT and ACL hooks see it:
+ * its directory row. The database keeps the row in step with the sensor (it
+ * exists only while a live, unsuspended sensor of that tenant holds the
+ * username), so the row alone answers both hooks.
+ */
 export interface SensorMqttPrincipal {
   readonly username: string;
   readonly tenantId: string;
   readonly sensorId: string;
-  readonly registrationStatus: SensorRegistrationStatus;
   readonly secret: { readonly hmac: string; readonly kid: string };
 }
 
@@ -105,16 +108,17 @@ interface PrincipalRow {
  * Owner of a sensor's own broker principal (ADR-047 §1, SENSOR-CRITICAL-173).
  *
  * Only a sensor that talks to the broker gets one: a standalone MQTT sensor or
- * the parent of a parent/child registration, never a child. Issuing writes a
- * fresh username and the HMAC of a fresh 256-bit secret in one statement; the
- * secret is returned once and never stored or logged. Rotating is issuing
- * again: the old username leaves sensor.sensor_mqtt_directory in that same
- * statement (the table's trigger keeps the directory in step), so the old
- * credential stops at its next CONNECT or ACL check.
+ * the parent of a parent/child registration, never a child. Issuing sets a
+ * fresh username on the sensor and routes it in sensor.sensor_mqtt_directory
+ * with the HMAC of a fresh 256-bit secret, in one transaction; the secret is
+ * returned once and never stored or logged. Rotating is issuing again: the
+ * old route leaves the directory in the statement that replaces the username
+ * (the sensors trigger), so the old credential stops at its next CONNECT or
+ * ACL check, which reads that one row.
  *
- * These are the only writes of the credential columns: the entity marks them
- * insert- and update-false, pinned by
- * tests/invariants/sensor-mqtt-identity-single-writer.spec.ts.
+ * These are the only writes of `sensors.mqtt_username` (insert- and
+ * update-false on the entity) and the only inserts into the directory, pinned
+ * by tests/invariants/sensor-mqtt-identity-single-writer.spec.ts.
  */
 @Injectable()
 export class SensorMqttIdentityService {
@@ -173,18 +177,21 @@ export class SensorMqttIdentityService {
     await manager.query(
       `UPDATE sensors
           SET mqtt_username = $3,
-              mqtt_secret_hmac = $4,
-              mqtt_secret_key_id = $5,
-              protocol_configuration = protocol_configuration - $6::text[],
+              protocol_configuration = protocol_configuration - $4::text[],
               updated_at = now()
         WHERE tenant_id = $1 AND id = $2`,
+      [tenantId, sensorId, username, [...LEGACY_CONNECTION_KEYS]],
+    );
+    await manager.query(
+      `INSERT INTO sensor.sensor_mqtt_directory
+         (mqtt_username, sensor_id, tenant_id, secret_hmac, secret_key_id)
+       VALUES ($1, $2, $3, $4, $5)`,
       [
-        tenantId,
-        sensorId,
         username,
+        sensorId,
+        tenantId,
         sensorSecretHmac(keyring.active, password),
         keyring.active.kid,
-        [...LEGACY_CONNECTION_KEYS],
       ],
     );
 
@@ -229,10 +236,12 @@ export class SensorMqttIdentityService {
 
   /**
    * Withdraw the sensor's credential inside the caller's tenant transaction
-   * (suspension, ADR-047 §6): the columns are cleared, the table's trigger
-   * removes the route in the same statement, and the next CONNECT or ACL
-   * check of the old session is refused. Nothing to do for a sensor holding
-   * none. The withdrawal is recorded in sensor_audit_logs.
+   * (suspension, a protocol change; ADR-047 §6): the username is cleared, the
+   * sensors trigger removes its route in the same statement, and the next
+   * CONNECT or ACL check of the old session is refused. Nothing to do for a
+   * sensor holding none. The withdrawal is recorded in sensor_audit_logs. A
+   * suspension calls this before it marks the sensor suspended: a suspended
+   * sensor cannot hold a username (a database check).
    */
   async revoke(
     manager: EntityManager,
@@ -248,8 +257,6 @@ export class SensorMqttIdentityService {
        )
        UPDATE sensors s
           SET mqtt_username = NULL,
-              mqtt_secret_hmac = NULL,
-              mqtt_secret_key_id = NULL,
               updated_at = now()
          FROM held h
         WHERE s.id = h.id AND s.tenant_id = $1
@@ -276,40 +283,26 @@ export class SensorMqttIdentityService {
   }
 
   /**
-   * The principal an issued username names, read with no tenant: the
-   * directory names the tenant and the sensor, and the row is read inside
-   * that tenant's boundary, so a route to a row that no longer holds the
-   * username resolves nothing. A username of another shape, or not in the
+   * The principal an issued username names, read with no tenant: one indexed
+   * read of its directory row. A username of another shape, or not in the
    * directory, is no principal — there is no tenant scan.
    */
   async findPrincipal(username: string): Promise<SensorMqttPrincipal | null> {
     if (!SENSOR_MQTT_USERNAME_PATTERN.test(username)) {
       return null;
     }
-    const routes = (await runInSourceRead(this.dataSource, SENSOR_SOURCE_SCHEMA, (qr) =>
-      qr.query(`SELECT sensor_id, tenant_id FROM sensor_mqtt_directory WHERE mqtt_username = $1`, [
-        username,
-      ]),
-    )) as Array<{ sensor_id: string; tenant_id: string }>;
-    const route = routes[0];
-    if (!route) {
-      return null;
-    }
-    const rows = (await runInTenantRead(
-      this.dataSource,
-      SENSOR_SOURCE_SCHEMA,
-      route.tenant_id,
-      (qr) =>
-        qr.query(
-          `SELECT registration_status, mqtt_secret_hmac, mqtt_secret_key_id
-             FROM sensors
-            WHERE tenant_id = $1 AND id = $2 AND mqtt_username = $3`,
-          [route.tenant_id, route.sensor_id, username],
-        ),
+    const rows = (await runInSourceRead(this.dataSource, SENSOR_SOURCE_SCHEMA, (qr) =>
+      qr.query(
+        `SELECT sensor_id, tenant_id, secret_hmac, secret_key_id
+           FROM sensor_mqtt_directory
+          WHERE mqtt_username = $1`,
+        [username],
+      ),
     )) as Array<{
-      registration_status: SensorRegistrationStatus;
-      mqtt_secret_hmac: string;
-      mqtt_secret_key_id: string;
+      sensor_id: string;
+      tenant_id: string;
+      secret_hmac: string;
+      secret_key_id: string;
     }>;
     const row = rows[0];
     if (!row) {
@@ -317,10 +310,9 @@ export class SensorMqttIdentityService {
     }
     return {
       username,
-      tenantId: route.tenant_id,
-      sensorId: route.sensor_id,
-      registrationStatus: row.registration_status,
-      secret: { hmac: row.mqtt_secret_hmac, kid: row.mqtt_secret_key_id },
+      tenantId: row.tenant_id,
+      sensorId: row.sensor_id,
+      secret: { hmac: row.secret_hmac, kid: row.secret_key_id },
     };
   }
 

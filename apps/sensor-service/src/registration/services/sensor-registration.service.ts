@@ -477,11 +477,11 @@ export class SensorRegistrationService {
     };
 
     // ADR-047 §6: suspending withdraws the sensor's broker credential in the
-    // same transaction; leaving SUSPENDED never restores it.
+    // same transaction, first — a suspended sensor cannot hold one (a database
+    // check); leaving SUSPENDED never restores it.
     const savedSensor = await this.dataSource.transaction(async (manager) => {
-      const saved = await manager.save(Sensor, sensor);
       await this.mqttIdentity.revoke(manager, tenantId, sensorId, actorId);
-      return saved;
+      return manager.save(Sensor, sensor);
     });
 
     this.eventEmitter.emit('sensor.suspended', {

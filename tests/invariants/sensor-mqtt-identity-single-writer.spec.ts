@@ -1,17 +1,22 @@
 /**
- * Invariant (ADR-047 §1, SENSOR-CRITICAL-173): a sensor's broker credential
- * has one writer, and its directory has none in code.
+ * Invariant (ADR-047 §1, SENSOR-CRITICAL-173): a sensor's broker principal
+ * has one writer.
  *
- * - The entity marks the credential columns (`mqtt_username`, the secret's
- *   HMAC and its pepper's key id) `insert: false, update: false`, so no ORM
- *   save — a row loaded before a rotation, a registration insert, a lifecycle
- *   write — can set them or put an old username back.
- * - The one SQL UPDATE of those columns lives in sensor-mqtt-identity.service.ts.
- * - `sensor.sensor_mqtt_directory` is written only by the trigger migration
- *   1826000000000 puts on `sensors`; a statement in the service code that
- *   inserts, updates or deletes it would be a second route that can drift from
- *   the username (tenant erasure's purge names its table through the shared
- *   route-table list, not a literal).
+ * - The principal lives in `sensor.sensor_mqtt_directory` (username, tenant,
+ *   sensor, the secret's HMAC and its pepper's key id); the sensor keeps only
+ *   `mqtt_username`, which the entity marks `insert: false, update: false`, so
+ *   no ORM save — a row loaded before a rotation, a registration insert, a
+ *   lifecycle write — can set it or put an old username back.
+ * - sensor-mqtt-identity.service.ts is the one place that sets
+ *   `mqtt_username` and the one place that inserts a directory row; it does
+ *   both in one transaction, and a trigger checked at commit refuses it if
+ *   they disagree.
+ * - No service code updates or deletes a directory row: the trigger migration
+ *   1826000000000 puts on `sensors` removes the route when the username is
+ *   cleared or changed or the sensor deleted, and tenant erasure and the
+ *   schema delete job purge it through MODULE_SCHEMAS `tenantRouteTables`,
+ *   never by naming the table.
+ * - Nothing persists a directory row through the ORM.
  */
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
@@ -21,14 +26,12 @@ const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const ENTITY = 'apps/sensor-service/src/database/entities/sensor.entity.ts';
 const WRITER = 'apps/sensor-service/src/mqtt-identity/sensor-mqtt-identity.service.ts';
 
-const CREDENTIAL_COLUMNS = ['mqtt_username', 'mqtt_secret_hmac', 'mqtt_secret_key_id'] as const;
-
-const CREDENTIAL_UPDATE = new RegExp(
-  `UPDATE\\s+(?:"?\\w+"?\\.)?"?sensors"?(?:\\s+(?:AS\\s+)?\\w+)?\\s+SET[\\s\\S]{0,600}?\\b(?:${CREDENTIAL_COLUMNS.join('|')})\\s*=`,
-  'i',
-);
-const DIRECTORY_WRITE =
-  /\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+(?:"?sensor"?\.)?"?sensor_mqtt_directory\b/i;
+const USERNAME_UPDATE =
+  /UPDATE\s+(?:"?\w+"?\.)?"?sensors"?(?:\s+(?:AS\s+)?\w+)?\s+SET[\s\S]{0,600}?\bmqtt_username\s*=/i;
+const DIRECTORY_INSERT = /\bINSERT\s+INTO\s+(?:"?sensor"?\.)?"?sensor_mqtt_directory\b/i;
+const DIRECTORY_CHANGE = /\b(?:UPDATE|DELETE\s+FROM)\s+(?:"?sensor"?\.)?"?sensor_mqtt_directory\b/i;
+const DIRECTORY_ORM_WRITE =
+  /\b(?:save|insert|update|upsert|delete|remove)\(\s*SensorMqttDirectory\b|getRepository\(\s*SensorMqttDirectory\b|Repository<\s*SensorMqttDirectory\s*>/;
 
 function sensorServiceSources(): string[] {
   return execFileSync('git', ['ls-files', 'apps/sensor-service/src/**/*.ts'], {
@@ -44,28 +47,31 @@ describe('a sensor’s broker credential has one writer (ADR-047)', () => {
   const entity = readFileSync(path.join(REPO_ROOT, ENTITY), 'utf8');
   const sources = sensorServiceSources();
 
-  it.each(CREDENTIAL_COLUMNS)(
-    'the entity never lets an ORM insert or update write %s',
-    (column) => {
-      const decorator = new RegExp(`@Column\\(\\{[^}]*name: '${column}'[^}]*\\}\\)`).exec(entity);
-      const found = decorator?.[0] ?? `no @Column for ${column}`;
-      expect(found).toMatch(/insert: false/);
-      expect(found).toMatch(/update: false/);
-    },
-  );
+  const writersOf = (pattern: RegExp): string[] =>
+    sources.filter((file) => pattern.test(readFileSync(path.join(REPO_ROOT, file), 'utf8')));
 
-  it('only the identity service issues an SQL UPDATE of the credential columns', () => {
-    expect(sources.length).toBeGreaterThan(100);
-    const writers = sources.filter((file) =>
-      CREDENTIAL_UPDATE.test(readFileSync(path.join(REPO_ROOT, file), 'utf8')),
-    );
-    expect(writers).toEqual([WRITER]);
+  it('the entity never lets an ORM insert or update write mqtt_username', () => {
+    const decorator = /@Column\(\{[^}]*name: 'mqtt_username'[^}]*\}\)/.exec(entity);
+    const found = decorator?.[0] ?? 'no @Column for mqtt_username';
+    expect(found).toMatch(/insert: false/);
+    expect(found).toMatch(/update: false/);
   });
 
-  it('no service code writes the directory; the trigger does', () => {
-    const writers = sources.filter((file) =>
-      DIRECTORY_WRITE.test(readFileSync(path.join(REPO_ROOT, file), 'utf8')),
-    );
-    expect(writers).toEqual([]);
+  it('the sensor holds no secret: the directory row is the one home of the credential', () => {
+    expect(entity).not.toMatch(/mqtt_secret/);
+  });
+
+  it('only the identity service sets mqtt_username and inserts a directory row', () => {
+    expect(sources.length).toBeGreaterThan(100);
+    expect(writersOf(USERNAME_UPDATE)).toEqual([WRITER]);
+    expect(writersOf(DIRECTORY_INSERT)).toEqual([WRITER]);
+  });
+
+  it('no service code updates or deletes a directory row; the triggers and the purges do', () => {
+    expect(writersOf(DIRECTORY_CHANGE)).toEqual([]);
+  });
+
+  it('nothing persists a directory row through the ORM', () => {
+    expect(writersOf(DIRECTORY_ORM_WRITE)).toEqual([]);
   });
 });

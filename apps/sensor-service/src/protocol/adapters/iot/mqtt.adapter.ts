@@ -324,262 +324,59 @@ export class MqttAdapter extends BaseProtocolAdapter<MqttConfiguration> {
     };
   }
 
+  /**
+   * ADR-047 §1, §8: an MQTT sensor publishes to the platform broker with the
+   * principal it is issued after registration. The broker, port, topic,
+   * client ID and credentials are the platform's, so none of them is typed
+   * in: a configuration naming one is refused (a wizard-typed broker
+   * credential never reached the broker anyway), and so is any payload format
+   * but JSON, the one the sensor data route reads.
+   */
   validateConfiguration(config: unknown): ValidationResult {
     const errors = [];
-    const warnings = [];
-    const cfg = config as Partial<MqttConfiguration>;
-
-    // Required fields
-    if (!cfg.brokerUrl) {
-      errors.push(this.validationError('brokerUrl', 'Broker URL is required'));
-    } else if (!this.isValidUrl(`mqtt://${cfg.brokerUrl}`) && !this.isValidIpAddress(cfg.brokerUrl)) {
-      errors.push(this.validationError('brokerUrl', 'Invalid broker URL or IP address'));
-    }
-
-    if (!cfg.topic) {
-      errors.push(this.validationError('topic', 'Topic is required'));
-    } else if (cfg.topic.length > 65535) {
-      errors.push(this.validationError('topic', 'Topic too long (max 65535 characters)'));
-    }
-
-    if (cfg.port !== undefined && !this.isValidPort(cfg.port)) {
-      errors.push(this.validationError('port', 'Port must be between 1 and 65535'));
-    }
-
-    if (cfg.qos !== undefined && ![0, 1, 2].includes(cfg.qos)) {
-      errors.push(this.validationError('qos', 'QoS must be 0, 1, or 2'));
-    }
-
-    if (cfg.keepAlive !== undefined && (cfg.keepAlive < 0 || cfg.keepAlive > 65535)) {
-      errors.push(this.validationError('keepAlive', 'Keep-alive must be between 0 and 65535 seconds'));
-    }
-
-    // Warnings
-    if (!cfg.useTls) {
-      warnings.push(this.validationWarning('useTls', 'Connection is not encrypted. Consider using TLS.'));
-    }
-
-    if (!cfg.username && !cfg.clientCert) {
-      warnings.push(this.validationWarning('username', 'No authentication configured'));
+    const entries =
+      typeof config === 'object' && config !== null ? Object.entries(config) : [];
+    for (const [field, value] of entries) {
+      if (value === undefined || value === null || value === '') {
+        continue;
+      }
+      if (field === 'payloadFormat') {
+        if (value !== 'json') {
+          errors.push(
+            this.validationError(field, 'An MQTT sensor publishes one JSON object per message'),
+          );
+        }
+        continue;
+      }
+      errors.push(
+        this.validationError(
+          field,
+          `${field} is not set on an MQTT sensor: the platform issues its broker connection after registration`,
+        ),
+      );
     }
 
     return {
       isValid: errors.length === 0,
       errors,
-      warnings,
+      warnings: [],
     };
   }
 
   getConfigurationSchema(): ProtocolConfigurationSchema {
     return {
       type: 'object',
-      title: 'MQTT Configuration',
-      description: 'Configure MQTT broker connection parameters',
-      required: ['brokerUrl', 'topic'],
-      properties: {
-        brokerUrl: {
-          type: 'string',
-          title: 'Broker URL',
-          description: 'MQTT broker hostname or IP address',
-          'ui:placeholder': 'broker.example.com',
-          'ui:order': 1,
-          'ui:group': 'connection',
-        },
-        port: {
-          type: 'integer',
-          title: 'Port',
-          description: 'MQTT broker port (1883 for TCP, 8883 for TLS)',
-          default: 1883,
-          minimum: 1,
-          maximum: 65535,
-          'ui:order': 2,
-          'ui:group': 'connection',
-        },
-        topic: {
-          type: 'string',
-          title: 'Topic',
-          description: 'MQTT topic to subscribe (supports wildcards + and #)',
-          'ui:placeholder': 'sensors/temperature/#',
-          'ui:order': 3,
-          'ui:group': 'connection',
-        },
-        qos: {
-          type: 'integer',
-          title: 'QoS Level',
-          description: 'Quality of Service: 0=At most once, 1=At least once, 2=Exactly once',
-          enum: [0, 1, 2],
-          enumNames: ['0 - At most once', '1 - At least once', '2 - Exactly once'],
-          default: 1,
-          'ui:order': 4,
-          'ui:group': 'connection',
-        },
-        clientId: {
-          type: 'string',
-          title: 'Client ID',
-          description: 'Unique client identifier (auto-generated if empty)',
-          'ui:placeholder': 'Leave empty for auto-generated',
-          'ui:order': 5,
-          'ui:group': 'connection',
-        },
-        username: {
-          type: 'string',
-          title: 'Username',
-          description: 'Authentication username',
-          'ui:order': 6,
-          'ui:group': 'authentication',
-        },
-        password: {
-          type: 'string',
-          title: 'Password',
-          description: 'Authentication password',
-          format: 'password',
-          'ui:order': 7,
-          'ui:group': 'authentication',
-        },
-        useTls: {
-          type: 'boolean',
-          title: 'Use TLS/SSL',
-          description: 'Enable encrypted connection',
-          default: false,
-          'ui:order': 8,
-          'ui:group': 'security',
-        },
-        rejectUnauthorized: {
-          type: 'boolean',
-          title: 'Verify Certificate',
-          description: 'Reject connections with invalid certificates',
-          default: true,
-          'ui:order': 9,
-          'ui:group': 'security',
-        },
-        caCert: {
-          type: 'string',
-          title: 'CA Certificate',
-          description: 'Certificate Authority certificate (PEM format)',
-          'ui:widget': 'textarea',
-          'ui:order': 10,
-          'ui:group': 'security',
-        },
-        clientCert: {
-          type: 'string',
-          title: 'Client Certificate',
-          description: 'Client certificate for mutual TLS (PEM format)',
-          'ui:widget': 'textarea',
-          'ui:order': 11,
-          'ui:group': 'security',
-        },
-        clientKey: {
-          type: 'string',
-          title: 'Client Key',
-          description: 'Client private key (PEM format)',
-          'ui:widget': 'textarea',
-          'ui:order': 12,
-          'ui:group': 'security',
-        },
-        cleanSession: {
-          type: 'boolean',
-          title: 'Clean Session',
-          description: 'Start with a clean session (no persistent subscriptions)',
-          default: true,
-          'ui:order': 13,
-          'ui:group': 'advanced',
-        },
-        keepAlive: {
-          type: 'integer',
-          title: 'Keep Alive (seconds)',
-          description: 'Ping interval to keep connection alive',
-          default: 60,
-          minimum: 0,
-          maximum: 65535,
-          'ui:order': 14,
-          'ui:group': 'advanced',
-        },
-        reconnectPeriod: {
-          type: 'integer',
-          title: 'Reconnect Period (ms)',
-          description: 'Time between reconnection attempts',
-          default: 1000,
-          minimum: 0,
-          'ui:order': 15,
-          'ui:group': 'advanced',
-        },
-        connectTimeout: {
-          type: 'integer',
-          title: 'Connect Timeout (ms)',
-          description: 'Connection timeout',
-          default: 30000,
-          minimum: 1000,
-          'ui:order': 16,
-          'ui:group': 'advanced',
-        },
-        payloadFormat: {
-          type: 'string',
-          title: 'Payload Format',
-          description: 'Format of incoming messages',
-          enum: ['json', 'csv', 'text', 'binary'],
-          enumNames: ['JSON', 'CSV', 'Plain Text', 'Binary'],
-          default: 'json',
-          'ui:order': 17,
-          'ui:group': 'data',
-        },
-        willTopic: {
-          type: 'string',
-          title: 'LWT Topic',
-          description: 'Last Will and Testament topic',
-          'ui:order': 18,
-          'ui:group': 'lwt',
-        },
-        willPayload: {
-          type: 'string',
-          title: 'LWT Payload',
-          description: 'Message to publish when connection is lost',
-          'ui:order': 19,
-          'ui:group': 'lwt',
-        },
-        willQos: {
-          type: 'integer',
-          title: 'LWT QoS',
-          enum: [0, 1, 2],
-          default: 0,
-          'ui:order': 20,
-          'ui:group': 'lwt',
-        },
-        willRetain: {
-          type: 'boolean',
-          title: 'LWT Retain',
-          default: false,
-          'ui:order': 21,
-          'ui:group': 'lwt',
-        },
-      },
-      'ui:groups': [
-        { name: 'connection', title: 'Connection', description: 'Basic connection settings', fields: ['brokerUrl', 'port', 'topic', 'qos', 'clientId'] },
-        { name: 'authentication', title: 'Authentication', description: 'Credentials', fields: ['username', 'password'] },
-        { name: 'security', title: 'Security', description: 'TLS/SSL settings', fields: ['useTls', 'rejectUnauthorized', 'caCert', 'clientCert', 'clientKey'] },
-        { name: 'data', title: 'Data Format', description: 'Payload parsing', fields: ['payloadFormat'] },
-        { name: 'advanced', title: 'Advanced', description: 'Advanced settings', fields: ['cleanSession', 'keepAlive', 'reconnectPeriod', 'connectTimeout'] },
-        { name: 'lwt', title: 'Last Will', description: 'Last Will and Testament', fields: ['willTopic', 'willPayload', 'willQos', 'willRetain'] },
-      ],
+      title: 'MQTT',
+      description:
+        'The sensor publishes one JSON object per message to the platform broker with its own ' +
+        'credential. The host, port, client ID, username, password and topic are issued after ' +
+        'registration; each data channel names its value in the message.',
+      properties: {},
     };
   }
 
   getDefaultConfiguration(): Record<string, unknown> {
-    return {
-      brokerUrl: '',
-      port: 1883,
-      topic: '',
-      qos: 1,
-      clientId: '',
-      username: '',
-      password: '',
-      useTls: false,
-      rejectUnauthorized: true,
-      cleanSession: true,
-      keepAlive: 60,
-      reconnectPeriod: 1000,
-      connectTimeout: 30000,
-      payloadFormat: 'json',
-    };
+    return {};
   }
 
   getCapabilities(): ProtocolCapabilities {

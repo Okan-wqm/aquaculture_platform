@@ -32,7 +32,7 @@ const PLACE_COLUMNS = [
 ] as const;
 
 const PLACE_UPDATE = new RegExp(
-  `UPDATE\\s+(?:"?\\w+"?\\.)?"?sensors"?\\s+SET[\\s\\S]{0,600}?\\b(?:${PLACE_COLUMNS.join('|')})\\s*=`,
+  `UPDATE\\s+(?:"?\\w+"?\\.)?"?sensors"?(?:\\s+(?:AS\\s+)?\\w+)?\\s+SET[\\s\\S]{0,600}?\\b(?:${PLACE_COLUMNS.join('|')})\\s*=`,
   'i',
 );
 

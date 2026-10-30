@@ -14380,6 +14380,7 @@ export type ParentWithChildrenResultType = {
   connectionTestPassed?: Maybe<Scalars['Boolean']['output']>;
   error?: Maybe<Scalars['String']['output']>;
   latencyMs?: Maybe<Scalars['Float']['output']>;
+  mqttCredentials?: Maybe<SensorMqttCredentials>;
   parent?: Maybe<ParentDeviceType>;
   success: Scalars['Boolean']['output'];
 };
@@ -20466,6 +20467,7 @@ export type SensorRegistrationResultType = {
   connectionTestPassed?: Maybe<Scalars['Boolean']['output']>;
   error?: Maybe<Scalars['String']['output']>;
   latencyMs?: Maybe<Scalars['Float']['output']>;
+  mqttCredentials?: Maybe<SensorMqttCredentials>;
   sensor?: Maybe<RegisteredSensorType>;
   success: Scalars['Boolean']['output'];
 };

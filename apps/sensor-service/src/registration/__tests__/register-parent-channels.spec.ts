@@ -1,3 +1,4 @@
+import { collaborator } from '@aquaculture/testing';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
@@ -12,6 +13,7 @@ import { SensorTypeService } from '../../sensor-type/sensor-type.service';
 import { ChannelManagementService } from '../services/channel-management.service';
 import { SensorRegistrationService } from '../services/sensor-registration.service';
 import { SensorPlacementService, UNPLACED } from '../services/sensor-placement.service';
+import { SensorMqttIdentityService } from '../../mqtt-identity/sensor-mqtt-identity.service';
 
 /**
  * SENSOR-HIGH-117: registerParentWithChildren must derive parent-side data
@@ -112,6 +114,11 @@ describe('registerParentWithChildren parent-channel derivation (SENSOR-HIGH-117)
         {
           provide: SensorPlacementService,
           useValue: { resolve: jest.fn().mockResolvedValue(UNPLACED) },
+        },
+        // ADR-047: these registrations are not MQTT; an empty double names any use.
+        {
+          provide: SensorMqttIdentityService,
+          useValue: collaborator<SensorMqttIdentityService>({}, 'SensorMqttIdentityService'),
         },
       ],
     }).compile();

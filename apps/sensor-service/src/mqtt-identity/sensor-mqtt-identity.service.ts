@@ -219,6 +219,50 @@ export class SensorMqttIdentityService {
   }
 
   /**
+   * Withdraw the sensor's credential inside the caller's tenant transaction
+   * (suspension, ADR-047 §6): the columns are cleared, the table's trigger
+   * removes the route in the same statement, and the next CONNECT or ACL
+   * check of the old session is refused. Nothing to do for a sensor holding
+   * none. The withdrawal is recorded in sensor_audit_logs.
+   */
+  async revoke(
+    manager: EntityManager,
+    tenantId: string,
+    sensorId: string,
+    actorId: string | null,
+  ): Promise<void> {
+    const [revoked] = (await manager.query(
+      `WITH held AS (
+         SELECT id, mqtt_username FROM sensors
+          WHERE tenant_id = $1 AND id = $2 AND mqtt_username IS NOT NULL
+          FOR UPDATE
+       )
+       UPDATE sensors s
+          SET mqtt_username = NULL,
+              mqtt_secret_hmac = NULL,
+              mqtt_secret_key_id = NULL,
+              updated_at = now()
+         FROM held h
+        WHERE s.id = h.id AND s.tenant_id = $1
+       RETURNING h.mqtt_username AS previous`,
+      [tenantId, sensorId],
+    )) as [Array<{ previous: string }>, number];
+    const row = revoked[0];
+    if (!row) {
+      return;
+    }
+    await recordEntityUpdate(manager, {
+      tenantId,
+      entityType: Sensor.name,
+      entityId: sensorId,
+      previous: { mqttUsername: row.previous },
+      next: { mqttUsername: null },
+      changedBy: actorId,
+    });
+    this.logger.log(JSON.stringify({ event: 'sensor_mqtt_identity_revoked', tenantId, sensorId }));
+  }
+
+  /**
    * The principal an issued username names, read with no tenant: the
    * directory names the tenant and the sensor, and the row is read inside
    * that tenant's boundary, so a route to a row that no longer holds the

@@ -24,7 +24,7 @@ const WRITER = 'apps/sensor-service/src/mqtt-identity/sensor-mqtt-identity.servi
 const CREDENTIAL_COLUMNS = ['mqtt_username', 'mqtt_secret_hmac', 'mqtt_secret_key_id'] as const;
 
 const CREDENTIAL_UPDATE = new RegExp(
-  `UPDATE\\s+(?:"?\\w+"?\\.)?"?sensors"?\\s+SET[\\s\\S]{0,600}?\\b(?:${CREDENTIAL_COLUMNS.join('|')})\\s*=`,
+  `UPDATE\\s+(?:"?\\w+"?\\.)?"?sensors"?(?:\\s+(?:AS\\s+)?\\w+)?\\s+SET[\\s\\S]{0,600}?\\b(?:${CREDENTIAL_COLUMNS.join('|')})\\s*=`,
   'i',
 );
 const DIRECTORY_WRITE =

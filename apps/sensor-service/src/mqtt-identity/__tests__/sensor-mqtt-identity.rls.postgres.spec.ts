@@ -267,6 +267,36 @@ describe('SensorMqttIdentityService under FORCE RLS', () => {
     expect(await service.findPrincipal(issued.username)).toBeNull();
   });
 
+  it('revoking clears the credential and unroutes it in the suspension transaction', async () => {
+    const issued = await service.rotate(TENANT_A, ids['standalone']!, OPERATOR);
+    await runInTenantTransaction(stage!.runtime, SENSOR_SOURCE_SCHEMA, TENANT_A, (qr) =>
+      service.revoke(qr.manager, TENANT_A, ids['standalone']!, OPERATOR),
+    );
+
+    expect(await stored('standalone')).toMatchObject({
+      mqtt_username: null,
+      mqtt_secret_hmac: null,
+      mqtt_secret_key_id: null,
+    });
+    expect(await routes('mqtt_username', issued.username)).toEqual([]);
+    expect(await service.findPrincipal(issued.username)).toBeNull();
+    const audits: Array<{ new_value: Record<string, unknown> }> = await stage!.admin.query(
+      `SELECT new_value FROM sensor.sensor_audit_logs WHERE entity_id = $1 ORDER BY changed_at`,
+      [ids['standalone']],
+    );
+    expect(audits.at(-1)?.new_value).toEqual({ mqttUsername: null });
+
+    // Revoking a sensor that holds none changes nothing.
+    await runInTenantTransaction(stage!.runtime, SENSOR_SOURCE_SCHEMA, TENANT_A, (qr) =>
+      service.revoke(qr.manager, TENANT_A, ids['standalone']!, OPERATOR),
+    );
+    const after: unknown[] = await stage!.admin.query(
+      `SELECT 1 FROM sensor.sensor_audit_logs WHERE entity_id = $1`,
+      [ids['standalone']],
+    );
+    expect(after).toHaveLength(audits.length);
+  });
+
   async function refusal(promise: Promise<unknown>): Promise<unknown> {
     const error = await promise.then(
       () => null,

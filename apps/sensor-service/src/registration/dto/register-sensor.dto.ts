@@ -26,6 +26,7 @@ import {
 import { StandardPaginationInput, StandardPaginatedResponse } from '@aquaculture/backend-common/pagination';
 
 import { CreateDataChannelInput, DataChannelType } from './data-channel.dto';
+import { SensorMqttCredentialsType } from '../../mqtt-identity/sensor-mqtt-credentials.type';
 
 // Register enums
 registerEnumType(SensorType, {
@@ -362,6 +363,10 @@ export class SensorRegistrationResultType {
 
   @Field({ nullable: true })
   latencyMs?: number;
+
+  /** ADR-047: an MQTT sensor's broker credential — the only copy of its password. */
+  @Field(() => SensorMqttCredentialsType, { nullable: true })
+  mqttCredentials?: SensorMqttCredentialsType;
 }
 
 @ObjectType()
@@ -844,4 +849,8 @@ export class ParentWithChildrenResultType {
 
   @Field({ nullable: true })
   latencyMs?: number;
+
+  /** ADR-047: an MQTT sensor's broker credential — the only copy of its password. */
+  @Field(() => SensorMqttCredentialsType, { nullable: true })
+  mqttCredentials?: SensorMqttCredentialsType;
 }

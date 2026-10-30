@@ -141,6 +141,7 @@ export class RegistrationResolver {
       error: result.error,
       connectionTestPassed: result.connectionTestPassed,
       latencyMs: result.latencyMs,
+      mqttCredentials: result.mqttCredentials,
     };
   }
 
@@ -188,12 +189,19 @@ export class RegistrationResolver {
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async suspendSensor(
     @Args('sensorId', { type: () => ID }) sensorId: string,
+    @Tenant() tenantId: string | undefined,
+    @CurrentUser() user: UserContext,
     @Args('reason', { nullable: true }) reason?: string,
-    @Tenant() tenantId?: string,
   ): Promise<RegisteredSensorType> {
     this.logger.log(`Suspending sensor ${sensorId}`);
     const effectiveTenantId = this.requireTenant(tenantId);
-    const sensor = await this.registrationService.suspendSensor(sensorId, effectiveTenantId, reason);
+    // The suspending user is named in the audit row of the withdrawn credential.
+    const sensor = await this.registrationService.suspendSensor(
+      sensorId,
+      effectiveTenantId,
+      reason,
+      user.sub,
+    );
     return this.mapSensorToType(sensor);
   }
 
@@ -356,6 +364,7 @@ export class RegistrationResolver {
       error: result.error,
       connectionTestPassed: result.connectionTestPassed,
       latencyMs: result.latencyMs,
+      mqttCredentials: result.mqttCredentials,
     };
   }
 

@@ -281,3 +281,23 @@ Recorded as each part lands (SENSOR-CRITICAL-173).
 - The per-sensor collector (`DataIngestionService`), which dials an active MQTT parent's
   configured broker, never dials a sensor holding its own principal: that sensor has no
   broker of its own, and its data arrives on its topic.
+
+### Lifecycle of a platform sensor (2026-10-30)
+
+- MQTT is classified `platform-broker` (`protocol-implementation-status.ts`,
+  `isActivatedByData`): the one rule every lifecycle path reads. The connection tester answers
+  it without dialling or validating; the MQTT configuration schema asks for nothing, and a
+  configuration naming a broker, port, topic, client ID, credential or a payload format other
+  than JSON is refused.
+- Both registration paths issue the credential (a standalone sensor's, or a parent's) in the
+  registration transaction and return it once (`mqttCredentials`); they run no test, leave the
+  sensor DRAFT, and enqueue `SensorRegistrationStarted` and `SensorRegistered` only — the
+  data's promotion enqueues `SensorRegistrationCompleted`.
+- `testSensorConnection` and `activateSensor` refuse it (`MQTT_IDENTITY_ACTIVATED_BY_DATA`);
+  `updateProtocolConfig` leaves its status as it is.
+- `suspendSensor` withdraws the credential in the transaction that suspends it, with the
+  suspending user in the audit row. `reactivateSensor` returns it to DRAFT with no test and no
+  credential; the device page issues a new one (`rotateSensorMqttCredentials`), whose data
+  promotes it. §6 has reactivation rotate the credential itself; a credential nobody can read
+  would be issued for nothing, so the issue is the separate, explicit step, and the old one
+  stays dead either way.

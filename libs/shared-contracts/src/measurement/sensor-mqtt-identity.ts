@@ -1,17 +1,23 @@
 /**
  * The stable codes (GraphQL `extensions.code`) of sensor-service's refusals to
- * issue or rotate a sensor's own broker credential (ADR-047), so the device
- * page says in the user's language why. Append-only.
+ * issue or rotate a sensor's own broker credential, or to test or activate a
+ * sensor its data activates (ADR-047), so the device page says in the user's
+ * language why. Append-only.
  */
 export const SENSOR_MQTT_IDENTITY_ERROR = {
   /** Only a sensor that speaks MQTT itself holds a broker credential. */
   NOT_MQTT: 'MQTT_IDENTITY_NOT_MQTT',
   /** A child sensor shares its parent device's connection; the parent holds the credential. */
   FOLLOWS_PARENT: 'MQTT_IDENTITY_FOLLOWS_PARENT',
-  /** A suspended sensor gets a new credential when it is reactivated, not before. */
+  /** A suspended sensor holds no credential; it is reactivated first, then issued one. */
   SUSPENDED: 'MQTT_IDENTITY_SUSPENDED',
   /** The service holds no key to issue credentials with; nothing was changed. */
   UNAVAILABLE: 'MQTT_IDENTITY_UNAVAILABLE',
+  /**
+   * An MQTT sensor publishes to the platform broker and is activated by its
+   * first data: the platform does not test it or activate it by hand.
+   */
+  ACTIVATED_BY_DATA: 'MQTT_IDENTITY_ACTIVATED_BY_DATA',
 } as const;
 
 export type SensorMqttIdentityErrorCode =

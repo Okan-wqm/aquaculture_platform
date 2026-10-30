@@ -1,4 +1,5 @@
 import { Injectable, Logger, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
+import { SENSOR_MQTT_IDENTITY_ERROR } from '@aquaculture/shared-contracts';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Like, FindOptionsWhere, DataSource } from 'typeorm';
@@ -7,6 +8,11 @@ import { Sensor, SensorType, SensorRegistrationStatus, SensorRole } from '../../
 import { ConnectionTesterService, ExtendedTestResult } from '../../protocol/services/connection-tester.service';
 import { ProtocolRegistryService } from '../../protocol/services/protocol-registry.service';
 import { ProtocolValidatorService } from '../../protocol/services/protocol-validator.service';
+import { isActivatedByData } from '../../protocol/adapters/protocol-implementation-status';
+import {
+  type SensorMqttCredentials,
+  SensorMqttIdentityService,
+} from '../../mqtt-identity/sensor-mqtt-identity.service';
 import { ChannelDisplaySettings } from '../../database/entities/sensor-data-channel.entity';
 import { CreateDataChannelInput } from '../dto/data-channel.dto';
 import { ChannelManagementService, CreateChannelInput } from './channel-management.service';
@@ -40,6 +46,8 @@ export interface RegistrationResult {
   error?: string;
   connectionTestPassed?: boolean;
   latencyMs?: number;
+  /** ADR-047: the broker credential an MQTT sensor is issued — the only copy of its password. */
+  mqttCredentials?: SensorMqttCredentials;
 }
 
 export type SensorListResult = IStandardPaginatedResult<Sensor>;
@@ -69,6 +77,8 @@ export interface ParentWithChildrenResult {
   error?: string;
   connectionTestPassed?: boolean;
   latencyMs?: number;
+  /** ADR-047: the parent's broker credential, when it speaks MQTT — the only copy of its password. */
+  mqttCredentials?: SensorMqttCredentials;
 }
 
 @Injectable()
@@ -96,6 +106,9 @@ export class SensorRegistrationService {
     // SENSOR-MEDIUM-161: a sensor's site, department, system and unit are
     // stored only as farm accepts them.
     private readonly placement: SensorPlacementService,
+    // ADR-047: an MQTT sensor (or parent) is issued its own broker credential
+    // in the registration transaction, and its data, not a test, activates it.
+    private readonly mqttIdentity: SensorMqttIdentityService,
   ) {}
 
   /**
@@ -104,10 +117,9 @@ export class SensorRegistrationService {
   async registerSensor(
     input: RegisterSensorInput,
     tenantId: string,
-    // SENSOR-LOW-007: retained for the call signature; the registration events
-    // are keyed by sensor/tenant, not the acting user (the contract has no
-    // actor field), so this is intentionally unused here.
-    _userId: string,
+    // The registration events carry no actor (the contract has no field); the
+    // audit row of an issued broker credential names this user.
+    userId: string,
     /**
      * SSOT-C-13: tenant plan tier ordinal (PLAN_LEVEL) for per-plan sensor-count
      * quota. Undefined for platform SUPER_ADMIN → quota skipped. Enforced here at
@@ -156,6 +168,12 @@ export class SensorRegistrationService {
     // SENSOR-MEDIUM-161: farm checks the place before anything is written, and
     // its answer decides whether the unit is stored as a tank or as equipment.
     const placement = await this.placement.resolve(tenantId, placementRequestOf(input));
+
+    // ADR-047 §5: an MQTT sensor publishes to the platform broker with the
+    // credential issued below; the cloud never tests it, and its first data
+    // activates it.
+    const activatedByData = isActivatedByData(input.protocolCode);
+    let mqttCredentials: SensorMqttCredentials | undefined;
 
     // Create sensor entity
     const sensor = this.sensorRepository.create({
@@ -214,6 +232,9 @@ export class SensorRegistrationService {
             manager,
           );
         }
+        if (activatedByData) {
+          mqttCredentials = await this.mqttIdentity.issue(manager, tenantId, persisted.id, userId);
+        }
         await this.outboxPublisher.enqueue(
           registrationStartedEvent(persisted, input.protocolCode),
           manager,
@@ -230,11 +251,12 @@ export class SensorRegistrationService {
       return { success: false, error: (err as Error).message };
     }
 
-    // Test connection if not skipped
+    // Test connection if not skipped, and never for a sensor its data activates
     let connectionTestPassed = false;
     let latencyMs: number | undefined;
+    const testRuns = !input.skipConnectionTest && !activatedByData;
 
-    if (!input.skipConnectionTest) {
+    if (testRuns) {
       const testResult = await this.testSensorConnection(savedSensor.id, tenantId);
       connectionTestPassed = testResult.success;
       latencyMs = testResult.latencyMs;
@@ -259,23 +281,27 @@ export class SensorRegistrationService {
     }
 
     // Persist the final status (if a test ran) AND enqueue the SensorRegistered
-    // + SensorRegistrationCompleted events atomically (SENSOR-LOW-007).
+    // + SensorRegistrationCompleted events atomically (SENSOR-LOW-007). A
+    // sensor its data activates completes when that data arrives
+    // (SensorDataPromotion), not here.
     await this.dataSource.transaction(async (manager) => {
-      if (!input.skipConnectionTest) {
+      if (testRuns) {
         await manager.save(Sensor, savedSensor);
       }
       await this.outboxPublisher.enqueue(
         sensorRegisteredEvent(savedSensor),
         manager,
       );
-      await this.outboxPublisher.enqueue(
-        registrationCompletedEvent(
-          savedSensor,
-          input.protocolCode,
-          connectionTestPassed || Boolean(input.skipConnectionTest),
-        ),
-        manager,
-      );
+      if (!activatedByData) {
+        await this.outboxPublisher.enqueue(
+          registrationCompletedEvent(
+            savedSensor,
+            input.protocolCode,
+            connectionTestPassed || Boolean(input.skipConnectionTest),
+          ),
+          manager,
+        );
+      }
     });
 
     return {
@@ -283,6 +309,7 @@ export class SensorRegistrationService {
       sensor: savedSensor,
       connectionTestPassed,
       latencyMs,
+      mqttCredentials,
     };
   }
 
@@ -345,6 +372,8 @@ export class SensorRegistrationService {
         error: 'No protocol configured for this sensor',
       };
     }
+    // ADR-047 §5: no cloud-initiated test touches a sensor its data activates.
+    refuseIfActivatedByData(protocolCode, 'tested');
 
     // Update status to testing
     sensor.registrationStatus = SensorRegistrationStatus.TESTING;
@@ -397,6 +426,7 @@ export class SensorRegistrationService {
   async activateSensor(sensorId: string, tenantId: string): Promise<Sensor> {
     const sensor = await this.sensorRepository.findOne({
       where: { id: sensorId, tenantId },
+      relations: ['protocol'],
     });
 
     if (!sensor) {
@@ -406,6 +436,8 @@ export class SensorRegistrationService {
     if (sensor.registrationStatus === SensorRegistrationStatus.ACTIVE) {
       return sensor;
     }
+    // ADR-047 §5: only its data activates an MQTT sensor.
+    refuseIfActivatedByData(sensor.protocol?.code ?? '', 'activated by hand');
 
     // Test connection first
     const testResult = await this.testSensorConnection(sensorId, tenantId);
@@ -422,7 +454,12 @@ export class SensorRegistrationService {
   /**
    * Suspend a sensor
    */
-  async suspendSensor(sensorId: string, tenantId: string, reason?: string): Promise<Sensor> {
+  async suspendSensor(
+    sensorId: string,
+    tenantId: string,
+    reason?: string,
+    actorId: string | null = null,
+  ): Promise<Sensor> {
     const sensor = await this.sensorRepository.findOne({
       where: { id: sensorId, tenantId },
     });
@@ -439,7 +476,13 @@ export class SensorRegistrationService {
       lastError: reason || 'Sensor suspended',
     };
 
-    const savedSensor = await this.sensorRepository.save(sensor);
+    // ADR-047 §6: suspending withdraws the sensor's broker credential in the
+    // same transaction; leaving SUSPENDED never restores it.
+    const savedSensor = await this.dataSource.transaction(async (manager) => {
+      const saved = await manager.save(Sensor, sensor);
+      await this.mqttIdentity.revoke(manager, tenantId, sensorId, actorId);
+      return saved;
+    });
 
     this.eventEmitter.emit('sensor.suspended', {
       sensorId: sensor.id,
@@ -456,6 +499,7 @@ export class SensorRegistrationService {
   async reactivateSensor(sensorId: string, tenantId: string): Promise<Sensor> {
     const sensor = await this.sensorRepository.findOne({
       where: { id: sensorId, tenantId },
+      relations: ['protocol'],
     });
 
     if (!sensor) {
@@ -464,6 +508,16 @@ export class SensorRegistrationService {
 
     if (sensor.registrationStatus !== SensorRegistrationStatus.SUSPENDED) {
       throw new BadRequestException('Sensor is not suspended');
+    }
+
+    // ADR-047 §6: an MQTT sensor leaves SUSPENDED for DRAFT, without a test
+    // and without its old credential (suspension withdrew it). It is issued a
+    // new one (rotateSensorMqttCredentials), and data over that one activates
+    // it again.
+    if (isActivatedByData(sensor.protocol?.code ?? '')) {
+      sensor.registrationStatus = SensorRegistrationStatus.DRAFT;
+      sensor.isActive = false;
+      return this.sensorRepository.save(sensor);
     }
 
     return this.activateSensor(sensorId, tenantId);
@@ -514,7 +568,11 @@ export class SensorRegistrationService {
     }
 
     sensor.protocolConfiguration = input.protocolConfiguration as Record<string, unknown>;
-    sensor.registrationStatus = SensorRegistrationStatus.PENDING_TEST;
+    // ADR-047 §5: a sensor its data activates is never put up for a test; its
+    // status stays as its data left it.
+    if (!isActivatedByData(protocolCode)) {
+      sensor.registrationStatus = SensorRegistrationStatus.PENDING_TEST;
+    }
 
     const savedSensor = await this.sensorRepository.save(sensor);
 
@@ -769,6 +827,11 @@ export class SensorRegistrationService {
     // children stand where the parent stands.
     const placement = await this.placement.resolve(tenantId, placementRequestOf(parent));
 
+    // ADR-047 §5: an MQTT parent publishes to the platform broker with the
+    // credential issued below; its data, not a test, activates it.
+    const activatedByData = isActivatedByData(parent.protocolCode);
+    let mqttCredentials: SensorMqttCredentials | undefined;
+
     // Start transaction
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
@@ -939,6 +1002,17 @@ export class SensorRegistrationService {
         );
       }
 
+      // ADR-047 §1: an MQTT parent talks to the broker for its children and is
+      // issued the credential with the rows; the children hold none.
+      if (activatedByData) {
+        mqttCredentials = await this.mqttIdentity.issue(
+          queryRunner.manager,
+          tenantId,
+          savedParent.id,
+          userId,
+        );
+      }
+
       // SENSOR-LOW-007: enqueue the started event inside the same transaction
       // as the parent+children create so it is atomic with the rows.
       await this.outboxPublisher.enqueue(
@@ -973,7 +1047,8 @@ export class SensorRegistrationService {
     let connectionTestPassed = false;
     let latencyMs: number | undefined;
 
-    if (!skipConnectionTest) {
+    // ADR-047 §5: never a cloud test for a parent its data activates.
+    if (!skipConnectionTest && !activatedByData) {
       try {
         const testResult = await this.testParentConnection(savedParent.id, tenantId);
         connectionTestPassed = testResult.success;
@@ -1017,20 +1092,24 @@ export class SensorRegistrationService {
 
     // SENSOR-LOW-007: enqueue the registered + completed events durably. Best
     // effort post-commit — a failure here does not undo the committed devices.
+    // A parent its data activates completes when that data arrives
+    // (SensorDataPromotion), not here.
     try {
       await this.dataSource.transaction(async (manager) => {
         await this.outboxPublisher.enqueue(
           sensorRegisteredEvent(savedParent),
           manager,
         );
-        await this.outboxPublisher.enqueue(
-          registrationCompletedEvent(
-            savedParent,
-            parent.protocolCode,
-            connectionTestPassed || Boolean(skipConnectionTest),
-          ),
-          manager,
-        );
+        if (!activatedByData) {
+          await this.outboxPublisher.enqueue(
+            registrationCompletedEvent(
+              savedParent,
+              parent.protocolCode,
+              connectionTestPassed || Boolean(skipConnectionTest),
+            ),
+            manager,
+          );
+        }
       });
     } catch (evtErr) {
       this.logger.warn(
@@ -1050,6 +1129,7 @@ export class SensorRegistrationService {
       children: savedChildren,
       connectionTestPassed,
       latencyMs,
+      mqttCredentials,
     };
   }
 
@@ -1232,5 +1312,19 @@ export class SensorRegistrationService {
     });
 
     return true;
+  }
+}
+
+/**
+ * ADR-047 §5: a sensor of a protocol its data activates (MQTT on the platform
+ * broker) is never tested from the cloud nor activated by hand — the platform
+ * cannot dial it, and only data over its issued credential proves it.
+ */
+function refuseIfActivatedByData(protocolCode: string, action: string): void {
+  if (isActivatedByData(protocolCode)) {
+    throw new BadRequestException({
+      message: `A ${protocolCode} sensor is activated by its first data; it is not ${action}`,
+      code: SENSOR_MQTT_IDENTITY_ERROR.ACTIVATED_BY_DATA,
+    });
   }
 }

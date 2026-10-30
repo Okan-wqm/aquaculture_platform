@@ -252,14 +252,14 @@ not touch either package (run 40947682648). Every open PR inherits the red legs.
 - GHSA-x8rm-f576-gq67 (high), published 2026-10-28T21:13Z: the `PhoneNumber`
   scalar's pattern is vulnerable to regular-expression denial of service.
   Affected `<=2.0.0`, patched 2.0.1. No 1.x release is patched.
-- npm suggests 2.0.1 and marks it breaking. The 2.0.0 breaking changes are:
+- npm suggests 2.0.1 and marks it breaking. Neither of the two 2.0.0 breaking
+  changes breaks this repository:
   - support for graphql-js below 16 is dropped. The root graph resolves
     graphql 16.14.2, and the new peer range is `^16.0.0 || ^17.0.0`;
   - support for Node.js 20 is dropped. CI and every backend image run
     Node 22. `.nvmrc` still pins 20.11.0 and the root `engines.node` is
     `>=20.11.0`; the package still declares `engines.node >=10`, and its
     JSON scalars behave on Node 20.11.0 as on Node 22 (below).
-  Neither change breaks this repository.
 - The platform uses one export. 60 files (57 in sensor-service, 3 in
   hydroponics-service) import `{ GraphQLJSON } from 'graphql-scalars'`.
   Nothing imports `PhoneNumber`.
@@ -312,11 +312,11 @@ red as well.
   a patched release exists inside the declared range.
 - The gate reported "a non-breaking fix is available". Not excepted. Not
   CRITICAL, so the debt-plan truth table does not change.
-- Fix: a lock-only lift to 5.33.18, the npm `latest`; npm changes only this
-  entry. The floor table carries `systeminformation: '5.33.16'`, the first
-  patched release, so a lock refresh cannot slide back. No manifest declares
-  the package, so it has no `ROOT_FLOOR_DECLARATIONS` entry, like `engine.io`
-  and `body-parser`.
+- Fix: a lock-only lift to 5.33.18, the npm `latest` on 2026-10-29; npm
+  changes only this entry. The floor table carries
+  `systeminformation: '5.33.16'`, the first patched release, so a lock refresh
+  cannot slide back. No manifest declares the package, so it has no
+  `ROOT_FLOOR_DECLARATIONS` entry, like `engine.io` and `body-parser`.
 
 ## SUPPLY-MEDIUM-020 — tailwind 3 postcss-selector-parser is quadratic (open, excepted)
 

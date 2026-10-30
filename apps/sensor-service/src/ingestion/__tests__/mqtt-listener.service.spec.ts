@@ -24,6 +24,12 @@ import { EdgeDeviceService } from '../../edge-device/edge-device.service';
 import { MqttClientService } from '../../shared-mqtt/mqtt-client.service';
 import { SensorTopicCacheService, CachedSensorInfo } from '../sensor-topic-cache.service';
 import { MqttListenerService } from '../mqtt-listener.service';
+import { SensorServiceProfileService } from '../../config/sensor-service-profile.service';
+import type { SensorMetricWriterService } from '../sensor-metric-writer.service';
+import type { SensorPrincipalIngestion } from '../sensor-principal-ingestion.service';
+import { SensorReadingRecorder } from '../sensor-reading-recorder.service';
+import type { OutboxPublisher } from '@platform/outbox';
+import { collaborator } from '@aquaculture/testing';
 
 // ─── Constants ────────────────────────────────────────────────────────────
 
@@ -233,6 +239,7 @@ function buildService(
     mqttClient?: MqttClientService | null;
     eventBus?: any;
     scadaDeployLogService?: { updateStatus: jest.Mock } | null;
+    profile?: SensorServiceProfileService | null;
   } = {},
 ) {
   const configService = createMockConfigService(overrides.configOverrides);
@@ -259,11 +266,19 @@ function buildService(
   // SENSOR-CRITICAL-191: the SensorReading is enqueued in the metric
   // transaction; the outbox relay (not this service) publishes it.
   const outbox = { enqueue: jest.fn().mockResolvedValue(undefined) };
+  // ADR-047 §4: the sensor-principal route, decided in its own service.
+  const principalIngestion = {
+    handle: jest.fn().mockResolvedValue({ kind: 'dropped', reason: 'no_sensor' }),
+  };
   const service = new (MqttListenerService as any)(
     configService,
     dataSource,
     metricWriter, // metricWriter (SensorMetricWriterService)
-    outbox, // outboxPublisher (OutboxPublisher)
+    new SensorReadingRecorder(
+      collaborator<SensorMetricWriterService>(metricWriter, 'SensorMetricWriterService'),
+      collaborator<OutboxPublisher>(outbox, 'OutboxPublisher'),
+    ),
+    collaborator<SensorPrincipalIngestion>(principalIngestion, 'SensorPrincipalIngestion'),
     eventBus,
     edgeDeviceService,
     sensorTopicCache,
@@ -271,6 +286,9 @@ function buildService(
     null, // deploymentLogService
     null, // automationService
     overrides.scadaDeployLogService ?? null, // scadaDeployLogService
+    null, // releaseBundleService
+    null, // scadaPackageService
+    overrides.profile ?? null, // profile (ADR-022)
   ) as MqttListenerService;
 
   return {
@@ -280,6 +298,7 @@ function buildService(
     dataSource,
     metricWriter,
     outbox,
+    principalIngestion,
     edgeDeviceService: edgeDeviceService as jest.Mocked<EdgeDeviceService> | null,
     sensorTopicCache: sensorTopicCache as jest.Mocked<SensorTopicCacheService> | null,
     mqttClient: mqttClient as jest.Mocked<MqttClientService> | null,
@@ -298,11 +317,12 @@ async function callHandleMessage(
   service: MqttListenerService,
   topic: string,
   payload: string | Buffer,
+  retain = false,
 ): Promise<void> {
   // Element access reaches the private field with its declared type, no cast.
   const handler = service['messageHandler'];
   const buffer = Buffer.isBuffer(payload) ? payload : Buffer.from(payload);
-  await handler(topic, buffer);
+  await handler(topic, buffer, { retain });
 }
 
 // ─── Test Suite ───────────────────────────────────────────────────────────
@@ -313,6 +333,73 @@ describe('MqttListenerService', () => {
   });
 
   // ==================== 1. Topic Parsing ====================
+
+  describe('a sensor holding its own broker principal (ADR-047 §4)', () => {
+    const TENANT = '7f6b08ab-90e2-46d3-a260-cb985f1fd897';
+    const SENSOR = 'f0b8b1a6-df19-42de-ba9a-8523c949ea65';
+    const DATA_TOPIC = `tenants/${TENANT}/sensors/${SENSOR}/data`;
+
+    it('routes its data topic to the principal route, with the retain flag, before any edge handler', async () => {
+      const { service, principalIngestion, sensorTopicCache, edgeDeviceService } = buildService();
+      await callHandleMessage(service, DATA_TOPIC, '{"ph":7.1}', true);
+
+      expect(principalIngestion.handle).toHaveBeenCalledWith(
+        DATA_TOPIC,
+        Buffer.from('{"ph":7.1}'),
+        { retain: true },
+      );
+      expect(sensorTopicCache!.getSensorByTopic).not.toHaveBeenCalled();
+      expect(edgeDeviceService!.findByCode).not.toHaveBeenCalled();
+    });
+
+    it('marks the sensor seen once its reading is recorded', async () => {
+      const { service, principalIngestion } = buildService();
+      principalIngestion.handle.mockResolvedValueOnce({
+        kind: 'recorded',
+        tenantId: TENANT,
+        sensorId: SENSOR,
+        rows: 2,
+        promoted: true,
+      });
+      await callHandleMessage(service, DATA_TOPIC, '{"ph":7.1}');
+
+      expect(service['lastSeenPending'].get(SENSOR)).toBe(TENANT);
+    });
+
+    it('stays up on the control-plane profile for this route alone (the sidecar cannot take it)', async () => {
+      const profile = new SensorServiceProfileService(
+        new ConfigService({ SENSOR_SERVICE_PROFILE: 'control-plane' }),
+      );
+      const { service, mqttClient, principalIngestion, sensorTopicCache, edgeDeviceService } =
+        buildService({ profile });
+      await service.onModuleInit();
+
+      expect(mqttClient!.addMessageHandler).toHaveBeenCalled();
+      expect(mqttClient!.subscribe).toHaveBeenCalledWith(['tenants/+/sensors/+/data']);
+
+      await callHandleMessage(service, DATA_TOPIC, '{"ph":7.1}');
+      expect(principalIngestion.handle).toHaveBeenCalledTimes(1);
+      // The sidecar's topics are not consumed a second time here.
+      await callHandleMessage(service, 'sensors/farm-01/water-quality', '{"ph":7.1}');
+      await callHandleMessage(
+        service,
+        `tenants/${TENANT}/devices/edge-1/telemetry`,
+        JSON.stringify({ cpu_usage_percent: 10 }),
+      );
+      expect(sensorTopicCache!.getSensorByTopic).not.toHaveBeenCalled();
+      expect(edgeDeviceService!.findByCode).not.toHaveBeenCalled();
+      await service.onModuleDestroy();
+    });
+
+    it('holds PUBACK when the durable write fails, so the broker redelivers', async () => {
+      const { service, principalIngestion } = buildService();
+      principalIngestion.handle.mockRejectedValueOnce(new Error('db down'));
+
+      await expect(callHandleMessage(service, DATA_TOPIC, '{"ph":7.1}')).rejects.toThrow(
+        /Durable write failed for sensor data topic/,
+      );
+    });
+  });
 
   describe('Topic parsing', () => {
     it('should parse sensors/{tenantId}/{sensorId}/data pattern correctly', async () => {
@@ -1524,29 +1611,6 @@ describe('MqttListenerService', () => {
   });
 
   // ==================== 12. Value Extraction ====================
-
-  describe('Value extraction', () => {
-    it('should extract nested values using dot notation', () => {
-      const service = buildService().service;
-      const extractValue = (service as any).extractValue.bind(service);
-
-      expect(extractValue({ a: { b: { c: 42 } } }, 'a.b.c')).toBe(42);
-    });
-
-    it('should extract array values using bracket notation', () => {
-      const service = buildService().service;
-      const extractValue = (service as any).extractValue.bind(service);
-
-      expect(extractValue({ data: [10, 20, 30] }, 'data[1]')).toBe(20);
-    });
-
-    it('should return undefined for non-existent paths', () => {
-      const service = buildService().service;
-      const extractValue = (service as any).extractValue.bind(service);
-
-      expect(extractValue({ a: 1 }, 'b.c')).toBeUndefined();
-    });
-  });
 
   // ==================== 13. Event Publishing ====================
 

@@ -10,6 +10,11 @@ import { ProtocolValidatorService } from '../../protocol/services/protocol-valid
 import { ChannelDisplaySettings } from '../../database/entities/sensor-data-channel.entity';
 import { CreateDataChannelInput } from '../dto/data-channel.dto';
 import { ChannelManagementService, CreateChannelInput } from './channel-management.service';
+import {
+  registrationCompletedEvent,
+  registrationStartedEvent,
+  sensorRegisteredEvent,
+} from '../sensor-registration-events';
 import { placementRequestOf, SensorPlacementService } from './sensor-placement.service';
 import { resolveSerialNumber, throwIfSerialNumberConflict } from './serial-number.policy';
 import { SensorTypeService } from '../../sensor-type/sensor-type.service';
@@ -18,10 +23,6 @@ import { assertWithinQuota } from '@aquaculture/backend-common/quota';
 import {
   resolvePlanLimits,
   tenantPlanFromLevel,
-  createBaseEvent,
-  type SensorRegisteredEvent,
-  type SensorRegistrationStartedEvent,
-  type SensorRegistrationCompletedEvent,
 } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
 import {
@@ -96,56 +97,6 @@ export class SensorRegistrationService {
     // stored only as farm accepts them.
     private readonly placement: SensorPlacementService,
   ) {}
-
-  // ── SENSOR-LOW-007 event builders (createBaseEvent, flat contract shape) ──
-  private buildRegistrationStartedEvent(
-    sensor: Sensor,
-    protocolCode: string,
-  ): SensorRegistrationStartedEvent {
-    return {
-      ...createBaseEvent<SensorRegistrationStartedEvent>('SensorRegistrationStarted', sensor.tenantId, {
-        aggregateId: sensor.id,
-        aggregateType: 'Sensor',
-      }),
-      sensorId: sensor.id,
-      sensorName: sensor.name,
-      protocolCode,
-    };
-  }
-
-  private buildRegisteredEvent(sensor: Sensor, protocolCode: string): SensorRegisteredEvent {
-    return {
-      ...createBaseEvent<SensorRegisteredEvent>('SensorRegistered', sensor.tenantId, {
-        aggregateId: sensor.id,
-        aggregateType: 'Sensor',
-      }),
-      sensorId: sensor.id,
-      farmId: sensor.farmId ?? undefined,
-      pondId: sensor.pondId ?? undefined,
-      sensorType: sensor.type,
-      manufacturer: sensor.manufacturer,
-      model: sensor.model,
-    };
-  }
-
-  private buildRegistrationCompletedEvent(
-    sensor: Sensor,
-    protocolCode: string,
-    connectionTestPassed: boolean,
-  ): SensorRegistrationCompletedEvent {
-    return {
-      ...createBaseEvent<SensorRegistrationCompletedEvent>('SensorRegistrationCompleted', sensor.tenantId, {
-        aggregateId: sensor.id,
-        aggregateType: 'Sensor',
-      }),
-      sensorId: sensor.id,
-      sensorName: sensor.name,
-      protocolCode,
-      farmId: sensor.farmId ?? undefined,
-      pondId: sensor.pondId ?? undefined,
-      connectionTestPassed,
-    };
-  }
 
   /**
    * Register a new sensor
@@ -264,7 +215,7 @@ export class SensorRegistrationService {
           );
         }
         await this.outboxPublisher.enqueue(
-          this.buildRegistrationStartedEvent(persisted, input.protocolCode),
+          registrationStartedEvent(persisted, input.protocolCode),
           manager,
         );
         return persisted;
@@ -314,11 +265,11 @@ export class SensorRegistrationService {
         await manager.save(Sensor, savedSensor);
       }
       await this.outboxPublisher.enqueue(
-        this.buildRegisteredEvent(savedSensor, input.protocolCode),
+        sensorRegisteredEvent(savedSensor),
         manager,
       );
       await this.outboxPublisher.enqueue(
-        this.buildRegistrationCompletedEvent(
+        registrationCompletedEvent(
           savedSensor,
           input.protocolCode,
           connectionTestPassed || Boolean(input.skipConnectionTest),
@@ -991,7 +942,7 @@ export class SensorRegistrationService {
       // SENSOR-LOW-007: enqueue the started event inside the same transaction
       // as the parent+children create so it is atomic with the rows.
       await this.outboxPublisher.enqueue(
-        this.buildRegistrationStartedEvent(savedParent, parent.protocolCode),
+        registrationStartedEvent(savedParent, parent.protocolCode),
         queryRunner.manager,
       );
 
@@ -1069,11 +1020,11 @@ export class SensorRegistrationService {
     try {
       await this.dataSource.transaction(async (manager) => {
         await this.outboxPublisher.enqueue(
-          this.buildRegisteredEvent(savedParent, parent.protocolCode),
+          sensorRegisteredEvent(savedParent),
           manager,
         );
         await this.outboxPublisher.enqueue(
-          this.buildRegistrationCompletedEvent(
+          registrationCompletedEvent(
             savedParent,
             parent.protocolCode,
             connectionTestPassed || Boolean(skipConnectionTest),

@@ -9,10 +9,20 @@ import { emitBootInvariantSignal } from '@aquaculture/backend-common/constants';
 
 import { sensorServiceListenerClientId } from './sensor-service-client-id';
 
+/** What a handler is told about the PUBLISH packet besides its topic and payload. */
+export interface MqttMessageFlags {
+  /** The broker delivered a retained message (ADR-047 §4 drops these on sensor data topics). */
+  readonly retain: boolean;
+}
+
 /**
  * MQTT subscription callback type
  */
-export type MqttMessageHandler = (topic: string, message: Buffer) => void | Promise<void>;
+export type MqttMessageHandler = (
+  topic: string,
+  message: Buffer,
+  flags: MqttMessageFlags,
+) => void | Promise<void>;
 
 /**
  * MQTT Connection State
@@ -590,10 +600,11 @@ export class MqttClientService implements OnModuleInit, OnModuleDestroy {
     // parsePayload it is always the raw Buffer, but normalize so the handler
     // contract (Buffer) holds either way.
     const payload = Buffer.isBuffer(packet.payload) ? packet.payload : Buffer.from(packet.payload);
+    const flags: MqttMessageFlags = { retain: packet.retain === true };
 
     Promise.all(
       this.messageHandlers.map((handler) =>
-        Promise.resolve().then(() => handler(packet.topic, payload)),
+        Promise.resolve().then(() => handler(packet.topic, payload, flags)),
       ),
     ).then(settle, (error: Error) => fail('handler failure', error));
   }

@@ -21,7 +21,7 @@ import {
   projectPersistedReadings,
   type PersistedReadingMetric,
 } from '@platform/event-contracts';
-import { DataSource, In } from 'typeorm';
+import { DataSource, In, IsNull } from 'typeorm';
 
 import { SensorDataChannel } from '../database/entities/sensor-data-channel.entity';
 import { QualityCodes, SensorMetricInput } from '../database/entities/sensor-metric.entity';
@@ -167,7 +167,10 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
     try {
       const tenants = await listActiveTenantSchemaIdentities(this.dataSource);
       for (const { tenantId } of tenants) {
-        // Active MQTT parent sensors of this tenant, inside its boundary.
+        // Active MQTT parent sensors of this tenant, inside its boundary —
+        // those without their own broker principal: a parent holding one
+        // publishes to the platform broker and the listener's sensor data
+        // route ingests it (ADR-047 §4); it has no broker to dial.
         const activeSensors = await runInTenantRead(
           this.dataSource,
           SENSOR_SOURCE_SCHEMA,
@@ -178,6 +181,7 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
                 registrationStatus: SensorRegistrationStatus.ACTIVE,
                 isActive: true,
                 isParentDevice: true,
+                mqttUsername: IsNull(),
                 protocol: { code: 'MQTT' },
               },
               relations: ['protocol'],
@@ -246,6 +250,16 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
   async startSensorDataCollection(sensor: Sensor): Promise<void> {
     if (this.activeConnections.has(sensor.id)) {
       this.logger.warn(`Sensor ${sensor.id} is already connected`);
+      return;
+    }
+
+    // ADR-047 §4: a sensor issued its own broker principal (by a rotation
+    // since this connection was opened, too) is never dialled; its data
+    // arrives on its own topic through the listener.
+    if (sensor.mqttUsername) {
+      this.logger.log(
+        `Sensor ${sensor.id} publishes with its own broker principal; no collector connection`,
+      );
       return;
     }
 

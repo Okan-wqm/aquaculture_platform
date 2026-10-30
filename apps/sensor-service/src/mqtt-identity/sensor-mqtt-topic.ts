@@ -11,6 +11,17 @@ const DATA_TOPIC = new RegExp(`^tenants/(${UUID})/sensors/(${UUID})/data$`);
 /** The subscription filter covering every sensor's data topic. */
 export const SENSOR_MQTT_DATA_FILTER = 'tenants/+/sensors/+/data';
 
+const DATA_TOPIC_SHAPE = /^tenants\/[^/]+\/sensors\/[^/]+\/data$/;
+
+/**
+ * Whether a topic or filter has the sensor data shape, whatever stands in its
+ * id segments (wildcards included): the namespace no service account may
+ * write to, and the one the listener routes to the sensor-principal path.
+ */
+export function hasSensorMqttDataShape(topic: string): boolean {
+  return DATA_TOPIC_SHAPE.test(topic);
+}
+
 /** The data topic of one sensor. */
 export function sensorMqttDataTopic(tenantId: string, sensorId: string): string {
   return `tenants/${tenantId}/sensors/${sensorId}/data`;

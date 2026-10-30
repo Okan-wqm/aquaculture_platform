@@ -12,6 +12,7 @@ import {
   type SensorConnectDenial,
 } from '../mqtt-identity/sensor-mqtt-broker-access.service';
 import { SENSOR_MQTT_USERNAME_PATTERN } from '../mqtt-identity/sensor-mqtt-secret';
+import { hasSensorMqttDataShape } from '../mqtt-identity/sensor-mqtt-topic';
 import { sensorServiceListenerClientId } from '../shared-mqtt/sensor-service-client-id';
 import { DeviceDirectoryService } from './device-directory.service';
 import {
@@ -35,12 +36,6 @@ type DeviceAuthDenial =
   | 'no_password_hash'
   | 'password_mismatch'
   | `sensor_${SensorConnectDenial}`;
-
-/**
- * A sensor principal's data topic, concrete or as the filter: no service
- * account writes there (ADR-047 §3), so the topic identifies its publisher.
- */
-const SENSOR_DATA_TOPIC = /^tenants\/[^/]+\/sensors\/[^/]+\/data$/;
 
 /**
  * MQTT Authentication Service
@@ -431,7 +426,7 @@ export class MqttAuthService implements OnModuleInit {
     // sensor. No service account holds any access with the write bit there
     // (acc & 2, so acc=3 too); sensor_service reads and subscribes to it, and
     // alert_service keeps its read grant below.
-    if (SENSOR_DATA_TOPIC.test(topic)) {
+    if (hasSensorMqttDataShape(topic)) {
       if (acc & 2) return false;
       if (username === 'sensor_service') return true;
     }

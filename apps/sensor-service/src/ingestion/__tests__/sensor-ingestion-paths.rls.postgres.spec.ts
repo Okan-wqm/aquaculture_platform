@@ -105,6 +105,17 @@ describe('sensor ingestion paths under FORCE RLS (SENSOR-HIGH-148)', () => {
              VALUES ($1, $2, 'oxygen', 'oxygen', 'number', 'mg/L', 'oxygen', true, 1)`,
             [parentId, tenantId],
           );
+          // ADR-047: an active parent holding its own broker principal
+          // publishes to the platform broker; the collector never dials it.
+          await admin.query(
+            `INSERT INTO "${schema}".sensors
+               (tenant_id, name, serial_number, type, status, registration_status, is_active,
+                is_parent_device, protocol_id, protocol_configuration, mqtt_username,
+                mqtt_secret_hmac, mqtt_secret_key_id)
+             VALUES ($1, 'Principal gateway', $2, 'temperature', 'active', 'active', true, true,
+                     $3, '{}'::jsonb, $4, $5, 'k1')`,
+            [tenantId, `PGW-${schema}`, protocol.id, `s${'p'.repeat(22)}`, 'e'.repeat(64)],
+          );
         }
 
         await admin.query(
@@ -251,6 +262,7 @@ describe('sensor ingestion paths under FORCE RLS (SENSOR-HIGH-148)', () => {
       );
 
       await plane.startAllActiveSensors();
+      // The principal-holding parent beside it is not dialled (ADR-047 §4).
       expect(plane.getActiveConnections().map((c) => c.sensorId)).toEqual([PARENTS[TENANT_A]]);
 
       const payload: SensorReadingData = {

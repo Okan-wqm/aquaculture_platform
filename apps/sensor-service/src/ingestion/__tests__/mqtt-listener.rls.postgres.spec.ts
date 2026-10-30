@@ -1,5 +1,6 @@
 import { ConfigService } from '@nestjs/config';
 import { RedisService } from '@aquaculture/backend-common/redis';
+import { collaborator } from '@aquaculture/testing';
 import { IEventBus } from '@platform/event-bus';
 import { OutboxPublisher } from '@platform/outbox';
 import { DataSource } from 'typeorm';
@@ -18,6 +19,8 @@ import { SensorOutbox } from '../../outbox/sensor-outbox.entity';
 import { MqttClientService, MqttMessageHandler } from '../../shared-mqtt/mqtt-client.service';
 import { MqttListenerService } from '../mqtt-listener.service';
 import { SensorMetricWriterService } from '../sensor-metric-writer.service';
+import type { SensorPrincipalIngestion } from '../sensor-principal-ingestion.service';
+import { SensorReadingRecorder } from '../sensor-reading-recorder.service';
 import { SensorTopicCacheService } from '../sensor-topic-cache.service';
 
 /**
@@ -159,7 +162,12 @@ describe('MqttListenerService ingestion under FORCE RLS (SENSOR-HIGH-137)', () =
       config,
       runtime,
       new SensorMetricWriterService(runtime),
-      new OutboxPublisher(SensorOutbox),
+      new SensorReadingRecorder(
+        new SensorMetricWriterService(runtime),
+        new OutboxPublisher(SensorOutbox),
+      ),
+      // Legacy topics only here; the sensor-principal route has its own spec.
+      collaborator<SensorPrincipalIngestion>({}, 'SensorPrincipalIngestion'),
       { publish: jest.fn().mockResolvedValue(undefined) } as Partial<IEventBus> as IEventBus,
       null,
       topicCache,
@@ -187,7 +195,7 @@ describe('MqttListenerService ingestion under FORCE RLS (SENSOR-HIGH-137)', () =
   }
 
   it('persists one sensor_metrics row per configured channel (was: zero rows)', async () => {
-    await handler!(TOPIC_A, Buffer.from(JSON.stringify(PAYLOAD)));
+    await handler!(TOPIC_A, Buffer.from(JSON.stringify(PAYLOAD)), { retain: false });
 
     expect(await channelValues(SCHEMA_A)).toEqual({
       temperature: 24.2,
@@ -242,7 +250,9 @@ describe('MqttListenerService ingestion under FORCE RLS (SENSOR-HIGH-137)', () =
     expect((await topicCache!.getSensorByTopic(TOPIC_C))?.tenantId).toBe(TENANT_C);
     await stage!.deprovisionTenant(TENANT_C);
 
-    await expect(handler!(TOPIC_C, Buffer.from(JSON.stringify(PAYLOAD)))).resolves.toBeUndefined();
+    await expect(
+      handler!(TOPIC_C, Buffer.from(JSON.stringify(PAYLOAD)), { retain: false }),
+    ).resolves.toBeUndefined();
 
     // Evicted: the topic re-resolves against the active tenants and finds nothing.
     await expect(topicCache!.getSensorByTopic(TOPIC_C)).resolves.toBeNull();

@@ -251,3 +251,33 @@ Recorded as each part lands (SENSOR-CRITICAL-173).
   config, the harness or the MQTT auth and identity code changes. Production's go-auth
   cache is off (`mosquitto-production.conf`), which the harness boots from.
 - The broker states `max_packet_size 1048576`, the edge gateway client's own limit.
+
+### Ingestion route and data-driven activation (2026-10-30)
+
+- The listener subscribes `tenants/+/sensors/+/data` (first in
+  `SENSOR_SERVICE_SUBSCRIPTION_FILTERS`) and routes it before any edge handler to
+  `SensorPrincipalIngestion`. In order: the erased-tenant tombstone, `retain=1` (the
+  `MqttMessageHandler` now receives the packet's flags), the per-sensor rate cap, the wire
+  size, the payload schema (`libs/event-contracts/src/schemas/sensor-data-payload.schema.ts`).
+  Each drop is counted by reason (`sensor_principal_messages_dropped_total`).
+- The stated numbers: at most 16 KiB per message; nesting three levels below the top object,
+  64 keys or items per level, 256 characters per string; one message a second per sensor
+  with a burst of ten; a payload `timestamp` is trusted from an hour before to a minute after
+  the receive time.
+- The sensor is read inside its tenant's boundary and must still hold its principal and not
+  be suspended. A channel value must be a JSON number. The readings are written through
+  `SensorReadingRecorder`, the one writer the legacy topic route now shares, so the two
+  routes cannot diverge on calibration, quality codes, placement or the `SensorReading`
+  event.
+- The first message that stores a reading promotes the sensor (`SensorDataPromotion`): the
+  sensor and its children go from DRAFT or TEST_FAILED to ACTIVE with `isActive`,
+  `last_seen_at` is stamped, `sensor_audit_logs` records it, and one
+  `SensorRegistrationCompleted` (`connectionTestPassed = true`) is enqueued — in the
+  reading's own transaction. The UPDATE's condition makes it happen once. The registration
+  events are built in one module (`registration/sensor-registration-events.ts`).
+- On the `control-plane` profile (ADR-022) the listener stays up for this route alone: the
+  sidecar does not take the topic (§4), and a message on any other topic that still reaches
+  the persistent session is not consumed a second time.
+- The per-sensor collector (`DataIngestionService`), which dials an active MQTT parent's
+  configured broker, never dials a sensor holding its own principal: that sensor has no
+  broker of its own, and its data arrives on its topic.

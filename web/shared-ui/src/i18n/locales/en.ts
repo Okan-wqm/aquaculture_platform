@@ -406,6 +406,7 @@ export const en = {
   'messaging.aiAssistant': 'AI Assistant',
   'messaging.memberFallback': 'Member',
   // FAZ 2.4 — AI visibility: persona-authored messages + AI failure notices.
+  'messaging.aiWriting': 'writing…',
   'messaging.aiUnavailable': 'AI is currently unavailable — please try again later.',
   'messaging.contentImage': '[Image]',
   'messaging.contentFile': '[File]',

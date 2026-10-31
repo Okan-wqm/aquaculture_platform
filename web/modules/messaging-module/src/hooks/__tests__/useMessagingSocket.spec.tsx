@@ -778,3 +778,81 @@ describe('useMessagingSocket — reAuth + conditional reconnect (FAZ 3.1)', () =
     expect(result.current.isConnected).toBe(false);
   });
 });
+
+describe('useMessagingSocket — AI reply drafts (MSG-MEDIUM-089)', () => {
+  const REPLY_KEY = 'eeeeeeee-5555-5666-8777-888888888888';
+  const writing = (channelId: string, turn: number, text: string) => ({
+    channelId,
+    replyKey: REPLY_KEY,
+    phase: 'writing',
+    turn,
+    text,
+  });
+
+  async function connected() {
+    const queryClient = newQueryClient();
+    routeChannels([makeChannel(ACTIVE_CHANNEL)]);
+    primeChannels(queryClient, [makeChannel(ACTIVE_CHANNEL)]);
+    primeThread(queryClient, ACTIVE_CHANNEL, []);
+    const hook = renderHook(() => useMessagingSocket(ACTIVE_CHANNEL), {
+      wrapper: makeWrapper(queryClient),
+    });
+    await waitFor(() => expect(ioSpy).toHaveBeenCalled());
+    act(() => fireSocketEvent('connect'));
+    await flush();
+    return hook;
+  }
+
+  it("shows the active channel's draft as it is written, and nothing of another channel's", async () => {
+    const { result } = await connected();
+
+    act(() => fireSocketEvent('aiReplyDraft', writing(ACTIVE_CHANNEL, 1, 'Tank 4 ')));
+    act(() => fireSocketEvent('aiReplyDraft', writing(ACTIVE_CHANNEL, 1, 'is fine.')));
+    act(() => fireSocketEvent('aiReplyDraft', writing(OTHER_CHANNEL, 1, 'elsewhere')));
+
+    expect(result.current.aiDrafts).toEqual([
+      expect.objectContaining({
+        replyKey: REPLY_KEY,
+        turn: 1,
+        text: 'Tank 4 is fine.',
+        stored: false,
+      }),
+    ]);
+  });
+
+  it('replaces the draft with the stored reply when its message arrives', async () => {
+    const { result } = await connected();
+    act(() => fireSocketEvent('aiReplyDraft', writing(ACTIVE_CHANNEL, 1, 'Tank 4 is fine.')));
+    act(() =>
+      fireSocketEvent('aiReplyDraft', {
+        channelId: ACTIVE_CHANNEL,
+        replyKey: REPLY_KEY,
+        phase: 'stored',
+      }),
+    );
+    expect(result.current.aiDrafts).toEqual([expect.objectContaining({ stored: true })]);
+
+    act(() =>
+      fireSocketEvent('newMessage', {
+        channelId: ACTIVE_CHANNEL,
+        message: makeWsMessage({ id: 'ai-reply', idempotencyKey: REPLY_KEY }),
+      }),
+    );
+
+    expect(result.current.aiDrafts).toEqual([]);
+  });
+
+  it('drops the draft when no reply is coming', async () => {
+    const { result } = await connected();
+    act(() => fireSocketEvent('aiReplyDraft', writing(ACTIVE_CHANNEL, 1, 'Checking')));
+    act(() =>
+      fireSocketEvent('aiReplyDraft', {
+        channelId: ACTIVE_CHANNEL,
+        replyKey: REPLY_KEY,
+        phase: 'abandoned',
+      }),
+    );
+
+    expect(result.current.aiDrafts).toEqual([]);
+  });
+});

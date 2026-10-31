@@ -233,6 +233,7 @@ beforeEach(() => {
 afterEach(() => {
   restoreVisibility();
   vi.useRealTimers();
+  vi.unstubAllGlobals();
 });
 
 describe('ChatRoomPage', () => {
@@ -466,6 +467,53 @@ describe('ChatRoomPage — FAZ 2.4 AI visibility', () => {
     );
     // …and the generic label does NOT appear alongside it.
     expect(screen.queryByText('AI Assistant')).not.toBeInTheDocument();
+  });
+
+  it("types the AI's reply out as it is written, then shows the stored reply in its place (MSG-MEDIUM-089)", async () => {
+    // Reduced motion: the typed text shows whole, so it can be read at once.
+    vi.stubGlobal('matchMedia', (query: string) => ({ matches: query.includes('reduce') }));
+    const replyKey = 'eeeeeeee-5555-5666-8777-888888888888';
+    routeAiThread([]);
+    renderRoom(newQueryClient());
+    await waitFor(() =>
+      expect(screen.getByTestId('room-title')).toHaveTextContent('Production Specialist'),
+    );
+
+    const writing = (text: string) => ({
+      channelId: AI_CHANNEL.id,
+      replyKey,
+      phase: 'writing',
+      turn: 1,
+      text,
+    });
+    act(() => fireSocketEvent('aiReplyDraft', writing('Tank 4 ')));
+    act(() => fireSocketEvent('aiReplyDraft', writing('is fine.')));
+
+    const draft = await screen.findByTestId('ai-reply-draft');
+    expect(draft).toHaveTextContent('Tank 4 is fine.');
+    expect(within(draft).getByText('Production Specialist')).toHaveClass('sd-msg-author');
+    expect(draft).toHaveTextContent('writing…');
+    expect(draft).toHaveAttribute('aria-busy', 'true');
+
+    const stored: WsMessage = {
+      id: 'ai-reply',
+      channelId: AI_CHANNEL.id,
+      senderId: AI_SENDER_ID,
+      content: 'Tank 4 is fine.',
+      contentType: 'SYSTEM',
+      parentId: null,
+      forwardedFrom: null,
+      isDeleted: false,
+      createdAt: '2026-09-16T11:00:00Z',
+      editedAt: null,
+      metadata: null,
+      idempotencyKey: replyKey,
+      sender: { id: AI_SENDER_ID },
+    };
+    act(() => fireSocketEvent('newMessage', { channelId: AI_CHANNEL.id, message: stored }));
+
+    await waitFor(() => expect(screen.queryByTestId('ai-reply-draft')).not.toBeInTheDocument());
+    expect(screen.getByText('Tank 4 is fine.')).toBeVisible();
   });
 
   it("titles an AI room with its agent's face, job and tier — not the stored English name", async () => {

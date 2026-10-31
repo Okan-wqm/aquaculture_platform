@@ -32,6 +32,7 @@ import {
   createTenantQueryKey,
   getAccessToken,
   useAuth,
+  type AiReplyDraftEnvelope,
   type ChannelMemberRemovedEnvelope,
   type MessageDeletedEnvelope,
   type MessageEnvelope,
@@ -44,6 +45,12 @@ import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { io, type Socket } from 'socket.io-client';
 
+import {
+  applyAiReplyDraft,
+  dropRepliedDraft,
+  dropStaleDrafts,
+  type AiReplyDraft,
+} from '../lib/aiReplyDrafts';
 import {
   applyIncomingMessageToChannels,
   applyMessageDeletedToChannels,
@@ -70,7 +77,12 @@ import { useChannels } from './useMessagingData';
 export interface MessagingSocketState {
   /** False until the first connect and during any disconnect/connect_error gap. */
   isConnected: boolean;
+  /** The active channel's AI replies being written (MSG-MEDIUM-089), oldest first. */
+  aiDrafts: AiReplyDraft[];
 }
+
+/** How often drafts that went quiet are looked for. */
+const AI_DRAFT_SWEEP_MS = 5_000;
 
 /** joinChannel ack-retry bounds (mobile MSG-HIGH-065 pattern). */
 const JOIN_ACK_MAX_RETRIES = 3;
@@ -124,6 +136,7 @@ export function useMessagingSocket(activeChannelId?: string): MessagingSocketSta
   const myId = user?.id;
   const queryClient = useQueryClient();
   const [isConnected, setIsConnected] = useState(false);
+  const [aiDrafts, setAiDrafts] = useState<AiReplyDraft[]>([]);
 
   // Latest-value refs: socket handlers are registered once per socket
   // lifecycle; the lifecycle is keyed on AUTH IDENTITY, not on transient
@@ -331,6 +344,8 @@ export function useMessagingSocket(activeChannelId?: string): MessagingSocketSta
       const isActiveChannel = envelope.channelId === activeChannelRef.current;
       if (isActiveChannel) {
         writeMessages(envelope.channelId, (pages) => upsertMessageIntoPages(pages, message));
+        // The AI's stored reply takes its draft's place.
+        setAiDrafts((drafts) => dropRepliedDraft(drafts, envelope.message.idempotencyKey));
       }
       writeChannels((current) =>
         applyIncomingMessageToChannels(current, message, {
@@ -338,6 +353,12 @@ export function useMessagingSocket(activeChannelId?: string): MessagingSocketSta
           myUserId: myIdRef.current,
         }),
       );
+    });
+
+    socket.on('aiReplyDraft', (raw: unknown) => {
+      const envelope = raw as AiReplyDraftEnvelope;
+      if (!envelope?.replyKey || envelope.channelId !== activeChannelRef.current) return;
+      setAiDrafts((drafts) => applyAiReplyDraft(drafts, envelope, Date.now()));
     });
 
     socket.on('messageUpdated', (raw: unknown) => {
@@ -492,5 +513,24 @@ export function useMessagingSocket(activeChannelId?: string): MessagingSocketSta
     }
   }, [channels, isConnected]);
 
-  return { isConnected };
+  // A draft belongs to the room it was written in.
+  useEffect(() => {
+    setAiDrafts([]);
+  }, [activeChannelId]);
+
+  // Drafts whose reply never resolved (a lost frame, a dropped connection) go
+  // once they are quiet; the sweep runs only while there are drafts.
+  const hasAiDrafts = aiDrafts.length > 0;
+  useEffect(() => {
+    if (!hasAiDrafts) return;
+    const timer = setInterval(() => {
+      setAiDrafts((drafts) => {
+        const kept = dropStaleDrafts(drafts, Date.now());
+        return kept.length === drafts.length ? drafts : kept;
+      });
+    }, AI_DRAFT_SWEEP_MS);
+    return () => clearInterval(timer);
+  }, [hasAiDrafts]);
+
+  return { isConnected, aiDrafts };
 }

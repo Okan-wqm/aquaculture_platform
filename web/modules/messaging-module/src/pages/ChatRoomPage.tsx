@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import { useParams, useNavigate } from 'react-router-dom';
 
 import AiConsentSwitch from '../components/AiConsentSwitch';
+import { AiReplyDraftRow } from '../components/AiReplyDraftRow';
 import { ChannelAvatar } from '../components/ChannelAvatar';
 import { MemberAvatar, memberName } from '../components/MemberAvatar';
 import { PersonaAvatar } from '../components/PersonaAvatar';
@@ -89,7 +90,7 @@ const ChatRoomPage: React.FC = () => {
   const { data: channels } = useChannels();
   const sendMutation = useSendMessage(channelId);
   const { mutate: markRead } = useMarkMessagesRead(channelId);
-  const { isConnected } = useMessagingSocket(channelId);
+  const { isConnected, aiDrafts } = useMessagingSocket(channelId);
 
   const currentChannel = channels?.find((c) => c.id === channelId);
   const heading = currentChannel ? channelHeading(currentChannel, myId, t) : null;
@@ -205,6 +206,18 @@ const ChatRoomPage: React.FC = () => {
     prevVisibleCountRef.current = messages.filter((m) => !m.isDeleted).length;
     prevLastVisibleIdRef.current = lastVisibleId;
   }, [messages, messagesData, lastVisibleMessage]);
+
+  /**
+   * An AI reply's draft grew (MSG-MEDIUM-089): follow it if the reader is at
+   * the bottom. The growth is not a prepend, so the prepend restore must not
+   * count it.
+   */
+  const followDraft = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    if (nearBottomRef.current) el.scrollTo({ top: el.scrollHeight });
+    prevScrollHeightRef.current = el.scrollHeight;
+  }, []);
 
   // The banner clears itself after a grace period…
   useEffect(() => {
@@ -424,6 +437,15 @@ const ChatRoomPage: React.FC = () => {
               </div>
             );
           })}
+          {aiDrafts.map((aiDraft) => (
+            <AiReplyDraftRow
+              key={aiDraft.replyKey}
+              draft={aiDraft}
+              aiPersona={currentChannel?.aiPersona}
+              authorName={aiAuthorName}
+              onGrow={followDraft}
+            />
+          ))}
         </div>
 
         {/* Composer */}

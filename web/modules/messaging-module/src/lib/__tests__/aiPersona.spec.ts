@@ -11,8 +11,7 @@ import {
   AI_PERSONA_COLORS,
   AI_PERSONA_ICONS,
 } from '@aquaculture/shared-contracts';
-import { en } from '@aquaculture/shared-ui/i18n/locales/en';
-import { tr } from '@aquaculture/shared-ui/i18n/locales/tr';
+import { en, tr } from '@aquaculture/shared-ui';
 import { describe, expect, it } from 'vitest';
 
 import { aiPersonaIdentity, localizeAiPersona, type Translate } from '../aiPersona';

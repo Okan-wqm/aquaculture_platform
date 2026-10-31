@@ -1,6 +1,4 @@
-
-import { en } from '@aquaculture/shared-ui/i18n/locales/en';
-import { tr } from '@aquaculture/shared-ui/i18n/locales/tr';
+import { en, tr } from '@aquaculture/shared-ui';
 import { describe, it, expect } from 'vitest';
 
 import type { Channel } from '../../types/messaging';

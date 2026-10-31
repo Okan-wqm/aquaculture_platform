@@ -84,15 +84,73 @@ beforeEach(() => {
 });
 
 describe('NewAiChatPage', () => {
-  it('renders the server-filtered personas verbatim and defaults to the tenant entry', async () => {
+  it('renders the server-filtered personas and defaults to the tenant entry', async () => {
     route({ tenantAiEnabled: true, userAiConsent: true });
     renderPage();
 
-    expect(await screen.findByRole('radio', { name: 'General AI Assistant' })).toBeChecked();
-    expect(screen.getByRole('radio', { name: 'Production Specialist (Expert)' })).not.toBeChecked();
-    // The capability line rides the option's description beside the server's
-    // persona description.
-    expect(screen.getByText(/Batch performance & growth · Finance summaries/)).toBeVisible();
+    // A radio is named by the agent's job and tier in the UI language.
+    expect(await screen.findByRole('radio', { name: 'AI Assistant' })).toBeChecked();
+    expect(
+      screen.getByRole('radio', { name: 'Production Specialist tier Expert' }),
+    ).not.toBeChecked();
+  });
+
+  it('shows each persona as a card: face, job, tier, what it does and its first capabilities', async () => {
+    route({ tenantAiEnabled: true, userAiConsent: true });
+    renderPage();
+
+    const radio = await screen.findByRole('radio', { name: 'Production Specialist tier Expert' });
+    expect(radio).toHaveAccessibleDescription(
+      'Growth, FCR/SGR, feeding plans, harvest planning, biomass reports, production cost',
+    );
+    // The agent's face rides the card; decorative, the card's job names it.
+    expect(radio.closest('label')?.querySelector('[data-testid="persona-avatar"]')).not.toBeNull();
+    // Three capability chips per card, from the catalogue in its order.
+    expect(screen.getByText('Batch performance & growth')).toBeVisible();
+    expect(screen.getByText('Harvest plans & eligibility')).toBeVisible();
+    expect(screen.queryByText('Finance summaries')).not.toBeInTheDocument();
+  });
+
+  it('groups general assistants apart from specialists', async () => {
+    route({ tenantAiEnabled: true, userAiConsent: true });
+    renderPage();
+
+    const general = await screen.findByRole('group', { name: 'General assistants' });
+    const farm = screen.getByRole('group', { name: 'Specialists' });
+    expect(general).toContainElement(screen.getByRole('radio', { name: 'AI Assistant' }));
+    expect(farm).toContainElement(
+      screen.getByRole('radio', { name: 'Production Specialist tier Expert' }),
+    );
+  });
+
+  it("shows a persona the panel's catalogue does not know yet with the server's wording", async () => {
+    routeGraphql([
+      {
+        match: 'query AvailableAiPersonas',
+        result: {
+          availableAiPersonas: [
+            {
+              id: 'expert-future-v1',
+              name: 'Future Specialist (Expert)',
+              description: 'Something new',
+              icon: 'bot',
+              color: 'purple',
+              capabilities: ['New thing'],
+            },
+          ],
+        },
+      },
+      {
+        match: 'query AiSettings',
+        result: { aiSettings: { tenantAiEnabled: true, userAiConsent: true } },
+      },
+    ]);
+    renderPage();
+
+    expect(
+      await screen.findByRole('radio', { name: 'Future Specialist (Expert)' }),
+    ).toHaveAccessibleDescription('Something new');
+    expect(screen.getByText('New thing')).toBeVisible();
   });
 
   it('keeps creation disabled until the user has consented, then creates with the chosen id', async () => {
@@ -100,7 +158,7 @@ describe('NewAiChatPage', () => {
     renderPage();
 
     const create = await screen.findByRole('button', { name: 'Start conversation' });
-    await screen.findByRole('radio', { name: 'General AI Assistant' });
+    await screen.findByRole('radio', { name: 'AI Assistant' });
     expect(create).toBeDisabled();
 
     // Opt in — the switch sends the mutation and the settings are re-read.
@@ -114,7 +172,7 @@ describe('NewAiChatPage', () => {
     );
     await waitFor(() => expect(create).toBeEnabled());
 
-    fireEvent.click(screen.getByRole('radio', { name: 'Production Specialist (Expert)' }));
+    fireEvent.click(screen.getByRole('radio', { name: 'Production Specialist tier Expert' }));
     fireEvent.click(create);
 
     await waitFor(() =>
@@ -138,7 +196,7 @@ describe('NewAiChatPage', () => {
     renderPage();
 
     const create = await screen.findByRole('button', { name: 'Start conversation' });
-    await screen.findByRole('radio', { name: 'General AI Assistant' });
+    await screen.findByRole('radio', { name: 'AI Assistant' });
     await waitFor(() => expect(create).toBeEnabled());
     fireEvent.click(create);
 
@@ -169,7 +227,7 @@ describe('NewAiChatPage', () => {
     renderPage();
 
     expect(await screen.findByText(/AI is disabled for this workspace/)).toBeVisible();
-    await screen.findByRole('radio', { name: 'General AI Assistant' });
+    await screen.findByRole('radio', { name: 'AI Assistant' });
     expect(screen.getByRole('button', { name: 'Start conversation' })).toBeDisabled();
   });
 });

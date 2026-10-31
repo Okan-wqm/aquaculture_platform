@@ -536,20 +536,123 @@
     background: var(--color-sd-accent-100);
     box-shadow: inset 4px 0 0 var(--color-sd-accent);
   }
-  .sd-chan-icon {
+  /* Participant avatars: people and AI agents share one square tile so they
+     read as one team. An agent's tile takes its persona hue (`sd-hue-*`, the
+     shared catalogue's colour name) and an "AI" tag; a person's tile is the
+     neutral hue with a photo or initials; a group is the neutral tile with an
+     icon. The glyph mixes the hue into ink, so it flips with the theme. */
+  .sd-avatar {
+    --sd-hue: var(--color-sd-ws-org);
+    position: relative;
     display: grid;
     flex-shrink: 0;
     place-items: center;
     width: 40px;
     height: 40px;
-    border: 1px solid var(--color-sd-rule);
-    color: var(--color-sd-ink-muted);
-    background: transparent;
+    border: 1px solid color-mix(in srgb, var(--sd-hue) 30%, transparent);
+    color: color-mix(in srgb, var(--sd-hue) 55%, var(--color-sd-ink));
+    background: color-mix(in srgb, var(--sd-hue) 18%, transparent);
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
   }
-  .sd-chan-icon--ai {
-    border-color: color-mix(in srgb, var(--color-sd-violet) 30%, transparent);
-    color: var(--color-sd-violet-ink);
-    background: color-mix(in srgb, var(--color-sd-violet) 18%, transparent);
+  .sd-avatar--sm {
+    width: 28px;
+    height: 28px;
+    font-size: 10.5px;
+  }
+  .sd-avatar--lg {
+    width: 52px;
+    height: 52px;
+    font-size: 16px;
+  }
+  .sd-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .sd-avatar-tag {
+    position: absolute;
+    right: -4px;
+    bottom: -4px;
+    padding: 0 3px;
+    color: var(--color-sd-mint-paper);
+    background: var(--color-sd-violet-ink);
+    font-size: 8.5px;
+    font-weight: 700;
+    line-height: 13px;
+    letter-spacing: 0.04em;
+  }
+  .sd-hue-purple {
+    --sd-hue: var(--color-sd-persona-purple);
+  }
+  .sd-hue-blue {
+    --sd-hue: var(--color-sd-persona-blue);
+  }
+  .sd-hue-green {
+    --sd-hue: var(--color-sd-persona-green);
+  }
+  .sd-hue-cyan {
+    --sd-hue: var(--color-sd-persona-cyan);
+  }
+  .sd-hue-orange {
+    --sd-hue: var(--color-sd-persona-orange);
+  }
+  /* "My team" strip: avatar with the job written under it, scrolling sideways. */
+  .sd-team {
+    display: flex;
+    gap: 6px;
+    margin: 0;
+    padding: 12px 10px 14px;
+    overflow-x: auto;
+    list-style: none;
+  }
+  .sd-team-item {
+    display: flex;
+    width: 92px;
+    flex-shrink: 0;
+    flex-direction: column;
+    align-items: center;
+    gap: 7px;
+    padding: 6px 4px;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: center;
+  }
+  /* The row Button around a face that opens a room (TeamStrip). */
+  .sd-team-open {
+    cursor: pointer;
+  }
+  .sd-team-open:hover {
+    background: color-mix(in srgb, var(--color-sd-ink) 7%, transparent);
+  }
+  .sd-team-name {
+    display: -webkit-box;
+    overflow: hidden;
+    color: var(--color-sd-ink);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.3;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+  .sd-team-sub {
+    margin-top: -4px;
+    color: var(--color-sd-ink-hint);
+    font-size: 11px;
+  }
+  /* A short square tag: an agent's tier beside its job, a capability. */
+  .sd-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 7px;
+    border: 1px solid var(--color-sd-rule);
+    color: var(--color-sd-ink-soft);
+    font-size: 11px;
+    line-height: 18px;
+    white-space: nowrap;
   }
   .sd-chan-title {
     overflow: hidden;
@@ -593,11 +696,6 @@
     padding: 11px 14px;
     border-bottom: 1px solid var(--color-sd-rule);
   }
-  .sd-chat-head-divider {
-    width: 1px;
-    height: 16px;
-    background: var(--color-sd-rule);
-  }
   .sd-chat-body {
     display: flex;
     flex: 1;
@@ -609,6 +707,7 @@
   }
   .sd-msg-row {
     display: flex;
+    gap: 8px;
     justify-content: flex-start;
   }
   .sd-msg-row--mine {

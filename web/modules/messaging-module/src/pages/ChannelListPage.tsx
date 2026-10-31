@@ -1,19 +1,17 @@
 import { Button, PageTitle, useAuth, useI18n, type MessageKey } from '@aquaculture/shared-ui';
-import { MessageSquare, Sparkles, Users, RefreshCw, AlertCircle } from 'lucide-react';
-import React from 'react';
+import { Sparkles, RefreshCw, AlertCircle } from 'lucide-react';
+import React, { useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 
+import { ChannelAvatar } from '../components/ChannelAvatar';
+import { AiSpoken, TierChip } from '../components/PersonaText';
+import { TeamStrip } from '../components/TeamStrip';
 import { useChannels } from '../hooks/useMessagingData';
 import { useMessagingSocket } from '../hooks/useMessagingSocket';
-import { channelTitle } from '../lib/channelDisplay';
+import { channelHeading } from '../lib/channelDisplay';
 import { messageBodyKind, messageBodyLabelKey } from '../lib/messageBody';
+import { buildTeam } from '../lib/team';
 import type { Channel } from '../types/messaging';
-
-function ChannelIcon({ channel }: { channel: Channel }): React.ReactElement {
-  if (channel.type === 'AI') return <Sparkles size={19} />;
-  if (channel.type === 'GROUP') return <Users size={19} />;
-  return <MessageSquare size={19} />;
-}
 
 /**
  * Last-message preview: media references never leak into the list (URLs /
@@ -43,6 +41,12 @@ function lastMessagePreview(channel: Channel, t: (key: MessageKey) => string): s
  * (unread badge +1, last-message preview) with NO refetch, so the FAZ 1 60s
  * poll was removed. Previews of media messages show localized labels, never
  * the raw media reference; DM titles exclude the current user's own membership.
+ *
+ * Team identity: every room shows a face (an agent's persona tile tagged AI, a
+ * person's photo or initials) and an AI room is called by its agent's job in the
+ * UI language, with the tier chip beside it. "My team" above the list puts the
+ * agents and the people the caller shares rooms with side by side — derived from
+ * the same `myChannels` read, so a newly added member appears with no extra query.
  */
 const ChannelListPage: React.FC = () => {
   const navigate = useNavigate();
@@ -55,6 +59,8 @@ const ChannelListPage: React.FC = () => {
   // FE-MEDIUM-065: the AI entry point is shown only to users holding the
   // surface capability; the persona choice itself is server-filtered.
   const canUseAi = hasPermission('ai_assistant:use');
+  const team = useMemo(() => buildTeam(channels ?? [], myId), [channels, myId]);
+  const openChannel = (channelId: string): void => navigate(`/messaging/${channelId}`);
 
   return (
     <div className="sd-page sd-stack max-w-[520px]">
@@ -94,6 +100,8 @@ const ChannelListPage: React.FC = () => {
         </div>
       )}
 
+      <TeamStrip team={team} onOpen={openChannel} />
+
       {(channels?.length ?? 0) > 0 && (
         <div className="sd-card sd-card--flush">
           <div className="border-b border-sd-rule px-4 py-3">
@@ -103,18 +111,23 @@ const ChannelListPage: React.FC = () => {
           </div>
           {channels?.map((channel) => {
             const active = location.pathname === `/messaging/${channel.id}`;
+            const heading = channelHeading(channel, myId, t);
             return (
               <button
                 key={channel.id}
-                onClick={() => navigate(`/messaging/${channel.id}`)}
+                onClick={() => openChannel(channel.id)}
                 className={`sd-chan-row${active ? ' sd-chan-row--active' : ''}`}
               >
-                <span className={`sd-chan-icon${channel.type === 'AI' ? ' sd-chan-icon--ai' : ''}`}>
-                  <ChannelIcon channel={channel} />
-                </span>
+                <ChannelAvatar channel={channel} myId={myId} />
                 <span className="min-w-0 flex-1">
                   <span className="flex items-center justify-between gap-2">
-                    <span className="sd-chan-title">{channelTitle(channel, myId)}</span>
+                    <span className="flex min-w-0 items-center gap-1.5">
+                      <span className="sd-chan-title">
+                        {heading.title}
+                        {channel.type === 'AI' && <AiSpoken />}
+                      </span>
+                      {heading.tierLabel && <TierChip tierLabel={heading.tierLabel} />}
+                    </span>
                     {!!channel.unreadCount && channel.unreadCount > 0 && (
                       <span className="sd-unread">{channel.unreadCount}</span>
                     )}

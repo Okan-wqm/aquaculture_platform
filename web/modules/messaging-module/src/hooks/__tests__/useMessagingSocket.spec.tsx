@@ -13,7 +13,7 @@
  *    reconnect loop itself is jittered, /health/live-gated, bounded, and
  *    revived by visibilitychange (2s debounce).
  */
-import type { WsMessage } from '@aquaculture/shared-ui';
+import type { AiReplyDraftEnvelope, WsMessage } from '@aquaculture/shared-ui';
 import { createTenantInvalidationKey, createTenantQueryKey } from '@aquaculture/shared-ui';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, renderHook, waitFor } from '@testing-library/react';
@@ -39,7 +39,7 @@ import {
 } from '../../__tests__/sharedUiMock';
 import type { ChannelMessagesPage } from '../../lib/messageCache';
 import type { Channel, Message } from '../../types/messaging';
-import { useMessagingSocket } from '../useMessagingSocket';
+import { useMessagingSocket, type MessagingSocketState } from '../useMessagingSocket';
 
 vi.mock('@aquaculture/shared-ui', async () =>
   (await import('../../__tests__/sharedUiMock')).createSharedUiMock(),
@@ -781,7 +781,7 @@ describe('useMessagingSocket — reAuth + conditional reconnect (FAZ 3.1)', () =
 
 describe('useMessagingSocket — AI reply drafts (MSG-MEDIUM-089)', () => {
   const REPLY_KEY = 'eeeeeeee-5555-5666-8777-888888888888';
-  const writing = (channelId: string, turn: number, text: string) => ({
+  const writing = (channelId: string, turn: number, text: string): AiReplyDraftEnvelope => ({
     channelId,
     replyKey: REPLY_KEY,
     phase: 'writing',
@@ -789,7 +789,7 @@ describe('useMessagingSocket — AI reply drafts (MSG-MEDIUM-089)', () => {
     text,
   });
 
-  async function connected() {
+  async function connected(): Promise<{ result: { current: MessagingSocketState } }> {
     const queryClient = newQueryClient();
     routeChannels([makeChannel(ACTIVE_CHANNEL)]);
     primeChannels(queryClient, [makeChannel(ACTIVE_CHANNEL)]);

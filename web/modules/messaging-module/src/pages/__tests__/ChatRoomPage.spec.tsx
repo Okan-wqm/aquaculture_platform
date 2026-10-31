@@ -22,7 +22,7 @@
  * the new-messages pill appears when scrolled up; older pages load on
  * top-scroll via the cursor and media labels survive pagination.
  */
-import type { WsMessage } from '@aquaculture/shared-ui';
+import type { AiReplyDraftEnvelope, WsMessage } from '@aquaculture/shared-ui';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
@@ -479,7 +479,7 @@ describe('ChatRoomPage — FAZ 2.4 AI visibility', () => {
       expect(screen.getByTestId('room-title')).toHaveTextContent('Production Specialist'),
     );
 
-    const writing = (text: string) => ({
+    const writing = (text: string): AiReplyDraftEnvelope => ({
       channelId: AI_CHANNEL.id,
       replyKey,
       phase: 'writing',

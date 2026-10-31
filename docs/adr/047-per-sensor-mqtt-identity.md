@@ -1,8 +1,10 @@
 # ADR-047: Per-sensor MQTT identity for directly publishing sensors
 
 - **Status:** Accepted — direction chosen by the operator; revised after the edge-expert
-  review (2026-10-06) and three sensor-expert rounds (2026-10-08). Implementation is
-  tracked as SENSOR-CRITICAL-173 (`docs/reviews/claude/2026-10-08-sensor-mqtt-identity.md`).
+  review (2026-10-06) and three sensor-expert rounds (2026-10-08). Implemented 2026-10-30
+  (SENSOR-CRITICAL-173, `docs/reviews/claude/2026-10-08-sensor-mqtt-identity.md`; see
+  "Implementation notes"). The legacy publishers still on the service account are listed
+  and tracked as SENSOR-HIGH-207.
 - **Date:** 2026-10-06
 - **Deciders:** okan (operator decision, 2026-10-06: "sensör başına kimlik"),
   claude (sensor-service); edge-expert review required for the broker contract
@@ -198,3 +200,196 @@ unchanged: the gateway is the principal.
 - Migrating the existing simulator needs three credential issues (one per stream) plus
   a Node-RED flow edit.
 - The sidecar keeps reading edge-gateway traffic only, until the conditions in §4 hold.
+
+## Implementation notes
+
+Recorded as each part lands (SENSOR-CRITICAL-173).
+
+### Principal, directory and credentials (2026-10-30)
+
+- The principal lives in one row of `sensor.sensor_mqtt_directory`: username, tenant,
+  sensor, `secret_hmac` and `secret_key_id` (migration 1826000000000). §1 puts the HMAC on
+  the tenant `sensors` row; it is in the directory instead, so the broker's CONNECT and ACL
+  checks are one indexed read with no tenant context. The tenant row keeps only
+  `mqtt_username`, the link: checks keep it to the issued shape, off child rows and off
+  suspended rows.
+- The database keeps the two sides one fact. A trigger on every tenant's `sensors` table
+  removes the route when the username is cleared or changed or the sensor deleted; a
+  constraint trigger checked at commit refuses a sensor naming a username no route holds
+  for it. So a route exists exactly while a live, unsuspended sensor holds it, and the broker
+  needs no second read to know that.
+- `SensorMqttIdentityService` is the one writer: it sets the username and inserts the route
+  in one transaction, and withdraws by clearing the username. The entity marks
+  `mqtt_username` insert- and update-false, and nothing else updates, deletes or ORM-saves a
+  route (`tests/invariants/sensor-mqtt-identity-single-writer.spec.ts`).
+- A tenant's routes go with the tenant. `MODULE_SCHEMAS[].tenantRouteTables` names the route
+  tables (sensor: the edge device, provisioning key and sensor broker directories). Tenant
+  erasure purges them (`RouteDirectoryPurgeHook`), and the db-migrate schema delete job
+  purges them in the transaction that drops the schema (`purgeTenantRoutes`), because a
+  DROP SCHEMA fires no row trigger. Before this the edge and key directories outlived a
+  deleted schema too.
+- The peppers are one keyring, `MQTT_SENSOR_SECRET_KEYRING`: a JSON array of
+  `{ kid, secret, status }` with exactly one `active` key, the shape of
+  `SERVICE_IDENTITY_KEYRING`. The deploy bootstrap generates it once per droplet
+  (`scripts/deploy/lib/required-env-secrets.sh`); production refuses to start without it.
+  A pepper rotates by adding a new active key and keeping the old one as `previous` until
+  no sensor names it.
+- `rotateSensorMqttCredentials` issues the first credential of a sensor registered before
+  this ADR, or replaces the one it holds. Issuing removes the broker-connection settings
+  from `protocol_configuration` (broker, free-text topic, wizard-typed credentials), so
+  the legacy topic stops reaching the sensor once it holds a principal (§7).
+- No `broker_mode` column. The platform broker is the only mode, so every MQTT sensor
+  that talks to the broker (a standalone sensor or a parent) is a platform sensor, and a
+  stored mode could only repeat that. The ADR for customer-operated brokers adds the
+  discriminator together with its second value.
+- §7 says wizard-typed broker credentials are stored in clear. They are encrypted at rest
+  (AES-256-GCM since migration 1811000000000); they are still dead data, and issuing
+  removes them.
+
+### Broker acceptance and client-ID bindings (2026-10-30)
+
+- `/mqtt/auth` refuses a CONNECT without a client ID. A service account connects only
+  under its own client IDs: `sensor_service` under the listener's
+  (`MQTT_CLIENT_ID` + `-main`, `sensorServiceListenerClientId`) and the legacy publishers'
+  still on it (`LEGACY_SENSOR_SERVICE_PUBLISHERS`, SENSOR-HIGH-207). No platform component
+  connects as `backend_service` or `alert_service`, so neither admits a session. Every
+  other principal presenting one of those IDs is refused.
+- A username of the issued shape is a sensor principal and is never looked up as an edge
+  device. `SensorMqttBrokerAccess` admits it when the client ID is the username, its
+  directory row exists and the secret verifies; and grants it PUBLISH to its own data topic
+  only. Each check reads that one row.
+- No service account holds an access with the write bit on a sensor data topic;
+  `sensor_service` reads and subscribes there, `alert_service` keeps its read grant.
+- The broker ACL spec runs on the real broker in CI (`sensor-service:test:broker`, step
+  "Run broker ACL tests on real Mosquitto" in `ci-affected.yml`) whenever the broker
+  config, the harness or the MQTT auth and identity code changes. Production's go-auth
+  cache is off (`mosquitto-production.conf`), which the harness boots from.
+- The broker states `max_packet_size 1048576`, the edge gateway client's own limit.
+
+### Ingestion route and data-driven activation (2026-10-30)
+
+- The listener subscribes `tenants/+/sensors/+/data` (first in
+  `SENSOR_SERVICE_SUBSCRIPTION_FILTERS`) and routes it before any edge handler to
+  `SensorPrincipalIngestion`. In order: the erased-tenant tombstone, `retain=1` (the
+  `MqttMessageHandler` now receives the packet's flags), the per-sensor rate cap, the wire
+  size, the payload schema (`libs/event-contracts/src/schemas/sensor-data-payload.schema.ts`).
+  Each drop is counted by reason (`sensor_principal_messages_dropped_total`).
+- The stated numbers: at most 16 KiB per message; nesting three levels below the top object,
+  64 keys or items per level, 256 characters per string; one message a second per sensor
+  with a burst of ten; a payload `timestamp` is trusted from an hour before to a minute after
+  the receive time.
+- The sensor is read inside its tenant's boundary and must still hold its principal (a
+  suspended sensor holds none). A channel value must be a JSON number. The readings are written through
+  `SensorReadingRecorder`, the one writer the legacy topic route now shares, so the two
+  routes cannot diverge on calibration, quality codes, placement or the `SensorReading`
+  event.
+- The first message that stores a reading promotes the sensor (`SensorDataPromotion`): the
+  sensor and its children go from DRAFT or TEST_FAILED to ACTIVE with `isActive`,
+  `last_seen_at` is stamped, `sensor_audit_logs` records it, and one
+  `SensorRegistrationCompleted` (`connectionTestPassed = true`) is enqueued — in the
+  reading's own transaction. The UPDATE's condition makes it happen once. The registration
+  events are built in one module (`registration/sensor-registration-events.ts`).
+- On the `control-plane` profile (ADR-022) the listener stays up for this route alone: the
+  sidecar does not take the topic (§4), and a message on any other topic that still reaches
+  the persistent session is not consumed a second time.
+- The per-sensor collector (`DataIngestionService`), which dials an active MQTT parent's
+  configured broker, never dials a sensor holding its own principal: that sensor has no
+  broker of its own, and its data arrives on its topic.
+
+### Lifecycle of a platform sensor (2026-10-30)
+
+- MQTT is classified `platform-broker` (`protocol-implementation-status.ts`,
+  `isActivatedByData`): the one rule every lifecycle path reads. The connection tester answers
+  it without dialling or validating; the MQTT configuration schema asks for nothing, and a
+  configuration naming a broker, port, topic, client ID, credential or a payload format other
+  than JSON is refused.
+- Both registration paths issue the credential (a standalone sensor's, or a parent's) in the
+  registration transaction and return it once (`mqttCredentials`); they run no test, leave the
+  sensor DRAFT, and enqueue `SensorRegistrationStarted` and `SensorRegistered` only — the
+  data's promotion enqueues `SensorRegistrationCompleted`.
+- `testSensorConnection` and `activateSensor` refuse it (`MQTT_IDENTITY_ACTIVATED_BY_DATA`);
+  `updateProtocolConfig` leaves its status as it is.
+- `suspendSensor` withdraws the credential in the transaction that suspends it, before the
+  status changes, with the suspending user in the audit row. `reactivateSensor` returns it
+  to DRAFT with no test and no credential; the device page issues a new one
+  (`rotateSensorMqttCredentials`), whose data promotes it. §6 has reactivation rotate the
+  credential itself; a credential nobody can read would be issued for nothing, so the issue
+  is the separate, explicit step, and the old one stays dead either way.
+
+### Wizard and device page (2026-10-30)
+
+- Protocol info and the device's read model carry `activatedByData`, computed by the backend
+  from the one classification, so the screens never compare protocol codes.
+- The wizard asks an MQTT device for no broker settings and runs no test; both steps say why.
+  The registration answer carries the credential, and the wizard shows it once — host, port,
+  client ID, username, password, topic, the device settings and the message shape its sensors
+  read — before it reports the registration done.
+- The device page shows the username a device connects as, or that it holds none, and issues
+  a new credential (`rotateSensorMqttCredentials`, asked first when one would be replaced).
+  The mutation keeps no state (`gcTime: 0`) and the dialog holds the password only while it
+  is open. Refusals are worded by their code.
+
+### Device contract and the legacy list (2026-10-30)
+
+- `sensorprotocols/mqtt-protocol.md` is the device contract above, replacing the client-form
+  design that told sensors to retain readings, set a Will and publish under
+  `sensors/{location}`.
+- The pepper keyring's rotation is in `docs/runbooks/secret-rotation.md`.
+- The legacy publishers (§7) are SENSOR-HIGH-207: the production codex simulator and the
+  repository simulator. The repository simulator's broker authenticated from a password file,
+  not the platform's HTTP backend, so it could not admit an issued principal at all; it now
+  runs the platform broker (below).
+
+### Review corrections (2026-10-30)
+
+Two independent reviews of the parts above (security, sensor domain) found no authentication
+or authorization bypass; these corrections follow from them.
+
+- The per-sensor rate cap is metered when the sensor publishes, at the broker's ACL check,
+  before the principal is read (`SensorMqttBrokerAccess`), not at ingestion. Metering at
+  ingestion dropped the backlog the broker delivers at once after a listener restart, and
+  every redelivery spent a token. A PUBLISH over the cap is refused at the broker and counted.
+- A held message for a tenant deprovisioned since is ACK-dropped (`tenant_inactive`) instead
+  of being redelivered forever on the one shared connection, as the legacy route already does.
+- Promotion starts from any status but ACTIVE and SUSPENDED: a sensor registered before this
+  ADR may be left in PENDING_TEST or TESTING, which no test ends for it now.
+- A protocol change away from MQTT withdraws the credential in the same transaction; a change
+  to MQTT starts the sensor over in DRAFT. `testParentConnection` refuses a parent its data
+  activates, like `testSensorConnection`.
+- A payload `timestamp` may be any scalar; only RFC 3339 with an offset within the skew is the
+  sample time. A device whose clock format is off still delivers its readings at arrival time.
+- Only a legacy MQTT sensor without a principal claims a legacy topic
+  (`SensorTopicCacheService`): before, any protocol's `topic` key could claim one across
+  tenants. The legacy route and the per-sensor collector stop at a sensor that holds a
+  principal, and issuing or withdrawing a credential enqueues `SensorConfigurationUpdated`.
+- go-auth no longer asks the superuser endpoint (`auth_opt_disable_superuser`), one HTTP
+  round trip less per check; an ACL denial is logged as a structured debug record with the
+  username's fingerprint; a malformed keyring's error does not quote it.
+
+### Repository simulator on the platform broker (2026-10-31)
+
+- `infrastructure/simulators/docker-compose.simulators.yml` builds the platform broker image
+  (`infrastructure/mosquitto`) and runs its production config, published on 127.0.0.1 only.
+  The file-auth broker (`infrastructure/simulators/mosquitto/`: a password file, an ACL file
+  and a tracked `mosquitto.db`) is deleted (SEC-LOW-067).
+- The Node-RED simulator keeps its sensor tab only. Three sensors (water quality, temperature
+  profile, flow) each have a broker node whose client ID, username and password, and the
+  output's topic, are `${SIM_<SENSOR>_MQTT_*}` environment references. Messages go out at
+  QoS 1, never retained, in the device contract's shape.
+- Its equipment tab (`equipment/...` topics: no platform consumer, and the broker refuses them
+  to every principal) and its edge tab (two unprovisioned devices on the tenant-unscoped
+  `edge/{code}/...` topics through `sensor_service`, SENSOR-MEDIUM-006) are removed. The stale
+  flow copies under `nodered/flows/` and a second, shadowed `settings.js` are gone too, so
+  `nodered/data/flows.json` is the one flow source.
+- `nodered-simulator` leaves `LEGACY_SENSOR_SERVICE_PUBLISHERS`; the production codex
+  simulator is the list's last entry.
+- The development `sensor-service` gets the listener's broker account and a development pepper
+  keyring, so a sensor registered locally is issued a credential the local broker admits.
+- `MqttAuthService` file mode has no default password-file path (it named the deleted file)
+  and refuses to start without `MOSQUITTO_PASSWORD_FILE`. `MQTT_AUTH_ENABLED=false` now reads
+  as off; the string was truthy before.
+- Proof:
+  - `tests/invariants/repository-sensor-simulator.spec.ts` checks the flows' structure and the
+    compose file, and runs every generated message against the ingestion schema;
+  - `repository-simulator.mosquitto.spec.ts` runs the flows in Node-RED against the real
+    broker, as part of `sensor-service:test:broker`.

@@ -54,3 +54,4 @@ export {
 } from './common.schema';
 export * from './auth-user-queries.schema';
 export * from './auth-credential-queries.schema';
+export * from './sensor-data-payload.schema';

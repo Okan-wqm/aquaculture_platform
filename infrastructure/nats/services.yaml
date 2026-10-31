@@ -156,6 +156,7 @@ services:
   - request.farm.getFeedingOverview
   - request.farm.validateSiteAssignment
   - request.farm.resolveTimeZones
+  - request.farm.resolveDevicePlacement
   - _INBOXFARMMARINECFG.>
   - $JS.API.STREAM.INFO.>
   - $JS.API.STREAM.CREATE.>
@@ -220,6 +221,7 @@ services:
   - events.*.IoConfigPushResult
   - events.*.LoRaDeviceEvent
   - events.*.ParentReadingRouted
+  - events.*.SensorConfigurationUpdated
   - events.*.SensorDeleted
   - events.*.SensorDeprovisioned
   - events.*.SensorReading
@@ -231,6 +233,7 @@ services:
   - events.*.SensorServiceTenantDataErasureFailed
   - events.*.SensorServiceTenantErasureBlocked
   - request.ai.sensor.detectChannels
+  - request.farm.resolveDevicePlacement
   - request.farm.resolveTimeZones
   - st.language.>
   - events.platform.schema-migration.>

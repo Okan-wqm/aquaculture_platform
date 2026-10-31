@@ -17,6 +17,7 @@ import { Tank } from '../tank/entities/tank.entity';
 
 // Resolver
 import { SiteResolver } from './site.resolver';
+import { ResolveDevicePlacementResponder } from './responders/resolve-device-placement.responder';
 import { ValidateSiteAssignmentResponder } from './responders/validate-site-assignment.responder';
 
 // Command Handlers
@@ -64,6 +65,7 @@ const QueryHandlers = [
   providers: [
     SiteAuthorizationService,
     SiteResolver,
+    ResolveDevicePlacementResponder,
     ValidateSiteAssignmentResponder,
     ...CommandHandlers,
     ...QueryHandlers,

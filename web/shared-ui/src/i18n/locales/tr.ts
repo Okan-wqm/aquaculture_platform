@@ -2230,4 +2230,84 @@ export const tr: Record<MessageKey, string> = {
   'tenant.memberHome.announcements.title': 'Duyurular',
   'tenant.memberHome.announcements.previewReason':
     'Duyuruları bugün yalnızca kiracı yöneticileri okuyabiliyor; üyeler için ayrı bir okuma gerekiyor.',
+  'sensor.location.title': 'Konum',
+  'sensor.location.site': 'Saha',
+  'sensor.location.department': 'Departman',
+  'sensor.location.system': 'Sistem',
+  'sensor.location.unit': 'Tank veya ekipman',
+  'sensor.location.chooseSite': 'Saha seçin',
+  'sensor.location.chooseDepartment': 'Departman seçin',
+  'sensor.location.noSystem': 'Sistem yok',
+  'sensor.location.noUnit': 'Tank veya ekipman yok',
+  'sensor.location.siteFirst': 'Önce saha seçin',
+  'sensor.location.departmentFirst': 'Önce departman seçin',
+  'sensor.location.loading': 'Yükleniyor…',
+  'sensor.location.notSet': 'Belirtilmemiş',
+  'sensor.location.unknown': 'Bulunamadı veya etkin değil',
+  'sensor.location.change': 'Konumu değiştir',
+  'sensor.location.dialogTitle': 'Cihaz nerede kurulu?',
+  'sensor.location.dialogHelp':
+    'Su kimyası kanal eşlemeleri bu konumu kullanır. Taşımadan önce alınan okumalar yeni konumun değeri olarak gösterilmez.',
+  'sensor.location.childrenMove': 'Bu cihazın alt sensörleri de onunla birlikte taşınır.',
+  'sensor.location.saved': 'Konum kaydedildi',
+  'sensor.location.saveFailed': 'Konum kaydedilemedi',
+  'sensor.location.sectionHelp': 'Cihazın kurulu olduğu yer. Saha ve departman zorunludur.',
+  'sensor.location.currentNotListed': 'Mevcut konum (listede yok)',
+  'sensor.location.listFailed': 'Liste yüklenemedi',
+  'sensor.location.unavailable': 'Okunamadı',
+  'sensor.location.error.PLACEMENT_REFUSED_SITE': 'Saha bulunamadı ya da etkin değil.',
+  'sensor.location.error.PLACEMENT_REFUSED_DEPARTMENT':
+    'Departman etkin değil ya da bu sahada değil.',
+  'sensor.location.error.PLACEMENT_REFUSED_SYSTEM':
+    'Sistem etkin değil ya da bu saha ve departmanda değil.',
+  'sensor.location.error.PLACEMENT_REFUSED_UNIT':
+    'Tank veya ekipman etkin değil ya da bu departman ve sistemde değil.',
+  'sensor.location.error.PLACEMENT_INCOMPLETE': 'Sistemin veya tankın departmanını seçin.',
+  'sensor.location.error.PLACEMENT_FOLLOWS_PARENT':
+    'Alt sensör ana cihazıyla birlikte taşınır; ana cihazın konumunu değiştirin.',
+  'sensor.location.error.PLACEMENT_UNAVAILABLE':
+    'Konum şu anda kontrol edilemiyor. Biraz sonra yeniden deneyin.',
+  'sensor.mqtt.title': 'Broker bağlantısı',
+  'sensor.mqtt.help':
+    'Bu sensör ölçümlerini kendi kimliğiyle platformun broker’ına gönderir. İlk verisi geldiğinde etkinleşir.',
+  'sensor.mqtt.noCredential': 'Henüz kimlik yok. Bir kimlik oluşturun ve sensörü onunla ayarlayın.',
+  'sensor.mqtt.issue': 'Kimlik oluştur',
+  'sensor.mqtt.rotate': 'Yeni kimlik oluştur',
+  'sensor.mqtt.rotateConfirmTitle': 'Yeni kimlik oluşturulsun mu?',
+  'sensor.mqtt.rotateConfirm':
+    'Sensörün şu an kullandığı kimlik hemen geçersiz olur. Sensörü yeni kimlikle ayarlayın.',
+  'sensor.mqtt.firstIssueConfirmTitle': 'İlk kimlik oluşturulsun mu?',
+  'sensor.mqtt.firstIssueConfirm':
+    'Verisi bugün {topic} üzerinden geliyor. Kimlik oluşturulduktan sonra bu topic ona ulaşmaz; cihaz yeni bağlantıyla yayın yapana kadar veri gelmez.',
+  'sensor.mqtt.issuedTitle': 'Sensörü bu bağlantıyla ayarlayın',
+  'sensor.mqtt.issueFailed': 'Kimlik oluşturulamadı',
+  'sensor.mqtt.shownOnce':
+    'Şifreyi şimdi kopyalayın: yalnızca bu kez gösterilir ve tekrar okunamaz. Kaybolursa yeni kimlik oluşturun.',
+  'sensor.mqtt.host': 'Sunucu',
+  'sensor.mqtt.port': 'Port',
+  'sensor.mqtt.portTls': '{port} (TLS)',
+  'sensor.mqtt.clientId': 'Client ID',
+  'sensor.mqtt.username': 'Kullanıcı adı',
+  'sensor.mqtt.password': 'Şifre',
+  'sensor.mqtt.topic': 'Topic',
+  'sensor.mqtt.settings':
+    'MQTT 3.1.1 veya 5, TLS 1.2 veya üstü, QoS 1, retain kapalı, Will yok, keepalive en çok 300 saniye, saniyede en çok bir mesaj.',
+  'sensor.mqtt.payload':
+    'Her mesajda tek bir JSON nesnesi gönderin; her kanal kendi veri yolundaki sayıyı okur, örneğin:',
+  'sensor.mqtt.copy': 'Kopyala',
+  'sensor.mqtt.copied': 'Kopyalandı',
+  'sensor.mqtt.done': 'Tamam',
+  'sensor.mqtt.wizard.configHelp':
+    'MQTT sensörü platformun broker’ına bağlanır. Sunucu, port, client ID, kullanıcı adı, şifre ve topic kayıttan sonra verilir; burada bir şey girilmez.',
+  'sensor.mqtt.wizard.testHelp':
+    'Platform MQTT sensörüne kendisi bağlanmaz, bu yüzden bağlantı testi yoktur. Sonraki adımlarda sensörlerini ekleyin: her birinin veri yolu, sensörün JSON mesajındaki sayısının anahtarıdır. Cihaz ilk verisi geldiğinde etkinleşir.',
+  'sensor.mqtt.error.MQTT_IDENTITY_NOT_MQTT':
+    'Yalnızca kendisi MQTT konuşan bir sensör broker kimliği alır.',
+  'sensor.mqtt.error.MQTT_IDENTITY_FOLLOWS_PARENT':
+    'Alt sensör ana cihazın bağlantısını kullanır; kimliği ana cihazda oluşturun.',
+  'sensor.mqtt.error.MQTT_IDENTITY_SUSPENDED': 'Sensör askıya alınmış. Önce yeniden etkinleştirin.',
+  'sensor.mqtt.error.MQTT_IDENTITY_UNAVAILABLE':
+    'Şu an kimlik oluşturulamıyor. Biraz sonra tekrar deneyin.',
+  'sensor.mqtt.error.MQTT_IDENTITY_ACTIVATED_BY_DATA':
+    'MQTT sensörü ilk verisi geldiğinde etkinleşir; test edilmez ve elle etkinleştirilmez.',
 };

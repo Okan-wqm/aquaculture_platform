@@ -30,6 +30,7 @@ import {
   dropSchemaCreatedByFailedProvision,
   tenantSchemaExists,
 } from './tenant-provision-failure-cleanup';
+import { purgeTenantRoutes, type TenantRoutePurge } from './tenant-route-purge';
 import {
   ensureTenantSensorContinuousAggregateAuthority,
   type TenantSensorContinuousAggregateAuthorityResult,
@@ -621,6 +622,7 @@ async function processDeleteJob(
   const lease = { leaseSeconds: options.leaseSeconds ?? DEFAULT_LEASE_SECONDS };
   let beforeTableCount = 0;
   let sourceProvenanceRowsDeleted = 0;
+  let sourceRoutesDeleted: TenantRoutePurge['deleted'] = {};
 
   try {
     await queryRunner.connect();
@@ -630,6 +632,9 @@ async function processDeleteJob(
     await queryRunner.startTransaction();
     beforeTableCount = await countTenantTables(queryRunner, job.schemaName);
     sourceProvenanceRowsDeleted = await deleteFarmSourceProvenanceForTenant(queryRunner, job);
+    // The routes to the tenant go in this transaction, before the drop: a
+    // DROP SCHEMA fires no row trigger to remove them.
+    sourceRoutesDeleted = (await purgeTenantRoutes(queryRunner, job.tenantId)).deleted;
     await renewJobLease(queryRunner, job, lease);
     await queryRunner.query(`DROP SCHEMA IF EXISTS ${quoteIdent(job.schemaName)} CASCADE`);
     await renewJobLease(queryRunner, job, lease);
@@ -651,6 +656,7 @@ async function processDeleteJob(
           schemaName: job.schemaName,
           beforeTableCount,
           sourceProvenanceRowsDeleted,
+          sourceRoutesDeleted,
           deletedAt: new Date().toISOString(),
         }),
         job.schemaName,
@@ -667,6 +673,7 @@ async function processDeleteJob(
         dropped: true,
         beforeTableCount,
         sourceProvenanceRowsDeleted,
+        sourceRoutesDeleted,
         capturedAt: new Date().toISOString(),
       },
     });
@@ -681,6 +688,7 @@ async function processDeleteJob(
       schemaName: job.schemaName,
       beforeTableCount,
       sourceProvenanceRowsDeleted,
+      sourceRoutesDeleted,
     });
   } catch (error: unknown) {
     if (queryRunner.isTransactionActive) {

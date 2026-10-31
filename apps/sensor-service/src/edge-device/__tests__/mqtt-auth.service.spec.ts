@@ -18,6 +18,8 @@ import { collaborator } from '@aquaculture/testing';
 
 import { DeviceDirectoryService } from '../device-directory.service';
 import { MqttAuthService } from '../mqtt-auth.service';
+import { LEGACY_SENSOR_SERVICE_PUBLISHERS } from '../../mqtt-identity/legacy-mqtt-publishers';
+import type { SensorMqttBrokerAccess } from '../../mqtt-identity/sensor-mqtt-broker-access.service';
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -101,15 +103,27 @@ function createService(
   const directory = {
     findDevice: jest.fn().mockResolvedValue(null),
   };
+  // A sensor's own principal (ADR-047) is decided by SensorMqttBrokerAccess.
+  const sensorPrincipals = {
+    connectDenial: jest.fn().mockResolvedValue(null),
+    mayAccess: jest.fn().mockResolvedValue(false),
+  };
   return {
     service: new MqttAuthService(
       cfg,
       collaborator<DeviceDirectoryService>(directory, 'DeviceDirectoryService'),
+      collaborator<SensorMqttBrokerAccess>(sensorPrincipals, 'SensorMqttBrokerAccess'),
     ),
     cfg,
     directory,
+    sensorPrincipals,
   };
 }
+
+/** The sensor_service listener's client ID under MQTT_CLIENT_ID=aqua-sensor-service. */
+const LISTENER_CLIENT_ID = 'aqua-sensor-service-main';
+/** An issued sensor principal's username (and client ID). */
+const SENSOR_PRINCIPAL = `s${'a'.repeat(22)}`;
 
 type DirectoryStub = ReturnType<typeof createService>['directory'];
 
@@ -254,33 +268,137 @@ describe('MqttAuthService', () => {
       expect(result).toBe(false);
     });
 
-    it('should authenticate service account via env hash', async () => {
-      const servicePassword = 'backend-secret-123';
-      const serviceHash = hashPassword(servicePassword);
+    it('should authenticate service account via env hash under its own client ID', async () => {
+      const servicePassword = 'sensor-secret-123';
       const { service } = createService({
-        configOverrides: { MQTT_BACKEND_SERVICE_HASH: serviceHash },
+        configOverrides: {
+          MQTT_SENSOR_SERVICE_HASH: hashPassword(servicePassword),
+          MQTT_CLIENT_ID: 'aqua-sensor-service',
+        },
       });
 
-      const result = await service.verifyDeviceCredentials(
-        'backend_service',
-        servicePassword,
-        'aqua-backend-01',
-      );
-      expect(result).toBe(true);
+      await expect(
+        service.verifyDeviceCredentials('sensor_service', servicePassword, LISTENER_CLIENT_ID),
+      ).resolves.toBe(true);
     });
 
     it('should reject service account with wrong password', async () => {
-      const serviceHash = hashPassword('correct-secret');
       const { service } = createService({
-        configOverrides: { MQTT_BACKEND_SERVICE_HASH: serviceHash },
+        configOverrides: {
+          MQTT_SENSOR_SERVICE_HASH: hashPassword('correct-secret'),
+          MQTT_CLIENT_ID: 'aqua-sensor-service',
+        },
       });
 
-      const result = await service.verifyDeviceCredentials(
-        'backend_service',
-        'wrong',
-        'aqua-backend-01',
+      await expect(
+        service.verifyDeviceCredentials('sensor_service', 'wrong', LISTENER_CLIENT_ID),
+      ).resolves.toBe(false);
+    });
+  });
+
+  // ─── client-ID bindings (ADR-047 §1) ───────────────────────────────────
+
+  describe('client-ID bindings', () => {
+    const servicePassword = 'sensor-secret-123';
+    const withServiceAccounts = (): ReturnType<typeof createService> =>
+      createService({
+        configOverrides: {
+          MQTT_SENSOR_SERVICE_HASH: hashPassword(servicePassword),
+          MQTT_BACKEND_SERVICE_HASH: hashPassword(servicePassword),
+          MQTT_CLIENT_ID: 'aqua-sensor-service',
+        },
+      });
+
+    it('refuses a CONNECT without a client ID, for every principal', async () => {
+      const { service, directory, sensorPrincipals } = withServiceAccounts();
+      for (const username of ['sensor_service', MQTT_CLIENT, SENSOR_PRINCIPAL]) {
+        await expect(
+          service.verifyDeviceCredentials(username, servicePassword, undefined),
+        ).resolves.toBe(false);
+        await expect(service.verifyDeviceCredentials(username, servicePassword, '')).resolves.toBe(
+          false,
+        );
+      }
+      expect(directory.findDevice).not.toHaveBeenCalled();
+      expect(sensorPrincipals.connectDenial).not.toHaveBeenCalled();
+    });
+
+    it('admits sensor_service under the listener ID and the legacy publishers (SENSOR-HIGH-207) only', async () => {
+      const { service } = withServiceAccounts();
+      for (const clientId of [LISTENER_CLIENT_ID, ...LEGACY_SENSOR_SERVICE_PUBLISHERS]) {
+        await expect(
+          service.verifyDeviceCredentials('sensor_service', servicePassword, clientId),
+        ).resolves.toBe(true);
+      }
+      // The repository simulator left the list: its sensors publish on their
+      // own principals, so its old client ID is no longer sensor_service's.
+      for (const clientId of ['acl-e2e-test', 'nodered-simulator']) {
+        await expect(
+          service.verifyDeviceCredentials('sensor_service', servicePassword, clientId),
+        ).resolves.toBe(false);
+      }
+    });
+
+    it('admits no session for a service account no platform component connects as', async () => {
+      const { service } = withServiceAccounts();
+      for (const clientId of ['aqua-backend-01', LISTENER_CLIENT_ID]) {
+        await expect(
+          service.verifyDeviceCredentials('backend_service', servicePassword, clientId),
+        ).resolves.toBe(false);
+      }
+    });
+
+    it("refuses a service account's reserved ID to every other principal", async () => {
+      const { service, directory, sensorPrincipals } = withServiceAccounts();
+      for (const clientId of [LISTENER_CLIENT_ID, 'nodered-codex-sim-01']) {
+        await expect(service.verifyDeviceCredentials(MQTT_CLIENT, 'any', clientId)).resolves.toBe(
+          false,
+        );
+        await expect(
+          service.verifyDeviceCredentials(SENSOR_PRINCIPAL, 'any', clientId),
+        ).resolves.toBe(false);
+      }
+      expect(directory.findDevice).not.toHaveBeenCalled();
+      expect(sensorPrincipals.connectDenial).not.toHaveBeenCalled();
+    });
+  });
+
+  // ─── a sensor's own principal (ADR-047) ────────────────────────────────
+
+  describe("a sensor's own principal", () => {
+    it('is decided by SensorMqttBrokerAccess and never looked up as a device', async () => {
+      const { service, directory, sensorPrincipals } = createService();
+
+      await expect(
+        service.verifyDeviceCredentials(SENSOR_PRINCIPAL, 'secret', SENSOR_PRINCIPAL),
+      ).resolves.toBe(true);
+      expect(sensorPrincipals.connectDenial).toHaveBeenCalledWith(
+        SENSOR_PRINCIPAL,
+        'secret',
+        SENSOR_PRINCIPAL,
       );
-      expect(result).toBe(false);
+
+      sensorPrincipals.connectDenial.mockResolvedValueOnce('secret_mismatch');
+      await expect(
+        service.verifyDeviceCredentials(SENSOR_PRINCIPAL, 'wrong', SENSOR_PRINCIPAL),
+      ).resolves.toBe(false);
+      expect(directory.findDevice).not.toHaveBeenCalled();
+    });
+
+    it('gets the topic decision of SensorMqttBrokerAccess, before any development topic', async () => {
+      const { service, directory, sensorPrincipals } = createService({
+        configOverrides: { NODE_ENV: 'development' },
+      });
+      const own = `tenants/${VALID_UUID}/sensors/${VALID_UUID}/data`;
+      sensorPrincipals.mayAccess.mockResolvedValueOnce(true);
+
+      await expect(service.checkTopicAccess(SENSOR_PRINCIPAL, own, 2)).resolves.toBe(true);
+      expect(sensorPrincipals.mayAccess).toHaveBeenCalledWith(SENSOR_PRINCIPAL, own, 2);
+      // Development topics are open to devices outside production, never to a sensor principal.
+      await expect(service.checkTopicAccess(SENSOR_PRINCIPAL, 'test/anything', 2)).resolves.toBe(
+        false,
+      );
+      expect(directory.findDevice).not.toHaveBeenCalled();
     });
   });
 
@@ -476,6 +594,25 @@ describe('MqttAuthService', () => {
       const topic = `tenants/${TENANT_A}/sensors/s1/data`;
       const result = await service.checkTopicAccess('sensor_service', topic, 1);
       expect(result).toBe(true);
+    });
+
+    it('no service account writes a sensor data topic; sensor_service reads and subscribes (ADR-047 §3)', async () => {
+      const { service } = createService();
+      const concrete = `tenants/${TENANT_A}/sensors/${VALID_UUID}/data`;
+      for (const account of ['backend_service', 'sensor_service', 'alert_service']) {
+        for (const acc of [2, 3, 6]) {
+          await expect(service.checkTopicAccess(account, concrete, acc)).resolves.toBe(false);
+          await expect(
+            service.checkTopicAccess(account, 'tenants/+/sensors/+/data', acc),
+          ).resolves.toBe(false);
+        }
+      }
+      await expect(service.checkTopicAccess('sensor_service', concrete, 1)).resolves.toBe(true);
+      await expect(
+        service.checkTopicAccess('sensor_service', 'tenants/+/sensors/+/data', 4),
+      ).resolves.toBe(true);
+      await expect(service.checkTopicAccess('alert_service', concrete, 1)).resolves.toBe(true);
+      await expect(service.checkTopicAccess('backend_service', concrete, 1)).resolves.toBe(false);
     });
 
     it('sensor_service should access legacy sensor/ topics', async () => {

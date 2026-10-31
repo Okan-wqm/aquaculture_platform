@@ -1,0 +1,386 @@
+import {
+  runInSourceRead,
+  runInTenantTransaction,
+  SENSOR_SOURCE_SCHEMA,
+} from '@aquaculture/backend-common/database';
+import { SENSOR_MQTT_IDENTITY_ERROR } from '@aquaculture/shared-contracts';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { createBaseEvent, type SensorConfigurationUpdatedEvent } from '@platform/event-contracts';
+import { OutboxPublisher } from '@platform/outbox';
+import { DataSource, type EntityManager } from 'typeorm';
+
+import { Sensor, SensorRegistrationStatus } from '../database/entities/sensor.entity';
+import { recordEntityUpdate } from '../infrastructure/audit/audit.subscriber';
+import {
+  type PublicBrokerEndpoint,
+  resolvePublicBrokerEndpoint,
+} from '../infrastructure/mqtt/public-broker-endpoint';
+import { SensorMqttKeyringService } from './sensor-mqtt-keyring.service';
+import {
+  newSensorMqttSecret,
+  newSensorMqttUsername,
+  SENSOR_MQTT_USERNAME_PATTERN,
+  sensorSecretHmac,
+  verifySensorSecret,
+} from './sensor-mqtt-secret';
+import { sensorMqttDataTopic } from './sensor-mqtt-topic';
+
+/**
+ * How a sensor connects with its own broker principal, shown once, when the
+ * credential is issued: the password is not stored and cannot be read again.
+ */
+export interface SensorMqttCredentials {
+  readonly sensorId: string;
+  readonly host: string;
+  readonly port: number;
+  readonly tls: boolean;
+  /** The client ID the broker admits this principal with: its username. */
+  readonly clientId: string;
+  readonly username: string;
+  readonly password: string;
+  readonly topic: string;
+}
+
+/**
+ * A sensor's broker principal as the broker's CONNECT and ACL hooks see it:
+ * its directory row. The database keeps the row in step with the sensor (it
+ * exists only while a live, unsuspended sensor of that tenant holds the
+ * username), so the row alone answers both hooks.
+ */
+export interface SensorMqttPrincipal {
+  readonly username: string;
+  readonly tenantId: string;
+  readonly sensorId: string;
+  readonly secret: { readonly hmac: string; readonly kid: string };
+}
+
+/**
+ * The broker-connection settings an MQTT sensor registered before ADR-047
+ * carries in protocol_configuration (the MQTT adapter's connection fields):
+ * the broker it was typed to use, the free-text topic the legacy listener
+ * resolves by scanning, and wizard-typed credentials that never reached the
+ * broker. An issued principal replaces all of them — the topic is the
+ * server's, the broker the platform's — so issuing removes them and the
+ * legacy topic stops reaching the sensor (ADR-047 §7).
+ */
+const LEGACY_CONNECTION_KEYS = [
+  'sensorId',
+  'tenantId',
+  'brokerUrl',
+  'port',
+  'topic',
+  'qos',
+  'clientId',
+  'username',
+  'password',
+  'useTls',
+  'cleanSession',
+  'keepAlive',
+  'reconnectPeriod',
+  'connectTimeout',
+  'caCert',
+  'clientCert',
+  'clientKey',
+  'rejectUnauthorized',
+  'willTopic',
+  'willPayload',
+  'willQos',
+  'willRetain',
+] as const;
+
+interface PrincipalRow {
+  id: string;
+  parent_id: string | null;
+  registration_status: SensorRegistrationStatus;
+  mqtt_username: string | null;
+  protocol_code: string | null;
+  legacy_topic: string | null;
+}
+
+/**
+ * Owner of a sensor's own broker principal (ADR-047 §1, SENSOR-CRITICAL-173).
+ *
+ * Only a sensor that talks to the broker gets one: a standalone MQTT sensor or
+ * the parent of a parent/child registration, never a child. Issuing sets a
+ * fresh username on the sensor and routes it in sensor.sensor_mqtt_directory
+ * with the HMAC of a fresh 256-bit secret, in one transaction; the secret is
+ * returned once and never stored or logged. Rotating is issuing again: the
+ * old route leaves the directory in the statement that replaces the username
+ * (the sensors trigger), so the old credential stops at its next CONNECT or
+ * ACL check, which reads that one row.
+ *
+ * These are the only writes of `sensors.mqtt_username` (insert- and
+ * update-false on the entity) and the only inserts into the directory, pinned
+ * by tests/invariants/sensor-mqtt-identity-single-writer.spec.ts.
+ */
+@Injectable()
+export class SensorMqttIdentityService {
+  private readonly logger = new Logger(SensorMqttIdentityService.name);
+  private readonly endpoint: PublicBrokerEndpoint;
+
+  constructor(
+    private readonly dataSource: DataSource,
+    private readonly keyring: SensorMqttKeyringService,
+    config: ConfigService,
+    // The issue or withdrawal is announced (SensorConfigurationUpdated), so
+    // caches that map a legacy topic or a sensor drop their copy.
+    private readonly outboxPublisher: OutboxPublisher,
+  ) {
+    this.endpoint = resolvePublicBrokerEndpoint(config);
+  }
+
+  /**
+   * Issue the sensor a new credential, replacing the one it holds (if any),
+   * in its own tenant transaction. Who did it is recorded in
+   * sensor_audit_logs with the old and new username, never the secret.
+   */
+  async rotate(
+    tenantId: string,
+    sensorId: string,
+    actorId: string | null,
+  ): Promise<SensorMqttCredentials> {
+    return runInTenantTransaction(this.dataSource, SENSOR_SOURCE_SCHEMA, tenantId, (qr) =>
+      this.issue(qr.manager, tenantId, sensorId, actorId),
+    );
+  }
+
+  /**
+   * Issue the sensor a new credential inside the caller's tenant transaction
+   * (registration issues it with the row it creates). Refused, with nothing
+   * written, for a sensor that does not speak MQTT, a child sensor, a
+   * suspended sensor, or when this environment holds no keyring.
+   */
+  async issue(
+    manager: EntityManager,
+    tenantId: string,
+    sensorId: string,
+    actorId: string | null,
+  ): Promise<SensorMqttCredentials> {
+    const keyring = this.keyring.current();
+    if (!keyring) {
+      throw new ServiceUnavailableException({
+        message: 'Sensor broker credentials cannot be issued: no key is configured',
+        code: SENSOR_MQTT_IDENTITY_ERROR.UNAVAILABLE,
+      });
+    }
+    const row = await lockPrincipal(manager, tenantId, sensorId);
+
+    const username = newSensorMqttUsername();
+    const password = newSensorMqttSecret();
+    await manager.query(
+      `UPDATE sensors
+          SET mqtt_username = $3,
+              protocol_configuration = protocol_configuration - $4::text[],
+              updated_at = now()
+        WHERE tenant_id = $1 AND id = $2`,
+      [tenantId, sensorId, username, [...LEGACY_CONNECTION_KEYS]],
+    );
+    await manager.query(
+      `INSERT INTO sensor.sensor_mqtt_directory
+         (mqtt_username, sensor_id, tenant_id, secret_hmac, secret_key_id)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [
+        username,
+        sensorId,
+        tenantId,
+        sensorSecretHmac(keyring.active, password),
+        keyring.active.kid,
+      ],
+    );
+
+    const topic = sensorMqttDataTopic(tenantId, sensorId);
+    await recordEntityUpdate(manager, {
+      tenantId,
+      entityType: Sensor.name,
+      entityId: sensorId,
+      previous: {
+        mqttUsername: row.mqtt_username,
+        mqttTopic: row.mqtt_username === null ? row.legacy_topic : topic,
+      },
+      next: { mqttUsername: username, mqttTopic: topic },
+      changedBy: actorId,
+    });
+    await this.outboxPublisher.enqueue(
+      credentialChanged(tenantId, sensorId, ['mqttUsername', 'protocolConfiguration']),
+      manager,
+    );
+    this.logger.log(
+      JSON.stringify({
+        event:
+          row.mqtt_username === null
+            ? 'sensor_mqtt_identity_issued'
+            : 'sensor_mqtt_identity_rotated',
+        tenantId,
+        sensorId,
+        keyId: keyring.active.kid,
+      }),
+    );
+    return {
+      sensorId,
+      host: this.endpoint.host,
+      port: this.endpoint.port,
+      tls: this.endpoint.tls,
+      clientId: username,
+      username,
+      password,
+      topic,
+    };
+  }
+
+  /**
+   * Withdraw the sensor's credential inside the caller's tenant transaction
+   * (suspension, a protocol change; ADR-047 §6): the username is cleared, the
+   * sensors trigger removes its route in the same statement, and the next
+   * CONNECT or ACL check of the old session is refused. Nothing to do for a
+   * sensor holding none. The withdrawal is recorded in sensor_audit_logs. A
+   * suspension calls this before it marks the sensor suspended: a suspended
+   * sensor cannot hold a username (a database check).
+   */
+  async revoke(
+    manager: EntityManager,
+    tenantId: string,
+    sensorId: string,
+    actorId: string | null,
+  ): Promise<void> {
+    const [revoked] = (await manager.query(
+      `WITH held AS (
+         SELECT id, mqtt_username FROM sensors
+          WHERE tenant_id = $1 AND id = $2 AND mqtt_username IS NOT NULL
+          FOR UPDATE
+       )
+       UPDATE sensors s
+          SET mqtt_username = NULL,
+              updated_at = now()
+         FROM held h
+        WHERE s.id = h.id AND s.tenant_id = $1
+       RETURNING h.mqtt_username AS previous`,
+      [tenantId, sensorId],
+    )) as [Array<{ previous: string }>, number];
+    const row = revoked[0];
+    if (!row) {
+      return;
+    }
+    await recordEntityUpdate(manager, {
+      tenantId,
+      entityType: Sensor.name,
+      entityId: sensorId,
+      previous: { mqttUsername: row.previous },
+      next: { mqttUsername: null },
+      changedBy: actorId,
+    });
+    await this.outboxPublisher.enqueue(
+      credentialChanged(tenantId, sensorId, ['mqttUsername']),
+      manager,
+    );
+    this.logger.log(JSON.stringify({ event: 'sensor_mqtt_identity_revoked', tenantId, sensorId }));
+  }
+
+  /**
+   * The principal an issued username names, read with no tenant: one indexed
+   * read of its directory row. A username of another shape, or not in the
+   * directory, is no principal — there is no tenant scan.
+   */
+  async findPrincipal(username: string): Promise<SensorMqttPrincipal | null> {
+    if (!SENSOR_MQTT_USERNAME_PATTERN.test(username)) {
+      return null;
+    }
+    const rows = (await runInSourceRead(this.dataSource, SENSOR_SOURCE_SCHEMA, (qr) =>
+      qr.query(
+        `SELECT sensor_id, tenant_id, secret_hmac, secret_key_id
+           FROM sensor_mqtt_directory
+          WHERE mqtt_username = $1`,
+        [username],
+      ),
+    )) as Array<{
+      sensor_id: string;
+      tenant_id: string;
+      secret_hmac: string;
+      secret_key_id: string;
+    }>;
+    const row = rows[0];
+    if (!row) {
+      return null;
+    }
+    return {
+      username,
+      tenantId: row.tenant_id,
+      sensorId: row.sensor_id,
+      secret: { hmac: row.secret_hmac, kid: row.secret_key_id },
+    };
+  }
+
+  /** Whether a presented password is the principal's secret; never without a keyring. */
+  verifySecret(principal: SensorMqttPrincipal, presented: string): boolean {
+    const keyring = this.keyring.current();
+    return keyring !== null && verifySensorSecret(keyring, principal.secret, presented);
+  }
+}
+
+/**
+ * Lock the sensor for the write and refuse a sensor that cannot hold a broker
+ * principal of its own.
+ */
+async function lockPrincipal(
+  manager: EntityManager,
+  tenantId: string,
+  sensorId: string,
+): Promise<PrincipalRow> {
+  const rows = (await manager.query(
+    `SELECT s.id, s.parent_id, s.registration_status, s.mqtt_username,
+            p.code AS protocol_code,
+            s.protocol_configuration ->> 'topic' AS legacy_topic
+       FROM sensors s
+       LEFT JOIN sensor_protocols p ON p.id = s.protocol_id
+      WHERE s.tenant_id = $1 AND s.id = $2
+      FOR UPDATE OF s`,
+    [tenantId, sensorId],
+  )) as PrincipalRow[];
+  const row = rows[0];
+  if (!row) {
+    throw new NotFoundException(`Sensor not found: ${sensorId}`);
+  }
+  if (row.protocol_code !== 'MQTT') {
+    throw new BadRequestException({
+      message: 'Only a sensor that speaks MQTT itself holds a broker credential',
+      code: SENSOR_MQTT_IDENTITY_ERROR.NOT_MQTT,
+    });
+  }
+  if (row.parent_id !== null) {
+    throw new BadRequestException({
+      message:
+        'A child sensor shares its parent device connection; the parent holds the credential',
+      code: SENSOR_MQTT_IDENTITY_ERROR.FOLLOWS_PARENT,
+    });
+  }
+  if (row.registration_status === SensorRegistrationStatus.SUSPENDED) {
+    throw new BadRequestException({
+      message: 'A suspended sensor gets a new credential when it is reactivated',
+      code: SENSOR_MQTT_IDENTITY_ERROR.SUSPENDED,
+    });
+  }
+  return row;
+}
+
+/** The sensor's broker credential (and, on issue, its legacy connection) changed. */
+function credentialChanged(
+  tenantId: string,
+  sensorId: string,
+  changedFields: string[],
+): SensorConfigurationUpdatedEvent {
+  return {
+    ...createBaseEvent<SensorConfigurationUpdatedEvent>('SensorConfigurationUpdated', tenantId, {
+      aggregateId: sensorId,
+      aggregateType: 'Sensor',
+    }),
+    sensorId,
+    protocolCode: 'MQTT',
+    changedFields,
+  };
+}

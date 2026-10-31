@@ -14,6 +14,7 @@ import {
 // FE-MEDIUM-380: the module's one GraphQL transport — the shared client, which also reports a
 // GRAPHQL_VALIDATION_FAILED to the shell's build-skew check (config/api.ts).
 import { graphqlFetch } from '../config/api';
+import { SENSOR_MQTT_CREDENTIALS_FIELDS } from './useRotateMqttCredentials';
 
 // GraphQL Queries
 export const GET_SENSOR_QUERY = `
@@ -204,6 +205,9 @@ const REGISTER_PARENT_WITH_CHILDREN_MUTATION = `
       error
       connectionTestPassed
       latencyMs
+      mqttCredentials {
+        ${SENSOR_MQTT_CREDENTIALS_FIELDS}
+      }
     }
   }
 `;

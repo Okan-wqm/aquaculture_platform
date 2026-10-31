@@ -24,7 +24,11 @@ import { dirname, join, resolve } from 'node:path';
 import { buildSubgraphSchema, printSubgraphSchema } from '@apollo/subgraph';
 import { printSchemaWithDirectives } from '@graphql-tools/utils';
 import { NestFactory } from '@nestjs/core';
-import { GraphQLSchemaBuilderModule, GraphQLSchemaFactory } from '@nestjs/graphql';
+import {
+  GraphQLSchemaBuilderModule,
+  GraphQLSchemaFactory,
+  TypeMetadataStorage,
+} from '@nestjs/graphql';
 import { gql } from 'graphql-tag';
 
 // Federation v2 link — the directives a NestJS code-first subgraph can emit.
@@ -36,6 +40,54 @@ const FEDERATION_V2_LINK =
 
 function repoRoot(): string {
   return resolve(__dirname, '..', '..');
+}
+
+type ResolverClass = (new (...args: never[]) => object) & { readonly name: string };
+
+/**
+ * Root fields (Query / Mutation / Subscription) that more than one resolver
+ * method declares in this subgraph, as `Query.sensor: A.m, B.m` lines.
+ *
+ * A root field name has one definition in the schema, but code-first lets two
+ * methods claim it: the schema factory keeps one declaration's type and
+ * arguments while the runtime resolver map can call the other, so one name
+ * answers with two shapes and which one depends on load order (sensor
+ * `sensor(id)`, 2026-10-31; farm `availableTanks`, 2026-06-24). Read from
+ * the metadata the schema was just built from, after create() has loaded it
+ * (the getters are empty before), so the check sees exactly what is served.
+ */
+function rootFieldsWithTwoOwners(resolvers: readonly ResolverClass[]): string[] {
+  // An operation declared on a resolver's base class belongs to it too.
+  const served = new Set<object>();
+  for (const resolver of resolvers) {
+    for (
+      let target: object | null = resolver;
+      target !== null && target !== Function.prototype;
+      target = Object.getPrototypeOf(target) as object | null
+    ) {
+      served.add(target);
+    }
+  }
+
+  const roots = [
+    ['Query', TypeMetadataStorage.getQueriesMetadata()],
+    ['Mutation', TypeMetadataStorage.getMutationsMetadata()],
+    ['Subscription', TypeMetadataStorage.getSubscriptionsMetadata()],
+  ] as const;
+  const report: string[] = [];
+  for (const [root, operations] of roots) {
+    const owners = new Map<string, Set<string>>();
+    for (const operation of operations) {
+      if (!served.has(operation.target)) continue;
+      const declared = owners.get(operation.schemaName) ?? new Set<string>();
+      declared.add(`${operation.target.name}.${operation.methodName}`);
+      owners.set(operation.schemaName, declared);
+    }
+    for (const [field, declared] of owners) {
+      if (declared.size > 1) report.push(`${root}.${field}: ${[...declared].join(', ')}`);
+    }
+  }
+  return report;
 }
 
 async function main(): Promise<void> {
@@ -72,7 +124,6 @@ async function main(): Promise<void> {
   // The bare `Function` type is not used here: eslint's no-unsafe-function-type
   // bans it, and it would accept any callable, including the plain functions this
   // loop is filtering out.
-  type ResolverClass = (new (...args: never[]) => object) & { readonly name: string };
   const resolverCtors: ResolverClass[] = [];
   for (const file of resolverFiles) {
     const mod = requireTs(file) as Record<string, unknown>;
@@ -95,6 +146,15 @@ async function main(): Promise<void> {
     skipCheck: true,
     orphanedTypes: [],
   });
+
+  const twoOwners = rootFieldsWithTwoOwners(resolverCtors);
+  if (twoOwners.length > 0) {
+    process.stderr.write(
+      `${subgraphName}: each root field must have one resolver method; these have more:\n` +
+        twoOwners.map((line) => `  ${line}\n`).join(''),
+    );
+    process.exit(1);
+  }
 
   // Reproduce GraphQLFederationFactory.generateSchemaFromCodeFirst:
   // print-with-directives -> prepend the federation @link -> buildSubgraphSchema.

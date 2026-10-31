@@ -1,11 +1,10 @@
 /**
- * SENSOR-MEDIUM-172: the unit picked in the wizard is recorded where it
- * belongs — a tank as tankId, other water equipment as equipmentId — and a
- * picked system narrows the units on the server, so a system pick still offers
- * its tanks.
+ * SENSOR-MEDIUM-161: the wizard sends the unit it picked as it is — farm, not
+ * the browser, decides whether it is a tank — and a level below a changed one
+ * never survives the change, because the wizard merges the step's updates.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, fireEvent } from '@testing-library/react';
+import { render, fireEvent, screen } from '@testing-library/react';
 
 import { ParentDeviceInfoStep } from '../ParentDeviceInfoStep';
 import { toRegisterParentInput } from '../../../../types/registration.types';
@@ -16,50 +15,86 @@ const BIOFILTER = { id: 'bio-1', name: 'Biofilter', code: 'BF', isTank: false };
 const useEquipmentList = vi.fn();
 
 vi.mock('../../../../hooks/useEquipment', () => ({
-  useEquipmentList: (filter: unknown) => useEquipmentList(filter),
+  useEquipmentList: (filter: unknown, pagination: unknown, options: unknown) =>
+    useEquipmentList(filter, pagination, options),
 }));
 vi.mock('../../../../hooks/useLocationHierarchy', () => ({
-  useSiteList: () => ({ data: { items: [] }, isLoading: false }),
-  useDepartmentsBySite: () => ({ data: [], isLoading: false }),
-  useSystemsByDepartment: () => ({ data: [], isLoading: false }),
+  useSiteList: () => ({
+    data: {
+      items: [
+        { id: 'site-1', name: 'Nordfjord', code: 'NF' },
+        { id: 'site-2', name: 'Vest', code: 'VE' },
+      ],
+    },
+    isLoading: false,
+    isSuccess: true,
+  }),
+  useDepartmentsBySite: () => ({
+    data: [{ id: 'dept-1', name: 'Smolt', code: 'SM', isActive: true }],
+    isLoading: false,
+    isSuccess: true,
+  }),
+  useSystemsBySite: () => ({
+    data: [{ id: 'sys-1', name: 'RAS', code: 'R1', departmentId: 'dept-1' }],
+    isLoading: false,
+    isSuccess: true,
+  }),
 }));
 
-const LOCATION = { name: 'Probe', siteId: 'site-1', departmentId: 'dept-1', systemId: 'sys-1' };
+const LEVELS = { siteId: 'site-1', departmentId: 'dept-1', systemId: 'sys-1' };
+const LOCATION = { name: 'Probe', ...LEVELS };
 
-describe('ParentDeviceInfoStep placement (SENSOR-MEDIUM-172)', () => {
+describe('ParentDeviceInfoStep placement (SENSOR-MEDIUM-161)', () => {
   beforeEach(() => {
     useEquipmentList.mockReset();
-    useEquipmentList.mockReturnValue({ data: { items: [TANK, BIOFILTER] }, isLoading: false });
-  });
-
-  it('asks the server for the picked system’s units and offers them all', () => {
-    const { container } = render(<ParentDeviceInfoStep values={LOCATION} onChange={vi.fn()} />);
-    expect(useEquipmentList).toHaveBeenCalledWith({
-      departmentId: 'dept-1',
-      systemId: 'sys-1',
-      isActive: true,
+    useEquipmentList.mockReturnValue({
+      data: { items: [TANK, BIOFILTER] },
+      isLoading: false,
+      isSuccess: true,
     });
-    const options = [...container.querySelectorAll('#equipmentId option')].map((o) =>
-      o.getAttribute('value'),
+  });
+
+  it('asks the server for the picked system’s units and offers them after an explicit none', () => {
+    render(<ParentDeviceInfoStep values={LOCATION} onChange={vi.fn()} />);
+    expect(useEquipmentList).toHaveBeenCalledWith(
+      { departmentId: 'dept-1', systemId: 'sys-1', isActive: true },
+      { limit: 100 },
+      { enabled: true },
     );
-    expect(options).toEqual(['', 'tank-1', 'bio-1']);
+    const unit = screen.getByLabelText('Tank or equipment');
+    expect([...unit.querySelectorAll('option')].map((o) => o.value)).toEqual([
+      '',
+      'tank-1',
+      'bio-1',
+    ]);
   });
 
-  it('records a tank pick as tankId and an equipment pick as equipmentId, never both', () => {
+  it('records the picked unit as unitId, tank or not, and can go back to none', () => {
     const onChange = vi.fn();
-    const { container } = render(<ParentDeviceInfoStep values={LOCATION} onChange={onChange} />);
-    const select = container.querySelector('#equipmentId') as HTMLSelectElement;
+    render(<ParentDeviceInfoStep values={LOCATION} onChange={onChange} />);
+    const unit = screen.getByLabelText('Tank or equipment');
 
-    fireEvent.change(select, { target: { value: 'tank-1' } });
-    expect(onChange).toHaveBeenLastCalledWith({ tankId: 'tank-1', equipmentId: undefined });
+    fireEvent.change(unit, { target: { value: 'bio-1' } });
+    expect(onChange).toHaveBeenLastCalledWith({ ...LEVELS, unitId: 'bio-1' });
 
-    fireEvent.change(select, { target: { value: 'bio-1' } });
-    expect(onChange).toHaveBeenLastCalledWith({ tankId: undefined, equipmentId: 'bio-1' });
+    fireEvent.change(unit, { target: { value: '' } });
+    expect(onChange).toHaveBeenLastCalledWith({ ...LEVELS, unitId: undefined });
   });
 
-  it('sends the placement the step chose in the registration input', () => {
-    const input = toRegisterParentInput({ ...LOCATION, tankId: 'tank-1' }, 'mqtt', {});
-    expect(input).toMatchObject({ siteId: 'site-1', systemId: 'sys-1', tankId: 'tank-1' });
-    expect(input.equipmentId).toBeUndefined();
+  it('clears every level below a changed one explicitly, so the merge cannot keep it', () => {
+    const onChange = vi.fn();
+    render(<ParentDeviceInfoStep values={{ ...LOCATION, unitId: 'tank-1' }} onChange={onChange} />);
+    fireEvent.change(screen.getByLabelText(/^Site/), { target: { value: 'site-2' } });
+    expect(onChange).toHaveBeenLastCalledWith({
+      siteId: 'site-2',
+      departmentId: undefined,
+      systemId: undefined,
+      unitId: undefined,
+    });
+  });
+
+  it('sends the unit as unitId in the registration input', () => {
+    const input = toRegisterParentInput({ ...LOCATION, unitId: 'tank-1' }, 'mqtt', {});
+    expect(input).toMatchObject({ siteId: 'site-1', systemId: 'sys-1', unitId: 'tank-1' });
   });
 });

@@ -4,11 +4,13 @@ import { Tenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/de
 import { GraphQLJSON } from 'graphql-scalars';
 
 import { Sensor } from '../../database/entities/sensor.entity';
+import { isActivatedByData } from '../../protocol/adapters/protocol-implementation-status';
 import { redactProtocolSecrets } from '../../common/redact-protocol-secrets';
 import {
   RegisterSensorInput,
   UpdateSensorProtocolInput,
   UpdateSensorInfoInput,
+  RelocateSensorInput,
   SensorFilterInput,
   PaginationInput,
   RegisteredSensorType,
@@ -20,6 +22,7 @@ import {
   ParentDeviceType,
   ChildSensorType,
 } from '../dto/register-sensor.dto';
+import { SensorPlacementService } from '../services/sensor-placement.service';
 import { SensorRegistrationService } from '../services/sensor-registration.service';
 
 /**
@@ -50,7 +53,10 @@ class SensorStatsType {
 export class RegistrationResolver {
   private readonly logger = new Logger(RegistrationResolver.name);
 
-  constructor(private registrationService: SensorRegistrationService) {}
+  constructor(
+    private registrationService: SensorRegistrationService,
+    private readonly placementService: SensorPlacementService,
+  ) {}
 
   /**
    * SENSOR-HIGH-021: fail closed on missing tenant context. The global
@@ -136,6 +142,7 @@ export class RegistrationResolver {
       error: result.error,
       connectionTestPassed: result.connectionTestPassed,
       latencyMs: result.latencyMs,
+      mqttCredentials: result.mqttCredentials,
     };
   }
 
@@ -183,12 +190,19 @@ export class RegistrationResolver {
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async suspendSensor(
     @Args('sensorId', { type: () => ID }) sensorId: string,
+    @Tenant() tenantId: string | undefined,
+    @CurrentUser() user: UserContext,
     @Args('reason', { nullable: true }) reason?: string,
-    @Tenant() tenantId?: string,
   ): Promise<RegisteredSensorType> {
     this.logger.log(`Suspending sensor ${sensorId}`);
     const effectiveTenantId = this.requireTenant(tenantId);
-    const sensor = await this.registrationService.suspendSensor(sensorId, effectiveTenantId, reason);
+    // The suspending user is named in the audit row of the withdrawn credential.
+    const sensor = await this.registrationService.suspendSensor(
+      sensorId,
+      effectiveTenantId,
+      reason,
+      user.sub,
+    );
     return this.mapSensorToType(sensor);
   }
 
@@ -242,6 +256,34 @@ export class RegistrationResolver {
   }
 
   /**
+   * Move a sensor to a place in the farm topology. Farm checks the path and
+   * says whether the unit is a tank or other water equipment; a parent device
+   * moves with its child sensors. Who moved it, and from where to where, is
+   * recorded in sensor_audit_logs inside the move's transaction.
+   * SECURITY: Requires TENANT_ADMIN or MODULE_MANAGER, like updateSensorInfo.
+   */
+  @Mutation(() => RegisteredSensorType, { name: 'relocateSensor' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async relocateSensor(
+    @Args('input') input: RelocateSensorInput,
+    @Tenant() tenantId: string,
+    @CurrentUser() user: UserContext,
+  ): Promise<RegisteredSensorType> {
+    const sensor = await this.placementService.relocate(
+      tenantId,
+      input.sensorId,
+      {
+        siteId: input.siteId,
+        departmentId: input.departmentId ?? null,
+        systemId: input.systemId ?? null,
+        unitId: input.unitId ?? null,
+      },
+      user.sub,
+    );
+    return this.mapSensorToType(sensor);
+  }
+
+  /**
    * Delete a sensor
    * SECURITY: Requires TENANT_ADMIN - permanent deletion
    */
@@ -264,6 +306,8 @@ export class RegistrationResolver {
       // SENSOR-MEDIUM-071: surface the attached custom type-definition on read-back.
       typeDefinitionId: sensor.typeDefinitionId,
       protocolCode: sensor.protocol?.code || '',
+      activatedByData: isActivatedByData(sensor.protocol?.code ?? ''),
+      mqttUsername: sensor.mqttUsername ?? null,
       // SENSOR-HIGH-081: never echo live device credentials through a read model.
       protocolConfiguration: redactProtocolSecrets(sensor.protocolConfiguration),
       connectionStatus: sensor.connectionStatus,
@@ -323,6 +367,7 @@ export class RegistrationResolver {
       error: result.error,
       connectionTestPassed: result.connectionTestPassed,
       latencyMs: result.latencyMs,
+      mqttCredentials: result.mqttCredentials,
     };
   }
 

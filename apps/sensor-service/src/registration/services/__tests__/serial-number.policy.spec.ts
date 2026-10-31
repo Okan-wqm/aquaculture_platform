@@ -1,3 +1,4 @@
+import { collaborator } from '@aquaculture/testing';
 import { ConflictException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Test, TestingModule } from '@nestjs/testing';
@@ -12,6 +13,8 @@ import { ProtocolValidatorService } from '../../../protocol/services/protocol-va
 import { ChannelManagementService } from '../channel-management.service';
 import { SensorTypeService } from '../../../sensor-type/sensor-type.service';
 import { SensorRegistrationService } from '../sensor-registration.service';
+import { SensorPlacementService, UNPLACED } from '../sensor-placement.service';
+import { SensorMqttIdentityService } from '../../../mqtt-identity/sensor-mqtt-identity.service';
 import {
   generateSerialNumber,
   resolveSerialNumber,
@@ -138,6 +141,16 @@ describe('SensorRegistrationService serial-number handling (SENSOR-MEDIUM-072)',
         { provide: ChannelManagementService, useValue: { createChannelsForSensor: jest.fn() } },
         { provide: SensorTypeService, useValue: { createChannelsFromTypeDefinition: jest.fn() } },
         { provide: OutboxPublisher, useValue: { enqueue: jest.fn() } },
+        // No place named: registration stores no placement (farm is not asked).
+        {
+          provide: SensorPlacementService,
+          useValue: { resolve: jest.fn().mockResolvedValue(UNPLACED) },
+        },
+        // ADR-047: these registrations are not MQTT; an empty double names any use.
+        {
+          provide: SensorMqttIdentityService,
+          useValue: collaborator<SensorMqttIdentityService>({}, 'SensorMqttIdentityService'),
+        },
       ],
     }).compile();
 

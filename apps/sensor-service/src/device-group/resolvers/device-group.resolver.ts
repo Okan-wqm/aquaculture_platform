@@ -95,30 +95,12 @@ export class UpdateDeviceGroupInput {
 }
 
 /**
- * Input for batch-updating sensor fields
+ * Input for batch-updating sensor fields. A sensor's place is not among them:
+ * it moves one device at a time through relocateSensor, which farm checks
+ * (SENSOR-MEDIUM-206).
  */
 @InputType()
 export class BatchUpdateSensorsInputType {
-  @Field({ nullable: true })
-  @IsOptional()
-  @IsUUID()
-  siteId?: string;
-
-  @Field({ nullable: true })
-  @IsOptional()
-  @IsUUID()
-  departmentId?: string;
-
-  @Field({ nullable: true })
-  @IsOptional()
-  @IsUUID()
-  systemId?: string;
-
-  @Field({ nullable: true })
-  @IsOptional()
-  @IsUUID()
-  equipmentId?: string;
-
   @Field(() => SensorStatus, { nullable: true })
   @IsOptional()
   @IsEnum(SensorStatus)
@@ -246,10 +228,6 @@ export class DeviceGroupResolver {
   ): Promise<boolean> {
     this.logger.log(`Batch updating ${sensorIds.length} sensors for tenant ${tenantId}`);
     const serviceInput: BatchUpdateSensorsInput = {
-      siteId: input.siteId,
-      departmentId: input.departmentId,
-      systemId: input.systemId,
-      equipmentId: input.equipmentId,
       status: input.status,
       isActive: input.isActive,
     };

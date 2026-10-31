@@ -38,7 +38,7 @@ bootstrapService(AppModule, {
   // MQTT auth endpoints are infrastructure — Mosquitto's mosquitto-go-auth
   // plugin calls sensor-service over the Docker internal network to verify
   // credentials / ACLs / superuser claims. The plugin config (mosquitto-
-  // production.conf + simulators/mosquitto-http-auth.conf) is locked to
+  // production.conf, which the simulator stack runs too) is locked to
   // the broker runtime and cannot participate in the application's API
   // versioning scheme. Excluding the mqtt/* routes from the api/v1 prefix
   // keeps sensor-service's HTTP controller path (`@Controller('mqtt')`)

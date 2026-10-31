@@ -10,6 +10,7 @@ import { ProcessModule } from '../process/process.module';
 import { SensorProtocol } from '../database/entities/sensor-protocol.entity';
 import { Sensor } from '../database/entities/sensor.entity';
 import { EdgeDeviceModule } from '../edge-device/edge-device.module';
+import { MqttIdentityModule } from '../mqtt-identity/mqtt-identity.module';
 import { ReleaseBundleModule } from '../release-bundle/release-bundle.module';
 import { ScadaRuntimeModule } from '../scada-runtime/scada-runtime.module';
 import { VfdModule } from '../vfd/vfd.module';
@@ -18,6 +19,8 @@ import { SensorMetricWriterModule } from './sensor-metric-writer.module';
 import { DataIngestionService } from './data-ingestion.service';
 import { DataProcessorService } from './data-processor.service';
 import { MqttListenerService } from './mqtt-listener.service';
+import { SensorPrincipalIngestion } from './sensor-principal-ingestion.service';
+import { SensorReadingRecorder } from './sensor-reading-recorder.service';
 import { NatsIngestionConsumerService } from './nats-ingestion-consumer.service';
 import { SensorCacheInvalidationHandler } from './sensor-cache-invalidation.handler';
 import { SensorLookupResponderService } from './sensor-lookup-responder.service';
@@ -38,6 +41,8 @@ import { SensorTopicCacheService } from './sensor-topic-cache.service';
     SensorServiceConfigModule, // ADR-022 — exports SensorServiceProfileService
     // Task 1.8: erased-tenant tombstone for the ingress ACK-drop gate.
     SensorErasureModule,
+    // ADR-047 §5: data promotes a sensor holding its own broker principal.
+    MqttIdentityModule,
     // Live-data producer (SENSOR-HIGH-046): TagValueFanoutService bridges
     // ingested metrics onto the /scada gateway's tenant-fenced fan-out.
     ScadaRuntimeModule,
@@ -49,6 +54,10 @@ import { SensorTopicCacheService } from './sensor-topic-cache.service';
   providers: [
     DataIngestionService,
     MqttListenerService,
+    // The one writer of a plain sensor's MQTT readings, for the legacy topic
+    // route and the sensor-principal route (ADR-047 §4) alike.
+    SensorReadingRecorder,
+    SensorPrincipalIngestion,
     DataProcessorService,
     SensorTopicCacheService,
     // Faz 3 follow-on — extracted sensor + channel cache so the

@@ -104,6 +104,13 @@ const CONTRACT_PAIRS: readonly ContractPair[] = [
     beType: 'VfdCommandDto',
     note: 'sendVfdCommand — the frontend omits waitForAck/timeoutMs, which is allowed',
   },
+  {
+    feFile: 'web/modules/sensor-module/src/hooks/useRelocateSensor.ts',
+    feType: 'RelocateSensorInput',
+    beFile: 'apps/sensor-service/src/registration/dto/register-sensor.dto.ts',
+    beType: 'RelocateSensorInput',
+    note: 'relocateSensor(input) — the one writer of a sensor’s place (SENSOR-MEDIUM-206)',
+  },
 ] as const;
 
 /**

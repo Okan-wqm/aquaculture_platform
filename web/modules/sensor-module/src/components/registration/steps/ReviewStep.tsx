@@ -9,6 +9,8 @@ import {
 } from '../../../types/registration.types';
 import { TriangleAlert } from 'lucide-react';
 
+import { DeviceLocationSummary } from '../../location/DeviceLocationSummary';
+
 interface ReviewStepProps {
   protocol: ProtocolInfo | null;
   basicInfo: Partial<ParentDeviceInfo>;
@@ -204,33 +206,16 @@ export function ReviewStep({
             </div>
           )}
         </div>
-        {(basicInfo.farmId || basicInfo.pondId || basicInfo.tankId) && (
-          <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
-            <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Assignment
-            </h4>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              {basicInfo.farmId && (
-                <div>
-                  <span className="text-xs text-gray-500 dark:text-gray-400">Farm</span>
-                  <p className="text-sm text-gray-900 dark:text-gray-100">{basicInfo.farmId}</p>
-                </div>
-              )}
-              {basicInfo.pondId && (
-                <div>
-                  <span className="text-xs text-gray-500 dark:text-gray-400">Pond</span>
-                  <p className="text-sm text-gray-900 dark:text-gray-100">{basicInfo.pondId}</p>
-                </div>
-              )}
-              {basicInfo.tankId && (
-                <div>
-                  <span className="text-xs text-gray-500 dark:text-gray-400">Tank</span>
-                  <p className="text-sm text-gray-900 dark:text-gray-100">{basicInfo.tankId}</p>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
+        <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+          <DeviceLocationSummary
+            location={{
+              siteId: basicInfo.siteId,
+              departmentId: basicInfo.departmentId,
+              systemId: basicInfo.systemId,
+              unitId: basicInfo.unitId,
+            }}
+          />
+        </div>
       </Section>
 
       {/* Child sensors section */}

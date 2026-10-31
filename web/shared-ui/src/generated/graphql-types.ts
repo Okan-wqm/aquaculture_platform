@@ -1405,12 +1405,8 @@ export type BatchType =
   | 'PRODUCTION';
 
 export type BatchUpdateSensorsInputType = {
-  departmentId?: InputMaybe<Scalars['String']['input']>;
-  equipmentId?: InputMaybe<Scalars['String']['input']>;
   isActive?: InputMaybe<Scalars['Boolean']['input']>;
-  siteId?: InputMaybe<Scalars['String']['input']>;
   status?: InputMaybe<SensorStatus>;
-  systemId?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type BillingAddress = {
@@ -10026,6 +10022,7 @@ export type Mutation = {
   rejectLeaveRequest: LeaveRequest;
   rejectProgram: AutomationProgram;
   rejectVfdChangeSet: VfdChangeSet;
+  relocateSensor: RegisteredSensorType;
   /** Remove a member from a channel */
   removeChannelMember: Scalars['Boolean']['output'];
   removeChemicalDocument: Scalars['Boolean']['output'];
@@ -10090,6 +10087,7 @@ export type Mutation = {
   rollbackDeployedProgram: DeploymentResult;
   rollbackScadaPackageDeploy: DeployScadaPackageResultType;
   rollbackVfdChangeSet: VfdChangeSet;
+  rotateSensorMqttCredentials: SensorMqttCredentials;
   saveDashboardLayout: DashboardLayout;
   saveDiscoveredChannels: Array<DataChannelType>;
   saveFeederCalibrations: Array<FeederCalibrationResponse>;
@@ -12297,6 +12295,11 @@ export type MutationRejectVfdChangeSetArgs = {
 };
 
 
+export type MutationRelocateSensorArgs = {
+  input: RelocateSensorInput;
+};
+
+
 export type MutationRemoveChannelMemberArgs = {
   channelId: Scalars['ID']['input'];
   userId: Scalars['ID']['input'];
@@ -12583,6 +12586,11 @@ export type MutationRollbackScadaPackageDeployArgs = {
 
 export type MutationRollbackVfdChangeSetArgs = {
   input: RollbackVfdChangeSetInput;
+};
+
+
+export type MutationRotateSensorMqttCredentialsArgs = {
+  sensorId: Scalars['ID']['input'];
 };
 
 
@@ -14372,6 +14380,7 @@ export type ParentWithChildrenResultType = {
   connectionTestPassed?: Maybe<Scalars['Boolean']['output']>;
   error?: Maybe<Scalars['String']['output']>;
   latencyMs?: Maybe<Scalars['Float']['output']>;
+  mqttCredentials?: Maybe<SensorMqttCredentials>;
   parent?: Maybe<ParentDeviceType>;
   success: Scalars['Boolean']['output'];
 };
@@ -15491,6 +15500,7 @@ export type ProtocolFeedForecastTransition = {
 };
 
 export type ProtocolInfoType = {
+  activatedByData: Scalars['Boolean']['output'];
   capabilities: ProtocolCapabilitiesType;
   category: ProtocolCategory;
   code: Scalars['String']['output'];
@@ -16129,7 +16139,7 @@ export type Query = {
   schedulingSettings: SchedulingSettings;
   searchMessages: Array<Message>;
   searchTags: Array<UnifiedTagType>;
-  sensor?: Maybe<Sensor>;
+  sensor?: Maybe<RegisteredSensorType>;
   sensorParameterCatalog: Array<SensorParameterCatalogEntryType>;
   sensorRawList: Array<Sensor>;
   sensorStats: SensorStatsType;
@@ -19258,20 +19268,18 @@ export type RegisterEdgeDeviceInput = {
 export type RegisterParentDeviceInput = {
   departmentId?: InputMaybe<Scalars['ID']['input']>;
   description?: InputMaybe<Scalars['String']['input']>;
-  equipmentId?: InputMaybe<Scalars['ID']['input']>;
-  farmId?: InputMaybe<Scalars['ID']['input']>;
   location?: InputMaybe<Scalars['String']['input']>;
   manufacturer?: InputMaybe<Scalars['String']['input']>;
   metadata?: InputMaybe<Scalars['JSON']['input']>;
   model?: InputMaybe<Scalars['String']['input']>;
   name: Scalars['String']['input'];
-  pondId?: InputMaybe<Scalars['ID']['input']>;
   protocolCode: Scalars['String']['input'];
   protocolConfiguration: Scalars['JSON']['input'];
   serialNumber?: InputMaybe<Scalars['String']['input']>;
   siteId?: InputMaybe<Scalars['ID']['input']>;
   systemId?: InputMaybe<Scalars['ID']['input']>;
-  tankId?: InputMaybe<Scalars['ID']['input']>;
+  /** A tank, pond or cage, or other water equipment; farm says which */
+  unitId?: InputMaybe<Scalars['ID']['input']>;
 };
 
 export type RegisterParentWithChildrenInput = {
@@ -19284,23 +19292,21 @@ export type RegisterSensorInput = {
   dataChannels?: InputMaybe<Array<CreateDataChannelInput>>;
   departmentId?: InputMaybe<Scalars['ID']['input']>;
   description?: InputMaybe<Scalars['String']['input']>;
-  equipmentId?: InputMaybe<Scalars['ID']['input']>;
-  farmId?: InputMaybe<Scalars['ID']['input']>;
   location?: InputMaybe<Scalars['String']['input']>;
   manufacturer?: InputMaybe<Scalars['String']['input']>;
   metadata?: InputMaybe<Scalars['JSON']['input']>;
   model?: InputMaybe<Scalars['String']['input']>;
   name: Scalars['String']['input'];
-  pondId?: InputMaybe<Scalars['ID']['input']>;
   protocolCode: Scalars['String']['input'];
   protocolConfiguration: Scalars['JSON']['input'];
   serialNumber?: InputMaybe<Scalars['String']['input']>;
   siteId?: InputMaybe<Scalars['ID']['input']>;
   skipConnectionTest?: InputMaybe<Scalars['Boolean']['input']>;
   systemId?: InputMaybe<Scalars['ID']['input']>;
-  tankId?: InputMaybe<Scalars['ID']['input']>;
   type: SensorType;
   typeDefinitionId?: InputMaybe<Scalars['ID']['input']>;
+  /** A tank, pond or cage, or other water equipment; farm says which */
+  unitId?: InputMaybe<Scalars['ID']['input']>;
 };
 
 export type RegisterVfdInput = {
@@ -19324,6 +19330,7 @@ export type RegisterVfdInput = {
 };
 
 export type RegisteredSensorType = {
+  activatedByData: Scalars['Boolean']['output'];
   connectionStatus?: Maybe<SensorConnectionStatusType>;
   createdAt: Scalars['DateTime']['output'];
   dataChannels?: Maybe<Array<DataChannelType>>;
@@ -19340,6 +19347,7 @@ export type RegisteredSensorType = {
   manufacturer?: Maybe<Scalars['String']['output']>;
   metadata?: Maybe<Scalars['JSON']['output']>;
   model?: Maybe<Scalars['String']['output']>;
+  mqttUsername?: Maybe<Scalars['String']['output']>;
   name: Scalars['String']['output'];
   parentId?: Maybe<Scalars['ID']['output']>;
   pondId?: Maybe<Scalars['ID']['output']>;
@@ -19484,6 +19492,16 @@ export type RelatedAssetInput = {
   assetId: Scalars['ID']['input'];
   assetName?: InputMaybe<Scalars['String']['input']>;
   assetType: AssetType;
+};
+
+/** Move a sensor to a place in the farm topology; farm checks the path */
+export type RelocateSensorInput = {
+  departmentId?: InputMaybe<Scalars['ID']['input']>;
+  sensorId: Scalars['ID']['input'];
+  siteId: Scalars['ID']['input'];
+  systemId?: InputMaybe<Scalars['ID']['input']>;
+  /** A tank, pond or cage, or other water equipment; farm says which */
+  unitId?: InputMaybe<Scalars['ID']['input']>;
 };
 
 export type RemoveCleanerFishInput = {
@@ -20205,9 +20223,11 @@ export type Sensor = {
   metadata?: Maybe<Scalars['JSON']['output']>;
   minValue?: Maybe<Scalars['Float']['output']>;
   model?: Maybe<Scalars['String']['output']>;
+  mqttUsername?: Maybe<Scalars['String']['output']>;
   name: Scalars['String']['output'];
   parentId?: Maybe<Scalars['ID']['output']>;
   parentSensor?: Maybe<Sensor>;
+  placedAt?: Maybe<Scalars['DateTime']['output']>;
   pondId?: Maybe<Scalars['String']['output']>;
   protocol?: Maybe<SensorProtocol>;
   protocolConfiguration?: Maybe<Scalars['JSON']['output']>;
@@ -20341,6 +20361,17 @@ export type SensorListType = {
   totalPages: Scalars['Int']['output'];
 };
 
+export type SensorMqttCredentials = {
+  clientId: Scalars['String']['output'];
+  host: Scalars['String']['output'];
+  password: Scalars['String']['output'];
+  port: Scalars['Int']['output'];
+  sensorId: Scalars['ID']['output'];
+  tls: Scalars['Boolean']['output'];
+  topic: Scalars['String']['output'];
+  username: Scalars['String']['output'];
+};
+
 export type SensorPaginationInput = {
   /** Items per page (max 100) */
   limit?: InputMaybe<Scalars['Int']['input']>;
@@ -20439,6 +20470,7 @@ export type SensorRegistrationResultType = {
   connectionTestPassed?: Maybe<Scalars['Boolean']['output']>;
   error?: Maybe<Scalars['String']['output']>;
   latencyMs?: Maybe<Scalars['Float']['output']>;
+  mqttCredentials?: Maybe<SensorMqttCredentials>;
   sensor?: Maybe<RegisteredSensorType>;
   success: Scalars['Boolean']['output'];
 };
@@ -24493,21 +24525,14 @@ export type UpdateSchedulingSettingsInput = {
 };
 
 export type UpdateSensorInfoInput = {
-  departmentId?: InputMaybe<Scalars['ID']['input']>;
   description?: InputMaybe<Scalars['String']['input']>;
-  equipmentId?: InputMaybe<Scalars['ID']['input']>;
-  farmId?: InputMaybe<Scalars['ID']['input']>;
   location?: InputMaybe<Scalars['String']['input']>;
   manufacturer?: InputMaybe<Scalars['String']['input']>;
   metadata?: InputMaybe<Scalars['JSON']['input']>;
   model?: InputMaybe<Scalars['String']['input']>;
   name?: InputMaybe<Scalars['String']['input']>;
-  pondId?: InputMaybe<Scalars['ID']['input']>;
   sensorId: Scalars['ID']['input'];
   serialNumber?: InputMaybe<Scalars['String']['input']>;
-  siteId?: InputMaybe<Scalars['ID']['input']>;
-  systemId?: InputMaybe<Scalars['ID']['input']>;
-  tankId?: InputMaybe<Scalars['ID']['input']>;
   type?: InputMaybe<SensorType>;
 };
 

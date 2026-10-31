@@ -53,12 +53,13 @@ export type SensorSampleQuality = 'GOOD' | 'UNCERTAIN' | 'BAD';
  *   (`@aquaculture/shared-contracts`) converts from.
  * - `calibrationDueAt` null means the channel has no calibration schedule —
  *   not that calibration is not due.
- * - `configuredAt` is when the channel's unit or quantity last changed (null:
- *   not since tracking began). `latest*` is the newest sample taken at or after
+ * - `configuredAt` is the later of when the channel's unit or quantity last
+ *   changed and when its sensor was placed where it stands (null: neither
+ *   since tracking began). `latest*` is the newest sample taken at or after
  *   it, inside the sensor service's freshness window (`AS_OF_LOOKBACK` in
  *   `@aquaculture/shared-contracts`, 7 days), of any quality — `latestQuality`
- *   says which band. A sample from before the current unit is never paired
- *   with it.
+ *   says which band. A sample from before the current unit, or from where the
+ *   sensor stood before it moved, is never paired with it.
  */
 export interface SensorChannelDescription extends SensorChannelKey {
   presence: SensorChannelPresence;

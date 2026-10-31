@@ -18,6 +18,12 @@ import { DeviceLifecycleState, DeviceModel, EdgeDevice } from '../entities/edge-
 import { DeviceIoConfig } from '../entities/device-io-config.entity';
 import { LoRaDevice } from '../entities/lora-device.entity';
 import { MqttAuthService } from '../mqtt-auth.service';
+import type { SensorMqttBrokerAccess } from '../../mqtt-identity/sensor-mqtt-broker-access.service';
+
+// These checks never reach a sensor's own principal (ADR-047): an empty
+// double, so touching it throws and names the member.
+const noSensorPrincipals = (): SensorMqttBrokerAccess =>
+  collaborator<SensorMqttBrokerAccess>({}, 'SensorMqttBrokerAccess');
 
 /**
  * SENSOR-CRITICAL-143 on real Postgres: the broker's HTTP auth hook (MQTT
@@ -111,6 +117,7 @@ describe('edge MQTT auth under FORCE RLS (SENSOR-CRITICAL-143)', () => {
         get: (_key: string, fallback?: unknown) => fallback,
       } as Partial<ConfigService> as ConfigService,
       {} as Partial<DeviceDirectoryService> as DeviceDirectoryService,
+      noSensorPrincipals(),
     );
 
     stage = await bootSensorRlsHarness({
@@ -156,6 +163,7 @@ describe('edge MQTT auth under FORCE RLS (SENSOR-CRITICAL-143)', () => {
     auth = new MqttAuthService(
       new ConfigService({ NODE_ENV: 'production', MQTT_AUTH_MODE: 'http' }),
       new DeviceDirectoryService(runtime),
+      noSensorPrincipals(),
     );
   });
 
@@ -245,6 +253,7 @@ describe('edge MQTT auth under FORCE RLS (SENSOR-CRITICAL-143)', () => {
     const fresh = new MqttAuthService(
       new ConfigService({ NODE_ENV: 'production', MQTT_AUTH_MODE: 'http' }),
       new DeviceDirectoryService(runtime!),
+      noSensorPrincipals(),
     );
     await expect(
       fresh.verifyDeviceCredentials(MISROUTED_CLIENT_ID, PASSWORD_A, clientId),
@@ -386,6 +395,7 @@ describe('edge MQTT auth under FORCE RLS (SENSOR-CRITICAL-143)', () => {
       new MqttAuthService(
         new ConfigService({ NODE_ENV: 'production', MQTT_AUTH_MODE: 'http' }),
         new DeviceDirectoryService(runtime!),
+        noSensorPrincipals(),
       );
 
     await expect(

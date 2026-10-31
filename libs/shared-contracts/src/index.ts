@@ -311,6 +311,16 @@ export type {
   DescribedChannel,
 } from './measurement/channel-binding';
 
+// ── Sensor placement ──
+// The codes of sensor-service's placement refusals, for the UI's own words.
+export { SENSOR_PLACEMENT_ERROR, isSensorPlacementErrorCode } from './measurement/sensor-placement';
+export type { SensorPlacementErrorCode } from './measurement/sensor-placement';
+export {
+  SENSOR_MQTT_IDENTITY_ERROR,
+  isSensorMqttIdentityErrorCode,
+} from './measurement/sensor-mqtt-identity';
+export type { SensorMqttIdentityErrorCode } from './measurement/sensor-mqtt-identity';
+
 // ── Many-unit reads ──
 // The most units one many-unit farm read takes; clients batch by it.
 export { MAX_UNITS_PER_READ } from './measurement/unit-reads';

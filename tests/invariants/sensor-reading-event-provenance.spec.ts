@@ -43,7 +43,9 @@ const REPO_ROOT = path.resolve(__dirname, '..', '..');
  * nobody had a list to compare.
  */
 const PRODUCERS = [
-  'apps/sensor-service/src/ingestion/mqtt-listener.service.ts',
+  // The MQTT listener's two routes (legacy topics, and sensors holding their
+  // own broker principal, ADR-047) write through this one recorder.
+  'apps/sensor-service/src/ingestion/sensor-reading-recorder.service.ts',
   'apps/sensor-service/src/ingestion/data-ingestion.service.ts',
   'apps/sensor-service/src/ingestion/nats-ingestion-consumer.service.ts',
   'apps/sensor-service/src/sensor/services/sensor-ingestion.service.ts',
@@ -136,11 +138,12 @@ describe('INVARIANT: SensorReading provenance (SENSOR-CRITICAL-111)', () => {
   });
 
   it('the two rebuilt producers project from persisted rows', () => {
-    // mqtt-listener and data-ingestion are the pair that carried the defect.
-    // The other two already built typed events their own way and are covered by
-    // their own specs; pinning the call here is what stops a revert.
+    // The MQTT path (mqtt-listener, whose write now lives in the recorder) and
+    // data-ingestion are the pair that carried the defect. The other two
+    // already built typed events their own way and are covered by their own
+    // specs; pinning the call here is what stops a revert.
     for (const rel of [
-      'apps/sensor-service/src/ingestion/mqtt-listener.service.ts',
+      'apps/sensor-service/src/ingestion/sensor-reading-recorder.service.ts',
       'apps/sensor-service/src/ingestion/data-ingestion.service.ts',
     ]) {
       expect(read(rel)).toContain('projectPersistedReadings(');

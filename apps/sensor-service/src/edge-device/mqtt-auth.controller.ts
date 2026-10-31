@@ -201,7 +201,14 @@ export class MqttAuthController {
     const isAllowed = await this.mqttAuthService.checkTopicAccess(username, topic, Number(acc));
 
     if (!isAllowed) {
-      this.logger.warn(`MQTT ACL denied: user=${username} topic=${topic} acc=${acc}`);
+      // A device decides how often this runs (every refused PUBLISH, a sensor
+      // over its rate cap) and what the username and topic say: a structured
+      // debug record with the username's fingerprint, never the raw values.
+      this.logger.debug({
+        event: 'mqtt_acl_denied',
+        principal: MqttAuthService.principalFingerprint(String(username)),
+        acc: Number(acc),
+      });
       throw new MqttAuthDeniedException();
     }
 

@@ -92,6 +92,7 @@ export type {
   ReadReceiptEnvelope,
   TypingEnvelope,
   PresenceEnvelope,
+  AiReplyDraftEnvelope,
   MessageSyncHintEnvelope,
   ChannelEventEnvelope,
   ChannelMemberRemovedEnvelope,

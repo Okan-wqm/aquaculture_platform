@@ -24,9 +24,11 @@ import {
   type PresenceEnvelope,
   type ReadReceiptEnvelope,
   type TypingEnvelope,
+  type AiReplyDraftEnvelope,
 } from '../messaging-ws';
 import {
   MESSAGING_SOCKET_EVENT_NAMES,
+  type AiReplyDraftEnvelope as EcAiReplyDraftEnvelope,
   type WsMessage as EcWsMessage,
 } from '../../../../../libs/event-contracts/src/websocket-envelopes';
 
@@ -107,10 +109,19 @@ const mirrorEnvelopeProbes: {
   presence: PresenceEnvelope;
 };
 
+// The draft envelope is a union: each side's members must be assignable to the other's.
+const ecDraftProbes: EcAiReplyDraftEnvelope[] = [
+  { channelId: 'c1', replyKey: 'k1', phase: 'writing', turn: 1, text: 'Tank ' },
+  { channelId: 'c1', replyKey: 'k1', phase: 'stored' },
+];
+const mirrorDraftProbes: AiReplyDraftEnvelope[] = ecDraftProbes;
+const draftRoundTripProbe: EcAiReplyDraftEnvelope[] = mirrorDraftProbes;
+
 // The probes must exist at runtime too (guards against silent tree-shaking of
 // the parity mechanism itself).
 void roundTripProbe;
 void mirrorEnvelopeProbes;
+void draftRoundTripProbe;
 
 describe('messaging-ws mirror ↔ event-contracts SSoT parity', () => {
   it('the event-name registry matches the SSoT exactly (names + order)', () => {
@@ -139,5 +150,9 @@ describe('messaging-ws mirror ↔ event-contracts SSoT parity', () => {
     expect(Object.keys(mirrorEnvelopeProbes.newMessage).sort()).toEqual(
       ['channelId', 'message'].sort(),
     );
+    expect(mirrorDraftProbes.map((draft) => Object.keys(draft).sort())).toEqual([
+      ['channelId', 'phase', 'replyKey', 'text', 'turn'],
+      ['channelId', 'phase', 'replyKey'],
+    ]);
   });
 });

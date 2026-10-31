@@ -419,6 +419,8 @@ services:
   # telemetry root with SENSOR-HIGH-092; `events.>` no longer reaches it
   # (INFRA-HIGH-186 — 2 Subscription Violations at every gateway boot).
   - telemetry.*.SensorReading
+  # Relayed to the channel room as aiReplyDraft (MSG-MEDIUM-089).
+  - live.*.AiReplyDraft
   - st.language.>
   - _INBOXGATEWAY_SERVICE.>
   - $JS.API.STREAM.INFO.>
@@ -693,6 +695,9 @@ services:
   - request.auth.user.listTenantUserIds
   - request.auth.verifyPassword
   - request.ai.chat
+  # AI reply drafts while ai-service writes the reply (MSG-MEDIUM-089);
+  # core NATS, in no JetStream stream (libs/event-contracts websocket-envelopes).
+  - live.*.AiReplyDraft
   - request.ai.executeAction
   - request.ai.generateEmbeddings
   - request.ai.analyzeSentiment

@@ -14,6 +14,8 @@ import { AiCallerCapabilitiesService } from '../ai-caller-capabilities.service';
 import { AiEgressGateService } from '../ai-egress-gate.service';
 import { AiPrivacyService } from '../ai-privacy.service';
 import { AiTriggerConfig } from '../../ai-trigger.config';
+import { AiReplyDraftPublisher } from '../ai-reply-draft.publisher';
+import { aiReplyLedgerKey } from '../../../shared/ai-ledger-keys';
 import { Channel, ChannelType } from '../../../channel/entities/channel.entity';
 import { Message, MessageContentType } from '../../../message/entities/message.entity';
 import { AI_USER_ID } from '../../../shared/ai-user';
@@ -24,7 +26,7 @@ import {
   createMockQueryBuilder,
   fakeUuid,
 } from '../../../__tests__/test-helpers';
-import { of } from 'rxjs';
+import { of, throwError } from 'rxjs';
 
 const mockQueryRunner = {
   manager: {
@@ -136,6 +138,8 @@ describe('AiChatBridgeService (MSGFIX-FAZ2)', () => {
         { provide: AiEgressGateService, useValue: egressGate },
         { provide: OutboxPublisher, useValue: outboxPublisher },
         { provide: 'REDIS_CLIENT', useValue: redis },
+        // The real publisher, over the NATS double: its emits are the relayed drafts.
+        AiReplyDraftPublisher,
       ],
     }).compile();
 
@@ -436,6 +440,65 @@ describe('AiChatBridgeService (MSGFIX-FAZ2)', () => {
       }),
       expect.anything(),
     );
+  });
+
+  // -----------------------------------------------------------------------
+  // MSG-MEDIUM-089: the reply's draft, relayed while ai-service writes it
+  // -----------------------------------------------------------------------
+  const draftSubject = `live.${tenantId}.AiReplyDraft`;
+  const relayed = (): unknown[] =>
+    natsClient.emit.mock.calls
+      .filter(([subject]) => subject === draftSubject)
+      .map(([, signal]: [string, unknown]) => signal);
+
+  it('asks for drafts, relays each to the channel in order, and ends the draft as stored', async () => {
+    primeChannelRead(aiChannel());
+    primeContextQuery([]);
+    natsClient.send.mockReturnValue(
+      of(
+        { type: 'draft', turn: 1, text: 'Water ' },
+        { type: 'draft', turn: 1, text: 'is fine.' },
+        { type: 'result', content: 'Water is fine.', conversationId: null, metadata: null },
+      ),
+    );
+
+    await service.handleAiChannelMessage(tenantId, aiChannelId, triggerMessageId, 'q', senderId);
+
+    expect(natsClient.send).toHaveBeenCalledWith(
+      'request.ai.chat',
+      expect.objectContaining({ stream: true }),
+    );
+    const addressed = {
+      tenantId,
+      channelId: aiChannelId,
+      replyKey: aiReplyLedgerKey(triggerMessageId),
+    };
+    expect(relayed()).toEqual([
+      { ...addressed, phase: 'writing', turn: 1, text: 'Water ' },
+      { ...addressed, phase: 'writing', turn: 1, text: 'is fine.' },
+      { ...addressed, phase: 'stored' },
+    ]);
+    expect(mockQueryRunner.manager.create).toHaveBeenCalledWith(
+      Message,
+      expect.objectContaining({ content: 'Water is fine.', idempotencyKey: addressed.replyKey }),
+    );
+  });
+
+  it('ends the draft as abandoned when no reply comes, after the notice', async () => {
+    primeChannelRead(aiChannel());
+    primeContextQuery([]);
+    natsClient.send.mockReturnValue(throwError(() => new Error('Timeout has occurred')));
+
+    await service.handleAiChannelMessage(tenantId, aiChannelId, triggerMessageId, 'q', senderId);
+
+    expect(relayed()).toEqual([
+      {
+        tenantId,
+        channelId: aiChannelId,
+        replyKey: aiReplyLedgerKey(triggerMessageId),
+        phase: 'abandoned',
+      },
+    ]);
   });
 
   it('a conflicted ledger claim (redelivery) skips the insert entirely', async () => {

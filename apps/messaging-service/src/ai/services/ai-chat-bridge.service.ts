@@ -42,12 +42,13 @@
 import { Injectable, Logger, Inject } from '@nestjs/common';
 import { ClientProxy } from '@nestjs/microservices';
 import { DataSource, IsNull } from 'typeorm';
-import { firstValueFrom, timeout, catchError, of } from 'rxjs';
+import { concatMap, filter, firstValueFrom, from, last, map, timeout, catchError, of } from 'rxjs';
 import { randomUUID as uuidv4 } from 'crypto';
 import Redis from 'ioredis';
 
 import { OutboxPublisher } from '@platform/outbox';
 import { createBaseEvent } from '@platform/event-contracts';
+import type { AiChatReplyFrame, AiChatResultFrame } from '@aquaculture/shared-contracts';
 import { runInTenantRead, runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { hasResourcePermission } from '@aquaculture/backend-common/decorators';
 import { InputFilterService, OutputPiiScannerService } from '@aquaculture/backend-common/ai-safety';
@@ -70,8 +71,13 @@ import {
 import { AiEgressGateService } from './ai-egress-gate.service';
 import { AiPrivacyService } from './ai-privacy.service';
 import { AiTriggerConfig } from '../ai-trigger.config';
+import { AiReplyDraftPublisher } from './ai-reply-draft.publisher';
 
-/** NATS request timeout for AI chat: 60 seconds (model inference can be slow). */
+/**
+ * Longest silence on the AI chat reply: 60 seconds (model inference can be
+ * slow). A streamed reply sends drafts while it is written, so this bounds
+ * the wait between frames, not the whole reply.
+ */
 const AI_CHAT_TIMEOUT_MS = 60_000;
 
 /** Context messages fetched (pre-filter) per AI request. */
@@ -103,6 +109,8 @@ interface AiChatRequest {
    * yanıtları 'assistant'). conversationId is intentionally NOT set.
    */
   contextMessages: ContextMessage[];
+  /** MSG-MEDIUM-089: drafts while the reply is written, relayed to the channel. */
+  stream: true;
 }
 
 /**
@@ -115,14 +123,8 @@ interface ContextMessage {
   isAi: boolean;
 }
 
-/**
- * Response from ai-service chat endpoint (ai-chat.responder.ts AiChatNatsResponse).
- */
-interface AiChatResponse {
-  content: string;
-  metadata: Record<string, unknown> | null;
-  error?: { code: string; message: string };
-}
+/** What is stored as the AI's message: a reply's text and metadata, or a fixed notice. */
+type AiReplyContent = Pick<AiChatResultFrame, 'content' | 'metadata'>;
 
 @Injectable()
 export class AiChatBridgeService {
@@ -141,6 +143,7 @@ export class AiChatBridgeService {
     private readonly outboxPublisher: OutboxPublisher,
     @Inject(REDIS_CLIENT)
     private readonly redis: Redis,
+    private readonly drafts: AiReplyDraftPublisher,
   ) {}
 
   /**
@@ -270,6 +273,7 @@ export class AiChatBridgeService {
       userRoles: capabilities.roles,
       resourcePermissions: capabilities.resourcePermissions,
       contextMessages,
+      stream: true,
       // SEC-LOW-090 (2026-08-23 scan №35) asked for userRoles/resourcePermissions
       // on this request so ai-service's persona authorization is not dead
       // end-to-end; the Faz 2.3 resolution above (request.auth.user.
@@ -284,6 +288,31 @@ export class AiChatBridgeService {
     // this path; messaging adds the per-channel daily ceiling in the trigger.
     const response = await this.forwardViaNats(request, messageId);
 
+    // The channel's draft of this reply ends either way: with the stored
+    // message, or with nothing (a notice, or no reply at all).
+    let stored = false;
+    try {
+      stored = await this.storeAiReply(tenantId, channelId, messageId, response);
+    } finally {
+      await this.drafts.publish({
+        tenantId,
+        channelId,
+        replyKey: aiReplyLedgerKey(messageId),
+        phase: stored ? 'stored' : 'abandoned',
+      });
+    }
+  }
+
+  /**
+   * Store ai-service's answer to a trigger message: the AI reply, or a
+   * system notice when there is none. True when the AI reply is stored.
+   */
+  private async storeAiReply(
+    tenantId: string,
+    channelId: string,
+    messageId: string,
+    response: AiChatResultFrame | null,
+  ): Promise<boolean> {
     if (!response) {
       // Transport failure — one throttled notice, never an AI-styled reply.
       await this.persistSystemNotice(
@@ -293,7 +322,7 @@ export class AiChatBridgeService {
         'The AI assistant is currently unavailable. Please try again later.',
         { error: true, errorCode: 'AI_UNAVAILABLE' },
       );
-      return;
+      return false;
     }
 
     // Faz 2.3 error contract: the responder signals failures via
@@ -310,7 +339,7 @@ export class AiChatBridgeService {
         error: true,
         errorCode,
       });
-      return;
+      return false;
     }
 
     // SECURITY: Scan AI response for PII leakage and redact if detected.
@@ -323,7 +352,7 @@ export class AiChatBridgeService {
 
     // Persist AI response as a message from the virtual AI user — claimed
     // exactly-once per trigger message via the idempotency ledger.
-    await this.persistAiResponse(tenantId, channelId, aiReplyLedgerKey(messageId), response);
+    return this.persistAiResponse(tenantId, channelId, aiReplyLedgerKey(messageId), response);
   }
 
   /**
@@ -613,9 +642,9 @@ export class AiChatBridgeService {
     tenantId: string,
     channelId: string,
     ledgerKey: string,
-    response: AiChatResponse,
+    response: AiReplyContent,
     options: { errorNotice?: boolean } = {},
-  ): Promise<void> {
+  ): Promise<boolean> {
     const messageId = uuidv4();
     const now = new Date();
 
@@ -645,7 +674,7 @@ export class AiChatBridgeService {
           .execute();
         const claimedRows: unknown = claim.raw;
         if (!Array.isArray(claimedRows) || claimedRows.length === 0) {
-          return false; // already replied for this trigger — exactly-once holds
+          return 'already-stored'; // already replied for this trigger — exactly-once holds
         }
 
         // Sanitize AI response content before storage (stored-XSS guard —
@@ -703,19 +732,20 @@ export class AiChatBridgeService {
           },
           manager,
         );
-        return true;
+        return 'stored';
       },
     ).catch((err: unknown) => {
       const msg = err instanceof Error ? err.message : String(err);
       this.logger.error(
         `AI response persist failed for channel ${channelId} (ledger ${ledgerKey}): ${msg}`,
       );
-      return false;
+      return 'failed';
     });
 
-    if (persisted) {
+    if (persisted === 'stored') {
       this.logger.debug(`AI response persisted: ${messageId} in channel ${channelId}`);
     }
+    return persisted !== 'failed';
   }
 
   /**
@@ -728,11 +758,29 @@ export class AiChatBridgeService {
   private async forwardViaNats(
     request: AiChatRequest,
     messageId: string,
-  ): Promise<AiChatResponse | null> {
+  ): Promise<AiChatResultFrame | null> {
+    const replyKey = aiReplyLedgerKey(messageId);
     try {
       return await firstValueFrom(
-        this.natsClient.send<AiChatResponse>('request.ai.chat', request).pipe(
+        this.natsClient.send<AiChatReplyFrame>('request.ai.chat', request).pipe(
           timeout(AI_CHAT_TIMEOUT_MS),
+          // Drafts go to the channel in order, as they arrive; the result is the reply.
+          concatMap((frame) =>
+            frame.type === 'draft'
+              ? from(
+                  this.drafts.publish({
+                    tenantId: request.tenantId,
+                    channelId: request.channelId,
+                    replyKey,
+                    phase: 'writing',
+                    turn: frame.turn,
+                    text: frame.text,
+                  }),
+                ).pipe(map(() => null))
+              : of(frame),
+          ),
+          filter((frame): frame is AiChatResultFrame => frame !== null),
+          last(),
           catchError((err: unknown) => {
             const errMsg = err instanceof Error ? err.message : String(err);
             this.logger.warn(`AI chat NATS request failed for ${messageId}: ${errMsg}`);
@@ -750,7 +798,7 @@ export class AiChatBridgeService {
   }
 
   /** Extract the responder's failure code, if any (error contract, Faz 2.3). */
-  private responseErrorCode(response: AiChatResponse): string | null {
+  private responseErrorCode(response: AiChatResultFrame): string | null {
     if (response.error?.code) {
       return response.error.code;
     }

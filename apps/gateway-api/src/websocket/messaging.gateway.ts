@@ -17,6 +17,8 @@ import { Server, Socket } from 'socket.io';
 import {
   GET_MESSAGE_FOR_BROADCAST_SUBJECT,
   type GetMessageForBroadcastRequest,
+  type AiReplyDraftEnvelope,
+  type AiReplyDraftSignal,
   type GetMessageForBroadcastResponse,
   type MessageEnvelope,
 } from '@platform/event-contracts';
@@ -613,6 +615,25 @@ export class MessagingGateway implements OnGatewayInit, OnGatewayConnection, OnG
     data: { eventType: string; userId?: string },
   ): void {
     this.server.to(`channel:${tenantId}:${channelId}`).emit('channelEvent', { channelId, ...data });
+  }
+
+  /**
+   * `aiReplyDraft` (MSG-MEDIUM-089): the AI's reply in a channel while it is
+   * being written. The envelope is built field by field, so nothing but its
+   * documented fields (not the signal's tenantId) reaches the client.
+   */
+  broadcastAiReplyDraft(signal: AiReplyDraftSignal): void {
+    const envelope: AiReplyDraftEnvelope =
+      signal.phase === 'writing'
+        ? {
+            channelId: signal.channelId,
+            replyKey: signal.replyKey,
+            phase: signal.phase,
+            turn: signal.turn,
+            text: signal.text,
+          }
+        : { channelId: signal.channelId, replyKey: signal.replyKey, phase: signal.phase };
+    this.server.to(`channel:${signal.tenantId}:${signal.channelId}`).emit('aiReplyDraft', envelope);
   }
 
   evictUserFromChannel(tenantId: string, channelId: string, userId: string): void {

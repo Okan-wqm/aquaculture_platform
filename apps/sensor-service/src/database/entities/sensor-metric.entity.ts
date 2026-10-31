@@ -269,7 +269,9 @@ export class SensorMetric {
   sourceTimestamp?: Date;
 
   /**
-   * Latency between device timestamp and server ingestion (milliseconds)
+   * Latency between device timestamp and server ingestion (milliseconds).
+   * Null when it does not fit 32 bits (a backfill sampled ~24.8 days or more
+   * before its write; `ingestionLatencyMs` in sensor-metric-writer.service.ts).
    */
   @Field(() => Int, { nullable: true })
   @Column('int', { name: 'ingestion_latency_ms', nullable: true })

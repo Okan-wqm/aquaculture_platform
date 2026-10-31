@@ -1,15 +1,7 @@
 import { randomBytes, randomUUID } from 'node:crypto';
-import {
-  chmodSync,
-  cpSync,
-  mkdtempSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  statSync,
-} from 'node:fs';
+import { cpSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import type { Server } from 'node:http';
-import { tmpdir } from 'node:os';
+import { tmpdir, userInfo } from 'node:os';
 import { join, resolve } from 'node:path';
 
 import mqtt from 'mqtt';
@@ -83,20 +75,14 @@ function simulatedSensors(environment: Readonly<Record<string, string>>): string
 }
 
 /**
- * A writable copy of the Node-RED data directory: Node-RED writes its
- * runtime files into /data, which must not be the repository's, and runs as
- * an unprivileged user.
+ * A copy of the Node-RED data directory for one run: Node-RED writes its
+ * runtime files into /data, which must not be the repository's. The
+ * container runs as this process's user, so the copy has one owner and
+ * afterAll removes everything Node-RED wrote into it.
  */
 function nodeRedDataCopy(): string {
   const dir = mkdtempSync(join(tmpdir(), 'nodered-sim-'));
   cpSync(join(SIMULATOR, 'nodered/data'), dir, { recursive: true });
-  const open = (path: string): void => {
-    chmodSync(path, statSync(path).isDirectory() ? 0o777 : 0o666);
-    if (statSync(path).isDirectory()) {
-      for (const entry of readdirSync(path)) open(join(path, entry));
-    }
-  };
-  open(dir);
   return dir;
 }
 
@@ -163,8 +149,13 @@ function nodeRedDataCopy(): string {
         environment[`SIM_${key}_MQTT_TOPIC`] = topic;
       }
       dataDir = nodeRedDataCopy();
+      const { uid, gid } = userInfo();
       simulator = await new GenericContainer(nodered.image)
         .withNetwork(network)
+        // Under the image's own user (node-red, uid 1000) what Node-RED
+        // writes into the bind mount belongs to uid 1000, and a runner on
+        // another uid (CI's is 1001) cannot remove it.
+        .withUser(`${uid}:${gid}`)
         .withEnvironment(environment)
         .withBindMounts([
           { source: dataDir, target: '/data', mode: 'rw' },

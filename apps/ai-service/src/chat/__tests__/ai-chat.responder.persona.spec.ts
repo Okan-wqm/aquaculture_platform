@@ -8,6 +8,7 @@ import {
   type ChatRequest,
 } from '../../agent/agent-runner.service';
 import { AiChatResponder, type AiChatNatsRequest } from '../ai-chat.responder';
+import { resultOf } from './support/reply-frames';
 
 /**
  * AISAFETY-MEDIUM-024 at the NATS boundary: the responder forwards the
@@ -52,16 +53,16 @@ describe('AiChatResponder persona forwarding + error codes', () => {
   });
 
   it('forwards a named persona verbatim and null when none is named', async () => {
-    await responder.handleChat(baseRequest({ persona: 'expert-farm-production-v1' }));
+    await resultOf(responder.handleChat(baseRequest({ persona: 'expert-farm-production-v1' })));
     expect(lastChatRequest().persona).toBe('expert-farm-production-v1');
 
     agentRunner.chat.mockClear();
-    await responder.handleChat(baseRequest());
+    await resultOf(responder.handleChat(baseRequest()));
     expect(lastChatRequest().persona).toBeNull();
   });
 
   it('echoes the RESOLVED persona id in the reply metadata', async () => {
-    const reply = await responder.handleChat(baseRequest());
+    const reply = await resultOf(responder.handleChat(baseRequest()));
     expect(reply.metadata).toMatchObject({ persona: 'operator-v1' });
     expect(reply.error).toBeUndefined();
   });
@@ -73,7 +74,7 @@ describe('AiChatResponder persona forwarding + error codes', () => {
   ])('maps %s to error code %s with the exception message', async (error, code) => {
     agentRunner.chat.mockRejectedValue(error);
 
-    const reply = await responder.handleChat(baseRequest({ persona: 'supervisor-v1' }));
+    const reply = await resultOf(responder.handleChat(baseRequest({ persona: 'supervisor-v1' })));
 
     expect(reply.error?.code).toBe(code);
     expect(reply.metadata).toMatchObject({ errorCode: code });
@@ -84,7 +85,7 @@ describe('AiChatResponder persona forwarding + error codes', () => {
   it('still maps an unexpected failure to INTERNAL with the generic notice', async () => {
     agentRunner.chat.mockRejectedValue(new Error('provider exploded'));
 
-    const reply = await responder.handleChat(baseRequest());
+    const reply = await resultOf(responder.handleChat(baseRequest()));
 
     expect(reply.error?.code).toBe('INTERNAL');
     expect(reply.content).not.toContain('provider exploded');

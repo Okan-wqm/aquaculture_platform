@@ -185,7 +185,11 @@ def render_subject_list(subjects: list[str], indent: str) -> str:
 # every identity, so it is a generator constant, not a services.yaml field.
 # `max` covers the NestJS reply protocol (one packet per emission plus the
 # terminal `isDisposed`); `expires` bounds a handler that never answers.
-ALLOW_RESPONSES = '{ max: 64, expires: "5m" }'
+# A streamed reply emits many packets: request.ai.chat sends up to
+# AI_CHAT_DRAFT_FRAME_LIMIT draft frames (libs/shared-contracts/src/ai/
+# chat-reply.ts) before its result, which
+# tests/invariants/ai-chat-reply-frames.spec.ts holds within this `max`.
+ALLOW_RESPONSES = '{ max: 1024, expires: "5m" }'
 
 
 def render_user_entry(svc: dict[str, Any]) -> str:

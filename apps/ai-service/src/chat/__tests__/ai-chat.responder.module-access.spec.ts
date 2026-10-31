@@ -2,6 +2,7 @@ import { Test } from '@nestjs/testing';
 
 import { AgentRunnerService, type ChatRequest } from '../../agent/agent-runner.service';
 import { AiChatResponder, type AiChatNatsRequest } from '../ai-chat.responder';
+import { resultOf } from './support/reply-frames';
 
 const TENANT_ID = '11111111-1111-4111-8111-111111111111';
 const USER_ID = '22222222-2222-4222-8222-222222222222';
@@ -49,8 +50,10 @@ describe('AiChatResponder moduleAccess and assignedSiteIds (RBAC-HIGH-028)', () 
   });
 
   it('carries the grants and the sites into the turn', async () => {
-    await responder.handleChat(
-      request({ moduleAccess: { farm: 'MODULE_USER' }, assignedSiteIds: [SITE_ID] }),
+    await resultOf(
+      responder.handleChat(
+        request({ moduleAccess: { farm: 'MODULE_USER' }, assignedSiteIds: [SITE_ID] }),
+      ),
     );
 
     expect(lastChatRequest().moduleAccess).toEqual({ farm: 'MODULE_USER' });
@@ -58,7 +61,7 @@ describe('AiChatResponder moduleAccess and assignedSiteIds (RBAC-HIGH-028)', () 
   });
 
   it('reads an absent claim as no grants and no sites', async () => {
-    await responder.handleChat(request());
+    await resultOf(responder.handleChat(request()));
 
     expect(lastChatRequest().moduleAccess).toEqual({});
     expect(lastChatRequest().assignedSiteIds).toEqual([]);
@@ -71,7 +74,7 @@ describe('AiChatResponder moduleAccess and assignedSiteIds (RBAC-HIGH-028)', () 
     ['site ids that are not text', { assignedSiteIds: [42] }],
     ['a single site id', { assignedSiteIds: SITE_ID }],
   ])('refuses %s as BAD_REQUEST before the turn runs', async (_label, claim) => {
-    const response = await responder.handleChat(request(claim));
+    const response = await resultOf(responder.handleChat(request(claim)));
 
     expect(response.error).toEqual(expect.objectContaining({ code: 'BAD_REQUEST' }));
     expect(agentRunner.chat).not.toHaveBeenCalled();

@@ -1,4 +1,4 @@
-import { useI18n } from '@aquaculture/shared-ui';
+import { Button, useI18n } from '@aquaculture/shared-ui';
 import React from 'react';
 
 import { localizeAiPersona } from '../lib/aiPersona';
@@ -29,12 +29,14 @@ function TeamItem({
       {sub && <span className="sd-team-sub">{sub}</span>}
     </>
   );
+  // A face that opens a room is a shared-ui row Button: the button is the hit
+  // area (type, focus, ref), the tile inside it keeps the face's own layout.
   return (
     <li>
       {channelId ? (
-        <button type="button" className="sd-team-item" onClick={() => onOpen(channelId)}>
-          {body}
-        </button>
+        <Button layout="row" className="sd-team-open" onClick={() => onOpen(channelId)}>
+          <span className="sd-team-item">{body}</span>
+        </Button>
       ) : (
         <div className="sd-team-item">{body}</div>
       )}

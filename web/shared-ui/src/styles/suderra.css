@@ -621,11 +621,11 @@
     font: inherit;
     text-align: center;
   }
-  button.sd-team-item {
+  /* The row Button around a face that opens a room (TeamStrip). */
+  .sd-team-open {
     cursor: pointer;
-    transition: background-color 0.15s ease;
   }
-  button.sd-team-item:hover {
+  .sd-team-open:hover {
     background: color-mix(in srgb, var(--color-sd-ink) 7%, transparent);
   }
   .sd-team-name {

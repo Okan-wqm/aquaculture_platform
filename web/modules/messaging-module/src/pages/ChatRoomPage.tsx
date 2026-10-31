@@ -1,9 +1,13 @@
 import { Button, useAuth, useI18n, type MessageKey } from '@aquaculture/shared-ui';
-import { ArrowLeft, ChevronDown, Send, Sparkles, RefreshCw, AlertCircle } from 'lucide-react';
+import { ArrowLeft, ChevronDown, Send, RefreshCw, AlertCircle } from 'lucide-react';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 
 import AiConsentSwitch from '../components/AiConsentSwitch';
+import { ChannelAvatar } from '../components/ChannelAvatar';
+import { MemberAvatar, memberName } from '../components/MemberAvatar';
+import { PersonaAvatar } from '../components/PersonaAvatar';
+import { AiSpoken, TierChip } from '../components/PersonaText';
 import {
   useChannelMessages,
   useSendMessage,
@@ -12,24 +16,18 @@ import {
   flattenChannelMessages,
 } from '../hooks/useMessagingData';
 import { useMessagingSocket } from '../hooks/useMessagingSocket';
-import { aiPersonaDisplayName } from '../lib/aiPersona';
-import { channelTitle } from '../lib/channelDisplay';
+import { localizeAiPersona } from '../lib/aiPersona';
+import { channelHeading } from '../lib/channelDisplay';
 import { isAtTopEdge, isNearBottom } from '../lib/chatScroll';
 import { isAiErrorNotice, messageBodyKind, messageBodyLabelKey } from '../lib/messageBody';
 import { computeIdempotencyKey } from '../lib/messageIdempotency';
 import { sendErrorBannerKey } from '../lib/sendErrorMessages';
-import type { Message } from '../types/messaging';
 
 /** The send-error banner self-dismisses after a few seconds… */
 const ERROR_BANNER_TIMEOUT_MS = 6000;
 
 function isDocumentVisible(): boolean {
   return typeof document !== 'undefined' && document.visibilityState === 'visible';
-}
-
-function senderName(m: Message, fallback: string): string {
-  const u = m.sender;
-  return [u?.firstName, u?.lastName].filter(Boolean).join(' ') || fallback;
 }
 
 /**
@@ -53,6 +51,11 @@ function senderName(m: Message, fallback: string): string {
  * hard-coded 'AI Assistant'); SYSTEM+metadata.error notices render as neutral
  * system lines instead of AI bubbles; IMAGE/FILE/VOICE bodies render localized
  * placeholder labels instead of their raw media-reference content.
+ *
+ * Team identity: the header shows the room's face and title (an AI room's
+ * agent and its job + tier in the UI language), and every message from someone
+ * else carries the author's face beside the bubble — the agent's persona tile
+ * tagged AI, a person's photo or initials.
  *
  * FAZ 3.3 (resilience & UX): the thread is a cursor-paginated infinite query —
  * scrolling to the top edge fetches the older page and restores the scroll
@@ -89,19 +92,19 @@ const ChatRoomPage: React.FC = () => {
   const { isConnected } = useMessagingSocket(channelId);
 
   const currentChannel = channels?.find((c) => c.id === channelId);
-  const heading = currentChannel ? channelTitle(currentChannel, myId) : t('messaging.conversation');
+  const heading = currentChannel ? channelHeading(currentChannel, myId, t) : null;
 
   /**
    * FAZ 2.4 — AI visibility: AI-authored messages are credited to the channel's
-   * persona (aiPersonaDisplayName maps the ID; unknown IDs pass through, a
-   * missing persona falls back to the generic 'AI Assistant' label). Only the
-   * LABEL changes — AI authorship itself is still decided by the
+   * persona — its job in the UI language (localizeAiPersona; unknown IDs pass
+   * through, a missing persona is the generic 'AI Assistant'). Only the LABEL
+   * and face change — AI authorship itself is still decided by the
    * server-authoritative `isAiGenerated` flag alone (metadata.isAi is
    * user-forgeable and deliberately NOT consulted).
    */
   const aiAuthorName = useMemo(
-    () => aiPersonaDisplayName(currentChannel?.aiPersona) ?? t('messaging.aiAssistant'),
-    [currentChannel?.aiPersona, t],
+    () => localizeAiPersona(currentChannel?.aiPersona, t, currentChannel?.name).role,
+    [currentChannel?.aiPersona, currentChannel?.name, t],
   );
 
   const [draft, setDraft] = useState('');
@@ -272,11 +275,17 @@ const ChatRoomPage: React.FC = () => {
           >
             <ArrowLeft size={17} />
           </button>
-          <span className="text-[13.5px] font-semibold text-sd-ink">
-            {t('messaging.conversation')}
+          {currentChannel && <ChannelAvatar channel={currentChannel} myId={myId} size="sm" />}
+          <span className="flex min-w-0 flex-1 items-center gap-1.5">
+            <span
+              className="truncate text-[13.5px] font-semibold text-sd-ink"
+              data-testid="room-title"
+            >
+              {heading?.title ?? t('messaging.conversation')}
+              {currentChannel?.type === 'AI' && <AiSpoken />}
+            </span>
+            {heading?.tierLabel && <TierChip tierLabel={heading.tierLabel} />}
           </span>
-          <span className="sd-chat-head-divider" />
-          <span className="min-w-0 flex-1 truncate text-[12.5px] text-sd-ink-muted">{heading}</span>
           {channelId && !isConnected && (
             <span className="sd-hint mt-0 flex shrink-0 items-center gap-1" role="status">
               <RefreshCw size={11} className="animate-spin" aria-hidden />
@@ -363,13 +372,28 @@ const ChatRoomPage: React.FC = () => {
 
             return (
               <div key={m.id} className={`sd-msg-row${mine ? ' sd-msg-row--mine' : ''}`}>
+                {/* The author's face — decorative here: the author line names them,
+                    and the violet bubble already marks an AI answer (no AI tag). */}
+                {!mine && (
+                  <span aria-hidden className="mt-[18px] flex">
+                    {m.isAiGenerated ? (
+                      <PersonaAvatar
+                        aiPersona={currentChannel?.aiPersona}
+                        size="sm"
+                        tagged={false}
+                      />
+                    ) : (
+                      <MemberAvatar user={m.sender} size="sm" />
+                    )}
+                  </span>
+                )}
                 <div className="min-w-0 max-w-[80%]">
                   {!mine && (
                     <div className="sd-msg-author">
-                      {m.isAiGenerated && <Sparkles size={12} />}
                       {m.isAiGenerated
                         ? aiAuthorName
-                        : senderName(m, t('messaging.memberFallback'))}
+                        : memberName(m.sender, t('messaging.memberFallback'))}
+                      {m.isAiGenerated && <AiSpoken />}
                     </div>
                   )}
                   <div

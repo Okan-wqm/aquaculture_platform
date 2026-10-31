@@ -1,5 +1,31 @@
 import type { Channel } from '../types/messaging';
 
+import { localizeAiPersona, type Translate } from './aiPersona';
+
+export interface ChannelHeading {
+  readonly title: string;
+  /** The agent's authority tier chip ("Expert"); null for people and the tenant default. */
+  readonly tierLabel: string | null;
+}
+
+/**
+ * What a room is called in the list and its header. An AI room is called by its agent's job in
+ * the caller's language — its stored `name` is the English persona name written at creation, so
+ * it would read English in the Turkish console — and falls back to that stored name only for a
+ * persona the panel cannot resolve; every other room keeps channelTitle.
+ */
+export function channelHeading(
+  channel: Channel,
+  myId: string | null | undefined,
+  t: Translate,
+): ChannelHeading {
+  if (channel.type === 'AI') {
+    const persona = localizeAiPersona(channel.aiPersona, t, channel.name);
+    return { title: persona.role, tierLabel: persona.tierLabel };
+  }
+  return { title: channelTitle(channel, myId), tierLabel: null };
+}
+
 /**
  * A channel's display title. Group/AI channels carry an explicit `name`; direct
  * channels have none, so we derive it from the OTHER members' names — `myId`

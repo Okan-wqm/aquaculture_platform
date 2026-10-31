@@ -239,6 +239,8 @@ export {
   persistLocale,
   resolveInitialLocale,
   toIntlLocale,
+  en,
+  tr,
 } from './i18n';
 export {
   useGraphQLQuery,

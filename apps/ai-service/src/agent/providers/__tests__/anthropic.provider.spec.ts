@@ -2,12 +2,14 @@ import 'reflect-metadata';
 
 // Mock the Anthropic SDK before importing the provider. The mock exposes the
 // same error classes the provider narrows on (instanceof), a controllable
-// messages.create, and records constructor calls so we can assert client reuse.
+// messages.stream (chat) and messages.create (the credential probe), and
+// records constructor calls so we can assert client reuse.
 // The error classes and mock fns are declared at module scope (mock-prefixed so
 // the hoisted jest.mock factory may close over them) and reused in the tests, so
 // a rejected error is a genuine instance of the class the provider checks — no
 // SDK type import (whose real ctor needs 4-5 args) and no cast.
 const mockCreate = jest.fn();
+const mockStream = jest.fn();
 const mockConstructor = jest.fn();
 class MockAuthenticationError extends Error {}
 class MockPermissionDeniedError extends Error {}
@@ -16,7 +18,7 @@ jest.mock('@anthropic-ai/sdk', () => {
   const MockAnthropic = Object.assign(
     jest.fn((opts: unknown) => {
       mockConstructor(opts);
-      return { messages: { create: mockCreate } };
+      return { messages: { create: mockCreate, stream: mockStream } };
     }),
     {
       AuthenticationError: MockAuthenticationError,
@@ -36,14 +38,33 @@ import { LlmAuthError, LlmChatParams } from '../llm-provider.interface';
 
 const CRED = { provider: 'anthropic' as const, apiKey: 'sk-ant-test-key' };
 
+/**
+ * A MessageStream stand-in: finalMessage() replays `events` to the
+ * 'streamEvent' listeners, then settles as `settle` does.
+ */
+function messageStream(settle: () => Promise<unknown>, events: unknown[] = []): unknown {
+  const listeners: Array<(event: unknown) => void> = [];
+  return {
+    on: (name: string, listener: (event: unknown) => void): void => {
+      if (name === 'streamEvent') listeners.push(listener);
+    },
+    finalMessage: async (): Promise<unknown> => {
+      for (const event of events) listeners.forEach((listener) => listener(event));
+      return settle();
+    },
+  };
+}
+
+const streaming = (message: unknown, events: unknown[] = []): unknown =>
+  messageStream(() => Promise.resolve(message), events);
+
 const CHAT_PARAMS: LlmChatParams = {
   model: 'claude-haiku-4-5',
   system: 'You are a test assistant.',
   maxTokens: 256,
-  tools: [
-    { name: 'get_x', description: 'gets x', inputSchema: { type: 'object' } },
-  ],
+  tools: [{ name: 'get_x', description: 'gets x', inputSchema: { type: 'object' } }],
   messages: [{ role: 'user', content: [{ type: 'text', text: 'hello' }] }],
+  onText: () => undefined,
 };
 
 describe('AnthropicProvider', () => {
@@ -51,24 +72,27 @@ describe('AnthropicProvider', () => {
 
   beforeEach(() => {
     mockCreate.mockReset();
+    mockStream.mockReset();
     mockConstructor.mockReset();
     provider = new AnthropicProvider();
   });
 
   it('translates a text+tool_use response into normalized blocks and usage', async () => {
-    mockCreate.mockResolvedValue({
-      content: [
-        { type: 'text', text: 'thinking' },
-        { type: 'tool_use', id: 'tu_1', name: 'get_x', input: { a: 1 } },
-      ],
-      usage: {
-        input_tokens: 10,
-        output_tokens: 5,
-        cache_read_input_tokens: 3,
-        cache_creation_input_tokens: 2,
-      },
-      stop_reason: 'tool_use',
-    });
+    mockStream.mockImplementation(() =>
+      streaming({
+        content: [
+          { type: 'text', text: 'thinking' },
+          { type: 'tool_use', id: 'tu_1', name: 'get_x', input: { a: 1 } },
+        ],
+        usage: {
+          input_tokens: 10,
+          output_tokens: 5,
+          cache_read_input_tokens: 3,
+          cache_creation_input_tokens: 2,
+        },
+        stop_reason: 'tool_use',
+      }),
+    );
 
     const result = await provider.chat(CHAT_PARAMS, CRED);
 
@@ -81,11 +105,13 @@ describe('AnthropicProvider', () => {
   });
 
   it('coalesces missing cache token classes to 0 (never NaN)', async () => {
-    mockCreate.mockResolvedValue({
-      content: [{ type: 'text', text: 'ok' }],
-      usage: { input_tokens: 4, output_tokens: 1 },
-      stop_reason: 'end_turn',
-    });
+    mockStream.mockImplementation(() =>
+      streaming({
+        content: [{ type: 'text', text: 'ok' }],
+        usage: { input_tokens: 4, output_tokens: 1 },
+        stop_reason: 'end_turn',
+      }),
+    );
 
     const result = await provider.chat(CHAT_PARAMS, CRED);
     expect(result.usage.cacheRead).toBe(0);
@@ -94,17 +120,21 @@ describe('AnthropicProvider', () => {
   });
 
   it('maps a rejected key to LlmAuthError (not a raw SDK error)', async () => {
-    mockCreate.mockRejectedValue(new MockAuthenticationError('401'));
+    mockStream.mockImplementation(() =>
+      messageStream(() => Promise.reject(new MockAuthenticationError('401'))),
+    );
 
     await expect(provider.chat(CHAT_PARAMS, CRED)).rejects.toBeInstanceOf(LlmAuthError);
   });
 
   it('reuses one SDK client per distinct key (no per-request client churn)', async () => {
-    mockCreate.mockResolvedValue({
-      content: [{ type: 'text', text: 'ok' }],
-      usage: { input_tokens: 1, output_tokens: 1 },
-      stop_reason: 'end_turn',
-    });
+    mockStream.mockImplementation(() =>
+      streaming({
+        content: [{ type: 'text', text: 'ok' }],
+        usage: { input_tokens: 1, output_tokens: 1 },
+        stop_reason: 'end_turn',
+      }),
+    );
 
     await provider.chat(CHAT_PARAMS, CRED);
     await provider.chat(CHAT_PARAMS, CRED);
@@ -112,6 +142,42 @@ describe('AnthropicProvider', () => {
 
     // Two distinct keys → exactly two client constructions.
     expect(mockConstructor).toHaveBeenCalledTimes(2);
+  });
+
+  it('passes each text delta to onText with its content block, and nothing else', async () => {
+    const onText = jest.fn();
+    mockStream.mockImplementation(() =>
+      streaming(
+        {
+          content: [
+            { type: 'text', text: 'Hello' },
+            { type: 'tool_use', id: 'tu_1', name: 'get_x', input: {} },
+            { type: 'text', text: '!' },
+          ],
+          usage: { input_tokens: 1, output_tokens: 1 },
+          stop_reason: 'end_turn',
+        },
+        [
+          { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'Hel' } },
+          { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'lo' } },
+          {
+            type: 'content_block_delta',
+            index: 1,
+            delta: { type: 'input_json_delta', partial_json: '{}' },
+          },
+          { type: 'content_block_stop', index: 1 },
+          { type: 'content_block_delta', index: 2, delta: { type: 'text_delta', text: '!' } },
+        ],
+      ),
+    );
+
+    await provider.chat({ ...CHAT_PARAMS, onText }, CRED);
+
+    expect(onText.mock.calls).toEqual([
+      [{ block: 0, text: 'Hel' }],
+      [{ block: 0, text: 'lo' }],
+      [{ block: 2, text: '!' }],
+    ]);
   });
 
   it('validateCredential returns true on a successful probe, false on auth failure', async () => {

@@ -35,3 +35,26 @@ inside one of its matches. A seeded test feeds 3,000 random texts, built from th
 patterns use, in random pieces. It asserts that the stream gives exactly what `redact` gives for
 the whole text. Removing the phone pattern's declaration turns it red, and so does the old
 sequential replacement.
+
+## MSG-MEDIUM-089
+
+Gap. An AI reply reached the user only whole, after every model turn had finished. The
+providers called the non-streaming API. `request.ai.chat` answered once per request. The AI
+channel bridge and the assistant socket waited for that answer, up to 60 seconds, and showed
+nothing until it arrived. Raised from the operator's request that AI answers appear as they are
+written.
+
+Severity MEDIUM. Owner Okan-wqm, deadline 2026-11-14.
+
+Where.
+
+- `apps/ai-service/src/agent/providers/anthropic.provider.ts:66` (`messages.create`) and
+  `apps/ai-service/src/agent/providers/openai.provider.ts:99` (`chat.completions.create`,
+  inherited by Z.ai).
+- `apps/ai-service/src/chat/ai-chat.responder.ts:149`: one reply per request.
+- `apps/messaging-service/src/ai/services/ai-chat-bridge.service.ts:733` and
+  `apps/gateway-api/src/websocket/ai-chat.gateway.ts:243` wait for that one reply.
+
+Fix. Every provider streams. Each model turn's text passes the output safety stage as it
+arrives (AISAFETY-MEDIUM-039's `redactStream`), and the stored reply is built from the same
+released text the drafts carried, so the text a user watched is the text that is stored.

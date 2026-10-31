@@ -16,6 +16,7 @@ import { TurnLedgerService } from '../cost/turn-ledger.service';
 import { AgentConfigService } from '../tenant-config/agent-config.service';
 import { ToolExecutionContext } from '../tools/core/tool.interface';
 import { AiSafetyMiddleware } from '../safety/ai-safety.middleware';
+import { TurnText } from './turn-text';
 import { LlmProviderFactory } from './providers/llm-provider.factory';
 import {
   LlmAuthError,
@@ -150,6 +151,17 @@ export interface TokenUsageBreakdown {
   total: number;
 }
 
+/**
+ * Reply text as it is written, already through the output safety stage.
+ * `text` continues the draft of turn `turn`; the first draft of a later turn
+ * starts the reply over, because a turn that called tools wrote only a
+ * preamble and the reply is the last turn that wrote text (`message`).
+ */
+export interface ChatDraft {
+  turn: number;
+  text: string;
+}
+
 export interface ChatResponse {
   /** Null for ephemeral runs (FARM-AI Sprint 1.2) — no conversation exists. */
   conversationId: string | null;
@@ -202,7 +214,14 @@ export class AgentRunnerService {
     this.maxToolLoops = this.configService.get<number>('AI_MAX_TOOL_LOOPS', 10);
   }
 
-  async chat(request: ChatRequest): Promise<ChatResponse> {
+  /**
+   * @param onDraft - Receives the reply while it is written; joined per turn,
+   *   the drafts of the last turn that wrote text are `message`.
+   */
+  async chat(
+    request: ChatRequest,
+    onDraft: (draft: ChatDraft) => void = (): void => undefined,
+  ): Promise<ChatResponse> {
     // 1. FAZ1-BYOK: fail-closed enablement — AI runs ONLY when the tenant switch
     // is on AND a key exists for the selected provider. Resolve the credential
     // up front so a key-less tenant is rejected before any work or cost.
@@ -368,6 +387,8 @@ export class AgentRunnerService {
       total: 0,
     };
     let finalMessage = '';
+    // Whether the output stage redacted anything the user was shown, in any turn.
+    let outputRedacted = false;
 
     const toolContext: ToolExecutionContext = {
       tenantId: request.tenantId,
@@ -411,6 +432,10 @@ export class AgentRunnerService {
         config.monthlyTokenBudget,
         profile.persona.maxTokensPerTurn,
       );
+      const turn = loopCount;
+      const turnText = new TurnText(this.aiSafety.postProcessStream(request.tenantId), (text) =>
+        onDraft({ turn, text }),
+      );
       try {
         response = await this.breaker.execute({
           serviceName: `${credential.provider}-api`,
@@ -424,6 +449,7 @@ export class AgentRunnerService {
                 system: effectiveSystemPrompt,
                 tools: toolDefinitions,
                 messages: currentMessages,
+                onText: (delta) => turnText.add(delta),
               },
               credential,
             ),
@@ -468,8 +494,12 @@ export class AgentRunnerService {
         response.usage.input + response.usage.output + response.usage.cacheCreation,
       );
 
+      // The turn's text as the user watched it being written: through the
+      // output safety stage already, so it is what a reply stores.
+      const written = turnText.end();
+      outputRedacted ||= written.safety.piiRedacted;
+
       // Process response content
-      const textBlocks: string[] = [];
       const toolUseBlocks: Array<{
         id: string;
         name: string;
@@ -477,16 +507,14 @@ export class AgentRunnerService {
       }> = [];
 
       for (const block of response.content) {
-        if (block.type === 'text') {
-          textBlocks.push(block.text);
-        } else if (block.type === 'tool_use') {
+        if (block.type === 'tool_use') {
           toolUseBlocks.push(block);
         }
       }
 
       // If no tool use, we're done
       if (toolUseBlocks.length === 0 || response.stopReason === 'end_turn') {
-        finalMessage = textBlocks.join('\n');
+        finalMessage = written.text;
         break;
       }
 
@@ -597,16 +625,14 @@ export class AgentRunnerService {
       currentMessages.push({ role: 'user', content: toolResults });
 
       // If the text portion had content, capture it
-      if (textBlocks.length > 0) {
-        finalMessage = textBlocks.join('\n');
+      if (written.text !== '') {
+        finalMessage = written.text;
       }
     }
 
-    // 10. SECURITY: Post-process model output through AI safety pipeline (PII redaction)
-    const postResult = this.aiSafety.postProcess(finalMessage, request.tenantId);
-    finalMessage = postResult.outputText;
-
-    if (postResult.piiRedacted) {
+    // 10. SECURITY: every turn's text passed the AI safety output stage (PII
+    // redaction) as it was written (TurnText), so finalMessage is processed.
+    if (outputRedacted) {
       this.logger.warn(`AI safety redacted PII from output for tenant ${request.tenantId}`);
     }
 
@@ -621,7 +647,7 @@ export class AgentRunnerService {
     // cache; this row is the durable SSoT.
     const flaggedCategories: string[] = [
       ...(safetyResult.inputFilter?.flaggedPatterns ?? []).map((pattern) => `input:${pattern}`),
-      ...(postResult.piiRedacted ? ['output:pii_redacted'] : []),
+      ...(outputRedacted ? ['output:pii_redacted'] : []),
     ];
     await this.turnLedger.recordTurn({
       tenantId: request.tenantId,

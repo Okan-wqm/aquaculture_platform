@@ -15,6 +15,7 @@ import { ToolRegistryService } from '../../tools/tool-registry.service';
 import { AgentProfileService } from '../agent-profile.service';
 import { AgentRunnerService, ChatRequest } from '../agent-runner.service';
 import { LlmProviderFactory } from '../providers/llm-provider.factory';
+import { passThroughOutput, streamsItsText } from './support/streaming-provider';
 
 /**
  * Held-actuation → persisted proposal (MOB-HIGH-001).
@@ -158,7 +159,7 @@ describe('AgentRunnerService held actuation (MOB-HIGH-001)', () => {
           useValue: {
             scanUntrustedContext: jest.fn().mockReturnValue(true),
             preProcess: jest.fn().mockReturnValue({ allowed: true, systemPrompt: 'sys' }),
-            postProcess: jest.fn((text: string) => ({ outputText: text, piiRedacted: false })),
+            postProcessStream: jest.fn(() => passThroughOutput()),
             validateToolCall: jest.fn().mockResolvedValue({ allowed: true }),
           },
         },
@@ -168,7 +169,7 @@ describe('AgentRunnerService held actuation (MOB-HIGH-001)', () => {
         },
         {
           provide: LlmProviderFactory,
-          useValue: { get: jest.fn().mockReturnValue({ chat: providerChat }) },
+          useValue: { get: jest.fn().mockReturnValue({ chat: streamsItsText(providerChat) }) },
         },
         { provide: ActionProposalService, useValue: { createProposal } },
       ],

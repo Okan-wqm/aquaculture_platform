@@ -16,6 +16,7 @@ import { TurnLedgerService } from '../../cost/turn-ledger.service';
 import { ActionProposalService } from '../../actions/action-proposal.service';
 import { AgentConfigService } from '../../tenant-config/agent-config.service';
 import { AiSafetyMiddleware } from '../../safety/ai-safety.middleware';
+import { passThroughOutput, streamsItsText } from './support/streaming-provider';
 
 /**
  * FARM-AI Sprint 1.2 — ephemeral runs.
@@ -129,14 +130,17 @@ describe('AgentRunnerService ephemeral runs (FARM-AI 1.2)', () => {
             }),
             scanUntrustedContext: jest.fn().mockReturnValue(true),
             validateToolCall: jest.fn().mockResolvedValue({ allowed: true }),
-            postProcess: jest.fn((outputText: string) => ({ outputText, piiRedacted: false })),
+            postProcessStream: jest.fn(() => passThroughOutput()),
           },
         },
         {
           provide: CircuitBreakerService,
           useValue: { execute: jest.fn(({ fn }: { fn: () => Promise<LlmChatResult> }) => fn()) },
         },
-        { provide: LlmProviderFactory, useValue: { get: jest.fn().mockReturnValue({ chat }) } },
+        {
+          provide: LlmProviderFactory,
+          useValue: { get: jest.fn().mockReturnValue({ chat: streamsItsText(chat) }) },
+        },
         { provide: ActionProposalService, useValue: { createProposal: jest.fn() } },
       ],
     }).compile();

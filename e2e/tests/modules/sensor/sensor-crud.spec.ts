@@ -5,7 +5,8 @@
  * parent-child relationships, and cross-tenant isolation.
  *
  * Resolver: SensorResolver (sensor.resolver.ts)
- * Registration: RegistrationResolver (registration.resolver.ts)
+ * Registration: RegistrationResolver (registration.resolver.ts), which alone
+ * serves sensor(id)
  *
  * @module Sensor-Service/E2E/SensorCrud
  */
@@ -24,7 +25,6 @@ const GET_SENSOR = `
       name
       serialNumber
       type
-      status
       tenantId
       registrationStatus
     }
@@ -414,9 +414,7 @@ describe('Sensor CRUD + Registration', () => {
         { id: registeredSensorId },
       );
 
-      // The sensor query from SensorResolver may not be the registration one.
-      // The registration resolver also provides sensor(id).
-      // Both should show the same data since they read from the same entity.
+      // sensor(id) is the registration read model (RegistrationResolver).
       if (res.data?.sensor) {
         expect((res.data.sensor as Record<string, unknown>).registrationStatus).toBe('draft');
       }
@@ -594,7 +592,7 @@ describe('Sensor CRUD + Registration', () => {
         { id: sensorId },
       );
 
-      // Should be null or throw NotFoundException
+      // sensor(id) answers null for a sensor that is not there.
       if (res.data?.sensor) {
         expect(res.data.sensor).toBeNull();
       } else if (res.errors) {

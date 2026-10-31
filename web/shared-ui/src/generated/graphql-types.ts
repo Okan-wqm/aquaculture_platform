@@ -16139,7 +16139,7 @@ export type Query = {
   schedulingSettings: SchedulingSettings;
   searchMessages: Array<Message>;
   searchTags: Array<UnifiedTagType>;
-  sensor?: Maybe<Sensor>;
+  sensor?: Maybe<RegisteredSensorType>;
   sensorParameterCatalog: Array<SensorParameterCatalogEntryType>;
   sensorRawList: Array<Sensor>;
   sensorStats: SensorStatsType;

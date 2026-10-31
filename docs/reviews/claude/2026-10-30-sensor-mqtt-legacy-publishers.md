@@ -14,14 +14,18 @@ Severity HIGH. Owner Okan-wqm, deadline 2026-11-13.
 
 The list, as of 2026-10-30:
 
-| Client ID              | Publisher                                                         | Topic                               |
-| ---------------------- | ----------------------------------------------------------------- | ----------------------------------- |
-| `nodered-codex-sim-01` | production codex simulator (Node-RED, `/var/lib/aqua/simulators`) | `sensors/codex-test/water-temp-01`  |
-| `nodered-simulator`    | repository simulator (`infrastructure/simulators/nodered`)        | three `sensors/farm-01/...` streams |
+| Client ID              | Publisher                                                         | Topic                              |
+| ---------------------- | ----------------------------------------------------------------- | ---------------------------------- |
+| `nodered-codex-sim-01` | production codex simulator (Node-RED, `/var/lib/aqua/simulators`) | `sensors/codex-test/water-temp-01` |
 
-The repository simulator's own broker (`infrastructure/simulators/mosquitto`) authenticates
-from a password file, not the platform's HTTP backend, so no issued principal can connect to it;
-moving that publisher includes running the platform broker image there.
+Moved on 2026-10-31: the repository simulator (`infrastructure/simulators/nodered`, client ID
+`nodered-simulator`, three `sensors/farm-01/...` streams). Its broker authenticated from a
+password file, so no issued principal could connect to it. The simulator stack now runs the
+platform broker image with its production config. Each of the three sensors publishes on its
+own issued principal, read from the environment. The simulator's equipment and edge tabs,
+which also connected as `sensor_service`, are removed (ADR-047 implementation notes).
+`tests/invariants/repository-sensor-simulator.spec.ts` keeps the flows on their own principals,
+and `repository-simulator.mosquitto.spec.ts` proves them on the real broker.
 
 Until a publisher moves, its client ID stays reserved to `sensor_service`
 (`LEGACY_SENSOR_SERVICE_PUBLISHERS`), so the broker binding admits it and no other principal

@@ -61,7 +61,7 @@
       "executor": "nx:run-commands",
       "outputs": [],
       "options": {
-        "command": "npx jest -c apps/sensor-service/jest.config.ts --runInBand apps/sensor-service/src/edge-device/__tests__/mqtt-acl.mosquitto.spec.ts",
+        "command": "npx jest -c apps/sensor-service/jest.config.ts --runInBand apps/sensor-service/src/edge-device/__tests__/mqtt-acl.mosquitto.spec.ts apps/sensor-service/src/edge-device/__tests__/repository-simulator.mosquitto.spec.ts",
         "env": {
           "MQTT_ACL_E2E": "1"
         }

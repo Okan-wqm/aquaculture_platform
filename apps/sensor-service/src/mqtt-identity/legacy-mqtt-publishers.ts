@@ -11,6 +11,4 @@
 export const LEGACY_SENSOR_SERVICE_PUBLISHERS: readonly string[] = [
   // Production codex simulator (Node-RED, /var/lib/aqua/simulators).
   'nodered-codex-sim-01',
-  // Repository simulator (infrastructure/simulators/nodered).
-  'nodered-simulator',
 ];

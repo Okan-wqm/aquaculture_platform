@@ -2,7 +2,12 @@ import { mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 
-import { GenericContainer, type StartedTestContainer, Wait } from 'testcontainers';
+import {
+  GenericContainer,
+  type StartedNetwork,
+  type StartedTestContainer,
+  Wait,
+} from 'testcontainers';
 
 /**
  * MQTT broker test harness — a real Mosquitto + mosquitto-go-auth container
@@ -56,6 +61,13 @@ export interface MqttHarnessOptions {
   authBackendPort: number;
   /** Value the broker sends as X-Mosquitto-Auth (must match the backend). */
   authSecret: string;
+  /**
+   * A Docker network to join, so another container (a simulator under test)
+   * reaches the broker by name, as on the compose network; `networkAliases`
+   * are the names it answers to there.
+   */
+  network?: StartedNetwork;
+  networkAliases?: readonly string[];
   startTimeoutMs?: number;
 }
 
@@ -124,7 +136,7 @@ export async function bootMosquittoContainer(options: MqttHarnessOptions): Promi
   const backendHostIp = options.authBackendHostIp ?? 'host-gateway';
 
   try {
-    const container = new GenericContainer(image)
+    let container = new GenericContainer(image)
       .withBindMounts([
         { source: confFile, target: '/mosquitto/config/mosquitto.conf', mode: 'ro' },
       ])
@@ -138,6 +150,12 @@ export async function bootMosquittoContainer(options: MqttHarnessOptions): Promi
           options.startTimeoutMs ?? 60_000,
         ),
       );
+
+    if (options.network) {
+      container = container
+        .withNetwork(options.network)
+        .withNetworkAliases(...(options.networkAliases ?? []));
+    }
 
     const logs: string[] = [];
     container.withLogConsumer((stream) => {

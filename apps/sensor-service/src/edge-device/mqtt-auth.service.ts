@@ -63,9 +63,9 @@ export class MqttAuthService implements OnModuleInit {
   // Auth mode: "http" (DB-backed) or "file" (legacy file-based)
   private readonly authMode: 'http' | 'file';
 
-  // File-based mode settings (legacy)
-  private readonly passwordFilePath: string;
-  private readonly fileAuthEnabled: boolean;
+  // File-based mode settings (legacy): the broker's password file, or null
+  // when file mode keeps no file (HTTP mode, or MQTT_AUTH_ENABLED not 'true').
+  private readonly passwordFilePath: string | null;
   private writeLock: Promise<void> = Promise.resolve();
 
   // Service account credentials (hashes from env vars)
@@ -113,12 +113,16 @@ export class MqttAuthService implements OnModuleInit {
     // default (Tier-2) — legacy file mode must now be opted into explicitly.
     this.authMode = this.configService.get<string>('MQTT_AUTH_MODE', 'http') as 'http' | 'file';
 
-    // File-based settings
-    this.passwordFilePath = this.configService.get<string>(
-      'MOSQUITTO_PASSWORD_FILE',
-      'infrastructure/simulators/mosquitto/config/passwd',
-    );
-    this.fileAuthEnabled = this.configService.get<boolean>('MQTT_AUTH_ENABLED', false);
+    // File-based settings. The password file is the operator's broker's, so
+    // its path has no default: no broker in this repository reads one (the
+    // simulator stack runs the platform broker), and a default would name a
+    // file nothing serves. Environment values are strings, so the flag is
+    // 'true' or off; a 'false' must not read as enabled.
+    const fileAuthEnabled = String(this.configService.get('MQTT_AUTH_ENABLED', 'false')) === 'true';
+    this.passwordFilePath =
+      this.authMode === 'file' && fileAuthEnabled
+        ? MqttAuthService.requiredPasswordFile(this.configService)
+        : null;
 
     // Load service account hashes from env
     const serviceHashes: [string, string | undefined][] = [
@@ -163,7 +167,7 @@ export class MqttAuthService implements OnModuleInit {
 
     this.logger.log(`MQTT Authentication Service initialized (mode: ${this.authMode})`);
 
-    if (this.authMode === 'file' && this.fileAuthEnabled) {
+    if (this.passwordFilePath !== null) {
       try {
         await fs.access(this.passwordFilePath);
         this.logger.debug('Password file accessible');
@@ -171,6 +175,18 @@ export class MqttAuthService implements OnModuleInit {
         this.logger.warn('Password file not found, credentials will not be persisted');
       }
     }
+  }
+
+  /** The broker password file file mode writes, which the operator must name. */
+  private static requiredPasswordFile(configService: ConfigService): string {
+    const path = configService.get<string>('MOSQUITTO_PASSWORD_FILE');
+    if (!path) {
+      throw new Error(
+        'MQTT_AUTH_MODE=file with MQTT_AUTH_ENABLED=true needs MOSQUITTO_PASSWORD_FILE: ' +
+          "the path of the password file the broker's password_file directive reads.",
+      );
+    }
+    return path;
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -689,7 +705,7 @@ export class MqttAuthService implements OnModuleInit {
     }
 
     // Legacy file mode
-    if (!this.fileAuthEnabled) return false;
+    if (this.passwordFilePath === null) return false;
     try {
       const content = await fs.readFile(this.passwordFilePath, 'utf-8');
       return content.split('\n').some((line) => {
@@ -707,7 +723,8 @@ export class MqttAuthService implements OnModuleInit {
   // ─────────────────────────────────────────────────────────────────────────
 
   private async _addDeviceCredentialsFile(username: string, passwordHash: string): Promise<boolean> {
-    if (!this.fileAuthEnabled) {
+    const passwordFilePath = this.passwordFilePath;
+    if (passwordFilePath === null) {
       this.logger.debug('MQTT file auth disabled, skipping credential storage');
       return true;
     }
@@ -715,7 +732,7 @@ export class MqttAuthService implements OnModuleInit {
     try {
       let content = '';
       try {
-        content = await fs.readFile(this.passwordFilePath, 'utf-8');
+        content = await fs.readFile(passwordFilePath, 'utf-8');
       } catch {
         content = '';
       }
@@ -752,12 +769,12 @@ export class MqttAuthService implements OnModuleInit {
       const newContent = header + serviceSection + deviceEntries.join('\n') + '\n';
 
       // Atomic write: temp file → fsync → rename (restrictive permissions)
-      const tmpPath = this.passwordFilePath + '.tmp';
+      const tmpPath = passwordFilePath + '.tmp';
       await fs.writeFile(tmpPath, newContent, { encoding: 'utf-8', mode: 0o600 });
       const fileHandle = await fs.open(tmpPath, 'r');
       await fileHandle.datasync();
       await fileHandle.close();
-      await fs.rename(tmpPath, this.passwordFilePath);
+      await fs.rename(tmpPath, passwordFilePath);
 
       this.logger.log(`Added MQTT credentials for device: ${username}`);
       await this.reloadMosquitto();
@@ -769,10 +786,11 @@ export class MqttAuthService implements OnModuleInit {
   }
 
   private async _removeDeviceCredentialsFile(username: string): Promise<boolean> {
-    if (!this.fileAuthEnabled) return true;
+    const passwordFilePath = this.passwordFilePath;
+    if (passwordFilePath === null) return true;
 
     try {
-      let content = await fs.readFile(this.passwordFilePath, 'utf-8');
+      let content = await fs.readFile(passwordFilePath, 'utf-8');
       const lines = content.split('\n');
 
       const filteredLines = lines.filter((line) => {
@@ -783,12 +801,12 @@ export class MqttAuthService implements OnModuleInit {
 
       content = filteredLines.join('\n');
 
-      const tmpPath = this.passwordFilePath + '.tmp';
+      const tmpPath = passwordFilePath + '.tmp';
       await fs.writeFile(tmpPath, content, { encoding: 'utf-8', mode: 0o600 });
       const fileHandle = await fs.open(tmpPath, 'r');
       await fileHandle.datasync();
       await fileHandle.close();
-      await fs.rename(tmpPath, this.passwordFilePath);
+      await fs.rename(tmpPath, passwordFilePath);
 
       this.logger.log(`Removed MQTT credentials for device: ${username}`);
       await this.reloadMosquitto();

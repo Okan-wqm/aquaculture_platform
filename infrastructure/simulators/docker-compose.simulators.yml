@@ -1,47 +1,87 @@
+# Development simulator stack: the platform MQTT broker, and a Node-RED
+# publisher of three sensors, each on its own issued broker principal
+# (ADR-047; device contract: sensorprotocols/mqtt-protocol.md).
+#
+# The broker is the platform image (infrastructure/mosquitto) running its
+# production config: every CONNECT and ACL check is asked of sensor-service
+# over HTTP (auth_opt_http_host sensor-service, port 3000), so it admits
+# exactly what production admits. Start the main stack first
+# (docker compose up -d): it creates aqua-network and the sensor-service
+# container the broker asks.
+#
+# Sensor credentials, once per environment:
+#   1. Register three MQTT sensors (water quality, temperature profile, flow)
+#      in the sensor console; each registration shows its connection once.
+#   2. Put each username, password and topic in infrastructure/simulators/.env
+#      (git-ignored):
+#        SIM_WATER_QUALITY_MQTT_USERNAME=s...
+#        SIM_WATER_QUALITY_MQTT_PASSWORD=...
+#        SIM_WATER_QUALITY_MQTT_TOPIC=tenants/<tenant>/sensors/<sensor>/data
+#      and the same for SIM_TEMPERATURE_PROFILE_* and SIM_FLOW_*.
+#   3. docker compose -f infrastructure/simulators/docker-compose.simulators.yml up -d
+# Node-RED reads them as ${SIM_*} in its broker nodes and topics
+# (nodered/data/flows.json, flows_cred.json); a sensor whose variables are not
+# set is refused by the broker and publishes nothing. Data paths for the
+# channels: ph, temperature, dissolved_oxygen, salinity, turbidity, ammonia;
+# sensors.surface, sensors.mid, sensors.bottom; flow_rate, pressure,
+# valve_position. The first message stores a reading and activates the sensor.
 services:
   mosquitto:
-    image: eclipse-mosquitto:2
+    image: aqua-mosquitto:local
+    build:
+      context: ../mosquitto
     container_name: aqua-mosquitto
     ports:
-      - "1883:1883"
-      - "9002:9001"
+      # Reachable from this machine only, for a device under test on the
+      # host (sensor-service shows a dev credential as localhost:1883).
+      - '127.0.0.1:1883:1883'
     volumes:
-      - ./mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf
-      - ./mosquitto/data:/mosquitto/data
-      - ./mosquitto/log:/mosquitto/log
+      - mosquitto_data:/mosquitto/data
     networks:
       - aqua-simulator
-      # ARCH-019: Also join the main network so sensor-service can reach
-      # Mosquitto via container name (aqua-mosquitto:1883) on all platforms
+      # ARCH-019: also on the main network, where sensor-service reaches the
+      # broker as aqua-mosquitto:1883 and the broker reaches sensor-service.
       - aqua-network
     restart: unless-stopped
 
   nodered:
-    # ARCH-004: Pinned to specific version (not latest)
+    # ARCH-004: pinned to a specific version (not latest)
     image: nodered/node-red:4.0.9
     container_name: aqua-nodered
-    # SEC-016: Bind editor port to localhost only — not accessible from LAN
+    # SEC-016: editor bound to localhost only, not reachable from the LAN
     ports:
-      - "127.0.0.1:1880:1880"
+      - '127.0.0.1:1880:1880'
     volumes:
       - ./nodered/data:/data
-      # Mount settings.js with adminAuth configured (SEC-016)
-      - ./nodered/settings.js:/data/settings.js:ro
+      # SEC-016: adminAuth lives in settings.js; read-only, so the editor
+      # cannot rewrite it.
+      - ./nodered/data/settings.js:/data/settings.js:ro
     environment:
-      - TZ=Europe/Istanbul
+      TZ: Europe/Istanbul
+      SIM_WATER_QUALITY_MQTT_USERNAME: ${SIM_WATER_QUALITY_MQTT_USERNAME:-}
+      SIM_WATER_QUALITY_MQTT_PASSWORD: ${SIM_WATER_QUALITY_MQTT_PASSWORD:-}
+      SIM_WATER_QUALITY_MQTT_TOPIC: ${SIM_WATER_QUALITY_MQTT_TOPIC:-}
+      SIM_TEMPERATURE_PROFILE_MQTT_USERNAME: ${SIM_TEMPERATURE_PROFILE_MQTT_USERNAME:-}
+      SIM_TEMPERATURE_PROFILE_MQTT_PASSWORD: ${SIM_TEMPERATURE_PROFILE_MQTT_PASSWORD:-}
+      SIM_TEMPERATURE_PROFILE_MQTT_TOPIC: ${SIM_TEMPERATURE_PROFILE_MQTT_TOPIC:-}
+      SIM_FLOW_MQTT_USERNAME: ${SIM_FLOW_MQTT_USERNAME:-}
+      SIM_FLOW_MQTT_PASSWORD: ${SIM_FLOW_MQTT_PASSWORD:-}
+      SIM_FLOW_MQTT_TOPIC: ${SIM_FLOW_MQTT_TOPIC:-}
     depends_on:
       - mosquitto
     networks:
       - aqua-simulator
     restart: unless-stopped
 
+volumes:
+  mosquitto_data:
+
 networks:
   aqua-simulator:
     driver: bridge
     name: aqua-simulator
-  # ARCH-019: Join the main aqua-network so sensor-service can reach Mosquitto
-  # via container name instead of host.docker.internal (Linux compatible).
-  # The main stack must be started first: docker compose up -d
+  # ARCH-019: join the main aqua-network so sensor-service and the broker
+  # reach each other by container name (Linux compatible).
   aqua-network:
     external: true
     name: aqua-network

@@ -336,9 +336,9 @@ Recorded as each part lands (SENSOR-CRITICAL-173).
   `sensors/{location}`.
 - The pepper keyring's rotation is in `docs/runbooks/secret-rotation.md`.
 - The legacy publishers (§7) are SENSOR-HIGH-207: the production codex simulator and the
-  repository simulator. The repository simulator's broker authenticates from a password file,
-  not the platform's HTTP backend, so it cannot admit an issued principal at all; moving it
-  means running the platform broker image in the simulator stack, which that finding owns.
+  repository simulator. The repository simulator's broker authenticated from a password file,
+  not the platform's HTTP backend, so it could not admit an issued principal at all; it now
+  runs the platform broker (below).
 
 ### Review corrections (2026-10-30)
 
@@ -365,3 +365,31 @@ or authorization bypass; these corrections follow from them.
 - go-auth no longer asks the superuser endpoint (`auth_opt_disable_superuser`), one HTTP
   round trip less per check; an ACL denial is logged as a structured debug record with the
   username's fingerprint; a malformed keyring's error does not quote it.
+
+### Repository simulator on the platform broker (2026-10-31)
+
+- `infrastructure/simulators/docker-compose.simulators.yml` builds the platform broker image
+  (`infrastructure/mosquitto`) and runs its production config, published on 127.0.0.1 only.
+  The file-auth broker (`infrastructure/simulators/mosquitto/`: a password file, an ACL file
+  and a tracked `mosquitto.db`) is deleted (SEC-LOW-067).
+- The Node-RED simulator keeps its sensor tab only. Three sensors (water quality, temperature
+  profile, flow) each have a broker node whose client ID, username and password, and the
+  output's topic, are `${SIM_<SENSOR>_MQTT_*}` environment references. Messages go out at
+  QoS 1, never retained, in the device contract's shape.
+- Its equipment tab (`equipment/...` topics: no platform consumer, and the broker refuses them
+  to every principal) and its edge tab (two unprovisioned devices on the tenant-unscoped
+  `edge/{code}/...` topics through `sensor_service`, SENSOR-MEDIUM-006) are removed. The stale
+  flow copies under `nodered/flows/` and a second, shadowed `settings.js` are gone too, so
+  `nodered/data/flows.json` is the one flow source.
+- `nodered-simulator` leaves `LEGACY_SENSOR_SERVICE_PUBLISHERS`; the production codex
+  simulator is the list's last entry.
+- The development `sensor-service` gets the listener's broker account and a development pepper
+  keyring, so a sensor registered locally is issued a credential the local broker admits.
+- `MqttAuthService` file mode has no default password-file path (it named the deleted file)
+  and refuses to start without `MOSQUITTO_PASSWORD_FILE`. `MQTT_AUTH_ENABLED=false` now reads
+  as off; the string was truthy before.
+- Proof:
+  - `tests/invariants/repository-sensor-simulator.spec.ts` checks the flows' structure and the
+    compose file, and runs every generated message against the ingestion schema;
+  - `repository-simulator.mosquitto.spec.ts` runs the flows in Node-RED against the real
+    broker, as part of `sensor-service:test:broker`.

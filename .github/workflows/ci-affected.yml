@@ -614,10 +614,10 @@ jobs:
         run: |
           BASE_REF="${{ needs.detect-changes.outputs.base_sha }}"
           HEAD_REF="${{ needs.detect-changes.outputs.head_sha }}"
-          if git diff --name-only "$BASE_REF" "$HEAD_REF" -- | grep -Eq '^(\.github/workflows/ci-affected\.yml|infrastructure/mosquitto/|libs/mqtt-test-harness/|apps/sensor-service/(project\.json|src/(edge-device|mqtt-identity|shared-mqtt|ingestion)/))'; then
+          if git diff --name-only "$BASE_REF" "$HEAD_REF" -- | grep -Eq '^(\.github/workflows/ci-affected\.yml|infrastructure/mosquitto/|infrastructure/simulators/|libs/mqtt-test-harness/|apps/sensor-service/(project\.json|src/(__tests__/support/platform-broker-auth\.harness\.ts|(edge-device|mqtt-identity|shared-mqtt|ingestion)/)))'; then
             node tools/toolchain/run.mjs npx nx run sensor-service:test:broker
           else
-            echo "No broker, harness or MQTT auth files changed; skipping the real-broker ACL gate."
+            echo "No broker, simulator, harness or MQTT auth files changed; skipping the real-broker gates."
           fi
         timeout-minutes: 15
         env:

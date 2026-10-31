@@ -3,6 +3,10 @@
  * closed in production. Starting the weak file-mode backend has to be an
  * explicit, audited operator decision, never a silent default.
  */
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import { ConfigService } from '@nestjs/config';
 import { collaborator } from '@aquaculture/testing';
 
@@ -45,5 +49,44 @@ describe('MqttAuthService legacy file mode guard (SENSOR-LOW-008)', () => {
     const { hash } = await service.generateCredentials();
     // $7$<iterations>$<salt>$<hash>
     expect(hash.startsWith('$7$600000$')).toBe(true);
+  });
+});
+
+describe('MqttAuthService legacy file mode password file', () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'mqtt-file-mode-'));
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('refuses to start without the password file it is told to keep', () => {
+    // No default path: the only broker that read one was the simulator's,
+    // which now runs the platform broker; a default would name nothing.
+    expect(() => buildService({ MQTT_AUTH_MODE: 'file', MQTT_AUTH_ENABLED: 'true' })).toThrow(
+      /MOSQUITTO_PASSWORD_FILE/,
+    );
+  });
+
+  it("reads the string 'false' as off, so no password file is kept or read", async () => {
+    const service = buildService({ MQTT_AUTH_MODE: 'file', MQTT_AUTH_ENABLED: 'false' });
+    await expect(service.hasCredentials('edge-aaaaaaaa-pond-01')).resolves.toBe(false);
+  });
+
+  it('reads credentials from the password file it is given', async () => {
+    // Read path only: a write would signal the broker (reloadMosquitto).
+    const file = join(dir, 'passwd');
+    writeFileSync(file, '# header\nedge-aaaaaaaa-pond-01:$7$101$c2FsdA==$aGFzaA==\n', 'utf-8');
+    const service = buildService({
+      MQTT_AUTH_MODE: 'file',
+      MQTT_AUTH_ENABLED: 'true',
+      MOSQUITTO_PASSWORD_FILE: file,
+    });
+
+    await expect(service.hasCredentials('edge-aaaaaaaa-pond-01')).resolves.toBe(true);
+    await expect(service.hasCredentials('edge-aaaaaaaa-pond-02')).resolves.toBe(false);
   });
 });

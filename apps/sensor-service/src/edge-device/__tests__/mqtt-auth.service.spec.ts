@@ -18,6 +18,7 @@ import { collaborator } from '@aquaculture/testing';
 
 import { DeviceDirectoryService } from '../device-directory.service';
 import { MqttAuthService } from '../mqtt-auth.service';
+import { LEGACY_SENSOR_SERVICE_PUBLISHERS } from '../../mqtt-identity/legacy-mqtt-publishers';
 import type { SensorMqttBrokerAccess } from '../../mqtt-identity/sensor-mqtt-broker-access.service';
 
 // ─── helpers ────────────────────────────────────────────────────────────────
@@ -324,14 +325,18 @@ describe('MqttAuthService', () => {
 
     it('admits sensor_service under the listener ID and the legacy publishers (SENSOR-HIGH-207) only', async () => {
       const { service } = withServiceAccounts();
-      for (const clientId of [LISTENER_CLIENT_ID, 'nodered-codex-sim-01', 'nodered-simulator']) {
+      for (const clientId of [LISTENER_CLIENT_ID, ...LEGACY_SENSOR_SERVICE_PUBLISHERS]) {
         await expect(
           service.verifyDeviceCredentials('sensor_service', servicePassword, clientId),
         ).resolves.toBe(true);
       }
-      await expect(
-        service.verifyDeviceCredentials('sensor_service', servicePassword, 'acl-e2e-test'),
-      ).resolves.toBe(false);
+      // The repository simulator left the list: its sensors publish on their
+      // own principals, so its old client ID is no longer sensor_service's.
+      for (const clientId of ['acl-e2e-test', 'nodered-simulator']) {
+        await expect(
+          service.verifyDeviceCredentials('sensor_service', servicePassword, clientId),
+        ).resolves.toBe(false);
+      }
     });
 
     it('admits no session for a service account no platform component connects as', async () => {

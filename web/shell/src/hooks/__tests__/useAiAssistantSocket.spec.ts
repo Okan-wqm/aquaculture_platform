@@ -88,3 +88,41 @@ describe('useAiAssistantSocket persona', () => {
     expect(result.current.messages).toHaveLength(2);
   });
 });
+
+describe('useAiAssistantSocket reply draft (MSG-MEDIUM-089)', () => {
+  beforeEach(() => {
+    emit.mockClear();
+    handlers.clear();
+  });
+
+  const draft = (turn: number, text: string) => ({ conversationId: null, turn, text });
+
+  it('builds the reply as it is written and clears it when the reply arrives', () => {
+    const { result } = renderHook(() => useAiAssistantSocket(true));
+
+    act(() => handlers.get('ai:draft')?.(draft(1, 'Checking.')));
+    act(() => handlers.get('ai:draft')?.(draft(2, 'Tank 4 ')));
+    act(() => handlers.get('ai:draft')?.(draft(1, ' late')));
+    act(() => handlers.get('ai:draft')?.(draft(2, 'is fine.')));
+    expect(result.current.replyDraft).toEqual({ turn: 2, text: 'Tank 4 is fine.' });
+
+    act(() => handlers.get('ai:response')?.({ content: 'Tank 4 is fine.', conversationId: 'c1' }));
+    expect(result.current.replyDraft).toBeNull();
+    expect(result.current.messages.at(-1)).toMatchObject({
+      role: 'assistant',
+      content: 'Tank 4 is fine.',
+    });
+  });
+
+  it('clears the draft on an error, and on a new conversation', () => {
+    const { result } = renderHook(() => useAiAssistantSocket(true));
+
+    act(() => handlers.get('ai:draft')?.(draft(1, 'Hm')));
+    act(() => handlers.get('ai:error')?.({ code: 'INTERNAL', message: 'no' }));
+    expect(result.current.replyDraft).toBeNull();
+
+    act(() => handlers.get('ai:draft')?.(draft(1, 'Hm')));
+    act(() => result.current.reset());
+    expect(result.current.replyDraft).toBeNull();
+  });
+});

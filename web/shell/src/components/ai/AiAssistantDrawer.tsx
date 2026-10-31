@@ -1,12 +1,32 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Sparkles, Send, RefreshCw, AlertCircle } from 'lucide-react';
-import { Drawer, Select, useAuth, useI18n } from '@aquaculture/shared-ui';
+import { Drawer, Select, useAuth, useI18n, useTypewriter } from '@aquaculture/shared-ui';
 import {
   AI_GENERAL_ASSISTANT_PICKER_ENTRY,
   AI_PERSONA_CATALOGUE,
   type AiPersonaCatalogueEntry,
 } from '@aquaculture/shared-contracts';
-import { useAiAssistantSocket, type AiAssistantStatus } from '../../hooks/useAiAssistantSocket';
+import {
+  useAiAssistantSocket,
+  type AiAssistantStatus,
+  type AiReplyDraft,
+} from '../../hooks/useAiAssistantSocket';
+
+/**
+ * The assistant's reply while it is written (MSG-MEDIUM-089), typed out in the
+ * assistant's bubble with a caret. Model output: rendered as text only.
+ */
+function ReplyDraftBubble({ draft }: { draft: AiReplyDraft }): React.ReactElement {
+  const shown = useTypewriter(draft.text);
+  return (
+    <div className="flex justify-start" data-testid="ai-reply-draft" aria-busy="true">
+      <div className="max-w-[85%] rounded-2xl rounded-bl-sm bg-gray-100 dark:bg-gray-800 px-3 py-2 text-sm text-gray-800 dark:text-gray-200">
+        <span className="whitespace-pre-wrap">{shown}</span>
+        <span aria-hidden className="sd-msg-caret" />
+      </div>
+    </div>
+  );
+}
 
 interface AiAssistantDrawerProps {
   open: boolean;
@@ -35,7 +55,8 @@ const DEFAULT_PERSONA_VALUE = '';
  */
 const AiAssistantDrawer: React.FC<AiAssistantDrawerProps> = ({ open, onClose }) => {
   const { hasPermission } = useAuth();
-  const { messages, status, persona, setPersona, sendMessage, reset } = useAiAssistantSocket(open);
+  const { messages, replyDraft, status, persona, setPersona, sendMessage, reset } =
+    useAiAssistantSocket(open);
   const { t } = useI18n();
   const [draft, setDraft] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -52,7 +73,7 @@ const AiAssistantDrawer: React.FC<AiAssistantDrawerProps> = ({ open, onClose }) 
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
-  }, [messages, status]);
+  }, [messages, status, replyDraft]);
 
   const handleSend = () => {
     if (!draft.trim() || status === 'thinking') return;
@@ -164,7 +185,8 @@ const AiAssistantDrawer: React.FC<AiAssistantDrawerProps> = ({ open, onClose }) 
             </div>
           </div>
         ))}
-        {status === 'thinking' && (
+        {replyDraft && <ReplyDraftBubble draft={replyDraft} />}
+        {status === 'thinking' && !replyDraft && (
           <div className="flex justify-start">
             <div className="rounded-2xl rounded-bl-sm bg-gray-100 dark:bg-gray-800 px-3 py-2 text-sm text-gray-400 dark:text-gray-500">
               <RefreshCw className="inline h-4 w-4 animate-spin" />

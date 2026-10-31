@@ -1,7 +1,6 @@
-import { useI18n } from '@aquaculture/shared-ui';
+import { useI18n, useTypewriter } from '@aquaculture/shared-ui';
 import React, { useLayoutEffect } from 'react';
 
-import { useTypewriter } from '../hooks/useTypewriter';
 import type { AiReplyDraft } from '../lib/aiReplyDrafts';
 
 import { PersonaAvatar } from './PersonaAvatar';

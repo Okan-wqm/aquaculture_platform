@@ -4,7 +4,7 @@
  * holds; choosing one is forwarded to the socket hook.
  */
 import React from 'react';
-import { beforeEach, describe, it, expect, vi } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 
 const { hasPermission, setPersona, sendMessage, reset } = vi.hoisted(() => ({
@@ -19,9 +19,12 @@ vi.mock('@aquaculture/shared-ui', async (importOriginal) => {
   return { ...actual, useAuth: () => ({ hasPermission }) };
 });
 
+const replyDraft = vi.hoisted(() => ({ current: null as { turn: number; text: string } | null }));
+
 vi.mock('../../../hooks/useAiAssistantSocket', () => ({
   useAiAssistantSocket: () => ({
     messages: [],
+    replyDraft: replyDraft.current,
     status: 'ready',
     persona: null,
     setPersona,
@@ -81,5 +84,25 @@ describe('AiAssistantDrawer persona picker', () => {
 
     fireEvent.change(select, { target: { value: '' } });
     expect(setPersona).toHaveBeenLastCalledWith(null);
+  });
+});
+
+describe('AiAssistantDrawer reply draft (MSG-MEDIUM-089)', () => {
+  afterEach(() => {
+    replyDraft.current = null;
+    vi.unstubAllGlobals();
+  });
+
+  it("shows the reply while it is written, in the assistant's bubble", () => {
+    // Reduced motion: the typed text shows whole.
+    vi.stubGlobal('matchMedia', (query: string) => ({ matches: query.includes('reduce') }));
+    hasPermission.mockReturnValue(true);
+    replyDraft.current = { turn: 1, text: 'Tank 4 is fine.' };
+
+    render(<AiAssistantDrawer open onClose={vi.fn()} />);
+
+    const bubble = screen.getByTestId('ai-reply-draft');
+    expect(bubble.textContent).toBe('Tank 4 is fine.');
+    expect(bubble.getAttribute('aria-busy')).toBe('true');
   });
 });

@@ -16,9 +16,15 @@ import {
   SubscribeMessage,
   WebSocketGateway,
 } from '@nestjs/websockets';
-import { firstValueFrom, timeout } from 'rxjs';
+import { filter, firstValueFrom, last, tap, timeout } from 'rxjs';
 import { Server, Socket } from 'socket.io';
-import { isAiPersonaId, isModuleAccess, type ModuleAccess } from '@aquaculture/shared-contracts';
+import {
+  isAiPersonaId,
+  isModuleAccess,
+  type AiChatReplyFrame,
+  type AiChatResultFrame,
+  type ModuleAccess,
+} from '@aquaculture/shared-contracts';
 import { TenantConnectionLimiter, WsTokenRevalidator } from '@aquaculture/backend-common/websocket';
 
 /** JWT claims we consume — the full claim set (incl. resourcePermissions) rides along. */
@@ -71,15 +77,10 @@ interface AiChatMessagePayload {
   persona?: string | null;
 }
 
-/** Mirror of ai-service AiChatNatsResponse (loose NATS contract). */
-interface AiChatNatsResponse {
-  content: string;
-  conversationId: string | null;
-  metadata: Record<string, unknown> | null;
-  toolCalls?: Array<{ name: string; input: Record<string, unknown>; result: unknown }>;
-  error?: { code: string; message: string };
-}
-
+/**
+ * Longest silence on the reply. Drafts arrive while the reply is written, so
+ * this bounds the wait between frames, not the whole reply (MSG-MEDIUM-089).
+ */
 const NATS_REQUEST_TIMEOUT_MS = 60_000;
 const MAX_MESSAGE_LEN = 10_000;
 
@@ -242,7 +243,7 @@ export class AiChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     try {
       const response = await firstValueFrom(
         this.natsClient
-          .send<AiChatNatsResponse>('request.ai.chat', {
+          .send<AiChatReplyFrame>('request.ai.chat', {
             tenantId: identity.tenantId,
             userId: identity.userId,
             message,
@@ -257,8 +258,23 @@ export class AiChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
             // RBAC-HIGH-028: the member's module grants and sites reach the AI chat path.
             moduleAccess: identity.moduleAccess,
             assignedSiteIds: identity.assignedSiteIds,
+            // MSG-MEDIUM-089: drafts while the reply is written, passed on as ai:draft.
+            stream: true,
           })
-          .pipe(timeout(NATS_REQUEST_TIMEOUT_MS)),
+          .pipe(
+            timeout(NATS_REQUEST_TIMEOUT_MS),
+            tap((frame) => {
+              if (frame.type === 'draft') {
+                client.emit('ai:draft', {
+                  conversationId: body.conversationId ?? null,
+                  turn: frame.turn,
+                  text: frame.text,
+                });
+              }
+            }),
+            filter((frame): frame is AiChatResultFrame => frame.type !== 'draft'),
+            last(),
+          ),
       );
 
       if (response.error) {

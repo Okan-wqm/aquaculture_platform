@@ -18,9 +18,15 @@ describe('AiChatGateway persona forwarding', () => {
   const USER = '22222222-2222-4222-8222-222222222222';
 
   let gateway: AiChatGateway;
+  let revalidator: WsTokenRevalidator;
   let natsSend: jest.Mock;
   let emit: jest.Mock;
   let client: Socket;
+
+  // The revalidator's interval would keep the test process alive.
+  afterEach(() => {
+    revalidator.onModuleDestroy();
+  });
 
   beforeEach(async () => {
     natsSend = jest.fn().mockReturnValue(
@@ -50,7 +56,7 @@ describe('AiChatGateway persona forwarding', () => {
     // SEC-MEDIUM-073/082: guard doubles (register/no-op semantics suffice
     // for persona-forwarding tests).
     const limiter = new TenantConnectionLimiter();
-    const revalidator = new WsTokenRevalidator({
+    revalidator = new WsTokenRevalidator({
       intervalMs: 3_600_000,
       isStillValid: async () => true,
     });
@@ -103,6 +109,38 @@ describe('AiChatGateway persona forwarding', () => {
     expect(natsSend).toHaveBeenCalledWith(
       'request.ai.chat',
       expect.objectContaining({ persona: null }),
+    );
+  });
+
+  it('asks for drafts and passes each on as ai:draft before the reply (MSG-MEDIUM-089)', async () => {
+    natsSend.mockReturnValue(
+      of(
+        { type: 'draft', turn: 1, text: 'Tank 4 ' },
+        { type: 'draft', turn: 1, text: 'is fine.' },
+        { type: 'result', content: 'Tank 4 is fine.', conversationId: 'conv-1', metadata: null },
+      ),
+    );
+
+    await gateway.handleChat(client, { message: 'hi', conversationId: 'conv-1' });
+
+    expect(natsSend).toHaveBeenCalledWith(
+      'request.ai.chat',
+      expect.objectContaining({ stream: true }),
+    );
+    expect(emit.mock.calls.map(([event]: [string]) => event)).toEqual([
+      'ai:thinking',
+      'ai:draft',
+      'ai:draft',
+      'ai:response',
+    ]);
+    expect(emit).toHaveBeenCalledWith('ai:draft', {
+      conversationId: 'conv-1',
+      turn: 1,
+      text: 'is fine.',
+    });
+    expect(emit).toHaveBeenLastCalledWith(
+      'ai:response',
+      expect.objectContaining({ content: 'Tank 4 is fine.' }),
     );
   });
 });

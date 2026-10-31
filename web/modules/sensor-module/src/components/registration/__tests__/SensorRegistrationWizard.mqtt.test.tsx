@@ -101,7 +101,9 @@ describe('SensorRegistrationWizard — an MQTT device', () => {
     const onSuccess = vi.fn();
     const onClose = vi.fn();
     render(<SensorRegistrationWizard isOpen onClose={onClose} onSuccess={onSuccess} />);
-    const next = (): void => fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    const next = (): void => {
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    };
 
     fireEvent.click(screen.getByText('pick MQTT'));
     next();

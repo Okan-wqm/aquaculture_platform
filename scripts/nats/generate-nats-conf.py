@@ -186,8 +186,8 @@ def render_subject_list(subjects: list[str], indent: str) -> str:
 # `max` covers the NestJS reply protocol (one packet per emission plus the
 # terminal `isDisposed`); `expires` bounds a handler that never answers.
 # A streamed reply emits many packets: request.ai.chat sends up to
-# AI_CHAT_DRAFT_FRAME_LIMIT draft frames (libs/shared-contracts/src/ai/
-# chat-reply.ts) before its result, which
+# AI_CHAT_DRAFT_FRAME_LIMIT draft frames (libs/event-contracts/src/
+# ai-chat-reply.ts) before its result, which
 # tests/invariants/ai-chat-reply-frames.spec.ts holds within this `max`.
 ALLOW_RESPONSES = '{ max: 1024, expires: "5m" }'
 

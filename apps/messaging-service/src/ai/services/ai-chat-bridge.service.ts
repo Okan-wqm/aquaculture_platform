@@ -47,8 +47,11 @@ import { randomUUID as uuidv4 } from 'crypto';
 import Redis from 'ioredis';
 
 import { OutboxPublisher } from '@platform/outbox';
-import { createBaseEvent } from '@platform/event-contracts';
-import type { AiChatReplyFrame, AiChatResultFrame } from '@aquaculture/shared-contracts';
+import {
+  createBaseEvent,
+  type AiChatReplyFrame,
+  type AiChatResultFrame,
+} from '@platform/event-contracts';
 import { runInTenantRead, runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { hasResourcePermission } from '@aquaculture/backend-common/decorators';
 import { InputFilterService, OutputPiiScannerService } from '@aquaculture/backend-common/ai-safety';

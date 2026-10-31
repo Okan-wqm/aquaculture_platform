@@ -5,8 +5,8 @@
  * values that must be byte-identical on BOTH the backend trust boundary and the
  * standalone aquamobil Vite/Rollup bundle (which cannot reach into the NestJS
  * lib graph). Today that is: the messaging media MIME allowlist, the AI persona
- * id grammar + catalogue, the AI chat reply frames, the design tokens, and the
- * sensor-reading tier policy + time range.
+ * id grammar + catalogue, the design tokens, and the sensor-reading tier policy
+ * + time range.
  *
  * Domain ENUMS do NOT live here. @platform/event-contracts is the canonical SSoT
  * for cross-service domain enums (TenantStatus, TenantPlan, PlanTier,
@@ -209,17 +209,6 @@ export type {
   AiPersonaCatalogueEntry,
   AiPersonaCapability,
 } from './ai/persona-catalogue';
-
-// ── AI chat replies (MSG-MEDIUM-089) ──
-// The frames `request.ai.chat` answers with: ai-service writes them, the
-// messaging AI-channel bridge and the gateway assistant socket read them.
-export { AI_CHAT_DRAFT_INTERVAL_MS, AI_CHAT_DRAFT_FRAME_LIMIT } from './ai/chat-reply';
-export type {
-  AiChatDraftFrame,
-  AiChatResultFrame,
-  AiChatReplyFrame,
-  AiChatErrorCode,
-} from './ai/chat-reply';
 
 // ── Sensor-reading tier policy (SENSOR-MEDIUM-149) ──
 // How far back a reading may be asked for, which store answers it at what

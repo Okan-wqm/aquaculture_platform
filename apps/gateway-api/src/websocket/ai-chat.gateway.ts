@@ -18,13 +18,8 @@ import {
 } from '@nestjs/websockets';
 import { filter, firstValueFrom, last, tap, timeout } from 'rxjs';
 import { Server, Socket } from 'socket.io';
-import {
-  isAiPersonaId,
-  isModuleAccess,
-  type AiChatReplyFrame,
-  type AiChatResultFrame,
-  type ModuleAccess,
-} from '@aquaculture/shared-contracts';
+import { isAiPersonaId, isModuleAccess, type ModuleAccess } from '@aquaculture/shared-contracts';
+import type { AiChatReplyFrame, AiChatResultFrame } from '@platform/event-contracts';
 import { TenantConnectionLimiter, WsTokenRevalidator } from '@aquaculture/backend-common/websocket';
 
 /** JWT claims we consume — the full claim set (incl. resourcePermissions) rides along. */

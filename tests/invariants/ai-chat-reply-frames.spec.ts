@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-import { AI_CHAT_DRAFT_FRAME_LIMIT } from '@aquaculture/shared-contracts';
+import { AI_CHAT_DRAFT_FRAME_LIMIT } from '@platform/event-contracts';
 
 /**
  * MSG-MEDIUM-089: a streamed request.ai.chat reply is draft frames, the

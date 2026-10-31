@@ -2,7 +2,7 @@ import {
   AI_CHAT_DRAFT_FRAME_LIMIT,
   AI_CHAT_DRAFT_INTERVAL_MS,
   type AiChatDraftFrame,
-} from '@aquaculture/shared-contracts';
+} from '@platform/event-contracts';
 
 import { DraftFrames } from '../draft-frames';
 

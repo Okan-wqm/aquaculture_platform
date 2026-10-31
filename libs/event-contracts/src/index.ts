@@ -58,6 +58,8 @@ export * from './messaging-events';
 export * from './messaging-event-registry';
 // Socket.IO wire envelopes (gateway → client) — SSoT for hydrated WS payloads.
 export * from './websocket-envelopes';
+// request.ai.chat reply frames (MSG-MEDIUM-089): ai-service ↔ messaging bridge + gateway socket.
+export * from './ai-chat-reply';
 export * from './platform-event-registry';
 export * from './storage-events';
 // W7 / D-B5: "swallow vs rethrow" is a property of the EVENT, not a per-handler

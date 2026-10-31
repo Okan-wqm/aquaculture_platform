@@ -1,10 +1,7 @@
 import { Controller, Logger } from '@nestjs/common';
 import { withTenantContext } from '@aquaculture/backend-common/context';
-import {
-  isModuleAccess,
-  type AiChatReplyFrame,
-  type AiChatResultFrame,
-} from '@aquaculture/shared-contracts';
+import { isModuleAccess } from '@aquaculture/shared-contracts';
+import type { AiChatReplyFrame, AiChatResultFrame } from '@platform/event-contracts';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import { randomUUID } from 'crypto';
 import { from, Observable } from 'rxjs';

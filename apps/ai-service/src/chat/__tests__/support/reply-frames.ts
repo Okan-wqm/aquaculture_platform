@@ -1,4 +1,4 @@
-import type { AiChatReplyFrame, AiChatResultFrame } from '@aquaculture/shared-contracts';
+import type { AiChatReplyFrame, AiChatResultFrame } from '@platform/event-contracts';
 import { lastValueFrom, type Observable } from 'rxjs';
 
 /** The result frame a `request.ai.chat` reply ends with. */

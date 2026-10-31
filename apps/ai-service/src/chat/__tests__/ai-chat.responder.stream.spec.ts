@@ -1,5 +1,5 @@
 import { Test } from '@nestjs/testing';
-import type { AiChatReplyFrame } from '@aquaculture/shared-contracts';
+import type { AiChatReplyFrame } from '@platform/event-contracts';
 import { lastValueFrom, toArray } from 'rxjs';
 
 import {

@@ -60,6 +60,19 @@ interface PiiPattern {
   regex: RegExp;
   /** Optional post-match validator (e.g., Luhn check for credit cards). */
   validate?: (match: string) => boolean;
+  /**
+   * Whether a match can contain a whitespace character, and around which
+   * text: `left` is tested on the text before the whitespace character,
+   * `right` on the text from that character to the end of what has arrived.
+   * `right` must also match a prefix of such a continuation (end it with
+   * `$`), because the rest of a streamed text is not known yet. `null`: a
+   * match never contains whitespace.
+   *
+   * Required, so a new pattern states it: {@link OutputPiiScannerService.redactStream}
+   * releases text only at whitespace no match can cross, and an understated
+   * pattern would release a number before it is complete.
+   */
+  crossesWhitespace: { left: RegExp; right: RegExp } | null;
 }
 
 /**
@@ -73,6 +86,7 @@ const PII_PATTERNS: PiiPattern[] = [
   {
     type: 'email',
     regex: /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g,
+    crossesWhitespace: null,
   },
 
   // Phone: international formats with optional country code
@@ -85,12 +99,15 @@ const PII_PATTERNS: PiiPattern[] = [
       const digitsOnly = match.replace(/\D/g, '');
       return digitsOnly.length >= 7 && digitsOnly.length <= 15;
     },
+    // Its one separator `[\s.-]?` follows a digit or `)` and precedes a digit or `(`.
+    crossesWhitespace: { left: /[\d)]$/, right: /^\s(?:[\d(]|$)/ },
   },
 
   // SSN: US Social Security Number (XXX-XX-XXXX)
   {
     type: 'ssn',
     regex: /\b\d{3}-\d{2}-\d{4}\b/g,
+    crossesWhitespace: null,
   },
 
   // Credit Card: major card formats (13-19 digits, optionally separated)
@@ -102,6 +119,8 @@ const PII_PATTERNS: PiiPattern[] = [
       if (digitsOnly.length < 13 || digitsOnly.length > 19) return false;
       return luhnCheck(digitsOnly);
     },
+    // Digits separated by any run of spaces and dashes.
+    crossesWhitespace: { left: /\d[ -]*$/, right: /^ [ -]*(?:\d|$)/ },
   },
 
   // UUID: potential tenant/user ID leakage
@@ -109,6 +128,7 @@ const PII_PATTERNS: PiiPattern[] = [
   {
     type: 'uuid',
     regex: /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi,
+    crossesWhitespace: null,
   },
 ];
 
@@ -124,7 +144,7 @@ function luhnCheck(digits: string): boolean {
   let alternate = false;
 
   for (let i = digits.length - 1; i >= 0; i--) {
-    let n = parseInt(digits[i]!, 10);
+    let n = parseInt(digits.charAt(i), 10);
     if (alternate) {
       n *= 2;
       if (n > 9) n -= 9;
@@ -171,17 +191,7 @@ export class OutputPiiScannerService {
       }
     }
 
-    // ── Build count-by-type ──
-    const countByType: Partial<Record<PiiType, number>> = {};
-    for (const detection of detections) {
-      countByType[detection.type] = (countByType[detection.type] ?? 0) + 1;
-    }
-
-    return {
-      hasPii: detections.length > 0,
-      detections,
-      countByType,
-    };
+    return summarize(detections);
   }
 
   /**
@@ -193,33 +203,145 @@ export class OutputPiiScannerService {
    */
   redact(text: string, tenantId: string): PiiRedactResult {
     const scanResult = this.scan(text);
+    this.logDetections(scanResult, tenantId);
+    return { redactedText: replaceDetections(text, scanResult.detections), scanResult };
+  }
 
+  /**
+   * Redact a text that arrives in pieces — a model turn as it streams.
+   * Each `push` returns the redacted text that no later piece can change,
+   * so it can be shown at once; `end` returns the rest. Everything the
+   * stream returns, joined, equals `redact` of the whole text.
+   *
+   * Text is released only at a whitespace character no PII match can cross
+   * (each pattern's `crossesWhitespace`), so a half-written address or
+   * phone number is held until it is complete and redacted whole. Matches
+   * do not cross a released boundary, so each released segment is scanned
+   * on its own.
+   *
+   * @param tenantId - Tenant ID for audit logging, once, at `end`
+   */
+  redactStream(tenantId: string): PiiRedactionStream {
+    let pending = '';
+    // The released raw text's tail: left context for the next boundary.
+    let releasedTail = '';
+    let releasedLength = 0;
+    const detections: PiiDetection[] = [];
+
+    const release = (length: number): string => {
+      const segment = pending.slice(0, length);
+      pending = pending.slice(length);
+      const found = this.scan(segment).detections;
+      detections.push(
+        ...found.map((d) => ({
+          ...d,
+          startIndex: d.startIndex + releasedLength,
+          endIndex: d.endIndex + releasedLength,
+        })),
+      );
+      releasedLength += length;
+      releasedTail = (releasedTail + segment).slice(-RELEASED_TAIL_LENGTH);
+      return replaceDetections(segment, found);
+    };
+
+    return {
+      push: (text: string): string => {
+        pending += text;
+        const settled = settledLength(releasedTail, pending);
+        return settled === 0 ? '' : release(settled);
+      },
+      end: (): { text: string; scanResult: PiiScanResult } => {
+        const text = release(pending.length);
+        const scanResult = summarize(detections);
+        this.logDetections(scanResult, tenantId);
+        return { text, scanResult };
+      },
+    };
+  }
+
+  private logDetections(scanResult: PiiScanResult, tenantId: string): void {
     if (!scanResult.hasPii) {
-      return { redactedText: text, scanResult };
+      return;
     }
-
     // SECURITY: Log PII detection counts but NEVER log the actual PII values.
     // The matchedText field exists only for internal audit — it must never
     // appear in logs.
     this.logger.warn(
       `SECURITY: PII detected in AI output for tenant ${tenantId}. ` +
-      `Types: ${JSON.stringify(scanResult.countByType)}`,
+        `Types: ${JSON.stringify(scanResult.countByType)}`,
     );
-
-    // ── Redact by replacing matched ranges ──
-    // Sort detections by startIndex descending so replacements don't shift indices
-    const sorted = [...scanResult.detections].sort(
-      (a, b) => b.startIndex - a.startIndex,
-    );
-
-    let redactedText = text;
-    for (const detection of sorted) {
-      redactedText =
-        redactedText.slice(0, detection.startIndex) +
-        '[REDACTED]' +
-        redactedText.slice(detection.endIndex);
-    }
-
-    return { redactedText, scanResult };
   }
+}
+
+/** Incremental redaction of one text; see {@link OutputPiiScannerService.redactStream}. */
+export interface PiiRedactionStream {
+  /** Append raw text; returns the redacted text that is now settled. */
+  push(text: string): string;
+  /** No more text: returns the rest, redacted, and the scan of the whole text. */
+  end(): { text: string; scanResult: PiiScanResult };
+}
+
+/**
+ * Left context a boundary check sees from text already released. The
+ * longest look-behind is the card pattern's separator run; a run this long
+ * between two digits is not a card number anyone writes.
+ */
+const RELEASED_TAIL_LENGTH = 256;
+
+const WHITESPACE = /\s/;
+
+/**
+ * Length of the prefix of `pending` that no further text can change: up to
+ * and including the last whitespace character that no pattern's match can
+ * cross. 0 when there is none (the whole of `pending` may still change).
+ */
+function settledLength(releasedTail: string, pending: string): number {
+  for (let i = pending.length - 1; i >= 0; i--) {
+    if (!WHITESPACE.test(pending.charAt(i))) {
+      continue;
+    }
+    const left = releasedTail + pending.slice(0, i);
+    const right = pending.slice(i);
+    const crossable = PII_PATTERNS.some(
+      ({ crossesWhitespace }) =>
+        crossesWhitespace !== null &&
+        crossesWhitespace.left.test(left) &&
+        crossesWhitespace.right.test(right),
+    );
+    if (!crossable) {
+      return i + 1;
+    }
+  }
+  return 0;
+}
+
+/**
+ * Replace every detected range with one `[REDACTED]`. Detections of
+ * different patterns can overlap (13 Luhn-valid digits are a phone number
+ * and a card number); overlapping ranges are merged first, so each stretch
+ * of PII is replaced once and the text after it is kept.
+ */
+function replaceDetections(text: string, detections: readonly PiiDetection[]): string {
+  const ranges = [...detections].sort((a, b) => a.startIndex - b.startIndex);
+  let out = '';
+  // End of the text already copied or replaced.
+  let at = 0;
+  for (const { startIndex, endIndex } of ranges) {
+    if (startIndex < at) {
+      // Overlaps the stretch just replaced: that replacement covers it too.
+      at = Math.max(at, endIndex);
+      continue;
+    }
+    out += text.slice(at, startIndex) + '[REDACTED]';
+    at = endIndex;
+  }
+  return out + text.slice(at);
+}
+
+function summarize(detections: PiiDetection[]): PiiScanResult {
+  const countByType: Partial<Record<PiiType, number>> = {};
+  for (const detection of detections) {
+    countByType[detection.type] = (countByType[detection.type] ?? 0) + 1;
+  }
+  return { hasPii: detections.length > 0, detections, countByType };
 }

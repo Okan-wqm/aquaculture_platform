@@ -240,7 +240,157 @@ fixed by an upgrade. None is excepted.
 - Dev only: module-federation type generation and Testcontainers.
 - Fix: the override `^7.30.1`, the floor and the lock move to 7.30.1.
 
-## SUPPLY-MEDIUM-020 — tailwind 3 postcss-selector-parser is quadratic (open, excepted)
+## 2026-10-29: advisories published on 2026-10-28 turn root-production and root-full red
+
+On main 645c5313 every leg was clean at 2026-10-28T16:05Z (CI - Affected run
+40721325914). The advisories below were published later that evening. On
+2026-10-29 the gate failed `root-production` and `root-full` on a PR that does
+not touch either package (run 40947682648). Every open PR inherits the red legs.
+
+### SUPPLY-HIGH-038 — graphql-scalars: PhoneNumber ReDoS
+
+- GHSA-x8rm-f576-gq67 (high), published 2026-10-28T21:13Z: the `PhoneNumber`
+  scalar's pattern is vulnerable to regular-expression denial of service.
+  Affected `<=2.0.0`, patched 2.0.1. No 1.x release is patched.
+- npm suggests 2.0.1 and marks it breaking. Neither of the two 2.0.0 breaking
+  changes breaks this repository:
+  - support for graphql-js below 16 is dropped. The root graph resolves
+    graphql 16.14.2, and the new peer range is `^16.0.0 || ^17.0.0`;
+  - support for Node.js 20 is dropped. CI and every backend image run
+    Node 22. `.nvmrc` still pins 20.11.0 and the root `engines.node` is
+    `>=20.11.0`; the package still declares `engines.node >=10`, and its
+    JSON scalars behave on Node 20.11.0 as on Node 22 (below).
+- The platform uses one export. 60 files (57 in sensor-service, 3 in
+  hydroponics-service) import `{ GraphQLJSON } from 'graphql-scalars'`.
+  Nothing imports `PhoneNumber`.
+- The published 1.25.0 and 2.0.1 trees differ in `error.js` and
+  `scalars/PhoneNumber.js` (CommonJS and ESM) and in `package.json` only.
+  `scalars/json`, its typings and the index files are byte-identical. The
+  package layout and the `exports` map are the same.
+- `scalars/json/utils.js` throws through `error.js` when a `JSONObject`
+  literal is not an object, so that change is on the platform's path. It
+  wraps a single AST node into an array before the graphql-16 `GraphQLError`
+  constructor, which graphql 16.14.2 already does itself. On one graphql
+  16.14.2 instance, 1.25.0 and 2.0.1 give identical results for 17 queries
+  through a schema that uses both JSON scalars, and identical errors, field
+  by field (`nodes`, `locations`, `positions`), for 5 non-object literals, on
+  Node 22 and on Node 20.11.0.
+- Not excepted: a patched release exists.
+- Fix: the root dependency `^2.0.1`, a dependency-security floor
+  (`graphql-scalars: '2.0.1'`, declared in `dependencies`) and the lock move
+  to 2.0.1.
+
+### SUPPLY-MEDIUM-039 — @hono/node-server: serveStatic double decoding
+
+- GHSA-rmxm-3fg6-px4f (moderate), published 2026-10-28T21:05Z: `serveStatic`
+  decodes the request path a second time, so middleware on static paths can
+  be bypassed. Affected `>=1.19.10 <2.1.3`, patched 2.1.3. Only the
+  root-production leg turns red, because the advisory is moderate.
+- The lock resolved 2.1.0. Its only dependent is `@modelcontextprotocol/sdk`,
+  which asks for `^1.19.9 || ^2.0.5`. No workspace declares hono or
+  `@hono/node-server`, and no source file imports either.
+- The gate reported "a non-breaking fix is available". Not excepted.
+- Fix: a lock-only lift to 2.1.5 (2026-10-13), the latest 2.1.x. 2.1.1 to
+  2.1.5 are patch releases. 2.1.4 widens the peer range to
+  `hono ^4 || ^5.0.0-0`, and hono stays 4.13.13. The floor table carries
+  `@hono/node-server: '2.1.3'`.
+
+## 2026-10-29: systeminformation
+
+GHSA-3f7j-7jwc-fxfj was published at 2026-10-28T22:42Z, after the two
+advisories above. On main 645c5313 it turns `root-production` and `root-full`
+red as well.
+
+### SUPPLY-HIGH-041 — systeminformation 5.33.15: Windows command injection in services()
+
+- GHSA-3f7j-7jwc-fxfj (high): command injection in `services()` on Windows.
+  Affected `<5.33.16`, patched 5.33.16.
+- Reached in production through `@opentelemetry/auto-instrumentations-node`,
+  whose `@opentelemetry/instrumentation-host-metrics` asks for `^5.31.6`. No
+  manifest declares systeminformation. The lock resolved 5.33.15.
+- The flaw needs Windows, and every backend image is Linux. It is fixed anyway:
+  a patched release exists inside the declared range.
+- The gate reported "a non-breaking fix is available". Not excepted. Not
+  CRITICAL, so the debt-plan truth table does not change.
+- Fix: a lock-only lift to 5.33.18, the npm `latest` on 2026-10-29; npm
+  changes only this entry. The floor table carries
+  `systeminformation: '5.33.16'`, the first patched release, so a lock refresh
+  cannot slide back. No manifest declares the package, so it has no
+  `ROOT_FLOOR_DECLARATIONS` entry, like `engine.io` and `body-parser`.
+
+## 2026-11-01: follow-redirects, glob and minimatch turn root-full and root-production red
+
+Three advisories were published on 2026-10-30 between 22:59Z and 23:10Z. After
+this PR merged main cead30cf3, the gate failed `root-full` on follow-redirects
+and nx, and `root-production` on cacache, glob, make-fetch-happen, minimatch
+and typeorm. The aquamobil and e2e legs stayed clean.
+
+### SUPPLY-HIGH-042 — follow-redirects 1.16.1 (fixed)
+
+- GHSA-mrwp-f3q8-3g9p (high): affected `>=1.16.0 <=1.16.1`, patched 1.16.2
+  (published 2026-10-25).
+- Dev only. The lock holds one copy, shared by nx 22.7.12, axios 1.20.0 (under
+  nx) and http-proxy 1.18.1 (under `@nx/react` → `http-proxy-middleware`). nx
+  pins 1.16.0 exactly. npm reads that pin, so it reports "no fix" for
+  follow-redirects and nx. The root override `^1.16.1` (SUPPLY-HIGH-024)
+  already lifts the copy, and it is the owner of this version.
+- 1.16.2 differs from 1.16.1 in `index.js` (one line), `README.md` and the
+  version.
+- Not excepted: a patched release exists.
+- Fix: the override `^1.16.2`, a dependency-security floor
+  (`'follow-redirects': '1.16.2'`, declared in `overrides`) and the lock move
+  to 1.16.2. npm changes only this entry, and its integrity matches the
+  registry tarball. nx then reaches only GHSA-g3hv-75wg-m249 (moderate), below
+  the root-full floor, so root-full is clean.
+
+### SUPPLY-MEDIUM-043 — glob 13.0.6 in the production graph (open, excepted)
+
+- GHSA-3g3m-2fjr-6pw4 (moderate): affected `>=9.0.0 <=14.0.1`, patched 14.0.2
+  (published 2026-10-27).
+- Two production copies of glob 13.0.6:
+  - `typeorm` 0.3.31, whose glob the root override pins to `^13.0.6`;
+  - `@apollo/gateway` 2.13.3 → `make-fetch-happen` 15.0.6 → `cacache` 20.0.4,
+    which asks for `glob ^13.0.0`.
+- The gate reports "a non-breaking fix is available" for cacache and
+  make-fetch-happen. There is none. Every cacache release through 21.0.1 (the
+  latest) asks for `glob ^13.0.0`, and make-fetch-happen 16.0.1 asks for
+  cacache `^21.0.0`. `npm update cacache make-fetch-happen --package-lock-only`
+  and `npm audit fix --package-lock-only --dry-run` change nothing.
+- Why this is an exception, not a fix today:
+  - the advisory concerns cancellation through an AbortSignal, and neither
+    production caller passes one;
+  - typeorm calls `glob.sync` on the entity patterns of the committed data
+    sources (`apps/*/src/database/data-source.ts`), which are literals;
+  - cacache globs only in `rm.all` and `verify`. make-fetch-happen calls
+    `rm.entry` and `rm.content`, and the gateway builds its fetchers without a
+    `cachePath`;
+  - glob 14 is a major, and so is npm's own proposal, typeorm 1.1.2.
+- Plan:
+  - the typeorm 1.x migration, as its own change. typeorm 1.1.2 depends on
+    tinyglobby, not glob, and the `typeorm > glob` override goes with it;
+  - cacache follows when a cacache release takes glob 14, or through an
+    override of cacache's glob to `^14.0.2` once make-fetch-happen is tested
+    on it.
+- Owner: claude. Deadline: 2026-12-01. The exception expires the same day.
+
+### SUPPLY-MEDIUM-044 — minimatch 10.2.5 in the production graph (open, excepted)
+
+- GHSA-g3hv-75wg-m249 (moderate): affected `<11.0.1`, patched 11.0.1
+  (published 2026-10-27).
+- In production, minimatch 10.2.5 sits only under the two glob 13.0.6 copies of
+  SUPPLY-MEDIUM-043, which ask for `^10.2.2`. No glob 13 accepts minimatch 11;
+  glob 14.0.3 asks for `^11.0.2`.
+- Why this is an exception, not a fix today:
+  - the patterns those globs expand are literals: the data-source entity
+    patterns and cacache's fixed suffixes of its own cache path. No request
+    supplies a pattern;
+  - minimatch 11 is a major, reached only through glob 14 or typeorm 1.x.
+- Dev only, below the root-full floor: nx 22.7.12 pins minimatch 10.2.5
+  exactly, and eslint, jest and others carry 3.x to 10.x, all moderate.
+- Plan: the same two changes as SUPPLY-MEDIUM-043. Owner: claude. Deadline:
+  2026-12-01. The exception expires the same day.
+
+## SUPPLY-MEDIUM-020 — tailwind 3 postcss-selector-parser is quadratic (fixed)
 
 - `postcss-selector-parser` below 7.1.6 (GHSA-rj75-hqrm-r3gf), reached through
   `tailwindcss` 3.4.19 in the root and AquaMobil trees.
@@ -248,8 +398,38 @@ fixed by an upgrade. None is excepted.
   postcss-selector-parser 6.x, and v7 is a different API.
 - It parses only committed CSS at build time and is never installed in a
   runtime image.
-- Fix: move AquaMobil and the root tailwind to 4. Owner: claude. Deadline:
-  2026-11-07. The exception expires the same day.
+- Plan on 2026-10-07: move AquaMobil and the root tailwind to 4. Owner:
+  claude. Deadline: 2026-11-07, the expiry of the exception.
+
+### 2026-11-01: fixed by postcss-selector-parser 6.1.5
+
+- 6.1.5 (published 2026-10-19 under the `legacy-v6` dist-tag) backports the
+  7.1.6 fix to the 6.x line. The advisory now lists `<6.1.5` and
+  `>=7.0.0 <7.1.6`; npm's bulk advisory endpoint returns nothing for 6.1.5 or
+  7.1.6.
+- 6.1.5 differs from 6.1.4 in `dist/parser.js` (Set membership in `uniqs`,
+  the interpolation filter and the class/id index tests), `CHANGELOG.md` and
+  the version. Its dependencies, engines and license are unchanged.
+- The copies, all dev:
+  - root lock: `tailwindcss` 3.4.19 (through the aquamobil workspace) and its
+    `postcss-nested` 6.2.0 each nest a 6.1.4 copy; the hoisted 7.1.6 under
+    `@nx/rollup` → `postcss-modules` is already patched;
+  - aquamobil lock: one 6.1.4 copy shared by `tailwindcss` and
+    `postcss-nested`;
+  - e2e lock: none.
+- tailwindcss asks for `^6.1.2` and postcss-nested for `^6.1.1`, so 6.1.5
+  needs no override. The three 6.1.4 entries move to 6.1.5 (version, resolved,
+  integrity). The integrity matches the sha512 of the registry tarball. npm
+  10.9.4 `install --package-lock-only` leaves both locks byte-identical, and
+  `ci --package-lock-only` accepts all three locks. `npm update` would also
+  have raised the patched hoisted 7.1.6 to 7.1.7, which is not needed here,
+  and npm 10.2.5 drops the `license` field of the entries it rewrites, so the
+  three entries were edited and checked rather than regenerated.
+- Floor: `'postcss-selector-parser': { '6': '6.1.5', '7': '7.1.6' }` in
+  `ROOT_SECURITY_FLOORS`, lock only, and the AquaMobil lock is held to the
+  same table, so a lock refresh cannot slide back.
+- The exception is removed and `MAX_EXCEPTIONS` drops 3 → 2. The tailwind 4
+  move stays worth doing, but no security deadline depends on it.
 
 ## SUPPLY-HIGH-011 — nx toolchain exposed to GHSA-7w5x-hrqm-74c2 (fixed)
 

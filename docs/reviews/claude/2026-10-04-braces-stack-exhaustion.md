@@ -195,3 +195,29 @@ such a regression is a reviewed manifest change.
 4. Drop each package from the entry as its path goes; delete the entry and
    lower the ratchet when the list is empty. On 2026-11-03 the gate fails
    closed and the argument has to be made again.
+
+## 2026-11-01: GHSA-vfj7-8cjw-p6xm withdrawn, exception removed (SUPPLY-HIGH-017 closed)
+
+- GitHub withdrew the advisory on 2026-10-23T12:53Z: "not a practically
+  exploitable vulnerability". It still lists `<= 3.0.3` with no patched
+  version, and braces 3.0.3 is still the latest release.
+- npm no longer reports it. The bulk advisory endpoint that `npm audit` queries
+  returns nothing for braces 3.0.3; for 3.0.2 it returns only the older
+  GHSA-grv7-fg5c-xmjg (`<3.0.3`). A fresh `npm audit --json` on all six legs
+  at `4e83e61b6` names no braces package. root-full, aquamobil-full and
+  e2e-full are clean at `--audit-level=high` without the entry.
+- The paths are unchanged, all dev: one braces 3.0.3 copy per lock, under
+  `@graphql-codegen/cli`, `@nx/react`, `tsc-alias` and the aquamobil
+  workspace's `tailwindcss` 3.4.19 in the root lock, `tailwindcss` 3.4.19 in
+  the aquamobil lock, and `jest`, `ts-jest` and `@types/jest` 29 in the e2e
+  lock.
+- The entry excepted nothing. Its expiry was the only effect left, and an
+  expired entry makes `npm-audit-gate` refuse the whole file. With the system
+  date simulated as 2026-11-04 the gate failed all six legs on
+  `GHSA-vfj7-8cjw-p6xm: expired 2026-11-03`, not only the three scoped legs.
+- Change: the entry is removed from `scripts/ci/npm-audit-exceptions.json`,
+  and `MAX_EXCEPTIONS` drops 4 → 3 in the same commit. Plan items 1 to 3
+  (e2e jest 30, tailwind 4, upstream releases that drop micromatch, globby 11
+  and chokidar 3) no longer carry a security deadline. If the advisory is
+  reinstated, `npm audit` reports it again, the gate fails closed on those
+  packages, and the review starts again.

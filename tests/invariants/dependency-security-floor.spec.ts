@@ -81,7 +81,8 @@ const ROOT_SECURITY_FLOORS = {
   multer: '2.5.0',
   // 13.4.5 globs type paths with tinyglobby instead of fast-glob, which takes
   // fast-glob -> micromatch -> braces (GHSA-vfj7-8cjw-p6xm, no patched braces
-  // release exists) out of the production graph (SUPPLY-HIGH-016).
+  // release exists; withdrawn on 2026-10-23, SUPPLY-HIGH-017) out of the
+  // production graph (SUPPLY-HIGH-016).
   // @nestjs/apollo deep-imports @nestjs/graphql internals and moves with it.
   '@nestjs/graphql': '13.4.5',
   // GHSA-m8vh-jmq9-5rjg (fixed in 11.2.4) + GHSA-96h4-vgxj-gvm2 (11.2.5). The
@@ -129,6 +130,34 @@ const ROOT_SECURITY_FLOORS = {
   // GHSA-qqmp-wf37-98f9: the instrumentations bundled before 0.81.0 put the
   // database user name on every span as db.user.
   '@opentelemetry/auto-instrumentations-node': '0.81.0',
+  // GHSA-x8rm-f576-gq67 (high, fixed in 2.0.1): ReDoS in the PhoneNumber
+  // scalar. Every release up to 2.0.0 is affected; no 1.x is patched. The
+  // platform imports only GraphQLJSON, whose code 2.0.1 ships unchanged
+  // (SUPPLY-HIGH-038).
+  'graphql-scalars': '2.0.1',
+  // GHSA-rmxm-3fg6-px4f (moderate, fixed in 2.1.3): serveStatic decodes the
+  // request path a second time. Reached through @modelcontextprotocol/sdk's
+  // `^1.19.9 || ^2.0.5`, so the lock is the only place this floor lives
+  // (SUPPLY-MEDIUM-039).
+  '@hono/node-server': '2.1.3',
+  // GHSA-3f7j-7jwc-fxfj (high, fixed in 5.33.16): command injection in
+  // services(), Windows only. Reached through
+  // @opentelemetry/auto-instrumentations-node ->
+  // @opentelemetry/instrumentation-host-metrics `^5.31.6`, so the lock is the
+  // only place this floor lives (SUPPLY-HIGH-041).
+  systeminformation: '5.33.16',
+  // GHSA-mrwp-f3q8-3g9p (high, affected >=1.16.0 <=1.16.1, fixed in 1.16.2).
+  // Dev only. nx 22.7.12 pins follow-redirects 1.16.0 exactly, so only the
+  // override can lift it; SUPPLY-HIGH-024 took 1.16.1 the same way
+  // (SUPPLY-HIGH-042).
+  'follow-redirects': '1.16.2',
+  // GHSA-rj75-hqrm-r3gf (moderate): flat selectors parse in quadratic time,
+  // fixed in 7.1.6 and, on the 6.x line, in 6.1.5. Dev only: 6.x sits under
+  // tailwindcss 3.4.19 (`^6.1.2`) and postcss-nested (`^6.1.1`), which both
+  // admit 6.1.5; 7.x under @nx/rollup's postcss-modules plugins. No manifest
+  // declares it, so the lock is the only place this floor lives
+  // (SUPPLY-MEDIUM-020).
+  'postcss-selector-parser': { '6': '6.1.5', '7': '7.1.6' },
 } as const satisfies Readonly<Record<string, SecurityFloor>>;
 
 interface RootFloorDeclaration {
@@ -155,6 +184,8 @@ const ROOT_FLOOR_DECLARATIONS: readonly RootFloorDeclaration[] = [
   { dependency: 'undici', field: 'overrides' },
   { dependency: 'proxy-addr', field: 'overrides' },
   { dependency: '@opentelemetry/auto-instrumentations-node', field: 'dependencies' },
+  { dependency: 'graphql-scalars', field: 'dependencies' },
+  { dependency: 'follow-redirects', field: 'overrides' },
 ];
 
 /**
@@ -775,6 +806,17 @@ describe('JavaScript dependency security floor', () => {
     // 2.1.7 / 5.0.12 clear GHSA-6j4f-fj2g-mc7p, GHSA-qhr7-859c-m2p7 and
     // GHSA-q2hr-2g5m-vwhr on each line.
     expect(resolvedVersions(lock, 'brace-expansion')).toEqual(['2.1.7', '5.0.12']);
+    // GHSA-rj75-hqrm-r3gf: tailwindcss 3's copy, held to the root graph's
+    // per-major floor (SUPPLY-MEDIUM-020).
+    const selectorParserVersions = resolvedVersions(lock, 'postcss-selector-parser');
+    expect(selectorParserVersions.length).toBeGreaterThan(0);
+    for (const version of selectorParserVersions) {
+      const floor = floorFor(ROOT_SECURITY_FLOORS['postcss-selector-parser'], version);
+      expect({
+        version,
+        safe: floor !== undefined && comparable(version) >= comparable(floor),
+      }).toEqual({ version, safe: true });
+    }
   });
 
   test('keeps the root production graph at its SUPPLY-HIGH-014 floors, in the manifest and every lock copy', () => {

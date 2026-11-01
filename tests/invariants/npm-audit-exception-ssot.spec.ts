@@ -78,6 +78,31 @@ const MAX_EXCEPTIONS = 2;
 // patch) that turned root-full red (SUPPLY-CRITICAL-026), and vitest 4 no
 // longer depends on tinypool (SUPPLY-HIGH-019 fixed). The ratchet returns to 1
 // when tailwind 4 lands (SUPPLY-MEDIUM-020).
+//
+// 2026-11-01: 2 → 4, in the same commit as the two entries it admits.
+// GHSA-3g3m-2fjr-6pw4 (glob, SUPPLY-MEDIUM-043) and GHSA-g3hv-75wg-m249
+// (minimatch, SUPPLY-MEDIUM-044), root-production only, expiring 2026-12-01.
+// glob 13.0.6 and its minimatch 10.2.5 reach production through typeorm 0.3.31
+// and @apollo/gateway -> make-fetch-happen -> cacache, and no in-range release
+// is patched: glob 14 and minimatch 11 are majors, and every cacache asks for
+// glob ^13. The same day's GHSA-mrwp-f3q8-3g9p (follow-redirects) is fixed, not
+// excepted (SUPPLY-HIGH-042). The ratchet drops by two when the typeorm 1.x
+// migration lands and cacache moves to glob 14.
+//
+// 2026-11-01: 4 → 3, removing GHSA-vfj7-8cjw-p6xm. GitHub withdrew the
+// advisory on 2026-10-23 as not practically exploitable, and npm's bulk
+// advisory endpoint no longer returns it for braces 3.0.3, so a fresh
+// `npm audit` names braces in no leg. The entry excepted nothing, and from
+// 2026-11-04 its expiry would have failed all six legs, since the gate
+// refuses the whole file over one expired entry (SUPPLY-HIGH-017 closed).
+//
+// 2026-11-01: 3 → 2, removing GHSA-rj75-hqrm-r3gf. postcss-selector-parser
+// 6.1.5 (2026-10-19) backports the 7.1.6 fix to the 6.x line, inside
+// tailwindcss 3.4.19's `^6.1.2` and postcss-nested's `^6.1.1`. The root and
+// aquamobil locks move their three 6.1.4 copies to it, and
+// dependency-security-floor holds 6.1.5 / 7.1.6 per major, so tailwind 4 is
+// no longer the fix (SUPPLY-MEDIUM-020 closed). Left: the two root-production
+// entries of SUPPLY-MEDIUM-043/044.
 
 interface ExceptionEntry {
   owner?: unknown;

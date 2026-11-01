@@ -145,6 +145,11 @@ const ROOT_SECURITY_FLOORS = {
   // @opentelemetry/instrumentation-host-metrics `^5.31.6`, so the lock is the
   // only place this floor lives (SUPPLY-HIGH-041).
   systeminformation: '5.33.16',
+  // GHSA-mrwp-f3q8-3g9p (high, affected >=1.16.0 <=1.16.1, fixed in 1.16.2).
+  // Dev only. nx 22.7.12 pins follow-redirects 1.16.0 exactly, so only the
+  // override can lift it; SUPPLY-HIGH-024 took 1.16.1 the same way
+  // (SUPPLY-HIGH-042).
+  'follow-redirects': '1.16.2',
 } as const satisfies Readonly<Record<string, SecurityFloor>>;
 
 interface RootFloorDeclaration {
@@ -172,6 +177,7 @@ const ROOT_FLOOR_DECLARATIONS: readonly RootFloorDeclaration[] = [
   { dependency: 'proxy-addr', field: 'overrides' },
   { dependency: '@opentelemetry/auto-instrumentations-node', field: 'dependencies' },
   { dependency: 'graphql-scalars', field: 'dependencies' },
+  { dependency: 'follow-redirects', field: 'overrides' },
 ];
 
 /**

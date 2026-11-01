@@ -318,6 +318,31 @@ red as well.
   cannot slide back. No manifest declares the package, so it has no
   `ROOT_FLOOR_DECLARATIONS` entry, like `engine.io` and `body-parser`.
 
+## 2026-11-01: follow-redirects, glob and minimatch turn root-full and root-production red
+
+Three advisories were published on 2026-10-30 between 22:59Z and 23:10Z. After
+this PR merged main cead30cf3, the gate failed `root-full` on follow-redirects
+and nx, and `root-production` on cacache, glob, make-fetch-happen, minimatch
+and typeorm. The aquamobil and e2e legs stayed clean.
+
+### SUPPLY-HIGH-042 — follow-redirects 1.16.1 (fixed)
+
+- GHSA-mrwp-f3q8-3g9p (high): affected `>=1.16.0 <=1.16.1`, patched 1.16.2
+  (published 2026-10-25).
+- Dev only. The lock holds one copy, shared by nx 22.7.12, axios 1.20.0 (under
+  nx) and http-proxy 1.18.1 (under `@nx/react` → `http-proxy-middleware`). nx
+  pins 1.16.0 exactly. npm reads that pin, so it reports "no fix" for
+  follow-redirects and nx. The root override `^1.16.1` (SUPPLY-HIGH-024)
+  already lifts the copy, and it is the owner of this version.
+- 1.16.2 differs from 1.16.1 in `index.js` (one line), `README.md` and the
+  version.
+- Not excepted: a patched release exists.
+- Fix: the override `^1.16.2`, a dependency-security floor
+  (`'follow-redirects': '1.16.2'`, declared in `overrides`) and the lock move
+  to 1.16.2. npm changes only this entry, and its integrity matches the
+  registry tarball. nx then reaches only GHSA-g3hv-75wg-m249 (moderate), below
+  the root-full floor, so root-full is clean.
+
 ## SUPPLY-MEDIUM-020 — tailwind 3 postcss-selector-parser is quadratic (open, excepted)
 
 - `postcss-selector-parser` below 7.1.6 (GHSA-rj75-hqrm-r3gf), reached through

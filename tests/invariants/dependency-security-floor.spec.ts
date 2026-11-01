@@ -151,6 +151,13 @@ const ROOT_SECURITY_FLOORS = {
   // override can lift it; SUPPLY-HIGH-024 took 1.16.1 the same way
   // (SUPPLY-HIGH-042).
   'follow-redirects': '1.16.2',
+  // GHSA-rj75-hqrm-r3gf (moderate): flat selectors parse in quadratic time,
+  // fixed in 7.1.6 and, on the 6.x line, in 6.1.5. Dev only: 6.x sits under
+  // tailwindcss 3.4.19 (`^6.1.2`) and postcss-nested (`^6.1.1`), which both
+  // admit 6.1.5; 7.x under @nx/rollup's postcss-modules plugins. No manifest
+  // declares it, so the lock is the only place this floor lives
+  // (SUPPLY-MEDIUM-020).
+  'postcss-selector-parser': { '6': '6.1.5', '7': '7.1.6' },
 } as const satisfies Readonly<Record<string, SecurityFloor>>;
 
 interface RootFloorDeclaration {
@@ -799,6 +806,17 @@ describe('JavaScript dependency security floor', () => {
     // 2.1.7 / 5.0.12 clear GHSA-6j4f-fj2g-mc7p, GHSA-qhr7-859c-m2p7 and
     // GHSA-q2hr-2g5m-vwhr on each line.
     expect(resolvedVersions(lock, 'brace-expansion')).toEqual(['2.1.7', '5.0.12']);
+    // GHSA-rj75-hqrm-r3gf: tailwindcss 3's copy, held to the root graph's
+    // per-major floor (SUPPLY-MEDIUM-020).
+    const selectorParserVersions = resolvedVersions(lock, 'postcss-selector-parser');
+    expect(selectorParserVersions.length).toBeGreaterThan(0);
+    for (const version of selectorParserVersions) {
+      const floor = floorFor(ROOT_SECURITY_FLOORS['postcss-selector-parser'], version);
+      expect({
+        version,
+        safe: floor !== undefined && comparable(version) >= comparable(floor),
+      }).toEqual({ version, safe: true });
+    }
   });
 
   test('keeps the root production graph at its SUPPLY-HIGH-014 floors, in the manifest and every lock copy', () => {

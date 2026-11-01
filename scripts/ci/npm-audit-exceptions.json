@@ -1,14 +1,6 @@
 {
   "version": 1,
   "advisories": {
-    "GHSA-rj75-hqrm-r3gf": {
-      "owner": "claude",
-      "reason": "postcss-selector-parser 6.x reached through tailwindcss 3.4.19 in the root and AquaMobil trees (the other web modules are on tailwind 4); tailwind 3 requires postcss-selector-parser ^6 and v7 is a different API. It parses only committed CSS at build time and is never installed in a runtime image. Real fix: move AquaMobil and the root tailwind to 4.",
-      "expires_on": "2026-11-07",
-      "finding_id": "SUPPLY-MEDIUM-020",
-      "packages": ["tailwindcss"],
-      "scopes": ["root-full", "aquamobil-full"]
-    },
     "GHSA-3g3m-2fjr-6pw4": {
       "owner": "claude",
       "reason": "Production, moderate. glob 13.0.6 is reached through typeorm 0.3.31 (whose glob the root override pins to ^13.0.6) and through @apollo/gateway -> make-fetch-happen 15.0.6 -> cacache 20.0.4. Every published cacache, 21.0.1 included, asks for glob ^13.0.0 and every 13.x is affected, so the non-breaking fix the gate reports for cacache and make-fetch-happen does not exist: npm update and npm audit fix leave the lock unchanged. The advisory concerns cancellation through an AbortSignal and neither caller passes one: typeorm runs glob.sync on the literal entity patterns of the committed data sources, and cacache globs only in rm.all and verify, which make-fetch-happen never calls. The patched glob 14.0.2 is a major, as is npm's typeorm 1.1.2. Real fix: the typeorm 1.x migration as its own change (tinyglobby, no glob), and cacache on glob 14.",

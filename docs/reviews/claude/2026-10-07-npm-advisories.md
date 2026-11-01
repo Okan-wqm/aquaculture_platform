@@ -390,7 +390,7 @@ and typeorm. The aquamobil and e2e legs stayed clean.
 - Plan: the same two changes as SUPPLY-MEDIUM-043. Owner: claude. Deadline:
   2026-12-01. The exception expires the same day.
 
-## SUPPLY-MEDIUM-020 — tailwind 3 postcss-selector-parser is quadratic (open, excepted)
+## SUPPLY-MEDIUM-020 — tailwind 3 postcss-selector-parser is quadratic (fixed)
 
 - `postcss-selector-parser` below 7.1.6 (GHSA-rj75-hqrm-r3gf), reached through
   `tailwindcss` 3.4.19 in the root and AquaMobil trees.
@@ -398,8 +398,38 @@ and typeorm. The aquamobil and e2e legs stayed clean.
   postcss-selector-parser 6.x, and v7 is a different API.
 - It parses only committed CSS at build time and is never installed in a
   runtime image.
-- Fix: move AquaMobil and the root tailwind to 4. Owner: claude. Deadline:
-  2026-11-07. The exception expires the same day.
+- Plan on 2026-10-07: move AquaMobil and the root tailwind to 4. Owner:
+  claude. Deadline: 2026-11-07, the expiry of the exception.
+
+### 2026-11-01: fixed by postcss-selector-parser 6.1.5
+
+- 6.1.5 (published 2026-10-19 under the `legacy-v6` dist-tag) backports the
+  7.1.6 fix to the 6.x line. The advisory now lists `<6.1.5` and
+  `>=7.0.0 <7.1.6`; npm's bulk advisory endpoint returns nothing for 6.1.5 or
+  7.1.6.
+- 6.1.5 differs from 6.1.4 in `dist/parser.js` (Set membership in `uniqs`,
+  the interpolation filter and the class/id index tests), `CHANGELOG.md` and
+  the version. Its dependencies, engines and license are unchanged.
+- The copies, all dev:
+  - root lock: `tailwindcss` 3.4.19 (through the aquamobil workspace) and its
+    `postcss-nested` 6.2.0 each nest a 6.1.4 copy; the hoisted 7.1.6 under
+    `@nx/rollup` → `postcss-modules` is already patched;
+  - aquamobil lock: one 6.1.4 copy shared by `tailwindcss` and
+    `postcss-nested`;
+  - e2e lock: none.
+- tailwindcss asks for `^6.1.2` and postcss-nested for `^6.1.1`, so 6.1.5
+  needs no override. The three 6.1.4 entries move to 6.1.5 (version, resolved,
+  integrity). The integrity matches the sha512 of the registry tarball. npm
+  10.9.4 `install --package-lock-only` leaves both locks byte-identical, and
+  `ci --package-lock-only` accepts all three locks. `npm update` would also
+  have raised the patched hoisted 7.1.6 to 7.1.7, which is not needed here,
+  and npm 10.2.5 drops the `license` field of the entries it rewrites, so the
+  three entries were edited and checked rather than regenerated.
+- Floor: `'postcss-selector-parser': { '6': '6.1.5', '7': '7.1.6' }` in
+  `ROOT_SECURITY_FLOORS`, lock only, and the AquaMobil lock is held to the
+  same table, so a lock refresh cannot slide back.
+- The exception is removed and `MAX_EXCEPTIONS` drops 3 → 2. The tailwind 4
+  move stays worth doing, but no security deadline depends on it.
 
 ## SUPPLY-HIGH-011 — nx toolchain exposed to GHSA-7w5x-hrqm-74c2 (fixed)
 

@@ -44,7 +44,7 @@ const GATE = join(REPO_ROOT, 'scripts', 'ci', 'npm-audit-gate.mjs');
  * to @aws-sdk/client-s3 (SUPPLY-MEDIUM-008) — exactly the re-review condition
  * the entry's own reason named.
  */
-const MAX_EXCEPTIONS = 3;
+const MAX_EXCEPTIONS = 2;
 
 // 2026-09-16: 0 → 2, in the same commit as the two entries it admits.
 // GHSA-7w5x-hrqm-74c2 (nx toolchain, 15 packages) and GHSA-vwc7-r8mq-g2x9
@@ -95,6 +95,14 @@ const MAX_EXCEPTIONS = 3;
 // `npm audit` names braces in no leg. The entry excepted nothing, and from
 // 2026-11-04 its expiry would have failed all six legs, since the gate
 // refuses the whole file over one expired entry (SUPPLY-HIGH-017 closed).
+//
+// 2026-11-01: 3 → 2, removing GHSA-rj75-hqrm-r3gf. postcss-selector-parser
+// 6.1.5 (2026-10-19) backports the 7.1.6 fix to the 6.x line, inside
+// tailwindcss 3.4.19's `^6.1.2` and postcss-nested's `^6.1.1`. The root and
+// aquamobil locks move their three 6.1.4 copies to it, and
+// dependency-security-floor holds 6.1.5 / 7.1.6 per major, so tailwind 4 is
+// no longer the fix (SUPPLY-MEDIUM-020 closed). Left: the two root-production
+// entries of SUPPLY-MEDIUM-043/044.
 
 interface ExceptionEntry {
   owner?: unknown;

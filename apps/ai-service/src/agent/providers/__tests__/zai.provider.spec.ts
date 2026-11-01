@@ -1,6 +1,7 @@
 /**
  * ZaiProvider — OpenAI-compatible relay subclass (Z.ai GLM, BYOK).
- * Pins: registry wiring, baseURL routing, and the 404-tolerant key probe.
+ * Pins: registry wiring, baseURL routing, the 404-tolerant key probe, and the
+ * stream request (no OpenAI-only stream_options).
  */
 import 'reflect-metadata';
 import { stub, stubMember } from '@aquaculture/testing';
@@ -29,6 +30,10 @@ class ProbeZaiProvider extends ZaiProvider {
     return this.requestExtras(
       stub<LlmChatParams>({ model, system: '', maxTokens: 1, tools: [], messages: [] }),
     );
+  }
+
+  usage(): Record<string, unknown> {
+    return this.usageReporting();
   }
 }
 
@@ -82,5 +87,11 @@ describe('ZaiProvider — GLM-5.x reasoning effort (user preference)', () => {
     const zai = new ProbeZaiProvider();
     expect(zai.extrasFor('glm-4.6')).toEqual({});
     expect(zai.extrasFor('glm-4.7-flash')).toEqual({});
+  });
+});
+
+describe('ZaiProvider — streamed usage', () => {
+  it('sends no stream_options: Z.ai reports usage in its last chunk unasked', () => {
+    expect(new ProbeZaiProvider().usage()).toEqual({});
   });
 });

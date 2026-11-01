@@ -404,6 +404,7 @@ export const tr: Record<MessageKey, string> = {
   'messaging.aiAssistant': 'Yapay Zekâ Asistanı',
   'messaging.memberFallback': 'Üye',
   // FAZ 2.4 — AI görünürlüğü: persona kaynaklı mesajlar + AI hata bildirimleri.
+  'messaging.aiWriting': 'yazıyor…',
   'messaging.aiUnavailable':
     'Yapay zekâ şu anda kullanılamıyor — lütfen daha sonra tekrar deneyin.',
   'messaging.contentImage': '[Görsel]',

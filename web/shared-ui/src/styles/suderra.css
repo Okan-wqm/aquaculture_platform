@@ -750,6 +750,27 @@
   .sd-msg-row--mine .sd-msg-time {
     text-align: right;
   }
+  /* An AI reply while it is written (MSG-MEDIUM-089): a caret after the
+     typed text. It stands still for a reader who asked for reduced motion. */
+  .sd-msg-caret {
+    display: inline-block;
+    width: 0.45em;
+    height: 1.05em;
+    margin-left: 2px;
+    vertical-align: text-bottom;
+    background: color-mix(in srgb, var(--color-sd-violet) 70%, transparent);
+    animation: sd-msg-caret-blink 1s steps(2, start) infinite;
+  }
+  @keyframes sd-msg-caret-blink {
+    to {
+      visibility: hidden;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .sd-msg-caret {
+      animation: none;
+    }
+  }
   .sd-composer {
     display: flex;
     flex-shrink: 0;

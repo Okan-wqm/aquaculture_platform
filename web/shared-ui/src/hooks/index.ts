@@ -23,4 +23,5 @@ export type { ToastOptions } from './useToast';
 export { useConfirm, usePrompt } from './useConfirm';
 export type { ConfirmOptions, PromptOptions, ConfirmFn, PromptFn } from './useConfirm';
 export { useClickOutside } from './useClickOutside';
+export { useTypewriter } from './useTypewriter';
 export { useActAsContext } from './useActAsContext';

@@ -3,6 +3,7 @@ import { Test } from '@nestjs/testing';
 import { stub } from '@aquaculture/testing';
 import { AgentRunnerService, type ChatRequest } from '../../agent/agent-runner.service';
 import { AiChatResponder, type AiChatNatsRequest } from '../ai-chat.responder';
+import { resultOf } from './support/reply-frames';
 
 /**
  * MSGFIX-FAZ2 2.3 — contextMessages mapping pins.
@@ -49,23 +50,25 @@ describe('AiChatResponder contextMessages mapping (MSGFIX-FAZ2)', () => {
   });
 
   it('maps contextMessages to priorMessages (consented users → user, AI turns → assistant)', async () => {
-    await responder.handleChat(
-      baseRequest({
-        contextMessages: [
-          {
-            senderId: 'u1',
-            content: 'question from user 1',
-            createdAt: '2026-09-16T10:00:00Z',
-            isAi: false,
-          },
-          {
-            senderId: 'ai',
-            content: 'assistant answer',
-            createdAt: '2026-09-16T10:01:00Z',
-            isAi: true,
-          },
-        ],
-      }),
+    await resultOf(
+      responder.handleChat(
+        baseRequest({
+          contextMessages: [
+            {
+              senderId: 'u1',
+              content: 'question from user 1',
+              createdAt: '2026-09-16T10:00:00Z',
+              isAi: false,
+            },
+            {
+              senderId: 'ai',
+              content: 'assistant answer',
+              createdAt: '2026-09-16T10:01:00Z',
+              isAi: true,
+            },
+          ],
+        }),
+      ),
     );
 
     const chatRequest = lastChatRequest();
@@ -76,20 +79,22 @@ describe('AiChatResponder contextMessages mapping (MSGFIX-FAZ2)', () => {
   });
 
   it('drops malformed and empty entries defensively (NATS trust boundary)', async () => {
-    await responder.handleChat(
-      baseRequest({
-        contextMessages: [
-          { senderId: 'u1', content: '', createdAt: '2026-09-16T10:00:00Z', isAi: false },
-          { senderId: 'u2', content: '   ', createdAt: '2026-09-16T10:00:00Z', isAi: false },
-          // Malformed: no content at all (a partial value the guard must drop).
-          stub<NonNullable<AiChatNatsRequest['contextMessages']>[number]>({
-            senderId: 'u3',
-            createdAt: '2026-09-16T10:00:00Z',
-            isAi: false,
-          }),
-          { senderId: 'u4', content: 'kept', createdAt: '2026-09-16T10:00:00Z', isAi: false },
-        ],
-      }),
+    await resultOf(
+      responder.handleChat(
+        baseRequest({
+          contextMessages: [
+            { senderId: 'u1', content: '', createdAt: '2026-09-16T10:00:00Z', isAi: false },
+            { senderId: 'u2', content: '   ', createdAt: '2026-09-16T10:00:00Z', isAi: false },
+            // Malformed: no content at all (a partial value the guard must drop).
+            stub<NonNullable<AiChatNatsRequest['contextMessages']>[number]>({
+              senderId: 'u3',
+              createdAt: '2026-09-16T10:00:00Z',
+              isAi: false,
+            }),
+            { senderId: 'u4', content: 'kept', createdAt: '2026-09-16T10:00:00Z', isAi: false },
+          ],
+        }),
+      ),
     );
 
     const chatRequest = lastChatRequest();
@@ -98,15 +103,17 @@ describe('AiChatResponder contextMessages mapping (MSGFIX-FAZ2)', () => {
 
   it('caps history at 30 entries and 8000 chars per entry', async () => {
     const long = 'x'.repeat(9_000);
-    await responder.handleChat(
-      baseRequest({
-        contextMessages: Array.from({ length: 40 }, (_, i) => ({
-          senderId: `u${i}`,
-          content: i === 0 ? long : `m${i}`,
-          createdAt: '2026-09-16T10:00:00Z',
-          isAi: false,
-        })),
-      }),
+    await resultOf(
+      responder.handleChat(
+        baseRequest({
+          contextMessages: Array.from({ length: 40 }, (_, i) => ({
+            senderId: `u${i}`,
+            content: i === 0 ? long : `m${i}`,
+            createdAt: '2026-09-16T10:00:00Z',
+            isAi: false,
+          })),
+        }),
+      ),
     );
 
     const chatRequest = lastChatRequest();
@@ -115,18 +122,20 @@ describe('AiChatResponder contextMessages mapping (MSGFIX-FAZ2)', () => {
   });
 
   it('does NOT forward context when a conversationId rides the request (stored history wins)', async () => {
-    await responder.handleChat(
-      baseRequest({
-        conversationId: 'conv-42',
-        contextMessages: [
-          {
-            senderId: 'u1',
-            content: 'should be ignored',
-            createdAt: '2026-09-16T10:00:00Z',
-            isAi: false,
-          },
-        ],
-      }),
+    await resultOf(
+      responder.handleChat(
+        baseRequest({
+          conversationId: 'conv-42',
+          contextMessages: [
+            {
+              senderId: 'u1',
+              content: 'should be ignored',
+              createdAt: '2026-09-16T10:00:00Z',
+              isAi: false,
+            },
+          ],
+        }),
+      ),
     );
 
     const chatRequest = lastChatRequest();
@@ -135,7 +144,7 @@ describe('AiChatResponder contextMessages mapping (MSGFIX-FAZ2)', () => {
   });
 
   it('undefined priorMessages when no context is supplied (assistant path unchanged)', async () => {
-    await responder.handleChat(baseRequest());
+    await resultOf(responder.handleChat(baseRequest()));
 
     const chatRequest = lastChatRequest();
     expect(chatRequest.priorMessages).toBeUndefined();

@@ -156,7 +156,7 @@ ${publish}
 ${subscribe}
           ]
         }
-        allow_responses: { max: 64, expires: "5m" }
+        allow_responses: { max: 1024, expires: "5m" }
       }
     }`;
   });
@@ -464,7 +464,7 @@ void test('the wired static command passes on the committed tree (real entry, re
 void test('a block that drops allow_responses (the e25c768f8 drift shape) is refused', () => {
   const inputs = loadStaticInputs();
   const drifted = inputs.natsConf.replace(
-    /^ {8}allow_responses: \{ max: 64, expires: "5m" \}\n/gm,
+    /^ {8}allow_responses: \{ max: \d+, expires: "\d+[smh]" \}\n/gm,
     '',
   );
   if (drifted === inputs.natsConf) {

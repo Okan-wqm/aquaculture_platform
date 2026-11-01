@@ -2,12 +2,14 @@ import 'reflect-metadata';
 
 // Mock the OpenAI SDK before importing the provider. The mock exposes the same
 // error classes the provider narrows on (instanceof via OpenAI.* statics), a
-// controllable chat.completions.create + models.list, and records constructor
-// calls so we can assert client reuse. Error classes and mock fns are declared
+// chat.completions.stream whose final completion (or failure) is
+// mockCompletion's and whose content deltas are mockDeltas, models.list, and
+// records constructor calls so we can assert client reuse. Error classes and mock fns are declared
 // at module scope (mock-prefixed so the hoisted jest.mock factory may close over
 // them) — a rejected error is a genuine instance of the class the provider
 // checks, with no SDK type import and no cast.
-const mockCreate = jest.fn();
+const mockCompletion = jest.fn();
+const mockDeltas: string[] = [];
 const mockList = jest.fn();
 const mockConstructor = jest.fn();
 class MockAuthenticationError extends Error {}
@@ -18,7 +20,23 @@ jest.mock('openai', () => {
     jest.fn((opts: unknown) => {
       mockConstructor(opts);
       return {
-        chat: { completions: { create: mockCreate } },
+        chat: {
+          completions: {
+            stream: (body: unknown) => {
+              const listeners: Array<(event: { delta: string }) => void> = [];
+              return {
+                on: (name: string, listener: (event: { delta: string }) => void): void => {
+                  if (name === 'content.delta') listeners.push(listener);
+                },
+                finalChatCompletion: async (): Promise<unknown> => {
+                  for (const delta of mockDeltas)
+                    listeners.forEach((listener) => listener({ delta }));
+                  return mockCompletion(body);
+                },
+              };
+            },
+          },
+        },
         models: { list: mockList },
       };
     }),
@@ -41,6 +59,7 @@ const CHAT_PARAMS: LlmChatParams = {
   maxTokens: 256,
   tools: [{ name: 'get_x', description: 'gets x', inputSchema: { type: 'object' } }],
   messages: [{ role: 'user', content: [{ type: 'text', text: 'hello' }] }],
+  onText: () => undefined,
 };
 
 function okResponse(overrides: Record<string, unknown> = {}): unknown {
@@ -55,14 +74,15 @@ describe('OpenAiProvider', () => {
   let provider: OpenAiProvider;
 
   beforeEach(() => {
-    mockCreate.mockReset();
+    mockCompletion.mockReset();
+    mockDeltas.length = 0;
     mockList.mockReset();
     mockConstructor.mockReset();
     provider = new OpenAiProvider();
   });
 
   it('translates a text+tool_call response into normalized blocks and usage', async () => {
-    mockCreate.mockResolvedValue({
+    mockCompletion.mockResolvedValue({
       choices: [
         {
           message: {
@@ -74,7 +94,11 @@ describe('OpenAiProvider', () => {
           finish_reason: 'tool_calls',
         },
       ],
-      usage: { prompt_tokens: 10, completion_tokens: 5, prompt_tokens_details: { cached_tokens: 3 } },
+      usage: {
+        prompt_tokens: 10,
+        completion_tokens: 5,
+        prompt_tokens_details: { cached_tokens: 3 },
+      },
     });
 
     const result = await provider.chat(CHAT_PARAMS, CRED);
@@ -89,7 +113,7 @@ describe('OpenAiProvider', () => {
   });
 
   it('coalesces missing usage/cache fields to 0 (never NaN)', async () => {
-    mockCreate.mockResolvedValue({
+    mockCompletion.mockResolvedValue({
       choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }],
       usage: { prompt_tokens: 4, completion_tokens: 1 },
     });
@@ -101,7 +125,7 @@ describe('OpenAiProvider', () => {
   });
 
   it('flattens tool_result blocks into role:tool messages and tool_use into tool_calls', async () => {
-    mockCreate.mockResolvedValue(okResponse());
+    mockCompletion.mockResolvedValue(okResponse());
     await provider.chat(
       {
         ...CHAT_PARAMS,
@@ -120,7 +144,9 @@ describe('OpenAiProvider', () => {
       CRED,
     );
 
-    const calls = mockCreate.mock.calls as Array<[{ messages: Array<Record<string, unknown>> }]>;
+    const calls = mockCompletion.mock.calls as Array<
+      [{ messages: Array<Record<string, unknown>> }]
+    >;
     const sent = calls[0]?.[0];
     if (!sent) throw new Error('expected chat.completions.create to be called once');
     expect(sent.messages[0]).toEqual({ role: 'system', content: 'You are a test assistant.' });
@@ -135,13 +161,33 @@ describe('OpenAiProvider', () => {
     expect(sent.messages[3]).toEqual({ role: 'tool', tool_call_id: 'call_9', content: '42' });
   });
 
+  it("passes the content deltas to onText as the turn's one text block", async () => {
+    const onText = jest.fn();
+    mockDeltas.push('o', 'k');
+    mockCompletion.mockResolvedValue(okResponse());
+
+    await provider.chat({ ...CHAT_PARAMS, onText }, CRED);
+
+    expect(onText.mock.calls).toEqual([[{ block: 0, text: 'o' }], [{ block: 0, text: 'k' }]]);
+  });
+
+  it('asks the stream to report usage, so the token budget is charged', async () => {
+    mockCompletion.mockResolvedValue(okResponse());
+
+    await provider.chat(CHAT_PARAMS, CRED);
+
+    expect(mockCompletion).toHaveBeenCalledWith(
+      expect.objectContaining({ stream_options: { include_usage: true } }),
+    );
+  });
+
   it('maps a rejected key to LlmAuthError (not a raw SDK error)', async () => {
-    mockCreate.mockRejectedValue(new MockAuthenticationError('401'));
+    mockCompletion.mockRejectedValue(new MockAuthenticationError('401'));
     await expect(provider.chat(CHAT_PARAMS, CRED)).rejects.toBeInstanceOf(LlmAuthError);
   });
 
   it('reuses one SDK client per distinct key (no per-request client churn)', async () => {
-    mockCreate.mockResolvedValue(okResponse());
+    mockCompletion.mockResolvedValue(okResponse());
     await provider.chat(CHAT_PARAMS, CRED);
     await provider.chat(CHAT_PARAMS, CRED);
     await provider.chat(CHAT_PARAMS, { provider: 'openai', apiKey: 'sk-openai-other' });

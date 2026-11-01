@@ -137,6 +137,27 @@ export interface PresenceEnvelope {
   lastSeenAt: string | null;
 }
 
+/**
+ * `aiReplyDraft` — the AI's reply while it is being written (MSG-MEDIUM-089).
+ * Show it until the `newMessage` whose `idempotencyKey` is `replyKey`.
+ * Model output: render the text as text, never as HTML.
+ */
+export type AiReplyDraftEnvelope =
+  | {
+      channelId: string;
+      replyKey: string;
+      /** `text` continues turn `turn`'s draft; a higher turn starts the draft over. */
+      phase: 'writing';
+      turn: number;
+      text: string;
+    }
+  | {
+      channelId: string;
+      replyKey: string;
+      /** stored: the reply is saved and arrives as a message; abandoned: none is coming. */
+      phase: 'stored' | 'abandoned';
+    };
+
 // The events below are emitted DIRECTLY by the gateway (not via the NATS
 // bridge hydration path), so the event-contracts SSoT does not carry their
 // shapes — this mirror is their typed definition for web consumers.
@@ -185,7 +206,7 @@ export interface SocketIoErrorEnvelope {
 // ----------------------------------------------------------------------------
 
 /**
- * The six bridge-hydrated event names, in the SSoT's declaration order.
+ * The bridge-relayed event names, in the SSoT's declaration order.
  * Parity with event-contracts is asserted at runtime by the mirror spec —
  * keep BOTH lists in sync (or the spec fails).
  */
@@ -196,6 +217,7 @@ export const MESSAGING_WS_EVENT_NAMES = [
   'readReceipt',
   'typing',
   'presence',
+  'aiReplyDraft',
 ] as const;
 
 export type MessagingWsEventName = (typeof MESSAGING_WS_EVENT_NAMES)[number];

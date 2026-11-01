@@ -36,6 +36,7 @@ import { AiPrivacyService } from './services/ai-privacy.service';
 import { AiCallerCapabilitiesService } from './services/ai-caller-capabilities.service';
 import { KnowledgeExtractionService } from './services/knowledge-extraction.service';
 import { AiChatBridgeService } from './services/ai-chat-bridge.service';
+import { AiReplyDraftPublisher } from './services/ai-reply-draft.publisher';
 import { AiPersonasRegistryService } from './services/ai-personas-registry.service';
 // MSGFIX-FAZ0: env-driven AI kill-switch (MESSAGING_AI_TRIGGER_ENABLED, default OFF).
 // The Faz 2 trigger injects this before enqueuing any AI analysis.
@@ -76,6 +77,7 @@ const services = [
   AiCallerCapabilitiesService,
   KnowledgeExtractionService,
   AiChatBridgeService,
+  AiReplyDraftPublisher,
   AiPersonasRegistryService,
 ];
 

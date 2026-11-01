@@ -8,7 +8,7 @@
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import React from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import '@testing-library/jest-dom/vitest';
 
 vi.mock('@aquaculture/shared-ui', async () =>
@@ -19,6 +19,10 @@ import { requestMock } from '../../../test-utils/sharedUiMock';
 import { routeGraphql } from '../../../test-utils/mockGraphqlClient';
 import { renderWithProviders } from '../../../test-utils/renderWithProviders';
 import HealthEventsPage from '../HealthEventsPage';
+
+// The mortality chart shows the 14 days ending today, so the fixture's points
+// are dated against this fixed "today", not the day the suite happens to run.
+const FIXED_NOW = new Date('2026-10-19T12:00:00.000Z');
 
 const HEALTH_EVENT = {
   id: 'he-1',
@@ -61,7 +65,14 @@ const HEALTH_EVENT = {
   updatedAt: '2026-06-28T09:00:00.000Z',
 };
 
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 beforeEach(() => {
+  // Fake ONLY Date so userEvent/waitFor keep real setTimeout (no hang).
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(FIXED_NOW);
   requestMock.mockReset();
   routeGraphql([
     {

@@ -185,22 +185,12 @@ assert.deepEqual(
   [`${FACTORY}:1`, 'libs/backend-common/src/nats/index.ts:2'].sort(),
 );
 
-// Clean-main baseline on a small scope (no full run): the factory is clean and the two gateway
-// bridges are the two true READ findings. Moving both onto buildNatsConnectionOptions, as the
-// farm bridge already does, empties this list.
-const firstRead = (path: string): number =>
-  readFileSync(join(REPO_ROOT, path), 'utf8')
-    .split('\n')
-    .findIndex((row) => /'NATS_AUTH_(?:USER|PASS|TOKEN)'/.test(row)) + 1;
+// Clean-main baseline on a small scope (no full run): the factory and the gateway bridges are
+// clean. The two bridges that read NATS_AUTH_* themselves (INFRA-HIGH-238) now take their
+// options from PersistentNatsConnection, which builds them only through the factory.
 const real = analyzeSecurityBoundaries({ roots: ['libs/backend-common/src/nats', WEB] }, REPO_ROOT);
 outputs.push(real);
-const bridges = ['nats-bridge.service.ts', 'st-language-bridge.service.ts'].map(
-  (name) => `${WEB}/${name}`,
-);
-assert.deepEqual(
-  at(real, READ_RULE),
-  bridges.map((path) => `${path}:${firstRead(path)}`),
-);
+assert.deepEqual(at(real, READ_RULE), []);
 assert.deepEqual(at(real, SET_RULE), []);
 
 // Both rules are declared in the manifest, and the adapter stays SHADOW.

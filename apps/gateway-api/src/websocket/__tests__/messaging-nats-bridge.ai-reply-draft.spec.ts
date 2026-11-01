@@ -9,9 +9,6 @@ const mockConnect = jest.fn();
 jest.mock('@nats-io/transport-node', () => ({
   connect: (...args: unknown[]) => mockConnect(...args),
 }));
-jest.mock('@aquaculture/backend-common/nats', () => ({
-  buildNatsConnectionOptions: () => ({ servers: 'nats://test' }),
-}));
 
 import { MessagingGateway } from '../messaging.gateway';
 import { MessagingNatsBridgeService } from '../messaging-nats-bridge.service';
@@ -59,12 +56,21 @@ describe('MessagingNatsBridgeService AI reply drafts (MSG-MEDIUM-089)', () => {
   async function relay(messages: FakeMsg[]): Promise<void> {
     emit = jest.fn();
     to = jest.fn(() => ({ emit }));
+    let closed = false;
+    let markClosed: () => void = () => undefined;
+    const whenClosed = new Promise<void>((resolve) => {
+      markClosed = resolve;
+    });
     mockConnect.mockResolvedValue({
       subscribe: (name: string) =>
         subscription(name === AI_REPLY_DRAFT_SUBSCRIPTION ? messages : []),
       status: () => subscription([]),
-      isClosed: () => false,
-      drain: async () => undefined,
+      isClosed: () => closed,
+      closed: () => whenClosed,
+      drain: async () => {
+        closed = true;
+        markClosed();
+      },
     });
     revalidator = new WsTokenRevalidator({ intervalMs: 3_600_000, isStillValid: async () => true });
     const gateway = new MessagingGateway(

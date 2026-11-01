@@ -1,11 +1,9 @@
-import { buildNatsConnectionOptions } from '@aquaculture/backend-common/nats';
-// NATS v3 (@nats-io/* 3.x). The v2 monolithic `nats` package split into
-// transport-node (Node connect) and nats-core (connection + Msg primitives).
-// StringCodec was REMOVED — decode an inbound payload via msg.string()
-// (UTF-8), which yields the same bytes the v2 StringCodec produced, so this
-// bridge stays byte-for-byte compatible with v2 producers during a rolling deploy.
-import type { ConnectionOptions, NatsConnection, Subscription } from '@nats-io/nats-core';
-import { connect } from '@nats-io/transport-node';
+import { PersistentNatsConnection } from '@aquaculture/backend-common/nats';
+// NATS v3 (@nats-io/* 3.x): StringCodec was REMOVED — decode an inbound
+// payload via msg.string() (UTF-8), which yields the same bytes the v2
+// StringCodec produced, so this bridge stays byte-for-byte compatible with v2
+// producers during a rolling deploy.
+import type { NatsConnection } from '@nats-io/nats-core';
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { assertSubjectMatchesEvent, buildWildcardEventSubject } from '@platform/event-bus';
@@ -78,8 +76,14 @@ const MAX_EVENT_CONCURRENCY = 20;
 @Injectable()
 export class MessagingNatsBridgeService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(MessagingNatsBridgeService.name);
-  private connection: NatsConnection | null = null;
-  private subscriptions: Subscription[] = [];
+  /**
+   * PLAT-HIGH-939: keeps trying until the broker answers; the client carries
+   * the subscriptions across reconnects, so they are made once per connection.
+   */
+  private readonly nats = new PersistentNatsConnection({
+    name: 'gateway-api-messaging-bridge',
+    onConnected: (connection) => this.subscribeToMessagingEvents(connection),
+  });
 
   // ── Bounded-concurrency dispatch state (MSGFIX-FAZ3 3.4 / B-3) ──
   private inflightEvents = 0;
@@ -97,41 +101,18 @@ export class MessagingNatsBridgeService implements OnModuleInit, OnModuleDestroy
       return;
     }
 
-    await this.connect();
+    this.nats.open();
   }
 
   async onModuleDestroy(): Promise<void> {
-    await this.disconnect();
+    await this.nats.close();
   }
 
-  private async connect(): Promise<void> {
-    /** SEC-H01: Use shared NATS connection factory for consistent auth across all services. */
-    const connectionOptions: ConnectionOptions = {
-      ...buildNatsConnectionOptions('gateway-api-messaging-bridge'),
-    };
-
-    try {
-      this.connection = await connect(connectionOptions);
-      const servers = Array.isArray(connectionOptions.servers)
-        ? connectionOptions.servers.join(',')
-        : (connectionOptions.servers ?? 'default');
-      this.logger.log(`Messaging bridge connected to NATS at ${servers}`);
-
-      this.subscribeToMessagingEvents();
-      this.handleConnectionEvents();
-    } catch (error) {
-      this.logger.error(`Failed to connect to NATS: ${(error as Error).message}`);
-    }
-  }
-
-  private subscribeToMessagingEvents(): void {
-    if (!this.connection) return;
-
+  private subscribeToMessagingEvents(connection: NatsConnection): void {
     for (const subject of MESSAGING_SUBJECTS) {
       // Use a queue group so that when multiple gateway instances run,
       // each NATS message is delivered to exactly one instance (load-balanced).
-      const sub = this.connection.subscribe(subject, { queue: 'gateway-messaging' });
-      this.subscriptions.push(sub);
+      const sub = connection.subscribe(subject, { queue: 'gateway-messaging' });
       this.logger.log(`Subscribed to ${subject} (queue: gateway-messaging)`);
 
       (async () => {
@@ -163,7 +144,7 @@ export class MessagingNatsBridgeService implements OnModuleInit, OnModuleDestroy
       });
     }
 
-    this.subscribeToAiReplyDrafts();
+    this.subscribeToAiReplyDrafts(connection);
   }
 
   /**
@@ -172,13 +153,10 @@ export class MessagingNatsBridgeService implements OnModuleInit, OnModuleDestroy
    * `aiReplyDraft`. Relayed inline in arrival order, with no hydration and
    * no concurrency slot: each draft frame continues the one before it.
    */
-  private subscribeToAiReplyDrafts(): void {
-    if (!this.connection) return;
-
-    const sub = this.connection.subscribe(AI_REPLY_DRAFT_SUBSCRIPTION, {
+  private subscribeToAiReplyDrafts(connection: NatsConnection): void {
+    const sub = connection.subscribe(AI_REPLY_DRAFT_SUBSCRIPTION, {
       queue: 'gateway-messaging',
     });
-    this.subscriptions.push(sub);
     this.logger.log(`Subscribed to ${AI_REPLY_DRAFT_SUBSCRIPTION} (queue: gateway-messaging)`);
 
     (async () => {
@@ -333,59 +311,6 @@ export class MessagingNatsBridgeService implements OnModuleInit, OnModuleDestroy
     }
   }
 
-  private handleConnectionEvents(): void {
-    if (!this.connection) return;
-
-    const connection = this.connection;
-    (async () => {
-      for await (const status of connection.status()) {
-        // v3: Status is a discriminated union on `type`; the error variant
-        // carries `error: Error` (v2's `status.data` field was removed).
-        switch (status.type) {
-          case 'disconnect':
-            this.logger.warn('Messaging NATS bridge disconnected');
-            break;
-          case 'reconnect':
-            // Phase D fix: drain and clear the previous subscription array
-            // BEFORE re-subscribing. Previously `subscribeToMessagingEvents()`
-            // pushed new Subscription objects onto `this.subscriptions` without
-            // cleaning up the stale ones, so each reconnect doubled the array
-            // and duplicated message processing for every subject.
-            this.logger.log(
-              'Messaging NATS bridge reconnected — draining stale subscriptions then re-subscribing',
-            );
-            for (const sub of this.subscriptions) {
-              try {
-                sub.unsubscribe();
-              } catch (error) {
-                this.logger.debug(`Stale subscription cleanup error: ${(error as Error).message}`);
-              }
-            }
-            this.subscriptions = [];
-            this.subscribeToMessagingEvents();
-            break;
-          case 'error':
-            this.logger.error(`Messaging NATS error: ${this.formatStatusData(status.error)}`);
-            break;
-        }
-      }
-    })().catch((error) => {
-      this.logger.error(`NATS status loop error: ${(error as Error).message}`);
-    });
-  }
-
-  private async disconnect(): Promise<void> {
-    for (const sub of this.subscriptions) {
-      sub.unsubscribe();
-    }
-    this.subscriptions = [];
-
-    if (this.connection) {
-      await this.connection.drain();
-      this.logger.log('Messaging NATS bridge connection closed');
-    }
-  }
-
   private isValidEvent(event: MessagingNatsEvent, subject: string): boolean {
     if (
       typeof event !== 'object' ||
@@ -425,12 +350,6 @@ export class MessagingNatsBridgeService implements OnModuleInit, OnModuleDestroy
   }
 
   isConnected(): boolean {
-    return this.connection !== null && !this.connection.isClosed();
-  }
-
-  private formatStatusData(data: unknown): string {
-    if (typeof data === 'string') return data;
-    if (data instanceof Error) return data.message;
-    return JSON.stringify(data) ?? 'unknown';
+    return this.nats.isConnected();
   }
 }

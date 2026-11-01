@@ -1,13 +1,9 @@
-import { buildNatsConnectionOptions } from '@aquaculture/backend-common/nats';
-// NATS v3 (@nats-io/* 3.x). The v2 monolithic `nats` package split into
-// transport-node (Node connect) and nats-core (connection + Msg primitives).
-// StringCodec was REMOVED — pass a string directly to respond() and decode a
-// message via msg.string(). The wire bytes are UTF-8 either way, so the
-// migration is byte-for-byte compatible with the v2 request-reply peer.
-import type { NatsConnection, Subscription } from '@nats-io/nats-core';
-import { connect } from '@nats-io/transport-node';
+import { PersistentNatsConnection } from '@aquaculture/backend-common/nats';
+// NATS v3 (@nats-io/* 3.x): StringCodec was REMOVED — pass a string directly
+// to respond() and decode a message via msg.string(). The wire bytes are UTF-8
+// either way, so the migration is byte-for-byte compatible with the v2 request-reply peer.
+import type { NatsConnection } from '@nats-io/nats-core';
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 
 import { NATS_SUBJECTS } from '../compiler.constants';
 import { NatsLanguageRequest, NatsLanguageReply } from '../compiler.types';
@@ -22,76 +18,48 @@ import { STLanguageService } from '../services/st-language.service';
  *
  * Uses raw NATS connection (not JetStream) for request-reply,
  * since JetStream is designed for persistent pub/sub, not RPC.
+ * PersistentNatsConnection (PLAT-HIGH-939) keeps trying until the broker
+ * answers, and the client carries the subscriptions across reconnects.
  */
 @Injectable()
 export class STLanguageHandler implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(STLanguageHandler.name);
-  private connection: NatsConnection | null = null;
-  private readonly subscriptions: Subscription[] = [];
-  private readonly natsUrl: string;
+  private readonly nats = new PersistentNatsConnection({
+    name: `sensor-service-st-language-${process.pid}`,
+    onConnected: (connection) => this.subscribe(connection),
+  });
 
-  constructor(
-    private readonly languageService: STLanguageService,
-    private readonly configService: ConfigService,
-  ) {
-    this.natsUrl = this.configService.get<string>(
-      'NATS_URL',
-      'nats://localhost:4222',
-    );
-  }
+  constructor(private readonly languageService: STLanguageService) {}
 
-  async onModuleInit(): Promise<void> {
-    try {
-      await this.connectAndSubscribe();
-    } catch (error) {
-      this.logger.warn(
-        `Failed to connect NATS for ST language handler: ${(error as Error).message}. ` +
-          'Will retry on next request.',
-      );
-    }
+  onModuleInit(): void {
+    this.nats.open();
   }
 
   async onModuleDestroy(): Promise<void> {
-    for (const sub of this.subscriptions) {
-      sub.unsubscribe();
-    }
-    this.subscriptions.length = 0;
-
-    if (this.connection) {
-      await this.connection.drain();
-      this.connection = null;
-    }
+    await this.nats.close();
   }
 
-  private async connectAndSubscribe(): Promise<void> {
-    /** SEC-H01: Use shared NATS connection factory for consistent auth. */
-    this.connection = await connect({
-      ...buildNatsConnectionOptions(`sensor-service-st-language-${process.pid}`),
-      maxReconnectAttempts: -1,
-    });
-
-    this.logger.log('Connected to NATS for ST language request-reply');
-
+  private subscribe(connection: NatsConnection): void {
     // Subscribe to each language service subject
-    this.subscribeToSubject(NATS_SUBJECTS.ANALYZE, (req) =>
+    this.subscribeToSubject(connection, NATS_SUBJECTS.ANALYZE, (req) =>
       this.handleAnalyze(req),
     );
-    this.subscribeToSubject(NATS_SUBJECTS.COMPLETE, (req) =>
+    this.subscribeToSubject(connection, NATS_SUBJECTS.COMPLETE, (req) =>
       this.handleComplete(req),
     );
-    this.subscribeToSubject(NATS_SUBJECTS.HOVER, (req) =>
+    this.subscribeToSubject(connection, NATS_SUBJECTS.HOVER, (req) =>
       this.handleHover(req),
     );
-    this.subscribeToSubject(NATS_SUBJECTS.FORMAT, (req) =>
+    this.subscribeToSubject(connection, NATS_SUBJECTS.FORMAT, (req) =>
       this.handleFormat(req),
     );
-    this.subscribeToSubject(NATS_SUBJECTS.OUTLINE, (req) =>
+    this.subscribeToSubject(connection, NATS_SUBJECTS.OUTLINE, (req) =>
       this.handleOutline(req),
     );
-    this.subscribeToSubject(NATS_SUBJECTS.DEFINITION, (req) =>
+    this.subscribeToSubject(connection, NATS_SUBJECTS.DEFINITION, (req) =>
       this.handleDefinition(req),
     );
-    this.subscribeToSubject(NATS_SUBJECTS.REFERENCES, (req) =>
+    this.subscribeToSubject(connection, NATS_SUBJECTS.REFERENCES, (req) =>
       this.handleReferences(req),
     );
 
@@ -101,19 +69,16 @@ export class STLanguageHandler implements OnModuleInit, OnModuleDestroy {
   }
 
   private subscribeToSubject(
+    connection: NatsConnection,
     subject: string,
     handler: (
       req: NatsLanguageRequest & { tenantId: string },
     ) => Promise<NatsLanguageReply>,
   ): void {
-    if (!this.connection) return;
-
     // Use queue group for load balancing across multiple sensor-service instances
-    const sub = this.connection.subscribe(subject, {
+    const sub = connection.subscribe(subject, {
       queue: 'st-language-workers',
     });
-
-    this.subscriptions.push(sub);
 
     // Process messages asynchronously
     (async () => {

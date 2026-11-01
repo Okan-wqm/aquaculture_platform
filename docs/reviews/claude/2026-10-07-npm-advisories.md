@@ -343,6 +343,53 @@ and typeorm. The aquamobil and e2e legs stayed clean.
   registry tarball. nx then reaches only GHSA-g3hv-75wg-m249 (moderate), below
   the root-full floor, so root-full is clean.
 
+### SUPPLY-MEDIUM-043 — glob 13.0.6 in the production graph (open, excepted)
+
+- GHSA-3g3m-2fjr-6pw4 (moderate): affected `>=9.0.0 <=14.0.1`, patched 14.0.2
+  (published 2026-10-27).
+- Two production copies of glob 13.0.6:
+  - `typeorm` 0.3.31, whose glob the root override pins to `^13.0.6`;
+  - `@apollo/gateway` 2.13.3 → `make-fetch-happen` 15.0.6 → `cacache` 20.0.4,
+    which asks for `glob ^13.0.0`.
+- The gate reports "a non-breaking fix is available" for cacache and
+  make-fetch-happen. There is none. Every cacache release through 21.0.1 (the
+  latest) asks for `glob ^13.0.0`, and make-fetch-happen 16.0.1 asks for
+  cacache `^21.0.0`. `npm update cacache make-fetch-happen --package-lock-only`
+  and `npm audit fix --package-lock-only --dry-run` change nothing.
+- Why this is an exception, not a fix today:
+  - the advisory concerns cancellation through an AbortSignal, and neither
+    production caller passes one;
+  - typeorm calls `glob.sync` on the entity patterns of the committed data
+    sources (`apps/*/src/database/data-source.ts`), which are literals;
+  - cacache globs only in `rm.all` and `verify`. make-fetch-happen calls
+    `rm.entry` and `rm.content`, and the gateway builds its fetchers without a
+    `cachePath`;
+  - glob 14 is a major, and so is npm's own proposal, typeorm 1.1.2.
+- Plan:
+  - the typeorm 1.x migration, as its own change. typeorm 1.1.2 depends on
+    tinyglobby, not glob, and the `typeorm > glob` override goes with it;
+  - cacache follows when a cacache release takes glob 14, or through an
+    override of cacache's glob to `^14.0.2` once make-fetch-happen is tested
+    on it.
+- Owner: claude. Deadline: 2026-12-01. The exception expires the same day.
+
+### SUPPLY-MEDIUM-044 — minimatch 10.2.5 in the production graph (open, excepted)
+
+- GHSA-g3hv-75wg-m249 (moderate): affected `<11.0.1`, patched 11.0.1
+  (published 2026-10-27).
+- In production, minimatch 10.2.5 sits only under the two glob 13.0.6 copies of
+  SUPPLY-MEDIUM-043, which ask for `^10.2.2`. No glob 13 accepts minimatch 11;
+  glob 14.0.3 asks for `^11.0.2`.
+- Why this is an exception, not a fix today:
+  - the patterns those globs expand are literals: the data-source entity
+    patterns and cacache's fixed suffixes of its own cache path. No request
+    supplies a pattern;
+  - minimatch 11 is a major, reached only through glob 14 or typeorm 1.x.
+- Dev only, below the root-full floor: nx 22.7.12 pins minimatch 10.2.5
+  exactly, and eslint, jest and others carry 3.x to 10.x, all moderate.
+- Plan: the same two changes as SUPPLY-MEDIUM-043. Owner: claude. Deadline:
+  2026-12-01. The exception expires the same day.
+
 ## SUPPLY-MEDIUM-020 — tailwind 3 postcss-selector-parser is quadratic (open, excepted)
 
 - `postcss-selector-parser` below 7.1.6 (GHSA-rj75-hqrm-r3gf), reached through

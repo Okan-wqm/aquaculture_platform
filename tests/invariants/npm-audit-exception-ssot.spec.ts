@@ -44,7 +44,7 @@ const GATE = join(REPO_ROOT, 'scripts', 'ci', 'npm-audit-gate.mjs');
  * to @aws-sdk/client-s3 (SUPPLY-MEDIUM-008) — exactly the re-review condition
  * the entry's own reason named.
  */
-const MAX_EXCEPTIONS = 2;
+const MAX_EXCEPTIONS = 4;
 
 // 2026-09-16: 0 → 2, in the same commit as the two entries it admits.
 // GHSA-7w5x-hrqm-74c2 (nx toolchain, 15 packages) and GHSA-vwc7-r8mq-g2x9
@@ -78,6 +78,16 @@ const MAX_EXCEPTIONS = 2;
 // patch) that turned root-full red (SUPPLY-CRITICAL-026), and vitest 4 no
 // longer depends on tinypool (SUPPLY-HIGH-019 fixed). The ratchet returns to 1
 // when tailwind 4 lands (SUPPLY-MEDIUM-020).
+//
+// 2026-11-01: 2 → 4, in the same commit as the two entries it admits.
+// GHSA-3g3m-2fjr-6pw4 (glob, SUPPLY-MEDIUM-043) and GHSA-g3hv-75wg-m249
+// (minimatch, SUPPLY-MEDIUM-044), root-production only, expiring 2026-12-01.
+// glob 13.0.6 and its minimatch 10.2.5 reach production through typeorm 0.3.31
+// and @apollo/gateway -> make-fetch-happen -> cacache, and no in-range release
+// is patched: glob 14 and minimatch 11 are majors, and every cacache asks for
+// glob ^13. The same day's GHSA-mrwp-f3q8-3g9p (follow-redirects) is fixed, not
+// excepted (SUPPLY-HIGH-042). The ratchet drops by two when the typeorm 1.x
+// migration lands and cacache moves to glob 14.
 
 interface ExceptionEntry {
   owner?: unknown;

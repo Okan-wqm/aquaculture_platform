@@ -44,7 +44,7 @@ const GATE = join(REPO_ROOT, 'scripts', 'ci', 'npm-audit-gate.mjs');
  * to @aws-sdk/client-s3 (SUPPLY-MEDIUM-008) — exactly the re-review condition
  * the entry's own reason named.
  */
-const MAX_EXCEPTIONS = 4;
+const MAX_EXCEPTIONS = 3;
 
 // 2026-09-16: 0 → 2, in the same commit as the two entries it admits.
 // GHSA-7w5x-hrqm-74c2 (nx toolchain, 15 packages) and GHSA-vwc7-r8mq-g2x9
@@ -88,6 +88,13 @@ const MAX_EXCEPTIONS = 4;
 // glob ^13. The same day's GHSA-mrwp-f3q8-3g9p (follow-redirects) is fixed, not
 // excepted (SUPPLY-HIGH-042). The ratchet drops by two when the typeorm 1.x
 // migration lands and cacache moves to glob 14.
+//
+// 2026-11-01: 4 → 3, removing GHSA-vfj7-8cjw-p6xm. GitHub withdrew the
+// advisory on 2026-10-23 as not practically exploitable, and npm's bulk
+// advisory endpoint no longer returns it for braces 3.0.3, so a fresh
+// `npm audit` names braces in no leg. The entry excepted nothing, and from
+// 2026-11-04 its expiry would have failed all six legs, since the gate
+// refuses the whole file over one expired entry (SUPPLY-HIGH-017 closed).
 
 interface ExceptionEntry {
   owner?: unknown;

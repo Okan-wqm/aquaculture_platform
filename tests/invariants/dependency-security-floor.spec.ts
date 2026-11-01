@@ -81,7 +81,8 @@ const ROOT_SECURITY_FLOORS = {
   multer: '2.5.0',
   // 13.4.5 globs type paths with tinyglobby instead of fast-glob, which takes
   // fast-glob -> micromatch -> braces (GHSA-vfj7-8cjw-p6xm, no patched braces
-  // release exists) out of the production graph (SUPPLY-HIGH-016).
+  // release exists; withdrawn on 2026-10-23, SUPPLY-HIGH-017) out of the
+  // production graph (SUPPLY-HIGH-016).
   // @nestjs/apollo deep-imports @nestjs/graphql internals and moves with it.
   '@nestjs/graphql': '13.4.5',
   // GHSA-m8vh-jmq9-5rjg (fixed in 11.2.4) + GHSA-96h4-vgxj-gvm2 (11.2.5). The

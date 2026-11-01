@@ -70,6 +70,20 @@ export interface LlmChatParams {
    * each provider's client) is the hard backstop when signal is absent.
    */
   signal?: AbortSignal;
+  /**
+   * Receives the model's text as it is generated, in order. Every provider
+   * streams, so a caller can show a reply while it is being written. The
+   * deltas of one `block`, joined, are that block's text in the returned
+   * `content`.
+   */
+  onText: (delta: LlmTextDelta) => void;
+}
+
+/** New text of one content block. */
+export interface LlmTextDelta {
+  /** Position of the block in the turn's content (text and tool_use blocks counted alike). */
+  block: number;
+  text: string;
 }
 
 /** Normalized stop reason. Providers map their own vocabulary onto this. */

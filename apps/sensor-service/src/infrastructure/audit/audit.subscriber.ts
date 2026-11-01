@@ -5,6 +5,7 @@ import {
   InsertEvent,
   UpdateEvent,
   RemoveEvent,
+  type EntityManager,
 } from 'typeorm';
 import { getRequestContext } from '@aquaculture/backend-common/logging';
 import { SENSITIVE_FIELDS_SET } from '@aquaculture/backend-common/security';
@@ -47,6 +48,50 @@ function computeChangedFields(
   }
 
   return changed;
+}
+
+/** One UPDATE of an @Auditable entity, as the entity-mutation stream records it. */
+export interface EntityUpdateAudit {
+  readonly tenantId: string;
+  readonly entityType: string;
+  readonly entityId: string;
+  readonly previous: Record<string, unknown>;
+  readonly next: Record<string, unknown>;
+  /** Who changed it; null for a system writer. */
+  readonly changedBy: string | null;
+}
+
+/**
+ * Write one UPDATE row to sensor_audit_logs in the caller's transaction, with
+ * sensitive fields redacted; the fields that differ are computed here. The
+ * one writer of that row: the subscriber uses it for ORM saves, and a writer
+ * that changes a row by SQL (a sensor's move) calls it itself. Returns the
+ * changed fields, nothing written when none changed. Throws on failure —
+ * the subscriber decides to log instead, an operator action to roll back.
+ */
+export async function recordEntityUpdate(
+  manager: EntityManager,
+  entry: EntityUpdateAudit,
+): Promise<string[]> {
+  const changedFields = computeChangedFields(entry.previous, entry.next);
+  if (changedFields.length === 0) return changedFields;
+  await manager.query(
+    `INSERT INTO sensor_audit_logs
+       (id, tenant_id, entity_type, entity_id, action,
+        previous_value, new_value, changed_fields, changed_by, changed_at)
+     VALUES
+       (gen_random_uuid(), $1, $2, $3, 'UPDATE', $4, $5, $6, $7, NOW())`,
+    [
+      entry.tenantId,
+      entry.entityType,
+      entry.entityId,
+      JSON.stringify(redactSensitiveFields(entry.previous)),
+      JSON.stringify(redactSensitiveFields(entry.next)),
+      JSON.stringify(changedFields),
+      entry.changedBy,
+    ],
+  );
+  return changedFields;
 }
 
 /**
@@ -193,35 +238,14 @@ export class AuditSubscriber implements EntitySubscriberInterface {
 
       if (!tenantId || !entityId) return;
 
-      const userId = getRequestContext().userId ?? null;
-
-      const oldValues = event.databaseEntity
-        ? entityToPlain(event.databaseEntity as object)
-        : {};
-      const newValues = entityToPlain(event.entity as object);
-
-      const changedFields = computeChangedFields(oldValues, newValues);
-      if (changedFields.length === 0) return;
-
-      const previousValue = redactSensitiveFields(oldValues);
-      const newValue = redactSensitiveFields(newValues);
-
-      await event.queryRunner.query(
-        `INSERT INTO sensor_audit_logs
-           (id, tenant_id, entity_type, entity_id, action,
-            previous_value, new_value, changed_fields, changed_by, changed_at)
-         VALUES
-           (gen_random_uuid(), $1, $2, $3, 'UPDATE', $4, $5, $6, $7, NOW())`,
-        [
-          tenantId,
-          event.metadata.name,
-          entityId,
-          JSON.stringify(previousValue),
-          JSON.stringify(newValue),
-          JSON.stringify(changedFields),
-          userId,
-        ],
-      );
+      await recordEntityUpdate(event.queryRunner.manager, {
+        tenantId,
+        entityType: event.metadata.name,
+        entityId,
+        previous: event.databaseEntity ? entityToPlain(event.databaseEntity as object) : {},
+        next: entityToPlain(event.entity as object),
+        changedBy: getRequestContext().userId ?? null,
+      });
     } catch (err) {
       this.logger.error(
         `AuditSubscriber.afterUpdate failed for ${event.metadata.name}: ${(err as Error).message}`,

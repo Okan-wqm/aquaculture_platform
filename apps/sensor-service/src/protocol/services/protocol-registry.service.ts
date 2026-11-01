@@ -10,6 +10,7 @@ import { PROTOCOL_ADAPTERS } from '../adapters/protocol-adapters.registry';
 import {
   ProtocolImplementationStatus,
   getProtocolImplementationStatus,
+  isActivatedByData,
 } from '../adapters/protocol-implementation-status';
 
 export interface ProtocolInfo {
@@ -21,6 +22,8 @@ export interface ProtocolInfo {
   connectionType: string;
   capabilities: ProtocolCapabilities;
   implementationStatus: ProtocolImplementationStatus;
+  /** ADR-047: the sensor's data activates it; the cloud never tests it. */
+  activatedByData: boolean;
 }
 
 export interface ProtocolSummary {
@@ -182,6 +185,7 @@ export class ProtocolRegistryService implements OnModuleInit {
         connectionType: adapter.connectionType,
         capabilities: adapter.getCapabilities(),
         implementationStatus: getProtocolImplementationStatus(adapter.protocolCode),
+        activatedByData: isActivatedByData(adapter.protocolCode),
       }))
       .filter((p) => p.implementationStatus !== ProtocolImplementationStatus.UNSUPPORTED);
   }

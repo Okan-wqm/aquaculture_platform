@@ -3,12 +3,12 @@
  * ============================================================================
  *
  * SINGLE source of truth for "which GraphQL fields does the farm-service
- * subgraph serve, and from which resolver decorator". Both invariants below
- * consume THIS module instead of each re-implementing the decorator scan:
- *
- *   - farm-graphql-fe-be-parity.spec.ts      → every FE root field has a BE owner
- *   - farm-graphql-resolver-field-uniqueness.spec.ts → every BE root field has
- *                                                       exactly ONE owner
+ * subgraph serve, and from which resolver decorator". The FE↔BE parity
+ * invariants consume THIS module instead of each re-implementing the decorator
+ * scan (farm-graphql-fe-be-parity.spec.ts: every FE root field has a BE owner).
+ * That every BE root field has exactly ONE owner is checked for every
+ * subgraph by tools/scripts/emit-subgraph-sdl.ts, from the schema metadata
+ * itself (tests/invariants/graphql-root-field-single-owner.spec.ts).
  *
  * Why a shared module (2026-06-24): the parity spec collapsed the backend
  * surface into a `Set<string>`, which silently DEDUPED two resolvers declaring
@@ -16,8 +16,7 @@
  * schema non-deterministically (last-registered-wins), producing intermittent
  * `Unknown argument "siteId"` 400s. Duplicating the extractor regex into a
  * second spec would be a hand-copied catalog (the exact anti-pattern the SSoT
- * audit flags), so the scan lives here once and returns location-rich records
- * the uniqueness gate needs.
+ * audit flags), so the scan lives here once and returns location-rich records.
  */
 import { execFileSync } from 'child_process';
 import { existsSync, readFileSync } from 'fs';

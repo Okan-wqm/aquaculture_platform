@@ -64,7 +64,8 @@ describe('SensorResolver.listSensors tankId filter (MOB-MEDIUM-008)', () => {
 
   // ==========================================================================
   // SEC-HIGH-096 (2026-08-23 scan №41): decrypted protocol credentials must
-  // never leave the raw-entity read paths unmasked.
+  // never leave the raw-entity read paths unmasked. sensor(id) is the
+  // registration read model: registration/__tests__/sensor-read-model.resolver.spec.ts.
   // ==========================================================================
 
   const sensorWithCreds = (): Sensor => {
@@ -95,15 +96,6 @@ describe('SensorResolver.listSensors tankId filter (MOB-MEDIUM-008)', () => {
       apiKey: '***',
       auth: { clientId: 'a', clientSecret: '***' },
     });
-  });
-
-  it('getSensor masks secret-named protocol fields', async () => {
-    sensorRepository.findOne.mockResolvedValue(sensorWithCreds());
-
-    const result = await resolver.getSensor('s1', tenantId);
-
-    expect(result.protocolConfiguration?.['password']).toBe('***');
-    expect(result.protocolConfiguration?.['host']).toBe('mqtt.internal');
   });
 
   it('resolveReference NEVER takes tenantId from the representation (context only)', async () => {

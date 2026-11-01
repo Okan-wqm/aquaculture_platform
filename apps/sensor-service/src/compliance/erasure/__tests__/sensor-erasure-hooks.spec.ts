@@ -2,7 +2,7 @@ import { collaborator, stub, stubMember } from '@aquaculture/testing';
 import type { TenantErasureRequestedEvent } from '@platform/event-contracts';
 import { DataSource, EntityManager } from 'typeorm';
 
-import { EdgeRouteDirectoryPurgeHook } from '../edge-route-directory-purge.hook';
+import { RouteDirectoryPurgeHook } from '../route-directory-purge.hook';
 import { ErasedTenantTombstoneService } from '../erased-tenant-tombstone.service';
 import { PublishedOutboxPurgeHook } from '../published-outbox-purge.hook';
 
@@ -76,24 +76,25 @@ describe('PublishedOutboxPurgeHook (Task 1.8)', () => {
   });
 });
 
-describe('EdgeRouteDirectoryPurgeHook (SENSOR-HIGH-175)', () => {
-  it("deletes the erased tenant's device and provisioning-key routes, inside the tx", async () => {
-    const hook = new EdgeRouteDirectoryPurgeHook();
+describe('RouteDirectoryPurgeHook (SENSOR-HIGH-175, ADR-047)', () => {
+  it("deletes the erased tenant's device, provisioning-key and sensor broker routes, inside the tx", async () => {
+    const hook = new RouteDirectoryPurgeHook();
     const { manager, queries } = makeManager();
 
     // makeManager answers every DELETE with 3 affected rows.
-    await expect(hook.onTenantErased(erasureEvent(false), manager)).resolves.toBe(6);
+    await expect(hook.onTenantErased(erasureEvent(false), manager)).resolves.toBe(9);
 
     expect(queries.map((q) => q.sql)).toEqual([
       'DELETE FROM "sensor"."edge_device_directory" WHERE "tenant_id" = $1',
       'DELETE FROM "sensor"."tenant_provisioning_key_directory" WHERE "tenant_id" = $1',
+      'DELETE FROM "sensor"."sensor_mqtt_directory" WHERE "tenant_id" = $1',
     ]);
     expect(queries.every((q) => q.params[0] === TENANT)).toBe(true);
-    expect(hook.hookName).toBe('sensor-edge-route-directory-purge');
+    expect(hook.hookName).toBe('sensor-route-directory-purge');
   });
 
   it('is a no-op on dry-run', async () => {
-    const hook = new EdgeRouteDirectoryPurgeHook();
+    const hook = new RouteDirectoryPurgeHook();
     const { manager, queries } = makeManager();
 
     await hook.onTenantErased(erasureEvent(true), manager);

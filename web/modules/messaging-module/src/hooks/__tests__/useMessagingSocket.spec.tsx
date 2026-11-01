@@ -13,7 +13,7 @@
  *    reconnect loop itself is jittered, /health/live-gated, bounded, and
  *    revived by visibilitychange (2s debounce).
  */
-import type { WsMessage } from '@aquaculture/shared-ui';
+import type { AiReplyDraftEnvelope, WsMessage } from '@aquaculture/shared-ui';
 import { createTenantInvalidationKey, createTenantQueryKey } from '@aquaculture/shared-ui';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, renderHook, waitFor } from '@testing-library/react';
@@ -39,7 +39,7 @@ import {
 } from '../../__tests__/sharedUiMock';
 import type { ChannelMessagesPage } from '../../lib/messageCache';
 import type { Channel, Message } from '../../types/messaging';
-import { useMessagingSocket } from '../useMessagingSocket';
+import { useMessagingSocket, type MessagingSocketState } from '../useMessagingSocket';
 
 vi.mock('@aquaculture/shared-ui', async () =>
   (await import('../../__tests__/sharedUiMock')).createSharedUiMock(),
@@ -776,5 +776,83 @@ describe('useMessagingSocket — reAuth + conditional reconnect (FAZ 3.1)', () =
     act(() => fireSocketEvent('connect'));
     act(() => fireSocketEvent('connect_error', new Error('xhr poll error')));
     expect(result.current.isConnected).toBe(false);
+  });
+});
+
+describe('useMessagingSocket — AI reply drafts (MSG-MEDIUM-089)', () => {
+  const REPLY_KEY = 'eeeeeeee-5555-5666-8777-888888888888';
+  const writing = (channelId: string, turn: number, text: string): AiReplyDraftEnvelope => ({
+    channelId,
+    replyKey: REPLY_KEY,
+    phase: 'writing',
+    turn,
+    text,
+  });
+
+  async function connected(): Promise<{ result: { current: MessagingSocketState } }> {
+    const queryClient = newQueryClient();
+    routeChannels([makeChannel(ACTIVE_CHANNEL)]);
+    primeChannels(queryClient, [makeChannel(ACTIVE_CHANNEL)]);
+    primeThread(queryClient, ACTIVE_CHANNEL, []);
+    const hook = renderHook(() => useMessagingSocket(ACTIVE_CHANNEL), {
+      wrapper: makeWrapper(queryClient),
+    });
+    await waitFor(() => expect(ioSpy).toHaveBeenCalled());
+    act(() => fireSocketEvent('connect'));
+    await flush();
+    return hook;
+  }
+
+  it("shows the active channel's draft as it is written, and nothing of another channel's", async () => {
+    const { result } = await connected();
+
+    act(() => fireSocketEvent('aiReplyDraft', writing(ACTIVE_CHANNEL, 1, 'Tank 4 ')));
+    act(() => fireSocketEvent('aiReplyDraft', writing(ACTIVE_CHANNEL, 1, 'is fine.')));
+    act(() => fireSocketEvent('aiReplyDraft', writing(OTHER_CHANNEL, 1, 'elsewhere')));
+
+    expect(result.current.aiDrafts).toEqual([
+      expect.objectContaining({
+        replyKey: REPLY_KEY,
+        turn: 1,
+        text: 'Tank 4 is fine.',
+        stored: false,
+      }),
+    ]);
+  });
+
+  it('replaces the draft with the stored reply when its message arrives', async () => {
+    const { result } = await connected();
+    act(() => fireSocketEvent('aiReplyDraft', writing(ACTIVE_CHANNEL, 1, 'Tank 4 is fine.')));
+    act(() =>
+      fireSocketEvent('aiReplyDraft', {
+        channelId: ACTIVE_CHANNEL,
+        replyKey: REPLY_KEY,
+        phase: 'stored',
+      }),
+    );
+    expect(result.current.aiDrafts).toEqual([expect.objectContaining({ stored: true })]);
+
+    act(() =>
+      fireSocketEvent('newMessage', {
+        channelId: ACTIVE_CHANNEL,
+        message: makeWsMessage({ id: 'ai-reply', idempotencyKey: REPLY_KEY }),
+      }),
+    );
+
+    expect(result.current.aiDrafts).toEqual([]);
+  });
+
+  it('drops the draft when no reply is coming', async () => {
+    const { result } = await connected();
+    act(() => fireSocketEvent('aiReplyDraft', writing(ACTIVE_CHANNEL, 1, 'Checking')));
+    act(() =>
+      fireSocketEvent('aiReplyDraft', {
+        channelId: ACTIVE_CHANNEL,
+        replyKey: REPLY_KEY,
+        phase: 'abandoned',
+      }),
+    );
+
+    expect(result.current.aiDrafts).toEqual([]);
   });
 });

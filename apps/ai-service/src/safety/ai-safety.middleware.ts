@@ -27,7 +27,6 @@ import {
   InputFilterService,
   InputFilterResult,
   OutputPiiScannerService,
-  PiiRedactResult,
   PiiScanResult,
   SsrfValidatorService,
   SsrfValidationResult,
@@ -97,14 +96,25 @@ export type PreProcessResult =
       systemPrompt: string;
     };
 
-/** Result of post-processing model output through the safety pipeline. */
+/** What the output stage did to one whole model text, reported when it ends. */
 export interface PostProcessResult {
-  /** The (possibly redacted) output text. */
+  /** The rest of the (possibly redacted) output text not yet returned by `push`. */
   outputText: string;
   /** PII scan result (if enabled). */
   piiScan?: PiiScanResult;
   /** Whether PII was auto-redacted. */
   piiRedacted: boolean;
+}
+
+/**
+ * The output stage over a model text that arrives in pieces. `push` returns
+ * the part of the processed text that is final and may be shown now; `end`
+ * returns the rest. Joined, they are the processed whole text, so what a
+ * user watched being written is what is stored.
+ */
+export interface OutputSafetyStream {
+  push(text: string): string;
+  end(): PostProcessResult;
 }
 
 /** Result of validating a tool call. */
@@ -198,16 +208,6 @@ export class AiSafetyMiddleware {
   }
 
   /**
-   * POST-PROCESS: Run safety checks on model output BEFORE returning to user.
-   *
-   * Pipeline stages:
-   * 1. PII scan (detect and optionally redact)
-   *
-   * @param outputText - Raw model output text
-   * @param tenantId - Tenant identifier for audit
-   * @returns PostProcessResult with (possibly redacted) text
-   */
-  /**
    * SEC-LOW-088 (2026-08-23 scan №33): scan-only gate for UNTRUSTED CONTEXT
    * strings bound for the model — replayed conversation history and tool
    * results. preProcess runs the full pipeline on the USER message only;
@@ -223,25 +223,45 @@ export class AiSafetyMiddleware {
     return this.inputFilter.scanInput(text, tenantId).safe;
   }
 
-  postProcess(outputText: string, tenantId: string): PostProcessResult {
-    const result: PostProcessResult = {
-      outputText,
-      piiRedacted: false,
-    };
-
+  /**
+   * POST-PROCESS: Run safety checks on model output BEFORE it reaches a user,
+   * piece by piece as the model writes it (one stream per model text).
+   *
+   * Pipeline stages:
+   * 1. PII scan (detect and optionally redact; redaction holds back text
+   *    that a later piece could still turn into PII — see
+   *    OutputPiiScannerService.redactStream)
+   *
+   * @param tenantId - Tenant identifier for audit
+   */
+  postProcessStream(tenantId: string): OutputSafetyStream {
     // ── Stage 1: PII scan ──
-    if (this.config.outputPiiScanEnabled) {
-      if (this.config.outputPiiAutoRedact) {
-        const redactResult: PiiRedactResult = this.outputPiiScanner.redact(outputText, tenantId);
-        result.outputText = redactResult.redactedText;
-        result.piiScan = redactResult.scanResult;
-        result.piiRedacted = redactResult.scanResult.hasPii;
-      } else {
-        result.piiScan = this.outputPiiScanner.scan(outputText);
-      }
+    if (!this.config.outputPiiScanEnabled) {
+      return { push: (text) => text, end: () => ({ outputText: '', piiRedacted: false }) };
     }
-
-    return result;
+    if (!this.config.outputPiiAutoRedact) {
+      // Detect-only: the text passes unchanged; the whole of it is scanned at the end.
+      let whole = '';
+      return {
+        push: (text) => {
+          whole += text;
+          return text;
+        },
+        end: () => ({
+          outputText: '',
+          piiScan: this.outputPiiScanner.scan(whole),
+          piiRedacted: false,
+        }),
+      };
+    }
+    const redaction = this.outputPiiScanner.redactStream(tenantId);
+    return {
+      push: (text) => redaction.push(text),
+      end: () => {
+        const { text, scanResult } = redaction.end();
+        return { outputText: text, piiScan: scanResult, piiRedacted: scanResult.hasPii };
+      },
+    };
   }
 
   /**

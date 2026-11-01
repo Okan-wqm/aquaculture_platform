@@ -82,6 +82,15 @@ export class OpenAiProvider implements LlmProvider {
     return {};
   }
 
+  /**
+   * What makes a streamed response report token usage. OpenAI sends usage on
+   * a stream only when asked (a last chunk with no choices); without it the
+   * token budget would be charged nothing.
+   */
+  protected usageReporting(): Record<string, unknown> {
+    return { stream_options: { include_usage: true } };
+  }
+
   async chat(params: LlmChatParams, credential: LlmCredential): Promise<LlmChatResult> {
     const client = this.clientFor(credential.apiKey);
 
@@ -96,15 +105,22 @@ export class OpenAiProvider implements LlmProvider {
 
     let response: OpenAI.Chat.Completions.ChatCompletion;
     try {
-      response = await client.chat.completions.create({
+      // Streamed so the caller sees the text as it is written. The SDK's
+      // stream helper accumulates the chunks (tool-call arguments included)
+      // into the ChatCompletion create() returns, so the mapping below is shared.
+      const stream = client.chat.completions.stream({
         model: params.model,
         max_completion_tokens: params.maxTokens,
         messages: this.toOpenAiMessages(params.system, params.messages),
         // Provider-specific extras (Z.ai reasoning-effort etc.) — subclass hook.
         ...this.requestExtras(params),
+        ...this.usageReporting(),
         // Only pass `tools` when non-empty — the API rejects an empty array.
         ...(tools.length > 0 ? { tools } : {}),
       });
+      // One choice, one text: the message content is the turn's only text block.
+      stream.on('content.delta', ({ delta }) => params.onText({ block: 0, text: delta }));
+      response = await stream.finalChatCompletion();
     } catch (err) {
       if (
         err instanceof OpenAI.AuthenticationError ||

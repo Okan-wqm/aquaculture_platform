@@ -6,7 +6,7 @@ import {
 } from '@platform/testing';
 
 import { SensorMetricInput } from '../../database/entities/sensor-metric.entity';
-import { SensorMetricWriterService } from '../sensor-metric-writer.service';
+import { ingestionLatencyMs, SensorMetricWriterService } from '../sensor-metric-writer.service';
 
 /**
  * SENSOR-MEDIUM-068 (Phase 2B): the SINGLE writer for `sensor_metrics`.
@@ -92,6 +92,43 @@ describe('SensorMetricWriterService (SENSOR-MEDIUM-068)', () => {
       expect(params[11]).toBe(24.5); // raw_value
       expect(params[12]).toBe(24.5); // value
       expect(params[15]).toBe('mqtt'); // source_protocol
+    });
+
+    it('writes the delay from sample time to write as ingestion_latency_ms', () => {
+      const { service } = createService();
+      jest.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-03-14T12:00:01.500Z'));
+      const params = service.marshalParams([createMetric()]);
+      expect(params[17]).toBe(1_500); // ingestion_latency_ms
+    });
+
+    it('leaves ingestion_latency_ms null for a backfill the 32-bit column cannot hold (SENSOR-HIGH-208)', () => {
+      const { service } = createService();
+      // 30 days after the sample: 2 592 000 000 ms > 2^31 - 1, which failed the
+      // whole INSERT ("out of range for type integer") with every row of it.
+      jest.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-04-13T12:00:00.000Z'));
+      const params = service.marshalParams([
+        createMetric(),
+        createMetric({ sourceTimestamp: undefined }),
+      ]);
+      expect(params[17]).toBeNull();
+      expect(params[19 + 17]).toBeNull();
+    });
+  });
+
+  describe('ingestionLatencyMs', () => {
+    const sampled = new Date('2026-03-14T12:00:00.000Z');
+
+    it('keeps every delay a 32-bit integer holds, and none beyond', () => {
+      expect(ingestionLatencyMs(sampled, sampled.getTime() + 2_147_483_647)).toBe(2_147_483_647);
+      expect(ingestionLatencyMs(sampled, sampled.getTime() + 2_147_483_648)).toBeNull();
+      // A device clock ahead of the server: negative, kept while it fits.
+      expect(ingestionLatencyMs(sampled, sampled.getTime() - 2_000)).toBe(-2_000);
+      expect(ingestionLatencyMs(sampled, sampled.getTime() - 2_147_483_649)).toBeNull();
+    });
+
+    it('is null without a sample time or for an invalid one', () => {
+      expect(ingestionLatencyMs(undefined, Date.now())).toBeNull();
+      expect(ingestionLatencyMs(new Date('not a date'), Date.now())).toBeNull();
     });
   });
 

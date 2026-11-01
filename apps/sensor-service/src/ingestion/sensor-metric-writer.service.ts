@@ -11,6 +11,27 @@ import { DataSource, EntityManager } from 'typeorm';
 
 import { SensorMetricInput } from '../database/entities/sensor-metric.entity';
 
+/** `ingestion_latency_ms` is a PostgreSQL `integer`, served as a GraphQL `Int`: 32 bits. */
+const LATENCY_MS_MIN = -2_147_483_648;
+const LATENCY_MS_MAX = 2_147_483_647;
+
+/**
+ * The value of `ingestion_latency_ms`: milliseconds from a reading's sample
+ * time to its write. Null without a sample time, and null when the delay does
+ * not fit the column (SENSOR-HIGH-208): a reading written about 24.8 days or
+ * more after it was sampled is a backfill, not a delivery delay, and an
+ * out-of-range parameter would fail the INSERT and every other row of its
+ * batch with it.
+ */
+export function ingestionLatencyMs(
+  sourceTimestamp: Date | undefined,
+  writtenAt: number,
+): number | null {
+  if (!sourceTimestamp) return null;
+  const latency = writtenAt - sourceTimestamp.getTime();
+  return latency >= LATENCY_MS_MIN && latency <= LATENCY_MS_MAX ? latency : null;
+}
+
 /**
  * The durable outcome of one enqueued metric's batch, settled per owning
  * tenant: a row's promise resolves ONLY after its tenant's batch committed
@@ -435,6 +456,7 @@ export class SensorMetricWriterService implements OnModuleInit, OnModuleDestroy 
   /** The single 19-column-per-row parameter marshalling for `sensor.sensor_metrics`. */
   marshalParams(metrics: SensorMetricInput[]): unknown[] {
     const params: unknown[] = [];
+    const writtenAt = Date.now();
     for (const m of metrics) {
       params.push(
         m.time.toISOString(),
@@ -454,7 +476,7 @@ export class SensorMetricWriterService implements OnModuleInit, OnModuleDestroy 
         Number.isInteger(m.qualityBits) ? m.qualityBits : 0,
         m.sourceProtocol ? m.sourceProtocol.replace(/[^a-zA-Z0-9_-]/g, '') : null,
         m.sourceTimestamp?.toISOString() || null,
-        m.sourceTimestamp ? Date.now() - m.sourceTimestamp.getTime() : null,
+        ingestionLatencyMs(m.sourceTimestamp, writtenAt),
         m.batchId || null,
       );
     }

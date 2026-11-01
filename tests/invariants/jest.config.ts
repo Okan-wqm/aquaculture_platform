@@ -97,7 +97,6 @@ const LAYER_3_SPECS: string[] = [
   '<rootDir>/farm-graphql-fe-be-parity.spec.ts',
   '<rootDir>/hr-graphql-fe-be-parity.spec.ts',
   '<rootDir>/farm-graphql-enum-parity.spec.ts',
-  '<rootDir>/farm-graphql-resolver-field-uniqueness.spec.ts',
   '<rootDir>/dead-contract-fe-operations.spec.ts',
   '<rootDir>/farm-batch-policy-transaction-ssot.spec.ts',
   '<rootDir>/farm-stock-mutation-ssot.spec.ts',

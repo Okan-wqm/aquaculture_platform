@@ -47,18 +47,45 @@ describe('SensorTopicCacheService under FORCE RLS (SENSOR-HIGH-119)', () => {
       tenants: [TENANT_A, TENANT_B],
       entities: [Sensor, SensorDataChannel, SensorMetric, SensorProtocol, SensorTypeDefinition],
       beforeRls: async ({ admin: owner, tenantId, schema }) => {
-        // Seed as the owner: one parent sensor per tenant on distinct topics.
-        await owner.query(
-          `INSERT INTO "${schema}".sensors
-             (tenant_id, name, serial_number, type, protocol_configuration, is_parent_device)
-           VALUES ($1, $2, $3, 'temperature', $4::jsonb, true)`,
-          [
-            tenantId,
-            `Sonde ${schema.slice(0, 12)}`,
-            `SONDE-${schema}`,
-            JSON.stringify({ topic: `sensors/${schema.slice(0, 8)}/sonde` }),
-          ],
-        );
+        const protocol = async (code: string): Promise<string> => {
+          const [row] = await owner.query(
+            `INSERT INTO "${schema}".sensor_protocols
+               (code, name, category, "connectionType", "configurationSchema")
+             VALUES ($1, $1, 'iot', 'tcp', '{}'::jsonb) RETURNING id`,
+            [code],
+          );
+          return row.id;
+        };
+        const mqtt = await protocol('MQTT');
+        const modbus = await protocol('MODBUS_TCP');
+        const sensor = async (
+          name: string,
+          topic: string,
+          protocolId: string,
+          mqttUsername: string | null = null,
+        ): Promise<void> => {
+          await owner.query(
+            `INSERT INTO "${schema}".sensors
+               (tenant_id, name, serial_number, type, protocol_configuration, is_parent_device,
+                protocol_id, mqtt_username)
+             VALUES ($1, $2, $3, 'temperature', $4::jsonb, true, $5, $6)`,
+            [
+              tenantId,
+              `${name} ${schema.slice(0, 12)}`,
+              `${name}-${schema}`,
+              JSON.stringify({ topic }),
+              protocolId,
+              mqttUsername,
+            ],
+          );
+        };
+        // Seed as the owner: one legacy MQTT sensor per tenant on distinct topics.
+        await sensor('Sonde', `sensors/${schema.slice(0, 8)}/sonde`, mqtt);
+        // ADR-047 §7: neither of these may claim a legacy topic — a device of
+        // another protocol carrying a `topic` key, and a sensor moved to its
+        // own broker principal.
+        await sensor('Modbus', '#', modbus);
+        await sensor('Moved', `sensors/${schema.slice(0, 8)}/moved`, mqtt, `s${'m'.repeat(22)}`);
       },
     });
     admin = stage.admin;
@@ -101,6 +128,13 @@ describe('SensorTopicCacheService under FORCE RLS (SENSOR-HIGH-119)', () => {
     expect(sensorB?.schemaName).toBe(SCHEMA_B);
   });
 
+  it('lets no other protocol and no sensor holding its own principal claim a legacy topic (ADR-047 §7)', async () => {
+    await expect(service.getSensorByTopic('sensors/anything/at-all')).resolves.toBeNull();
+    await expect(
+      service.getSensorByTopic(`sensors/${SCHEMA_A.slice(0, 8)}/moved`),
+    ).resolves.toBeNull();
+  });
+
   it('warm-up caches every active tenant sensor (regression: "0 sensors")', async () => {
     await service.onModuleInit();
 
@@ -125,7 +159,7 @@ describe('SensorTopicCacheService under FORCE RLS (SENSOR-HIGH-119)', () => {
       const visibleB = await qr.query(`SELECT count(*)::int AS n FROM "${SCHEMA_B}".sensors`);
       await qr.commitTransaction();
 
-      expect(visibleA[0].n).toBe(1);
+      expect(visibleA[0].n).toBe(3);
       expect(visibleB[0].n).toBe(0);
     } finally {
       await qr.release();

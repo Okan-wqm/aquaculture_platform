@@ -341,6 +341,10 @@ services:
       JWT_SECRET: '${JWT_SECRET:?JWT_SECRET is required}'
       MQTT_ENABLED: 'true'
       MQTT_BROKER_URL: mqtt://host.docker.internal:1883
+      # ADR-047: peppers for sensors' own broker credentials. Unset, the service
+      # issues and accepts none; generate one with
+      # scripts/deploy/lib/required-env-secrets.sh generate_active_hex_keyring.
+      MQTT_SENSOR_SECRET_KEYRING: '${MQTT_SENSOR_SECRET_KEYRING:-}'
     healthcheck:
       test: ['CMD', 'curl', '--fail', '--silent', 'http://127.0.0.1:3000/health/live']
       interval: 30s

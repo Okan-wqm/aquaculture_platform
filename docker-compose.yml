@@ -369,11 +369,24 @@ services:
       NATS_URL: nats://nats:4222
       MQTT_ENABLED: 'true'
       # ARCH-019: Use container name (aqua-mosquitto) not host.docker.internal
-      # Requires simulator stack to be on the same Docker network (aqua-network)
-      # Start simulators: docker compose -f infrastructure/simulators/docker-compose.simulators.yml up -d
+      # The broker is the platform image in the simulator stack, on aqua-network:
+      # docker compose -f infrastructure/simulators/docker-compose.simulators.yml up -d
+      # It asks this service's /mqtt/* endpoints for every CONNECT and ACL check.
       MQTT_BROKER_URL: mqtt://aqua-mosquitto:1883
       # SENSOR-CRITICAL-086: stable persistent-session identity for delayed PUBACK
       MQTT_CLIENT_ID: aqua-sensor-service
+      # The listener's broker account, verified by this service's own auth
+      # endpoint. Local development only: the default hash is
+      # PBKDF2-SHA512 (600k) of the default password; override both together.
+      MQTT_AUTH_MODE: http
+      MQTT_USERNAME: sensor_service
+      MQTT_PASSWORD: '${MQTT_SENSOR_SERVICE_PASSWORD:-local-dev-only-change-me}'
+      MQTT_SENSOR_SERVICE_HASH: '${MQTT_SENSOR_SERVICE_HASH:-$$7$$600000$$CcUC+TK1IhZdL3Nc$$ytaO31r+3X3Gth0HKc/4IWCv5mAgvrFB}'
+      # ADR-047: the pepper sensor credentials are issued under. Local
+      # development only (the hex of "local-dev-only-sensor-pepper-32b"); the
+      # droplet bootstrap generates its own and production refuses to start
+      # without one.
+      MQTT_SENSOR_SECRET_KEYRING: '${MQTT_SENSOR_SECRET_KEYRING:-[{"kid":"local-dev","secret":"6c6f63616c2d6465762d6f6e6c792d73656e736f722d7065707065722d333262","status":"active"}]}'
       # OpenTelemetry Tracing
       ENABLE_TRACING: ${ENABLE_TRACING:-true}
       OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318/v1/traces

@@ -24,6 +24,7 @@ import {
 import {
   RegisterParentWithChildrenInput,
   UpdateSensorInfoInput,
+  RelocateSensorInput,
   UpdateSensorProtocolInput,
 } from '../dto/register-sensor.dto';
 
@@ -110,11 +111,23 @@ describe('device-registration inputs × global ValidationPipe (SENSOR-HIGH-141)'
         name: 'WT-CODEX-01',
         type: SensorType.MULTI_PARAMETER,
         manufacturer: 'Codex',
-        siteId: SITE_ID,
         location: 'Havuz 3',
         metadata: { note: 'kalibrasyon 2026-10' },
       }),
     ).resolves.toBeInstanceOf(UpdateSensorInfoInput);
+  });
+
+  it('keeps the placement out of updateSensorInfo: a move goes through relocateSensor', async () => {
+    await expect(
+      through(UpdateSensorInfoInput, { sensorId: SENSOR_ID, siteId: SITE_ID }),
+    ).rejects.toThrow();
+    await expect(
+      through(RelocateSensorInput, { sensorId: SENSOR_ID, siteId: SITE_ID, unitId: SITE_ID }),
+    ).resolves.toBeInstanceOf(RelocateSensorInput);
+    await expect(through(RelocateSensorInput, { sensorId: SENSOR_ID })).rejects.toThrow();
+    await expect(
+      through(RelocateSensorInput, { sensorId: SENSOR_ID, siteId: SITE_ID, unitId: 'tank-3' }),
+    ).rejects.toThrow();
   });
 
   it('accepts edge-device registration and update', async () => {

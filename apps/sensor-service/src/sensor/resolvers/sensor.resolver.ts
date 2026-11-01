@@ -1,4 +1,4 @@
-import { Logger, NotFoundException } from '@nestjs/common';
+import { Logger } from '@nestjs/common';
 import { Resolver, Query, Mutation, Args, Int, ID, ResolveReference } from '@nestjs/graphql';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Tenant, Roles, Role } from '@aquaculture/backend-common/decorators';
@@ -79,24 +79,12 @@ export class SensorResolver {
     }
   }
 
-  /**
-   * Get a single sensor by ID
-   */
-  @Query(() => Sensor, { name: 'sensor', nullable: true })
-  async getSensor(
-    @Args('id', { type: () => ID }) id: string,
-    @Tenant() tenantId: string,
-  ): Promise<Sensor> {
-    const sensor = await this.sensorRepository.findOne({
-      where: { id, tenantId },
-    });
-
-    if (!sensor) {
-      throw new NotFoundException(`Sensor with ID ${id} not found`);
-    }
-
-    return this.redactSensor(sensor);
-  }
+  // `sensor(id)` is RegistrationResolver's read model alone. A second
+  // `sensor` query here returned the raw entity: the schema took this one's
+  // type while the registration read model's fields (activatedByData, the
+  // credential state) were what the UI asked for, so one name answered with
+  // two shapes. tools/scripts/emit-subgraph-sdl.ts refuses a root field with
+  // two resolver methods.
 
   /**
    * List all sensors for the tenant (raw array, no pagination wrapper).

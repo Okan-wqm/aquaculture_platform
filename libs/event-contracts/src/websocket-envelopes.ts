@@ -182,6 +182,30 @@ export interface PresenceEnvelope {
 }
 
 /**
+ * `aiReplyDraft` — the AI's reply in a channel while it is being written
+ * (MSG-MEDIUM-089). `replyKey` is the `idempotencyKey` the stored reply
+ * will carry, so a client shows the draft until the `newMessage` with that
+ * key arrives. The text is model output that passed ai-service's output
+ * safety stage but not messaging's storage sanitizer: render it as text,
+ * never as HTML.
+ */
+export type AiReplyDraftEnvelope =
+  | {
+      channelId: string;
+      replyKey: string;
+      /** `text` continues turn `turn`'s draft; a higher turn starts the draft over. */
+      phase: 'writing';
+      turn: number;
+      text: string;
+    }
+  | {
+      channelId: string;
+      replyKey: string;
+      /** stored: the reply is saved and arrives as a message; abandoned: none is coming. */
+      phase: 'stored' | 'abandoned';
+    };
+
+/**
  * Canonical map of Socket.IO event name → emitted envelope type. Both the
  * gateway emit sites and the client handlers key off these names; the
  * contract test asserts the gateway never emits a name outside this map.
@@ -193,6 +217,7 @@ export interface MessagingSocketEventMap {
   readReceipt: ReadReceiptEnvelope;
   typing: TypingEnvelope;
   presence: PresenceEnvelope;
+  aiReplyDraft: AiReplyDraftEnvelope;
 }
 
 /** Socket.IO event names the `/messaging` namespace emits to clients. */
@@ -203,6 +228,7 @@ export const MESSAGING_SOCKET_EVENT_NAMES = [
   'readReceipt',
   'typing',
   'presence',
+  'aiReplyDraft',
 ] as const;
 
 export type MessagingSocketEventName = (typeof MESSAGING_SOCKET_EVENT_NAMES)[number];
@@ -233,4 +259,52 @@ export interface GetMessageForBroadcastRequest {
  */
 export interface GetMessageForBroadcastResponse {
   message: WsMessage | null;
+}
+
+// ----------------------------------------------------------------------------
+// messaging-service → bridge: AI reply drafts (core NATS, MSG-MEDIUM-089)
+// ----------------------------------------------------------------------------
+
+/**
+ * Subject messaging-service publishes an AI reply's draft on, per tenant;
+ * the gateway bridge relays each to the channel room as `aiReplyDraft`. The
+ * `live` root is in no JetStream stream's subjects: a draft is worth nothing
+ * once the reply is stored, so it is never persisted or replayed.
+ */
+export function aiReplyDraftSubject(tenantId: string): string {
+  return `live.${tenantId}.AiReplyDraft`;
+}
+
+/** The bridge's subscription for {@link aiReplyDraftSubject}, every tenant. */
+export const AI_REPLY_DRAFT_SUBSCRIPTION = 'live.*.AiReplyDraft';
+
+/** What messaging-service publishes on {@link aiReplyDraftSubject}. */
+export type AiReplyDraftSignal = AiReplyDraftEnvelope & { tenantId: string };
+
+/** Trust-boundary check of a published {@link AiReplyDraftSignal}. */
+export function isAiReplyDraftSignal(value: unknown): value is AiReplyDraftSignal {
+  if (
+    typeof value !== 'object' ||
+    value === null ||
+    !('tenantId' in value && 'channelId' in value && 'replyKey' in value && 'phase' in value)
+  ) {
+    return false;
+  }
+  const { tenantId, channelId, replyKey, phase } = value;
+  if (
+    typeof tenantId !== 'string' ||
+    typeof channelId !== 'string' ||
+    typeof replyKey !== 'string'
+  ) {
+    return false;
+  }
+  if (phase === 'writing') {
+    return (
+      'turn' in value &&
+      'text' in value &&
+      Number.isInteger(value.turn) &&
+      typeof value.text === 'string'
+    );
+  }
+  return phase === 'stored' || phase === 'abandoned';
 }

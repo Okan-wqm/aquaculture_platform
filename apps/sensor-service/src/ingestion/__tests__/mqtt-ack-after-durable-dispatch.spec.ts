@@ -1,3 +1,4 @@
+import { collaborator } from '@aquaculture/testing';
 import { EventEmitter } from 'node:events';
 
 import { ConfigService } from '@nestjs/config';
@@ -16,6 +17,8 @@ import { SensorOutbox } from '../../outbox/sensor-outbox.entity';
 import { MqttClientService } from '../../shared-mqtt/mqtt-client.service';
 import { MqttListenerService } from '../mqtt-listener.service';
 import { SensorMetricWriterService } from '../sensor-metric-writer.service';
+import { SensorPrincipalIngestion } from '../sensor-principal-ingestion.service';
+import { SensorReadingRecorder } from '../sensor-reading-recorder.service';
 import { SensorTopicCacheService } from '../sensor-topic-cache.service';
 
 /**
@@ -303,6 +306,13 @@ async function bootChain(): Promise<Chain> {
   const moduleRef = await Test.createTestingModule({
     providers: [
       MqttListenerService,
+      // The real recorder: it writes the rows and the dispatch row this spec gates.
+      SensorReadingRecorder,
+      // Legacy topics only here; the sensor-principal route has its own spec.
+      {
+        provide: SensorPrincipalIngestion,
+        useValue: collaborator<SensorPrincipalIngestion>({}, 'SensorPrincipalIngestion'),
+      },
       { provide: ConfigService, useValue: new ConfigService({ MQTT_ENABLED: 'true' }) },
       { provide: getDataSourceToken(), useValue: store.dataSource() },
       { provide: SensorMetricWriterService, useValue: { writeManaged } },

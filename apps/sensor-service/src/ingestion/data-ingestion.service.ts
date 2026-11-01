@@ -21,7 +21,7 @@ import {
   projectPersistedReadings,
   type PersistedReadingMetric,
 } from '@platform/event-contracts';
-import { DataSource, In } from 'typeorm';
+import { DataSource, In, IsNull } from 'typeorm';
 
 import { SensorDataChannel } from '../database/entities/sensor-data-channel.entity';
 import { QualityCodes, SensorMetricInput } from '../database/entities/sensor-metric.entity';
@@ -46,6 +46,20 @@ interface ActiveConnection {
   lastReadingAt?: Date;
   errorCount: number;
 }
+
+/** The columns that say where a sensor stands, as a reading records them. */
+type SensorPlace = Pick<
+  Sensor,
+  | 'id'
+  | 'siteId'
+  | 'departmentId'
+  | 'systemId'
+  | 'tankId'
+  | 'equipmentId'
+  | 'pondId'
+  | 'farmId'
+  | 'mqttUsername'
+>;
 
 /**
  * Data Ingestion Service
@@ -161,7 +175,10 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
     try {
       const tenants = await listActiveTenantSchemaIdentities(this.dataSource);
       for (const { tenantId } of tenants) {
-        // Active MQTT parent sensors of this tenant, inside its boundary.
+        // Active MQTT parent sensors of this tenant, inside its boundary —
+        // those without their own broker principal: a parent holding one
+        // publishes to the platform broker and the listener's sensor data
+        // route ingests it (ADR-047 §4); it has no broker to dial.
         const activeSensors = await runInTenantRead(
           this.dataSource,
           SENSOR_SOURCE_SCHEMA,
@@ -172,6 +189,7 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
                 registrationStatus: SensorRegistrationStatus.ACTIVE,
                 isActive: true,
                 isParentDevice: true,
+                mqttUsername: IsNull(),
                 protocol: { code: 'MQTT' },
               },
               relations: ['protocol'],
@@ -205,6 +223,29 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
     );
   }
 
+  /**
+   * A sensor's current place, and whether it holds its own broker principal,
+   * read inside its tenant's boundary; null once it is deleted.
+   */
+  private async currentPlace(sensor: Pick<Sensor, 'id' | 'tenantId'>): Promise<SensorPlace | null> {
+    return runInTenantRead(this.dataSource, SENSOR_SOURCE_SCHEMA, sensor.tenantId, (qr) =>
+      tenantManagerRepo(qr.manager, Sensor).findOne({
+        where: { id: sensor.id },
+        select: {
+          id: true,
+          siteId: true,
+          departmentId: true,
+          systemId: true,
+          tankId: true,
+          equipmentId: true,
+          pondId: true,
+          farmId: true,
+          mqttUsername: true,
+        },
+      }),
+    );
+  }
+
   /** Re-read a sensor (with its protocol) inside its tenant's boundary. */
   private async reloadSensor(sensorId: string, tenantId: string): Promise<Sensor | null> {
     return runInTenantRead(this.dataSource, SENSOR_SOURCE_SCHEMA, tenantId, (qr) =>
@@ -221,6 +262,16 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
   async startSensorDataCollection(sensor: Sensor): Promise<void> {
     if (this.activeConnections.has(sensor.id)) {
       this.logger.warn(`Sensor ${sensor.id} is already connected`);
+      return;
+    }
+
+    // ADR-047 §4: a sensor issued its own broker principal (by a rotation
+    // since this connection was opened, too) is never dialled; its data
+    // arrives on its own topic through the listener.
+    if (sensor.mqttUsername) {
+      this.logger.log(
+        `Sensor ${sensor.id} publishes with its own broker principal; no collector connection`,
+      );
       return;
     }
 
@@ -332,6 +383,25 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
       const sourceTimestamp = data.timestamp || now;
       const ingestionLatencyMs = now.getTime() - sourceTimestamp.getTime();
 
+      // Where the sensor stands NOW, not where it stood when the connection
+      // opened: a move (SensorPlacementService.relocate) must reach this
+      // reading's rows and event (SENSOR-MEDIUM-206). A sensor deleted since
+      // stores nothing.
+      const place = await this.currentPlace(sensor);
+      if (place === null) {
+        return;
+      }
+      // ADR-047 §7: issued its own broker principal since this connection
+      // opened, the sensor publishes to the platform broker now; the dialled
+      // connection ends and stores nothing more.
+      if (place.mqttUsername) {
+        this.logger.log(
+          `Sensor ${sensor.id} now publishes with its own broker principal; closing its collector connection`,
+        );
+        await this.stopSensorDataCollection(sensor.id);
+        return;
+      }
+
       // Get all channels for this sensor (cached — 60-second TTL)
       const channels = await this.getChannelsCached(sensor.id, sensor.tenantId);
 
@@ -378,13 +448,13 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
           sensorId: sensor.id,
           channelId: channel.id,
           tenantId: sensor.tenantId,
-          siteId: sensor.siteId,
-          departmentId: sensor.departmentId,
-          systemId: sensor.systemId,
-          equipmentId: sensor.equipmentId,
-          tankId: sensor.tankId,
-          pondId: sensor.pondId,
-          farmId: sensor.farmId,
+          siteId: place.siteId,
+          departmentId: place.departmentId,
+          systemId: place.systemId,
+          equipmentId: place.equipmentId,
+          tankId: place.tankId,
+          pondId: place.pondId,
+          farmId: place.farmId,
           rawValue: numericRawValue,
           value: calibratedValue,
           qualityCode,
@@ -398,9 +468,9 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
         persisted.push({
           channelKey: channel.channelKey,
           value: calibratedValue,
-          farmId: sensor.farmId,
-          pondId: sensor.pondId,
-          tankId: sensor.tankId,
+          farmId: place.farmId,
+          pondId: place.pondId,
+          tankId: place.tankId,
         });
       }
 
@@ -419,7 +489,7 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
       // not stored, under a scope that excluded every farm-scoped rule.
       const projection = projectPersistedReadings(persisted);
       if (this.eventBus && projection.mappedCount > 0) {
-        const siteId = siteOfSensor(sensor);
+        const siteId = siteOfSensor(place);
         try {
           await this.eventBus.publish({
             ...createBaseEvent('SensorReading', sensor.tenantId, {

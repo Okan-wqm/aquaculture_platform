@@ -22,7 +22,7 @@
  * the new-messages pill appears when scrolled up; older pages load on
  * top-scroll via the cursor and media labels survive pagination.
  */
-import type { WsMessage } from '@aquaculture/shared-ui';
+import type { AiReplyDraftEnvelope, WsMessage } from '@aquaculture/shared-ui';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
@@ -233,6 +233,7 @@ beforeEach(() => {
 afterEach(() => {
   restoreVisibility();
   vi.useRealTimers();
+  vi.unstubAllGlobals();
 });
 
 describe('ChatRoomPage', () => {
@@ -455,15 +456,86 @@ describe('ChatRoomPage — FAZ 2.4 AI visibility', () => {
     ]);
   }
 
-  it('credits AI messages to the channel persona (shared catalogue name), not a hard-coded name', async () => {
+  it("credits AI messages to the channel persona's job, not a hard-coded name", async () => {
     routeAiThread([makeMessage('ai-1', 'hello from ai', AI_SENDER_ID, { isAiGenerated: true })]);
     renderRoom(newQueryClient());
 
     expect(await screen.findByText('hello from ai')).toBeVisible();
-    // aiPersona 'expert-farm-production-v1' maps to the catalogue display name…
-    expect(screen.getByText('Production Specialist (Expert)')).toBeVisible();
+    // aiPersona 'expert-farm-production-v1' maps to the localised job on the author line…
+    expect(within(screen.getByRole('log')).getByText('Production Specialist')).toHaveClass(
+      'sd-msg-author',
+    );
     // …and the generic label does NOT appear alongside it.
     expect(screen.queryByText('AI Assistant')).not.toBeInTheDocument();
+  });
+
+  it("types the AI's reply out as it is written, then shows the stored reply in its place (MSG-MEDIUM-089)", async () => {
+    // Reduced motion: the typed text shows whole, so it can be read at once.
+    vi.stubGlobal('matchMedia', (query: string) => ({ matches: query.includes('reduce') }));
+    const replyKey = 'eeeeeeee-5555-5666-8777-888888888888';
+    routeAiThread([]);
+    renderRoom(newQueryClient());
+    await waitFor(() =>
+      expect(screen.getByTestId('room-title')).toHaveTextContent('Production Specialist'),
+    );
+
+    const writing = (text: string): AiReplyDraftEnvelope => ({
+      channelId: AI_CHANNEL.id,
+      replyKey,
+      phase: 'writing',
+      turn: 1,
+      text,
+    });
+    act(() => fireSocketEvent('aiReplyDraft', writing('Tank 4 ')));
+    act(() => fireSocketEvent('aiReplyDraft', writing('is fine.')));
+
+    const draft = await screen.findByTestId('ai-reply-draft');
+    expect(draft).toHaveTextContent('Tank 4 is fine.');
+    expect(within(draft).getByText('Production Specialist')).toHaveClass('sd-msg-author');
+    expect(draft).toHaveTextContent('writing…');
+    expect(draft).toHaveAttribute('aria-busy', 'true');
+
+    const stored: WsMessage = {
+      id: 'ai-reply',
+      channelId: AI_CHANNEL.id,
+      senderId: AI_SENDER_ID,
+      content: 'Tank 4 is fine.',
+      contentType: 'SYSTEM',
+      parentId: null,
+      forwardedFrom: null,
+      isDeleted: false,
+      createdAt: '2026-09-16T11:00:00Z',
+      editedAt: null,
+      metadata: null,
+      idempotencyKey: replyKey,
+      sender: { id: AI_SENDER_ID },
+    };
+    act(() => fireSocketEvent('newMessage', { channelId: AI_CHANNEL.id, message: stored }));
+
+    await waitFor(() => expect(screen.queryByTestId('ai-reply-draft')).not.toBeInTheDocument());
+    expect(screen.getByText('Tank 4 is fine.')).toBeVisible();
+  });
+
+  it("titles an AI room with its agent's face, job and tier — not the stored English name", async () => {
+    routeAiThread([]);
+    renderRoom(newQueryClient());
+
+    await waitFor(() =>
+      expect(screen.getByTestId('room-title')).toHaveTextContent('Production Specialist'),
+    );
+    expect(screen.getByText('Expert')).toHaveClass('sd-chip');
+    // The room's face is decorative; the title carries the name and the spoken "(AI)".
+    expect(screen.getByTestId('persona-avatar')).toHaveAttribute('aria-hidden', 'true');
+    expect(screen.getByTestId('room-title')).toHaveTextContent('Production Specialist (AI)');
+    expect(screen.queryByText('AI — Production Specialist')).not.toBeInTheDocument();
+  });
+
+  it("puts a person's face beside their message", async () => {
+    routeAiThread([makeMessage('u-1', 'from a person', 'u2')]);
+    renderRoom(newQueryClient());
+
+    const row = (await screen.findByText('from a person')).closest('.sd-msg-row');
+    expect(row?.querySelector('[data-testid="member-avatar"]')).not.toBeNull();
   });
 
   it('shows the consent switch in an AI room and sends the opt-in (FE-MEDIUM-065)', async () => {
@@ -510,17 +582,19 @@ describe('ChatRoomPage — FAZ 2.4 AI visibility', () => {
     });
     renderRoom(newQueryClient());
 
-    expect(await screen.findByText('AI Assistant')).toBeVisible();
+    await screen.findByText('hello from ai');
+    expect(within(screen.getByRole('log')).getByText('AI Assistant')).toBeVisible();
   });
 
-  it('renders an unknown persona id verbatim instead of hiding the persona', async () => {
+  it("names an unknown persona by the room's stored name instead of hiding it", async () => {
     routeAiThread([makeMessage('ai-1', 'hello from ai', AI_SENDER_ID, { isAiGenerated: true })], {
       ...AI_CHANNEL,
       aiPersona: 'future-persona-9',
     });
     renderRoom(newQueryClient());
 
-    expect(await screen.findByText('future-persona-9')).toBeVisible();
+    await screen.findByText('hello from ai');
+    expect(within(screen.getByRole('log')).getByText('AI — Production Specialist')).toBeVisible();
   });
 
   it('renders SYSTEM+metadata.error notices as a neutral system line, NOT an AI bubble', async () => {
@@ -538,7 +612,7 @@ describe('ChatRoomPage — FAZ 2.4 AI visibility', () => {
     // Distinct from a normal AI answer: no AI bubble, no raw notice payload.
     expect(document.querySelector('.sd-msg--ai')).toBeNull();
     expect(screen.queryByText('AI upstream failed')).not.toBeInTheDocument();
-    expect(screen.queryByText('Production Specialist (Expert)')).not.toBeInTheDocument();
+    expect(document.querySelector('.sd-msg-author')).toBeNull();
   });
 
   it('ignores a user-forged metadata.error on a TEXT message (no system notice)', async () => {

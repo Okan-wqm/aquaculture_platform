@@ -88,7 +88,23 @@ describe('ConnectionTesterService — implementation-status guard', () => {
     expect(result.success).toBe(true);
   });
 
-  it('does not reach the status guard when config validation fails', async () => {
+  it('answers a PLATFORM_BROKER (MQTT) sensor that the platform does not dial, whatever its config (ADR-047)', async () => {
+    const adapter = makeAdapter();
+    registry.getAdapter.mockReturnValue(adapter);
+
+    const result = await service.testConnection(
+      'MQTT',
+      { brokerUrl: 'mosquitto', topic: 'sensors/x' },
+      { fetchSampleData: false },
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/platform broker/i);
+    expect(validator.validate).not.toHaveBeenCalled();
+    expect(adapter.testConnection).not.toHaveBeenCalled();
+  });
+
+  it('does not reach the adapter when config validation fails', async () => {
     validator.validate.mockReturnValue({ isValid: false, errors: [{ message: 'bad host' }] });
 
     const result = await service.testConnection('MODBUS_TCP', {}, { fetchSampleData: false });

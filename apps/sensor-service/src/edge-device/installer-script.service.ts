@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
+import { resolvePublicBrokerEndpoint } from '../infrastructure/mqtt/public-broker-endpoint';
 import {
   InstallerScriptVariables,
   TenantInstallerScriptVariables,
@@ -58,13 +59,12 @@ export class InstallerScriptService {
   constructor(private readonly configService: ConfigService) {
     this.API_BASE_URL = this.configService.get<string>('PROVISIONING_API_BASE_URL', 'http://localhost:3000');
     this.AGENT_VERSION = this.configService.get<string>('AGENT_VERSION', '');
-    // Public broker host for edge agents (external access). Falls back to MQTT_BROKER_HOST
-    // which may be an internal Docker hostname — override with MQTT_PUBLIC_BROKER_HOST in production.
-    const apiBaseUrl = this.configService.get<string>('PROVISIONING_API_BASE_URL', 'http://localhost:3000');
-    const defaultPublicHost = (() => { try { return new URL(apiBaseUrl).hostname; } catch { return 'localhost'; } })();
-    this.MQTT_BROKER = this.configService.get<string>('MQTT_PUBLIC_BROKER_HOST', defaultPublicHost);
-    this.MQTT_PORT = Number(this.configService.get('MQTT_BROKER_PORT', 1883));
-    this.MQTT_TLS_ENABLED = Number(this.configService.get('MQTT_BROKER_PORT', 1883)) === 8883;
+    // Public broker endpoint for edge agents (external access), resolved the
+    // same way as for sensors holding their own broker principal.
+    const broker = resolvePublicBrokerEndpoint(this.configService);
+    this.MQTT_BROKER = broker.host;
+    this.MQTT_PORT = broker.port;
+    this.MQTT_TLS_ENABLED = broker.tls;
     // Pin the GitHub repo from env var to prevent the admin API from redirecting
     // edge agent downloads to an attacker-controlled repository (MED-07)
     this.PINNED_GITHUB_REPO = this.configService.get<string>('EDGE_AGENT_GITHUB_REPO', 'Okan-wqm/aquaculture_platform');

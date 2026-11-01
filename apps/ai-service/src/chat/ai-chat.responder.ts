@@ -1,16 +1,20 @@
 import { Controller, Logger } from '@nestjs/common';
 import { withTenantContext } from '@aquaculture/backend-common/context';
 import { isModuleAccess } from '@aquaculture/shared-contracts';
+import type { AiChatReplyFrame, AiChatResultFrame } from '@platform/event-contracts';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import { randomUUID } from 'crypto';
+import { from, Observable } from 'rxjs';
 import {
   AgentRunnerService,
   AiKeyMissingError,
+  ChatDraft,
   ChatRequest,
   PersonaConversationMismatchError,
 } from '../agent/agent-runner.service';
 import { PersonaNotPermittedError } from '../agent/agent-profile.service';
 import { UnknownPersonaError } from '../agent/agent-persona-catalogue.service';
+import { DraftFrames } from './draft-frames';
 
 /**
  * Unified `request.ai.chat` NATS request-reply contract — the SINGLE AI chat
@@ -48,6 +52,12 @@ export interface AiChatNatsRequest {
   moduleAccess?: unknown;
   assignedSiteIds?: unknown;
   correlationId?: string;
+  /**
+   * MSG-MEDIUM-089: answer with draft frames while the reply is written,
+   * then the result (AiChatReplyFrame). A caller that shows the reply as it
+   * is written sets it; any other gets the result frame alone.
+   */
+  stream?: boolean;
   /**
    * FARM-AI Sprint 1.2: ephemeral run — no conversation is created or read;
    * the response carries conversationId=null. Service paths (narratives,
@@ -127,19 +137,6 @@ function mapContextToPriorMessages(
   return prior.length > 0 ? prior : undefined;
 }
 
-export interface AiChatNatsResponse {
-  content: string;
-  conversationId: string | null;
-  metadata: Record<string, unknown> | null;
-  toolCalls?: Array<{ name: string; input: Record<string, unknown>; result: unknown }>;
-  /**
-   * Present only on failure — callers surface AI_KEY_MISSING distinctly;
-   * BAD_REQUEST = unknown persona / persona-conversation mismatch / missing
-   * fields; FORBIDDEN = the caller may not drive the persona.
-   */
-  error?: { code: 'AI_KEY_MISSING' | 'BAD_REQUEST' | 'FORBIDDEN' | 'INTERNAL'; message: string };
-}
-
 @Controller()
 export class AiChatResponder {
   private readonly logger = new Logger(AiChatResponder.name);
@@ -147,7 +144,31 @@ export class AiChatResponder {
   constructor(private readonly agentRunner: AgentRunnerService) {}
 
   @MessagePattern('request.ai.chat')
-  async handleChat(@Payload() payload: AiChatNatsRequest): Promise<AiChatNatsResponse> {
+  handleChat(@Payload() payload: AiChatNatsRequest): Observable<AiChatReplyFrame> {
+    if (payload.stream !== true) {
+      return from(this.reply(payload));
+    }
+    return new Observable<AiChatReplyFrame>((subscriber) => {
+      const drafts = new DraftFrames((frame) => subscriber.next(frame));
+      const run = from(this.reply(payload, (draft) => drafts.add(draft))).subscribe({
+        next: (result) => {
+          drafts.close();
+          subscriber.next(result);
+        },
+        complete: () => subscriber.complete(),
+        error: (error: unknown) => subscriber.error(error),
+      });
+      return (): void => {
+        drafts.cancel();
+        run.unsubscribe();
+      };
+    });
+  }
+
+  private async reply(
+    payload: AiChatNatsRequest,
+    onDraft?: (draft: ChatDraft) => void,
+  ): Promise<AiChatResultFrame> {
     const message = (payload.message ?? payload.content ?? '').trim();
     // SEC-HIGH-099 (2026-08-23 scan №44): identity fields are VALIDATED, not
     // trusted — tenantId/userId must be UUIDs (the tenant schema is derived
@@ -164,6 +185,7 @@ export class AiChatResponder {
         (!Array.isArray(payload.userRoles) || payload.userRoles.some((r) => typeof r !== 'string')))
     ) {
       return {
+        type: 'result',
         content: 'The AI request was missing required information.',
         conversationId: null,
         metadata: { errorCode: 'BAD_REQUEST' },
@@ -176,6 +198,7 @@ export class AiChatResponder {
     const memberScope = memberScopeOf(payload);
     if (memberScope === null) {
       return {
+        type: 'result',
         content: 'The AI request was missing required information.',
         conversationId: null,
         metadata: { errorCode: 'BAD_REQUEST' },
@@ -191,6 +214,7 @@ export class AiChatResponder {
       // posts response.content as the AI reply and does not inspect `error`)
       // degrades gracefully; `error` lets the socket.io assistant emit ai:error.
       return {
+        type: 'result',
         content: 'The AI request was missing required information.',
         conversationId: null,
         metadata: { errorCode: 'BAD_REQUEST' },
@@ -236,9 +260,10 @@ export class AiChatResponder {
       // was rejected by the source-write guard on every turn. Establishing
       // the context here makes the WHOLE turn tenant-routed by construction.
       const result = await withTenantContext(payload.tenantId, () =>
-        this.agentRunner.chat(chatRequest),
+        this.agentRunner.chat(chatRequest, onDraft),
       );
       return {
+        type: 'result',
         content: result.message,
         conversationId: result.conversationId,
         // MOB-HIGH-001: a held actuation rides the metadata in EXACTLY the
@@ -288,7 +313,7 @@ export class AiChatResponder {
           }`,
         );
       }
-      const code: NonNullable<AiChatNatsResponse['error']>['code'] = isKeyMissing
+      const code: NonNullable<AiChatResultFrame['error']>['code'] = isKeyMissing
         ? 'AI_KEY_MISSING'
         : isBadRequest
           ? 'BAD_REQUEST'
@@ -301,6 +326,7 @@ export class AiChatResponder {
           ? (error as Error).message
           : 'The AI is temporarily unavailable. Please try again later.';
       return {
+        type: 'result',
         // Non-empty so the messaging bridge posts a meaningful AI reply; `error`
         // lets the socket.io assistant route the user to AI settings.
         content: userFacing,

@@ -337,6 +337,18 @@
   --color-sd-ws-ctl: #897daf;
   --color-sd-ws-org: #7d8794;
 
+  /* AI persona identity — the messaging avatar hue for each colour name in the
+     shared persona catalogue, the same in both themes like the workspace
+     identity: oklch(0.62 C H), purple being the AI accent itself. Decorative
+     only and never an alarm hue (no red, no amber): suderra.css draws them as
+     an 18% tint, a 30% hairline and a glyph mixed 55% into ink, which holds
+     ≥ 5.2:1 on that tint under both themes. */
+  --color-sd-persona-purple: #8377a9;
+  --color-sd-persona-blue: #668aaf;
+  --color-sd-persona-green: #62946c;
+  --color-sd-persona-cyan: #49939c;
+  --color-sd-persona-orange: #b07750;
+
   /* Scope ramps (FE-HIGH-321). suderra.css re-assigns the design-system scales
      to these inside `sd-content` / `sd-page` / `sd-surface`, so this file stays
      the one owner of every colour value. Absolute lightness — 50 lightest, 900

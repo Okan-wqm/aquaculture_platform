@@ -4,7 +4,10 @@ import {
   getTenantErasureTargetOptions,
   TenantErasureTargetExecutor,
 } from '@aquaculture/backend-common/compliance';
-import { getTenantSchemaName } from '@aquaculture/backend-common/database';
+import {
+  getTenantSchemaName,
+  SENSOR_TENANT_ROUTE_TABLES,
+} from '@aquaculture/backend-common/database';
 import { createBaseEvent, type TenantErasureRequestedEvent } from '@platform/event-contracts';
 import { buildTenantErasureTargetProofLedgerUpSql } from '@platform/outbox';
 import { type DataSource } from 'typeorm';
@@ -21,7 +24,8 @@ import {
   EdgeDevice,
 } from '../../../edge-device/entities/edge-device.entity';
 import { TenantProvisioningKeyDirectory } from '../../../edge-device/entities/tenant-provisioning-key-directory.entity';
-import { EdgeRouteDirectoryPurgeHook } from '../edge-route-directory-purge.hook';
+import { SensorMqttDirectory } from '../../../mqtt-identity/sensor-mqtt-directory.entity';
+import { RouteDirectoryPurgeHook } from '../route-directory-purge.hook';
 
 /**
  * PLAT-CRITICAL (tenant erasure was a no-op under pool RLS), sensor-service's
@@ -29,7 +33,7 @@ import { EdgeRouteDirectoryPurgeHook } from '../edge-route-directory-purge.hook'
  * schemas and on `sensor`, a non-owner NOBYPASSRLS runtime role, and the pool
  * session left as RlsConnectionBootstrap leaves it outside a request
  * (`app.current_tenant = ''`, bypass off). The erasure must remove the erased
- * tenant's edge devices and both route-table rows and leave the other tenant's
+ * tenant's edge devices and its rows in every route table and leave the other tenant's
  * rows alone. Against the unbound executor every DELETE matched zero rows.
  */
 
@@ -75,7 +79,7 @@ describe('sensor-service tenant erasure under pool RLS (tenant-schema-module)', 
       name: 'tenant_erasure',
       tenants: [TENANT_A, TENANT_B],
       entities: [EdgeDevice],
-      sourceEntities: [EdgeDeviceDirectory, TenantProvisioningKeyDirectory],
+      sourceEntities: [EdgeDeviceDirectory, TenantProvisioningKeyDirectory, SensorMqttDirectory],
       beforeRls: async ({ ddl, tenantId }) => {
         for (const code of ['POND-01', 'POND-02']) {
           const saved = await ddl.manager.save(
@@ -115,6 +119,12 @@ describe('sensor-service tenant erasure under pool RLS (tenant-schema-module)', 
          VALUES ($1, $2, $3)`,
         [randomBytes(32).toString('hex'), randomUUID(), tenantId],
       );
+      await admin.query(
+        `INSERT INTO sensor.sensor_mqtt_directory
+           (mqtt_username, sensor_id, tenant_id, secret_hmac, secret_key_id)
+         VALUES ($1, $2, $3, $4, 'k1')`,
+        [`s${tenantId.slice(0, 1).repeat(22)}`, randomUUID(), tenantId, 'e'.repeat(64)],
+      );
     }
     for (const sql of buildTenantErasureTargetProofLedgerUpSql({
       schema: 'sensor',
@@ -133,13 +143,13 @@ describe('sensor-service tenant erasure under pool RLS (tenant-schema-module)', 
     await stage?.shutdown();
   });
 
-  it("erases the tenant's edge devices and both route tables, and nothing of another tenant", async () => {
+  it("erases the tenant's edge devices and its routes, and nothing of another tenant", async () => {
     const executor = new TenantErasureTargetExecutor(
       {
         dataSource: runtime!,
         outboxPublisher: { enqueue: jest.fn().mockResolvedValue(undefined) },
         legalHoldService: { assertNoHold: jest.fn().mockResolvedValue(undefined) },
-        postErasureHooks: [new EdgeRouteDirectoryPurgeHook()],
+        postErasureHooks: [new RouteDirectoryPurgeHook()],
       },
       getTenantErasureTargetOptions('sensor-service'),
     );
@@ -152,7 +162,7 @@ describe('sensor-service tenant erasure under pool RLS (tenant-schema-module)', 
     const schemaB = getTenantSchemaName(TENANT_B);
     expect(await count(`SELECT count(*) AS n FROM "${schemaA}".edge_devices`)).toBe(0);
     expect(await count(`SELECT count(*) AS n FROM "${schemaB}".edge_devices`)).toBe(2);
-    for (const table of ['edge_device_directory', 'tenant_provisioning_key_directory']) {
+    for (const table of SENSOR_TENANT_ROUTE_TABLES) {
       expect(
         await count(`SELECT count(*) AS n FROM sensor.${table} WHERE tenant_id = $1`, [TENANT_A]),
       ).toBe(0);

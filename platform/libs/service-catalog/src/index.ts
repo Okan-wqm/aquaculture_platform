@@ -543,7 +543,11 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
     // Matches compose start_period: 90s.
     startupBudgetSeconds: 90,
     requiredSignals: ['nats_auth_mode_mtls', 'schema_drift_clean', 'mqtt_subscribed_topics'],
-    requiredEnv: ['SENSOR_SERVICE_DB_PASS', 'CREDENTIAL_ENCRYPTION_KEY'],
+    requiredEnv: [
+      'SENSOR_SERVICE_DB_PASS',
+      'CREDENTIAL_ENCRYPTION_KEY',
+      'MQTT_SENSOR_SECRET_KEYRING',
+    ],
     gatewaySubgraph: subgraph(
       'sensor',
       'sensor-service',

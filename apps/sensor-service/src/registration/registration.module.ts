@@ -4,12 +4,14 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { ChannelQuantityDeclaration } from '../database/entities/channel-quantity-declaration.entity';
 import { SensorDataChannel } from '../database/entities/sensor-data-channel.entity';
 import { Sensor } from '../database/entities/sensor.entity';
+import { MqttIdentityModule } from '../mqtt-identity/mqtt-identity.module';
 import { SensorTypeModule } from '../sensor-type/sensor-type.module';
 
 import { ChannelResolver } from './resolvers/channel.resolver';
 import { RegistrationResolver } from './resolvers/registration.resolver';
 import { ChannelDiscoveryService } from './services/channel-discovery.service';
 import { ChannelManagementService } from './services/channel-management.service';
+import { SensorPlacementService } from './services/sensor-placement.service';
 import { SensorRegistrationService } from './services/sensor-registration.service';
 
 @Module({
@@ -18,11 +20,14 @@ import { SensorRegistrationService } from './services/sensor-registration.servic
     // SENSOR-MEDIUM-071: registerSensor bootstraps a custom type-definition's
     // channels via SensorTypeService inside the registration transaction.
     SensorTypeModule,
+    // ADR-047: registration issues an MQTT sensor's credential; suspension withdraws it.
+    MqttIdentityModule,
   ],
   providers: [
     SensorRegistrationService,
     ChannelDiscoveryService,
     ChannelManagementService,
+    SensorPlacementService,
     RegistrationResolver,
     ChannelResolver,
   ],

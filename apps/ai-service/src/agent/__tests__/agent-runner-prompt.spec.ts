@@ -17,6 +17,7 @@ import {
   PersonaConversationMismatchError,
 } from '../agent-runner.service';
 import { LlmProviderFactory } from '../providers/llm-provider.factory';
+import { passThroughOutput, streamsItsText } from './support/streaming-provider';
 
 /**
  * AISAFETY-MEDIUM-025 + AISAFETY-MEDIUM-024 at the runner:
@@ -119,7 +120,7 @@ describe('AgentRunnerService prompt assembly + persona resolution', () => {
           useValue: {
             preProcess,
             scanUntrustedContext: jest.fn().mockReturnValue(true),
-            postProcess: jest.fn((text: string) => ({ outputText: text, piiRedacted: false })),
+            postProcessStream: jest.fn(() => passThroughOutput()),
             validateToolCall: jest.fn().mockResolvedValue({ allowed: true }),
           },
         },
@@ -129,7 +130,7 @@ describe('AgentRunnerService prompt assembly + persona resolution', () => {
         },
         {
           provide: LlmProviderFactory,
-          useValue: { get: jest.fn().mockReturnValue({ chat: providerChat }) },
+          useValue: { get: jest.fn().mockReturnValue({ chat: streamsItsText(providerChat) }) },
         },
         { provide: ActionProposalService, useValue: { createProposal: jest.fn() } },
       ],

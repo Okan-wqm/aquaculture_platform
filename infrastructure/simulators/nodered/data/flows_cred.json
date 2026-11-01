@@ -1,3 +1,14 @@
 {
-    "$": "76ccd205591b86fc143efc6bd5a1ad44rBw="
+    "broker-water-quality": {
+        "user": "${SIM_WATER_QUALITY_MQTT_USERNAME}",
+        "password": "${SIM_WATER_QUALITY_MQTT_PASSWORD}"
+    },
+    "broker-temperature-profile": {
+        "user": "${SIM_TEMPERATURE_PROFILE_MQTT_USERNAME}",
+        "password": "${SIM_TEMPERATURE_PROFILE_MQTT_PASSWORD}"
+    },
+    "broker-flow": {
+        "user": "${SIM_FLOW_MQTT_USERNAME}",
+        "password": "${SIM_FLOW_MQTT_PASSWORD}"
+    }
 }

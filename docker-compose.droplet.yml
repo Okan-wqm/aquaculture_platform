@@ -1066,6 +1066,9 @@ services:
       MQTT_CLIENT_ID: aqua-sensor-service
       # SEC-C02: No hardcoded default — credential encryption key must be provided externally
       CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:?CREDENTIAL_ENCRYPTION_KEY is required}
+      # ADR-047: peppers for sensors' own broker credentials (generated once by
+      # scripts/deploy/droplet-bootstrap-env.sh; never replaced outright).
+      MQTT_SENSOR_SECRET_KEYRING: ${MQTT_SENSOR_SECRET_KEYRING:?MQTT_SENSOR_SECRET_KEYRING is required}
       MQTT_BROKER_HOST: app.suderra.com
       MQTT_BROKER_PORT: 8883
       MQTT_BROKER_URL: mqtt://mosquitto:1883

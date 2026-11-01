@@ -406,6 +406,7 @@ export const en = {
   'messaging.aiAssistant': 'AI Assistant',
   'messaging.memberFallback': 'Member',
   // FAZ 2.4 — AI visibility: persona-authored messages + AI failure notices.
+  'messaging.aiWriting': 'writing…',
   'messaging.aiUnavailable': 'AI is currently unavailable — please try again later.',
   'messaging.contentImage': '[Image]',
   'messaging.contentFile': '[File]',
@@ -440,6 +441,76 @@ export const en = {
     'Without your consent the assistant cannot answer in AI rooms. You can withdraw it at any time.',
   'messaging.ai.createButton': 'Start conversation',
   'messaging.ai.errorCreate': 'The AI room could not be created.',
+  // Persona identity (avatar + the job written under it). The shared catalogue's own names,
+  // descriptions and capabilities are English-only, so every surface localises them by catalogue
+  // id through these keys; messaging-module's persona specs pin that the catalogue is fully covered.
+  'messaging.persona.aiBadge': 'AI',
+  // Spoken once beside an agent's name (the avatar and its tag are decorative), and the word a
+  // screen reader hears before the tier chip so "Aquaculture Expert, tier Expert" is not a stutter.
+  'messaging.persona.aiSpoken': 'AI',
+  'messaging.persona.tierPrefix': 'tier',
+  'messaging.persona.group.general': 'General assistants',
+  'messaging.persona.group.specialists': 'Specialists',
+  'messaging.persona.tier.operator': 'Operator',
+  'messaging.persona.tier.manager': 'Manager',
+  'messaging.persona.tier.expert': 'Expert',
+  'messaging.persona.tier.supervisor': 'Supervisor',
+  'messaging.persona.role.operator': 'Operations Assistant',
+  'messaging.persona.role.manager': 'Management Assistant',
+  'messaging.persona.role.expert': 'Aquaculture Expert',
+  'messaging.persona.role.supervisor': 'SCADA Supervisor',
+  'messaging.persona.role.farm-water-health': 'Water & Fish Health Specialist',
+  'messaging.persona.role.farm-production': 'Production Specialist',
+  'messaging.persona.role.farm-operations': 'Farm Operations Specialist',
+  'messaging.persona.desc.default': 'Ask anything about your aquaculture operations',
+  'messaging.persona.desc.operator': 'Water quality readings, sensor values, safe ranges, alerts',
+  'messaging.persona.desc.manager': 'Analytics, reporting, risk assessment, data-driven insights',
+  'messaging.persona.desc.expert': 'Advanced water chemistry, dosing, growth analytics, risk',
+  'messaging.persona.desc.supervisor':
+    'Automation, PLC control, autonomous monitoring within safety limits',
+  'messaging.persona.desc.farm-water-health':
+    'Water chemistry, critical readings, disease events, treatments, welfare, harvest eligibility',
+  'messaging.persona.desc.farm-production':
+    'Growth, FCR/SGR, feeding plans, harvest planning, biomass reports, production cost',
+  'messaging.persona.desc.farm-operations':
+    "Today's tasks, overdue work orders, maintenance alerts, equipment, spare parts and stock",
+  'messaging.persona.cap.waterQualityParameters': 'Water quality parameters',
+  'messaging.persona.cap.sensorReadings': 'Sensor readings',
+  'messaging.persona.cap.gasToxicity': 'Ammonia/H2S/CO2 toxicity',
+  'messaging.persona.cap.carbonateChemistry': 'Carbonate chemistry',
+  'messaging.persona.cap.reportGeneration': 'Report generation',
+  'messaging.persona.cap.biomassAnalytics': 'Biomass/SGR/FCR analytics',
+  'messaging.persona.cap.trendAnalysis': 'Trend analysis',
+  'messaging.persona.cap.feedManagement': 'Feed management',
+  'messaging.persona.cap.alertAnalysis': 'Alert analysis',
+  'messaging.persona.cap.growthAnalytics': 'Growth analytics',
+  'messaging.persona.cap.feedOptimization': 'Feed optimization',
+  'messaging.persona.cap.reagentDosing': 'Reagent dosing',
+  'messaging.persona.cap.riskAssessment': 'Risk assessment',
+  'messaging.persona.cap.actuationConfirmed': 'Actuation (with confirmation)',
+  'messaging.persona.cap.autonomousMonitoring': 'Autonomous monitoring',
+  'messaging.persona.cap.equipmentActuation': 'Equipment actuation',
+  'messaging.persona.cap.plcControl': 'PLC control',
+  'messaging.persona.cap.safetyLimits': 'Safety limit enforcement',
+  'messaging.persona.cap.escalationManagement': 'Escalation management',
+  'messaging.persona.cap.generalQuestions': 'General questions',
+  'messaging.persona.cap.basicGuidance': 'Basic guidance',
+  'messaging.persona.cap.platformHelp': 'Platform help',
+  'messaging.persona.cap.waterTrends': 'Water quality trends & thresholds',
+  'messaging.persona.cap.healthEvents': 'Health events & treatments',
+  'messaging.persona.cap.liceWelfare': 'Lice counts & welfare',
+  'messaging.persona.cap.harvestWithdrawal': 'Harvest eligibility (withdrawal)',
+  'messaging.persona.cap.batchPerformance': 'Batch performance & growth',
+  'messaging.persona.cap.feedingPlans': 'Feeding plans & consumption',
+  'messaging.persona.cap.harvestPlans': 'Harvest plans & eligibility',
+  'messaging.persona.cap.biomassReports': 'Biomass & regulatory reports',
+  'messaging.persona.cap.financeSummaries': 'Finance summaries',
+  'messaging.persona.cap.tasksWorkOrders': 'Tasks & work orders',
+  'messaging.persona.cap.maintenanceAlerts': 'Maintenance alerts',
+  'messaging.persona.cap.equipmentCalibration': 'Equipment & feeder calibration',
+  'messaging.persona.cap.sparePartsStock': 'Spare parts & farm stock',
+  'messaging.persona.cap.taskCreation': 'Task creation (with confirmation)',
+  'messaging.team.title': 'My team',
 
   // ── Tanks page (table + detail drawer) ──
   'tanksV2.tab.production': 'Production',
@@ -2168,6 +2239,86 @@ export const en = {
   'tenant.memberHome.announcements.title': 'Announcements',
   'tenant.memberHome.announcements.previewReason':
     'Announcements are readable by tenant admins only today; members need a read of their own.',
+  'sensor.location.title': 'Location',
+  'sensor.location.site': 'Site',
+  'sensor.location.department': 'Department',
+  'sensor.location.system': 'System',
+  'sensor.location.unit': 'Tank or equipment',
+  'sensor.location.chooseSite': 'Choose a site',
+  'sensor.location.chooseDepartment': 'Choose a department',
+  'sensor.location.noSystem': 'No system',
+  'sensor.location.noUnit': 'No tank or equipment',
+  'sensor.location.siteFirst': 'Choose a site first',
+  'sensor.location.departmentFirst': 'Choose a department first',
+  'sensor.location.loading': 'Loading…',
+  'sensor.location.notSet': 'Not set',
+  'sensor.location.unknown': 'Not found or inactive',
+  'sensor.location.change': 'Change location',
+  'sensor.location.dialogTitle': 'Where is this device installed?',
+  'sensor.location.dialogHelp':
+    "Water-chemistry channel bindings use this place. Readings taken before the move are not shown as the new place's values.",
+  'sensor.location.childrenMove': 'The child sensors of this device move with it.',
+  'sensor.location.saved': 'Location saved',
+  'sensor.location.saveFailed': 'Location could not be saved',
+  'sensor.location.sectionHelp': 'Where the device is installed. Site and department are required.',
+  'sensor.location.currentNotListed': 'Current place (not in the list)',
+  'sensor.location.listFailed': 'The list could not be loaded',
+  'sensor.location.unavailable': 'Could not be read',
+  'sensor.location.error.PLACEMENT_REFUSED_SITE': 'The site does not exist or is not active.',
+  'sensor.location.error.PLACEMENT_REFUSED_DEPARTMENT':
+    'The department is not active or is not at this site.',
+  'sensor.location.error.PLACEMENT_REFUSED_SYSTEM':
+    'The system is not active or is not at this site and department.',
+  'sensor.location.error.PLACEMENT_REFUSED_UNIT':
+    'The tank or equipment is not active or is not in this department and system.',
+  'sensor.location.error.PLACEMENT_INCOMPLETE': 'Choose the department of the system or tank.',
+  'sensor.location.error.PLACEMENT_FOLLOWS_PARENT':
+    "A child sensor moves with its parent device; change the parent device's location.",
+  'sensor.location.error.PLACEMENT_UNAVAILABLE':
+    'The location cannot be checked right now. Try again shortly.',
+  'sensor.mqtt.title': 'Broker connection',
+  'sensor.mqtt.help':
+    'This sensor publishes its readings to the platform broker with its own credential. Its first data activates it.',
+  'sensor.mqtt.noCredential': 'No credential yet. Issue one and configure the sensor with it.',
+  'sensor.mqtt.issue': 'Issue credential',
+  'sensor.mqtt.rotate': 'Issue new credential',
+  'sensor.mqtt.rotateConfirmTitle': 'Issue a new credential?',
+  'sensor.mqtt.rotateConfirm':
+    'The credential the sensor uses now stops working at once. Configure the sensor with the new one.',
+  'sensor.mqtt.firstIssueConfirmTitle': 'Issue the first credential?',
+  'sensor.mqtt.firstIssueConfirm':
+    'Its data arrives on {topic} today. After the credential is issued that topic no longer reaches it, until the device publishes with the new connection.',
+  'sensor.mqtt.issuedTitle': 'Configure the sensor with this connection',
+  'sensor.mqtt.issueFailed': 'The credential could not be issued',
+  'sensor.mqtt.shownOnce':
+    'Copy the password now: it is shown only this once and cannot be read again. If it is lost, issue a new credential.',
+  'sensor.mqtt.host': 'Host',
+  'sensor.mqtt.port': 'Port',
+  'sensor.mqtt.portTls': '{port} (TLS)',
+  'sensor.mqtt.clientId': 'Client ID',
+  'sensor.mqtt.username': 'Username',
+  'sensor.mqtt.password': 'Password',
+  'sensor.mqtt.topic': 'Topic',
+  'sensor.mqtt.settings':
+    'MQTT 3.1.1 or 5, TLS 1.2 or later, QoS 1, retain off, no Will, keepalive at most 300 seconds, at most one message a second.',
+  'sensor.mqtt.payload':
+    'Publish one JSON object per message; each channel reads the number under its data path, for example:',
+  'sensor.mqtt.copy': 'Copy',
+  'sensor.mqtt.copied': 'Copied',
+  'sensor.mqtt.done': 'Done',
+  'sensor.mqtt.wizard.configHelp':
+    'An MQTT sensor connects to the platform broker. Its host, port, client ID, username, password and topic are issued after registration; nothing is typed here.',
+  'sensor.mqtt.wizard.testHelp':
+    "The platform does not dial an MQTT sensor, so there is no connection test. Add its sensors on the next steps: each one's data path is the key of its number in the sensor's JSON message. The device becomes active when its first data arrives.",
+  'sensor.mqtt.error.MQTT_IDENTITY_NOT_MQTT':
+    'Only a sensor that speaks MQTT itself holds a broker credential.',
+  'sensor.mqtt.error.MQTT_IDENTITY_FOLLOWS_PARENT':
+    "A child sensor uses its parent device's connection; issue the credential on the parent device.",
+  'sensor.mqtt.error.MQTT_IDENTITY_SUSPENDED': 'The sensor is suspended. Reactivate it first.',
+  'sensor.mqtt.error.MQTT_IDENTITY_UNAVAILABLE':
+    'Credentials cannot be issued right now. Try again shortly.',
+  'sensor.mqtt.error.MQTT_IDENTITY_ACTIVATED_BY_DATA':
+    'An MQTT sensor becomes active when its first data arrives; it is not tested or activated by hand.',
 } as const;
 
 export type MessageKey = keyof typeof en;

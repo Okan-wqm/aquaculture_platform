@@ -3,7 +3,7 @@ import { Test } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { CircuitBreakerService } from '@aquaculture/backend-common/resilience';
 
-import { AgentRunnerService, ChatRequest } from '../agent-runner.service';
+import { AgentRunnerService, ChatDraft, ChatRequest } from '../agent-runner.service';
 import { AgentProfileService } from '../agent-profile.service';
 import { LlmProviderFactory } from '../providers/llm-provider.factory';
 import { LlmChatResult } from '../providers/llm-provider.interface';
@@ -15,7 +15,16 @@ import { RateLimitService } from '../../cost/rate-limit.service';
 import { TurnLedgerService } from '../../cost/turn-ledger.service';
 import { ActionProposalService } from '../../actions/action-proposal.service';
 import { AgentConfigService } from '../../tenant-config/agent-config.service';
-import { AiSafetyMiddleware } from '../../safety/ai-safety.middleware';
+import {
+  InputFilterService,
+  OutputPiiScannerService,
+  SsrfValidatorService,
+} from '@aquaculture/backend-common/ai-safety';
+import { collaborator } from '@aquaculture/testing';
+import { AiSafetyMiddleware, type OutputSafetyStream } from '../../safety/ai-safety.middleware';
+import { InstructionHierarchyService } from '../../safety/instruction-hierarchy.service';
+import { ToolSchemaValidatorService } from '../../safety/tool-schema-validator.service';
+import { passThroughOutput, streamsItsText } from './support/streaming-provider';
 
 /**
  * ORPHAN-MEDIUM-380 / DB-PEOPLE-MEDIUM-002 — agent-runner cost accounting.
@@ -59,6 +68,8 @@ describe('AgentRunnerService cost ledger + budget accounting (ORPHAN-MEDIUM-380)
     flaggedPatterns?: string[];
     piiRedacted?: boolean;
     ledgerPersisted?: boolean;
+    /** The output safety stage; nothing to redact unless given. */
+    outputStage?: AiSafetyMiddleware['postProcessStream'];
   }): Promise<Harness> => {
     const recordTurn = jest.fn().mockResolvedValue(options.ledgerPersisted ?? true);
     const addUsage = jest.fn().mockResolvedValue(0);
@@ -170,10 +181,11 @@ describe('AgentRunnerService cost ledger + budget accounting (ORPHAN-MEDIUM-380)
               },
             }),
             validateToolCall: jest.fn().mockResolvedValue({ allowed: true }),
-            postProcess: jest.fn((outputText: string) => ({
-              outputText,
-              piiRedacted: options.piiRedacted ?? false,
-            })),
+            postProcessStream: jest.fn(
+              options.outputStage ??
+                ((): OutputSafetyStream =>
+                  passThroughOutput({ piiRedacted: options.piiRedacted ?? false })),
+            ),
           },
         },
         {
@@ -184,7 +196,7 @@ describe('AgentRunnerService cost ledger + budget accounting (ORPHAN-MEDIUM-380)
         },
         {
           provide: LlmProviderFactory,
-          useValue: { get: jest.fn().mockReturnValue({ chat }) },
+          useValue: { get: jest.fn().mockReturnValue({ chat: streamsItsText(chat) }) },
         },
         // MOB-HIGH-001: the runner now persists held actuations via
         // ActionProposalService; this suite proposes none, so a stub suffices.
@@ -296,5 +308,54 @@ describe('AgentRunnerService cost ledger + budget accounting (ORPHAN-MEDIUM-380)
     expect(harness.recordTurn).toHaveBeenCalledTimes(1);
     expect(response.message).toBe('All tanks nominal.');
     expect(harness.settleReservation).toHaveBeenCalledWith(tenantId, expect.any(Number), 15);
+  });
+
+  describe('drafts: the reply as it is written', () => {
+    // The real output stage: drafts must already be redacted.
+    const safety = new AiSafetyMiddleware(
+      collaborator<InputFilterService>({}, 'InputFilterService'),
+      collaborator<InstructionHierarchyService>({}, 'InstructionHierarchyService'),
+      new OutputPiiScannerService(),
+      collaborator<SsrfValidatorService>({}, 'SsrfValidatorService'),
+      collaborator<ToolSchemaValidatorService>({}, 'ToolSchemaValidatorService'),
+    );
+    const noUsage = { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 };
+
+    it('drafts each turn, and the reply is the last turn that wrote text, redacted as drafted', async () => {
+      const harness = await buildHarness({
+        outputStage: (tenant) => safety.postProcessStream(tenant),
+        providerResponses: [
+          {
+            content: [
+              { type: 'text', text: 'Checking the tanks.' },
+              { type: 'tool_use', id: 'tu1', name: 'test_tool', input: {} },
+            ],
+            stopReason: 'tool_use',
+            usage: noUsage,
+          },
+          {
+            content: [{ type: 'text', text: 'Write to ops@example.com about tank 4.' }],
+            stopReason: 'end_turn',
+            usage: noUsage,
+          },
+        ],
+      });
+      const drafts: ChatDraft[] = [];
+
+      const response = await harness.service.chat(chatRequest, (draft) => drafts.push(draft));
+
+      const turnText = (turn: number): string =>
+        drafts
+          .filter((draft) => draft.turn === turn)
+          .map((draft) => draft.text)
+          .join('');
+      expect(turnText(1)).toBe('Checking the tanks.');
+      expect(response.message).toBe('Write to [REDACTED] about tank 4.');
+      expect(turnText(2)).toBe(response.message);
+      expect(drafts.filter((draft) => draft.text.includes('@'))).toEqual([]);
+      expect(harness.recordTurn).toHaveBeenCalledWith(
+        expect.objectContaining({ flaggedCategories: ['output:pii_redacted'] }),
+      );
+    });
   });
 });

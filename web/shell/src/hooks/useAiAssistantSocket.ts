@@ -31,6 +31,19 @@ interface AiResponsePayload {
   toolCalls?: Array<{ name: string; input: Record<string, unknown>; result: unknown }>;
   metadata?: Record<string, unknown> | null;
 }
+/** The reply while it is written (MSG-MEDIUM-089); a higher turn starts it over. */
+interface AiDraftPayload {
+  conversationId: string | null;
+  turn: number;
+  text: string;
+}
+
+/** The assistant's reply as it has been written so far. */
+export interface AiReplyDraft {
+  turn: number;
+  text: string;
+}
+
 interface AiErrorPayload {
   code: string;
   message: string;
@@ -50,6 +63,7 @@ export function useAiAssistantSocket(active: boolean) {
   const [messages, setMessages] = useState<AiChatMessage[]>([]);
   const [status, setStatus] = useState<AiAssistantStatus>('offline');
   const [persona, setPersonaState] = useState<string | null>(null);
+  const [replyDraft, setReplyDraft] = useState<AiReplyDraft | null>(null);
 
   // Connect only while the drawer is open + authenticated — no idle socket.
   useEffect(() => {
@@ -73,7 +87,19 @@ export function useAiAssistantSocket(active: boolean) {
 
     socket.on('ai:connected', () => setStatus('ready'));
     socket.on('ai:thinking', () => setStatus('thinking'));
+    socket.on('ai:draft', (payload: AiDraftPayload) => {
+      setReplyDraft((current) => {
+        if (current === null || payload.turn > current.turn) {
+          return { turn: payload.turn, text: payload.text };
+        }
+        // A late frame of an earlier turn changes nothing.
+        return payload.turn < current.turn
+          ? current
+          : { turn: current.turn, text: current.text + payload.text };
+      });
+    });
     socket.on('ai:response', (payload: AiResponsePayload) => {
+      setReplyDraft(null);
       conversationIdRef.current = payload.conversationId ?? conversationIdRef.current;
       setMessages((prev) => [
         ...prev,
@@ -82,6 +108,7 @@ export function useAiAssistantSocket(active: boolean) {
       setStatus('ready');
     });
     socket.on('ai:error', (payload: AiErrorPayload) => {
+      setReplyDraft(null);
       setMessages((prev) => [
         ...prev,
         {
@@ -93,7 +120,10 @@ export function useAiAssistantSocket(active: boolean) {
       ]);
       setStatus('ready');
     });
-    socket.on('disconnect', () => setStatus('offline'));
+    socket.on('disconnect', () => {
+      setReplyDraft(null);
+      setStatus('offline');
+    });
     socket.on('connect_error', () => setStatus('offline'));
 
     return () => {
@@ -119,6 +149,7 @@ export function useAiAssistantSocket(active: boolean) {
   const reset = useCallback(() => {
     conversationIdRef.current = null;
     setMessages([]);
+    setReplyDraft(null);
   }, []);
 
   const setPersona = useCallback(
@@ -131,5 +162,5 @@ export function useAiAssistantSocket(active: boolean) {
     [reset],
   );
 
-  return { messages, status, persona, setPersona, sendMessage, reset };
+  return { messages, replyDraft, status, persona, setPersona, sendMessage, reset };
 }

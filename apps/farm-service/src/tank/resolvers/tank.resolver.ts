@@ -249,7 +249,7 @@ export class TankResolver {
   // capacity-rich AvailableTankResponse and supports siteId/departmentId/excludeFullTanks.
   // A second `@Query(name: 'availableTanks')` here caused non-deterministic schema
   // builds (last-registered-wins) → intermittent "Unknown argument siteId" 400s.
-  // Enforced by tests/invariants/farm-graphql-resolver-field-uniqueness.spec.ts.
+  // Enforced by tools/scripts/emit-subgraph-sdl.ts (every subgraph's root fields).
 
   // -------------------------------------------------------------------------
   // MUTATIONS

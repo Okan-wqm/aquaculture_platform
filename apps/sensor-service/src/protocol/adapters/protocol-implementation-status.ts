@@ -29,6 +29,10 @@ export enum ProtocolImplementationStatus {
   /** Real protocol whose device I/O runs on the edge gateway. The cloud cannot
    *  verify it directly; a live check must be delegated to the edge. */
   EDGE_DELEGATED = 'edge-delegated',
+  /** The device publishes to the platform's own broker with the broker
+   *  principal it is issued (ADR-047). The cloud never dials it: its first
+   *  data over that identity activates it, not a connection test. */
+  PLATFORM_BROKER = 'platform-broker',
   /** No production implementation on either the cloud or the edge. Must never
    *  be selectable and must never report a successful connection. */
   UNSUPPORTED = 'unsupported',
@@ -44,6 +48,9 @@ const S = ProtocolImplementationStatus;
 export const PROTOCOL_IMPLEMENTATION_STATUS: Readonly<
   Record<string, ProtocolImplementationStatus>
 > = {
+  // Platform broker (ADR-047): a sensor that speaks MQTT itself publishes to
+  // the platform broker under its own principal; data activates it.
+  MQTT: S.PLATFORM_BROKER,
   // Cloud-real: the adapter performs a real connection attempt (honest
   // success/failure), so gating ACTIVE on its result is truthful.
   MODBUS_TCP: S.CLOUD_REAL,
@@ -51,7 +58,6 @@ export const PROTOCOL_IMPLEMENTATION_STATUS: Readonly<
   MODBUS_ASCII: S.CLOUD_REAL,
   OPC_UA: S.CLOUD_REAL,
   SIEMENS_S7: S.CLOUD_REAL,
-  MQTT: S.CLOUD_REAL,
   AMQP: S.CLOUD_REAL,
   COAP: S.CLOUD_REAL,
   HTTP_REST: S.CLOUD_REAL,
@@ -101,6 +107,15 @@ export const PROTOCOL_IMPLEMENTATION_STATUS: Readonly<
  */
 export function getProtocolImplementationStatus(code: string): ProtocolImplementationStatus {
   return PROTOCOL_IMPLEMENTATION_STATUS[code] ?? ProtocolImplementationStatus.UNSUPPORTED;
+}
+
+/**
+ * True when a sensor of this protocol is activated by the data it sends over
+ * its own broker principal (ADR-047 §5): it is never tested from the cloud,
+ * never activated by hand, and registration issues its credential.
+ */
+export function isActivatedByData(code: string): boolean {
+  return getProtocolImplementationStatus(code) === ProtocolImplementationStatus.PLATFORM_BROKER;
 }
 
 /** True when a protocol may be offered for selection in the registration UI. */

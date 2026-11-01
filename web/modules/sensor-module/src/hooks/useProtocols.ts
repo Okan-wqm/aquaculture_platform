@@ -25,6 +25,7 @@ const GET_PROTOCOLS_QUERY = `
       category
       subcategory
       connectionType
+      activatedByData
       capabilities {
         supportsDiscovery
         supportsBidirectional

@@ -83,6 +83,10 @@ interface PaginatedEquipmentResponse {
 export function useEquipmentList(
   filter?: EquipmentFilterInput,
   pagination?: { page?: number; limit?: number },
+  options?: {
+    /** False keeps the list unread (e.g. until a picker's department is chosen). */
+    enabled?: boolean;
+  },
 ) {
   const { token, tenantId } = useAuth();
 
@@ -96,7 +100,7 @@ export function useEquipmentList(
       return data.equipmentList;
     },
     staleTime: 30000, // 30 seconds
-    enabled: !!token,
+    enabled: !!token && (options?.enabled ?? true),
   });
 }
 

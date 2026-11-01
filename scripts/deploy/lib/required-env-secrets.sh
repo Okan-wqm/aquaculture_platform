@@ -58,13 +58,15 @@
 #                             Fixed by making the verifier catalog-derive policy;
 #                             do not re-add policy fields to this generator.)
 
-# Generator for SERVICE_IDENTITY_KEYRING — a shell function (not an inline
-# command string) because the value is structured JSON; quoting a printf
-# template inside the array literal would force escaped-quote soup AND
-# expand the $(...) substitutions at source time instead of generation
-# time. The function body runs only when the bootstrap loop invokes it for an
-# absent var.
-generate_service_identity_keyring() {
+# Generator for the keyrings (SERVICE_IDENTITY_KEYRING,
+# MQTT_SENSOR_SECRET_KEYRING): one active 32-byte hex key under a dated kid,
+# `[{"kid","secret","status"}]`, the shape both parsers read. A shell function
+# (not an inline command string) because the value is structured JSON; quoting
+# a printf template inside the array literal would force escaped-quote soup AND
+# expand the $(...) substitutions at source time instead of generation time.
+# The function body runs only when the bootstrap loop invokes it for an absent
+# var.
+generate_active_hex_keyring() {
   local kid secret
   kid="k-$(date -u +%Y%m%d)"
   secret="$(openssl rand -hex 32)"
@@ -128,17 +130,28 @@ require_preprovisioned_sentinel_hub_key() {
 #                             ai-service; the transformer accepts a 64-hex key as
 #                             32 bytes. MUST stay stable — rotating it makes every
 #                             stored tenant AI key undecryptable.
+#   MQTT_SENSOR_SECRET_KEYRING — sensor-service peppers for sensors' own broker
+#                             credentials (ADR-047; mqtt-identity/
+#                             sensor-mqtt-secret.ts parseSensorSecretKeyring).
+#                             Rows keep HMAC-SHA-256(pepper, secret) and the
+#                             pepper's kid, so a pepper rotates by adding an
+#                             active key and keeping the old one as `previous`
+#                             until no sensor names it; replacing the value
+#                             outright makes every issued sensor credential
+#                             fail. Required :? by sensor-service, which also
+#                             refuses to start in production without it.
 REQUIRED_ENV_SECRET_SPECS=(
   "POSTGRES_PASSWORD" "generate_base64_32_secret"
   "REDIS_PASSWORD" "generate_base64_32_secret"
   "INTERNAL_SERVICE_SECRET" "generate_base64_32_secret"
   "PASSWORD_PEPPER" "generate_base64_48_secret"
   "MFA_ENCRYPTION_KEY" "generate_hex_32_secret"
-  "SERVICE_IDENTITY_KEYRING" "generate_service_identity_keyring"
+  "SERVICE_IDENTITY_KEYRING" "generate_active_hex_keyring"
   "SERVICE_IDENTITY_SIGNING_KID" "generate_service_identity_signing_kid"
   "CONFIG_ENCRYPTION_KEY" "generate_hex_32_secret"
   "AI_TENANT_SECRET_ENCRYPTION_KEY" "generate_hex_32_secret"
   "SENTINEL_HUB_ENCRYPTION_KEY" "require_preprovisioned_sentinel_hub_key"
+  "MQTT_SENSOR_SECRET_KEYRING" "generate_active_hex_keyring"
 )
 
 validate_required_env_secret_specs() {

@@ -3,6 +3,7 @@ import {
   PROTOCOL_IMPLEMENTATION_STATUS,
   ProtocolImplementationStatus,
   getProtocolImplementationStatus,
+  isActivatedByData,
   isSelectableProtocol,
 } from '../protocol-implementation-status';
 
@@ -56,5 +57,14 @@ describe('protocol implementation-status SSoT', () => {
         getProtocolImplementationStatus(code) !== ProtocolImplementationStatus.UNSUPPORTED;
       expect(isSelectableProtocol(code)).toBe(selectable);
     }
+  });
+
+  it('activates an MQTT sensor by its data on the platform broker, and nothing else (ADR-047)', () => {
+    expect(getProtocolImplementationStatus('MQTT')).toBe(
+      ProtocolImplementationStatus.PLATFORM_BROKER,
+    );
+    expect(isSelectableProtocol('MQTT')).toBe(true);
+    const activatedByData = Object.keys(PROTOCOL_IMPLEMENTATION_STATUS).filter(isActivatedByData);
+    expect(activatedByData).toEqual(['MQTT']);
   });
 });

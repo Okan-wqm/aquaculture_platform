@@ -12,7 +12,7 @@ import { AccessLogEntity, AccessLogModule, AuditedOperationModule } from '@aquac
 import { TenantErasureTargetModule } from '@aquaculture/backend-common/compliance';
 
 import {
-  EdgeRouteDirectoryPurgeHook,
+  RouteDirectoryPurgeHook,
   PublishedOutboxPurgeHook,
   SensorErasureModule,
 } from './compliance/erasure/erasure.module';
@@ -118,6 +118,7 @@ import { ScadaDeployLog } from './process/entities/scada-deploy-log.entity';
 import { ProcessModule } from './process/process.module';
 import { ProtocolModule } from './protocol/protocol.module';
 import { RegistrationModule } from './registration/registration.module';
+import { MqttIdentityModule } from './mqtt-identity/mqtt-identity.module';
 import { SensorTypeModule } from './sensor-type/sensor-type.module';
 import { SensorModule } from './sensor/sensor.module';
 import { SharedMqttModule } from './shared-mqtt/shared-mqtt.module';
@@ -365,7 +366,7 @@ import { ScheduledJobModule } from '@aquaculture/backend-common/scheduling';
       // its device and provisioning-key routes in `sensor`, atomically with
       // the erasure. (MQTT auth keeps no positive device cache to drop.)
       imports: [SensorErasureModule],
-      postErasureHooks: [PublishedOutboxPurgeHook, EdgeRouteDirectoryPurgeHook],
+      postErasureHooks: [PublishedOutboxPurgeHook, RouteDirectoryPurgeHook],
     }),
 
     // SECURITY (CRITICAL-001): RS256 asymmetric verification via the shared
@@ -432,6 +433,8 @@ import { ScheduledJobModule } from '@aquaculture/backend-common/scheduling';
     // Protocol and Registration modules
     ProtocolModule.forRoot(),
     RegistrationModule,
+    // ADR-047: a directly publishing sensor's own broker principal.
+    MqttIdentityModule,
 
     // Calibration aggregate (recordCalibration + calibration history)
     CalibrationModule,

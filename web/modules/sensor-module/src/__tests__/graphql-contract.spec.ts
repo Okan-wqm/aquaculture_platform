@@ -32,6 +32,8 @@ import {
   type ChildSensorConfig,
 } from '../types/registration.types';
 
+import { SENSOR_MQTT_CREDENTIALS_FIELDS } from '../hooks/useRotateMqttCredentials';
+
 /**
  * Extract a template-literal constant's value from a source file — the same
  * regex-extraction technique as scripts/ci/validate-graphql-operations.mjs.
@@ -75,6 +77,16 @@ const VFD_COMMAND_AUDIT_LOG_QUERY = documentFromSource(
   'VFD_COMMAND_AUDIT_LOG_QUERY',
 );
 
+const RELOCATE_SENSOR_MUTATION = documentFromSource(
+  'hooks/useRelocateSensor.ts',
+  'RELOCATE_SENSOR_MUTATION',
+);
+
+const ROTATE_SENSOR_MQTT_CREDENTIALS_MUTATION = documentFromSource(
+  'hooks/useRotateMqttCredentials.ts',
+  'ROTATE_SENSOR_MQTT_CREDENTIALS_MUTATION',
+).replace(/\$\{SENSOR_MQTT_CREDENTIALS_FIELDS\}/, SENSOR_MQTT_CREDENTIALS_FIELDS);
+
 const documents: Array<[string, string]> = [
   ['command-log.VFD_COMMAND_AUDIT_LOG_QUERY', VFD_COMMAND_AUDIT_LOG_QUERY],
   ['channelReadings.CHANNEL_LATEST_VALUES_QUERY', CHANNEL_LATEST_VALUES_QUERY],
@@ -83,6 +95,11 @@ const documents: Array<[string, string]> = [
   ['sensorRegistrationApi.GET_SENSOR', GET_SENSOR],
   ['useWidgetData.GET_SENSOR_INFO_QUERY', GET_SENSOR_INFO_QUERY],
   ['DeviceDetailPage.GET_SENSOR_QUERY', DETAIL_GET_SENSOR],
+  ['useRelocateSensor.RELOCATE_SENSOR_MUTATION', RELOCATE_SENSOR_MUTATION],
+  [
+    'useRotateMqttCredentials.ROTATE_SENSOR_MQTT_CREDENTIALS_MUTATION',
+    ROTATE_SENSOR_MQTT_CREDENTIALS_MUTATION,
+  ],
 ];
 
 describe('sensor-module GraphQL documents × sensor subgraph excerpt', () => {

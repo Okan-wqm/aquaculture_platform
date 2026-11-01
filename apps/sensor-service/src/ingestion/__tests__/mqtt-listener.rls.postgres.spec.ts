@@ -1,5 +1,6 @@
 import { ConfigService } from '@nestjs/config';
 import { RedisService } from '@aquaculture/backend-common/redis';
+import { collaborator } from '@aquaculture/testing';
 import { IEventBus } from '@platform/event-bus';
 import { OutboxPublisher } from '@platform/outbox';
 import { DataSource } from 'typeorm';
@@ -18,6 +19,8 @@ import { SensorOutbox } from '../../outbox/sensor-outbox.entity';
 import { MqttClientService, MqttMessageHandler } from '../../shared-mqtt/mqtt-client.service';
 import { MqttListenerService } from '../mqtt-listener.service';
 import { SensorMetricWriterService } from '../sensor-metric-writer.service';
+import type { SensorPrincipalIngestion } from '../sensor-principal-ingestion.service';
+import { SensorReadingRecorder } from '../sensor-reading-recorder.service';
 import { SensorTopicCacheService } from '../sensor-topic-cache.service';
 
 /**
@@ -97,13 +100,24 @@ describe('MqttListenerService ingestion under FORCE RLS (SENSOR-HIGH-137)', () =
       entities: ENTITIES,
       beforeRls: async ({ admin: bootstrap, tenantId, schema }) => {
         const topic = topics[tenantId];
-        // Seed as the owner: one sensor per tenant, each with the five channels.
+        // Seed as the owner: one legacy MQTT sensor per tenant (ADR-047 §7:
+        // only those claim a legacy topic), each with the five channels.
+        const [protocol] = await bootstrap.query(
+          `INSERT INTO "${schema}".sensor_protocols
+             (code, name, category, "connectionType", "configurationSchema")
+           VALUES ('MQTT', 'MQTT', 'iot', 'tcp', '{}'::jsonb) RETURNING id`,
+        );
         const [sensor] = await bootstrap.query(
           `INSERT INTO "${schema}".sensors
-               (tenant_id, name, serial_number, type, status, protocol_configuration)
-             VALUES ($1, 'Water quality sonde', $2, 'temperature', 'active', $3::jsonb)
+               (tenant_id, name, serial_number, type, status, protocol_configuration, protocol_id)
+             VALUES ($1, 'Water quality sonde', $2, 'temperature', 'active', $3::jsonb, $4)
              RETURNING id`,
-          [tenantId, `WT-RLS-${schema}`, JSON.stringify({ topic, payloadFormat: 'json' })],
+          [
+            tenantId,
+            `WT-RLS-${schema}`,
+            JSON.stringify({ topic, payloadFormat: 'json' }),
+            protocol.id,
+          ],
         );
         sensorIds[tenantId] = sensor.id;
         for (const [order, channel] of CHANNELS.entries()) {
@@ -159,7 +173,12 @@ describe('MqttListenerService ingestion under FORCE RLS (SENSOR-HIGH-137)', () =
       config,
       runtime,
       new SensorMetricWriterService(runtime),
-      new OutboxPublisher(SensorOutbox),
+      new SensorReadingRecorder(
+        new SensorMetricWriterService(runtime),
+        new OutboxPublisher(SensorOutbox),
+      ),
+      // Legacy topics only here; the sensor-principal route has its own spec.
+      collaborator<SensorPrincipalIngestion>({}, 'SensorPrincipalIngestion'),
       { publish: jest.fn().mockResolvedValue(undefined) } as Partial<IEventBus> as IEventBus,
       null,
       topicCache,
@@ -187,7 +206,7 @@ describe('MqttListenerService ingestion under FORCE RLS (SENSOR-HIGH-137)', () =
   }
 
   it('persists one sensor_metrics row per configured channel (was: zero rows)', async () => {
-    await handler!(TOPIC_A, Buffer.from(JSON.stringify(PAYLOAD)));
+    await handler!(TOPIC_A, Buffer.from(JSON.stringify(PAYLOAD)), { retain: false });
 
     expect(await channelValues(SCHEMA_A)).toEqual({
       temperature: 24.2,
@@ -242,7 +261,9 @@ describe('MqttListenerService ingestion under FORCE RLS (SENSOR-HIGH-137)', () =
     expect((await topicCache!.getSensorByTopic(TOPIC_C))?.tenantId).toBe(TENANT_C);
     await stage!.deprovisionTenant(TENANT_C);
 
-    await expect(handler!(TOPIC_C, Buffer.from(JSON.stringify(PAYLOAD)))).resolves.toBeUndefined();
+    await expect(
+      handler!(TOPIC_C, Buffer.from(JSON.stringify(PAYLOAD)), { retain: false }),
+    ).resolves.toBeUndefined();
 
     // Evicted: the topic re-resolves against the active tenants and finds nothing.
     await expect(topicCache!.getSensorByTopic(TOPIC_C)).resolves.toBeNull();

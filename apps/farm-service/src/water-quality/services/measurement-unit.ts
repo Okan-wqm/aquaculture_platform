@@ -5,6 +5,7 @@ import {
   findTankOrEquipmentWithManager,
   resolveSiteIdFromDepartment,
   resolveUnitSiteIds,
+  type TankLookupResult,
 } from '../../batch/utils/tank-lookup.util';
 import { Equipment } from '../../equipment/entities/equipment.entity';
 import { Tank } from '../../tank/entities/tank.entity';
@@ -38,6 +39,17 @@ export interface MeasurementUnitColumns {
   equipmentId: string | undefined;
 }
 
+/**
+ * Whether a looked-up unit is a tank (a legacy tanks row, or equipment flagged
+ * `isTank`) or other water equipment — farm's one rule for a single unit, used
+ * by a measurement's unit and by a sensor's placement
+ * (site/responders/resolve-device-placement.responder.ts), so a placement and
+ * a bind can never classify the same unit differently.
+ */
+export function unitKindOf(lookup: TankLookupResult): MeasurementUnitKind {
+  return lookup.isFromTanksTable || lookup.equipment.isTank === true ? 'tank' : 'equipment';
+}
+
 /** The active unit with this id in the tenant, or null when there is none. */
 export async function resolveMeasurementUnit(
   manager: EntityManager,
@@ -48,9 +60,8 @@ export async function resolveMeasurementUnit(
   if (lookup === null) {
     return null;
   }
-  const isTank = lookup.isFromTanksTable || lookup.equipment.isTank === true;
   return {
-    kind: isTank ? 'tank' : 'equipment',
+    kind: unitKindOf(lookup),
     id: unitId,
     siteId: await resolveSiteIdFromDepartment(manager, lookup.equipment.departmentId, tenantId),
   };

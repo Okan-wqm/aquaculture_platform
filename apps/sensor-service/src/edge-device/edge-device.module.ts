@@ -34,6 +34,7 @@ import { MqttAuthService } from './mqtt-auth.service';
 import { ProvisioningController } from './provisioning.controller';
 import { ProvisioningService } from './provisioning.service';
 import { TenantKeyService } from './tenant-key.service';
+import { MqttIdentityModule } from '../mqtt-identity/mqtt-identity.module';
 
 
 @Module({
@@ -59,6 +60,8 @@ import { TenantKeyService } from './tenant-key.service';
       PlcAlarm,
     ]),
     // MqttClientService is available via @Global SharedMqttModule
+    // ADR-047: the broker hooks admit sensors' own principals through it.
+    MqttIdentityModule,
   ],
   controllers: [ProvisioningController, MqttAuthController, EdgeDeviceNatsController],
   providers: [

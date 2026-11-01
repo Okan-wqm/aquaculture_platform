@@ -55,8 +55,9 @@ interface DescriptionRow {
  * binding to a switched-off probe must say so, not vanish. The latest value
  * is the newest sample, of any quality (classified, not filtered), inside the
  * freshness window the readings page uses (AS_OF_LOOKBACK) and no older than
- * the channel's current unit and quantity (measurement_configured_at); how
- * fresh is fresh enough for a calculation is the caller's decision.
+ * the channel's current unit and quantity (measurement_configured_at) or the
+ * sensor's current place (placed_at, SENSOR-MEDIUM-206); how fresh is fresh
+ * enough for a calculation is the caller's decision.
  */
 @Injectable()
 export class ChannelDescriptionService {
@@ -89,7 +90,11 @@ export class ChannelDescriptionService {
                 `SELECT k.ord, s.id IS NOT NULL AS sensor_found, s.is_active,
                         s.site_id, s.system_id, s.tank_id, s.equipment_id,
                         c.id AS channel_id, c.is_enabled, c.declared_quantity, c.unit,
-                        c.next_calibration_due, c.measurement_configured_at,
+                        c.next_calibration_due,
+                        -- Since when the channel means what it means here: its
+                        -- unit/quantity change or the sensor's move, the later.
+                        GREATEST(c.measurement_configured_at, s.placed_at)
+                          AS measurement_configured_at,
                         lv.value, lv.time, lv.quality_code
                    FROM unnest($1::uuid[], $2::text[]) WITH ORDINALITY AS k(sensor_id, channel_key, ord)
                    LEFT JOIN sensors s
@@ -101,9 +106,10 @@ export class ChannelDescriptionService {
                        FROM sensor_metrics m
                       WHERE m.sensor_id = c.sensor_id AND m.channel_id = c.id AND m.tenant_id = $3
                         AND m.time >= NOW() - $4::interval
-                        -- Never a sample reported under a previous unit or quantity.
-                        AND (c.measurement_configured_at IS NULL
-                             OR m.time >= c.measurement_configured_at)
+                        -- Never a sample reported under a previous unit or
+                        -- quantity, or taken where the sensor stood before.
+                        AND (GREATEST(c.measurement_configured_at, s.placed_at) IS NULL
+                             OR m.time >= GREATEST(c.measurement_configured_at, s.placed_at))
                       ORDER BY m.time DESC
                       LIMIT 1
                    ) lv ON true`,

@@ -1,3 +1,4 @@
+import { collaborator } from '@aquaculture/testing';
 /**
  * SENSOR-LOW-007 — registration lifecycle events publish through the outbox.
  *
@@ -7,12 +8,27 @@
  * cross-service consumer could observe.
  */
 import { SensorRegistrationService } from '../services/sensor-registration.service';
-import { SensorRegistrationStatus } from '../../database/entities/sensor.entity';
+import { SensorPlacementService, UNPLACED } from '../services/sensor-placement.service';
+import { SensorRegistrationStatus, SensorType } from '../../database/entities/sensor.entity';
+import { RegisterSensorInput } from '../dto/register-sensor.dto';
+import type { SensorMqttIdentityService } from '../../mqtt-identity/sensor-mqtt-identity.service';
 
 describe('SensorRegistrationService — outbox registration events (SENSOR-LOW-007)', () => {
   let service: SensorRegistrationService;
   let outboxPublisher: { enqueue: jest.Mock };
   let eventEmitter: { emit: jest.Mock };
+  let issue: jest.Mock;
+  let protocolRegistry: { hasProtocol: jest.Mock; getProtocolDetails: jest.Mock };
+  const credentials = {
+    sensorId: 'sensor-1',
+    host: 'app.suderra.com',
+    port: 8883,
+    tls: true,
+    clientId: `s${'a'.repeat(22)}`,
+    username: `s${'a'.repeat(22)}`,
+    password: 'p'.repeat(43),
+    topic: 'tenants/tenant-1/sensors/sensor-1/data',
+  };
 
   const tenantId = 'tenant-1';
 
@@ -40,19 +56,24 @@ describe('SensorRegistrationService — outbox registration events (SENSOR-LOW-0
     // transaction(cb) invokes cb with a manager whose save returns the sensor.
     const manager = { save: jest.fn().mockResolvedValue(savedSensor) };
     const dataSource = {
-      transaction: jest.fn().mockImplementation((cb: (m: unknown) => Promise<unknown>) => cb(manager)),
+      transaction: jest
+        .fn()
+        .mockImplementation((cb: (m: unknown) => Promise<unknown>) => cb(manager)),
     };
 
-    const protocolRegistry = {
+    protocolRegistry = {
       hasProtocol: jest.fn().mockReturnValue(true),
       getProtocolDetails: jest.fn().mockResolvedValue({ id: 'proto-1', code: 'MODBUS_TCP' }),
     };
-    const protocolValidator = { validate: jest.fn().mockReturnValue({ isValid: true, errors: [] }) };
+    const protocolValidator = {
+      validate: jest.fn().mockReturnValue({ isValid: true, errors: [] }),
+    };
     const connectionTester = {};
     eventEmitter = { emit: jest.fn() };
     const channelManagement = { createChannelsForSensor: jest.fn().mockResolvedValue([]) };
     const sensorTypeService = { createChannelsFromTypeDefinition: jest.fn().mockResolvedValue([]) };
     outboxPublisher = { enqueue: jest.fn().mockResolvedValue(undefined) };
+    issue = jest.fn().mockResolvedValue(credentials);
 
     service = new SensorRegistrationService(
       sensorRepository as never,
@@ -64,6 +85,11 @@ describe('SensorRegistrationService — outbox registration events (SENSOR-LOW-0
       channelManagement as never,
       sensorTypeService as never,
       outboxPublisher as never,
+      collaborator<SensorPlacementService>(
+        { resolve: jest.fn().mockResolvedValue(UNPLACED) },
+        'SensorPlacementService',
+      ),
+      collaborator<SensorMqttIdentityService>({ issue }, 'SensorMqttIdentityService'),
     );
   });
 
@@ -124,5 +150,33 @@ describe('SensorRegistrationService — outbox registration events (SENSOR-LOW-0
     });
     // createBaseEvent stamps an eventId + occurredAt on every event.
     expect(registered).toHaveProperty('eventId');
+  });
+
+  it('issues an MQTT sensor its credential with the row, tests nothing, and leaves completion to its data (ADR-047 §5)', async () => {
+    protocolRegistry.getProtocolDetails.mockResolvedValue({ id: 'proto-mqtt', code: 'MQTT' });
+
+    const result = await service.registerSensor(
+      Object.assign(new RegisterSensorInput(), {
+        name: 'Probe A',
+        type: SensorType.TEMPERATURE,
+        protocolCode: 'MQTT',
+        protocolConfiguration: {},
+        skipConnectionTest: false,
+      }),
+      tenantId,
+      'user-1',
+    );
+
+    expect(result).toMatchObject({
+      success: true,
+      connectionTestPassed: false,
+      mqttCredentials: credentials,
+    });
+    expect(result.sensor?.registrationStatus).toBe(SensorRegistrationStatus.DRAFT);
+    expect(issue).toHaveBeenCalledWith(expect.anything(), tenantId, 'sensor-1', 'user-1');
+    const eventTypes = outboxPublisher.enqueue.mock.calls.map(
+      (c) => (c[0] as { eventType: string }).eventType,
+    );
+    expect(eventTypes).toEqual(['SensorRegistrationStarted', 'SensorRegistered']);
   });
 });

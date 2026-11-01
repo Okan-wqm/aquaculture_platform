@@ -11,7 +11,7 @@ import type { LlmProviderId } from './llm-provider.interface';
  * https://api.z.ai/api/paas/v4, so this provider extends OpenAiProvider and
  * overrides ONLY the client construction (baseURL + defaultHeaders). The
  * entire normalized-contract translation (tool_use/tool_result flattening,
- * stop-reason mapping, streaming-free chat) is inherited unchanged — the
+ * stop-reason mapping, the streamed chat) is inherited unchanged — the
  * agent loop and every guard see a third first-class provider with zero
  * duplicated translation logic.
  *
@@ -55,6 +55,15 @@ export class ZaiProvider extends OpenAiProvider {
     // change — e.g. dropping back to glm-4.6 for a cheaper package works
     // as-is.
     return supportsReasoningEffort(params.model) ? { reasoning_effort: 'low' } : {};
+  }
+
+  /**
+   * Z.ai puts usage in the last chunk of every stream, with its
+   * finish_reason, unasked (docs.z.ai/guides/capabilities/streaming), and
+   * documents no `stream_options`; OpenAI's request for it is not sent.
+   */
+  protected override usageReporting(): Record<string, unknown> {
+    return {};
   }
 
   /**

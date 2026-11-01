@@ -530,8 +530,8 @@ export class SensorIngestionService {
           sensorId: child.id,
           tenantId: validTenantId,
           readings: calibratedReadings,
-          pondId: child.pondId,
-          farmId: child.farmId,
+          pondId: child.pondId ?? undefined,
+          farmId: child.farmId ?? undefined,
           timestamp: timestamp ?? new Date(),
           source: source || 'parent-routing',
         });

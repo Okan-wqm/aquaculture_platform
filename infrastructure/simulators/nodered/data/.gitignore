@@ -1,0 +1,4 @@
+# Node-RED writes these when the editor saves the flows; flows.json and
+# flows_cred.json are the one source, a backup is a stale copy of them.
+.flows.json.backup
+.flows_cred.json.backup

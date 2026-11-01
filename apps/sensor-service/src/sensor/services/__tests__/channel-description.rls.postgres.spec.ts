@@ -197,6 +197,28 @@ describe('ChannelDescriptionService under FORCE RLS', () => {
     expect(new Date(h2s!.configuredAt!).getTime()).toBe(now - 10 * 60_000);
   });
 
+  it('never pairs a sample with where the sensor stood before it moved (SENSOR-MEDIUM-206)', async () => {
+    const schema = stage!.schemaOf(TENANT_A);
+    const sonde = sensorIds['sonde']!;
+    try {
+      // Moved one minute ago: both ammonia samples (30 and 5 minutes old) were
+      // taken where it stood before.
+      await stage!.admin.query(`UPDATE "${schema}".sensors SET placed_at = $2 WHERE id = $1`, [
+        sonde,
+        ago(1),
+      ]);
+      const [ammonia] = await service.describe(TENANT_A, [
+        { sensorId: sonde, channelKey: 'ammonia' },
+      ]);
+      expect(ammonia).toMatchObject({ latestValue: null, latestQuality: null });
+      expect(new Date(ammonia!.configuredAt!).getTime()).toBe(now - 60_000);
+    } finally {
+      await stage!.admin.query(`UPDATE "${schema}".sensors SET placed_at = NULL WHERE id = $1`, [
+        sonde,
+      ]);
+    }
+  });
+
   it('describes disabled channels, inactive sensors, missing units and refused declarations', async () => {
     const [orp, ph, temperature, salinity] = await service.describe(TENANT_A, [
       { sensorId: sensorIds['sonde']!, channelKey: 'orp' },

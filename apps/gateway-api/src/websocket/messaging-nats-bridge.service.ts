@@ -9,7 +9,14 @@ import { connect } from '@nats-io/transport-node';
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { assertSubjectMatchesEvent, buildWildcardEventSubject } from '@platform/event-bus';
-import { isMessagingEventType, validateMessagingEvent } from '@platform/event-contracts';
+import {
+  AI_REPLY_DRAFT_SUBSCRIPTION,
+  aiReplyDraftSubject,
+  isAiReplyDraftSignal,
+  isMessagingEventType,
+  validateMessagingEvent,
+  type AiReplyDraftSignal,
+} from '@platform/event-contracts';
 
 import { MessagingGateway } from './messaging.gateway';
 
@@ -155,6 +162,62 @@ export class MessagingNatsBridgeService implements OnModuleInit, OnModuleDestroy
         this.logger.error(`NATS ${subject} subscription loop error: ${(error as Error).message}`);
       });
     }
+
+    this.subscribeToAiReplyDrafts();
+  }
+
+  /**
+   * MSG-MEDIUM-089: an AI reply's draft, which messaging-service publishes
+   * while ai-service writes the reply, goes to the channel room as
+   * `aiReplyDraft`. Relayed inline in arrival order, with no hydration and
+   * no concurrency slot: each draft frame continues the one before it.
+   */
+  private subscribeToAiReplyDrafts(): void {
+    if (!this.connection) return;
+
+    const sub = this.connection.subscribe(AI_REPLY_DRAFT_SUBSCRIPTION, {
+      queue: 'gateway-messaging',
+    });
+    this.subscriptions.push(sub);
+    this.logger.log(`Subscribed to ${AI_REPLY_DRAFT_SUBSCRIPTION} (queue: gateway-messaging)`);
+
+    (async () => {
+      for await (const msg of sub) {
+        const signal = this.aiReplyDraftOf(msg.string(), msg.subject);
+        if (signal) {
+          this.messagingGateway.broadcastAiReplyDraft(signal);
+        } else {
+          this.logger.warn(`Invalid AI reply draft on ${msg.subject}, dropping`);
+        }
+      }
+    })().catch((error) => {
+      this.logger.error(
+        `NATS ${AI_REPLY_DRAFT_SUBSCRIPTION} subscription loop error: ${(error as Error).message}`,
+      );
+    });
+  }
+
+  /**
+   * The draft a message carries. messaging-service publishes through its Nest
+   * client, so the wire form is Nest's event packet `{ pattern, data }`;
+   * `data` is checked at this trust boundary and must name the tenant of the
+   * subject it arrived on.
+   */
+  private aiReplyDraftOf(raw: string, subject: string): AiReplyDraftSignal | null {
+    let packet: unknown;
+    try {
+      packet = JSON.parse(raw);
+    } catch {
+      return null;
+    }
+    if (typeof packet !== 'object' || packet === null || !('data' in packet)) {
+      return null;
+    }
+    const { data } = packet;
+    if (!isAiReplyDraftSignal(data) || aiReplyDraftSubject(data.tenantId) !== subject) {
+      return null;
+    }
+    return data;
   }
 
   /** Acquire one concurrency slot; resolves immediately while inflight < cap. */

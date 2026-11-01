@@ -7,7 +7,7 @@
  * deleted/absent lastMessage falls back to the neutral empty preview.
  */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -108,8 +108,92 @@ describe('ChannelListPage', () => {
       },
     ]);
     renderList();
-    await screen.findByText('Mehmet Demir');
+    await screen.findByText('No messages yet');
     expect(ioSpy).toHaveBeenCalledWith('/messaging', expect.anything());
+  });
+
+  it("calls an AI room by its agent's job and tier, with the agent's face", async () => {
+    routeGraphql([
+      {
+        match: 'query MyChannels',
+        result: () => ({
+          myChannels: {
+            total: 1,
+            items: [
+              {
+                ...makeChannel(null),
+                id: 'ai-room',
+                type: 'AI',
+                name: 'Production Specialist (Expert)',
+                aiPersona: 'expert-farm-production-v1',
+              },
+            ],
+          },
+        }),
+      },
+    ]);
+    renderList();
+
+    const row = (await screen.findByText('No messages yet')).closest('button');
+    if (!row) throw new Error('channel row not rendered');
+    expect(within(row).getByText('Production Specialist')).toHaveClass('sd-chan-title');
+    expect(within(row).getByText('Expert')).toHaveClass('sd-chip');
+    expect(within(row).getByTestId('persona-avatar')).toHaveAttribute('aria-hidden', 'true');
+    // Spoken once: the job, "(AI)", the tier — the decorative face adds nothing.
+    expect(row).toHaveAccessibleName(/^Production Specialist \(AI\)\s+tier Expert/);
+    expect(within(row).queryByText('Production Specialist (Expert)')).not.toBeInTheDocument();
+  });
+
+  it('puts the agents and the people beside each other under "My team"', async () => {
+    routeGraphql([
+      {
+        match: 'query MyChannels',
+        result: () => ({
+          myChannels: {
+            total: 2,
+            items: [
+              makeChannel(null),
+              {
+                ...makeChannel(null),
+                id: 'ai-room',
+                type: 'AI',
+                name: 'General AI Assistant',
+                aiPersona: 'expert-farm-water-health-v1',
+                members: [],
+              },
+            ],
+          },
+        }),
+      },
+    ]);
+    renderList();
+
+    const team = await screen.findByRole('region', { name: 'My team' });
+    // Agents first, then people; each face opens its room.
+    const [agent, person, ...rest] = within(team).getAllByRole('button');
+    if (!agent || !person) throw new Error('team faces not rendered');
+    expect(rest).toEqual([]);
+    expect(agent).toHaveAccessibleName(/^Water & Fish Health Specialist \(AI\)\s+tier Expert$/);
+    expect(within(agent).getByTestId('persona-avatar')).toBeInTheDocument();
+    expect(within(agent).getByText('Water & Fish Health Specialist')).toBeVisible();
+    expect(within(agent).getByText('Expert')).toBeVisible();
+    expect(person).toHaveAccessibleName('Mehmet Demir');
+    expect(within(person).getByTestId('member-avatar')).toHaveTextContent('MD');
+    expect(within(person).getByText('Mehmet Demir')).toBeVisible();
+    // The caller is never on their own team.
+    expect(within(team).queryByText('Panel Operator')).not.toBeInTheDocument();
+  });
+
+  it('shows no team strip before there is anyone to show', async () => {
+    routeGraphql([
+      {
+        match: 'query MyChannels',
+        result: () => ({ myChannels: { total: 0, items: [] } }),
+      },
+    ]);
+    renderList();
+    await screen.findByText('No channels yet.');
+    expect(screen.queryByRole('region', { name: 'My team' })).not.toBeInTheDocument();
   });
 
   it('offers the AI entry point (the stub session holds ai_assistant:use)', async () => {

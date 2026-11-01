@@ -151,6 +151,24 @@ describe('FeedingWindowReadinessService', () => {
     expect(verdicts.map((v) => v.entry.unitCode)).toEqual(['TANK-A']);
   });
 
+  it('never reads oxygen measured before the probe was placed at the unit (SENSOR-MEDIUM-206)', async () => {
+    const service = makeService([]);
+    const query = jest.fn().mockResolvedValue([]);
+    runInTenantRead.mockImplementation(
+      (
+        _ds: unknown,
+        _schema: unknown,
+        _tenant: unknown,
+        read: (qr: { query: jest.Mock }) => unknown,
+      ) => read({ query }),
+    );
+
+    await service.evaluate(TENANT, [entry()]);
+
+    const [sql] = query.mock.calls[0] as [string];
+    expect(sql).toMatch(/\(s\.placed_at IS NULL OR rr\."timestamp" >= s\.placed_at\)/);
+  });
+
   it('skips a malformed unitId rather than letting it reach the tenant read', async () => {
     const service = makeService([]);
 

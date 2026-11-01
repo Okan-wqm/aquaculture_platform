@@ -18,6 +18,7 @@ export {
   AiSafetyConfig,
   PreProcessResult,
   PostProcessResult,
+  OutputSafetyStream,
   ToolCallValidationResult,
 } from './ai-safety.middleware';
 

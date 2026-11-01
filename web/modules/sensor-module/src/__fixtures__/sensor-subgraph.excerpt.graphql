@@ -153,8 +153,21 @@ type RegisteredSensorType {
   firmwareVersion: String
   lastCalibratedAt: DateTime
   dataChannels: [DataChannelType!]
+  activatedByData: Boolean!
+  mqttUsername: String
   createdAt: DateTime!
   updatedAt: DateTime!
+}
+
+type SensorMqttCredentials {
+  sensorId: ID!
+  host: String!
+  port: Int!
+  tls: Boolean!
+  clientId: String!
+  username: String!
+  password: String!
+  topic: String!
 }
 
 # Registration inputs (SENSOR-HIGH-140), copied from the emitted sensor SDL.
@@ -172,15 +185,21 @@ input RegisterParentDeviceInput {
   model: String
   serialNumber: String
   description: String
-  farmId: ID
-  pondId: ID
-  tankId: ID
   siteId: ID
   departmentId: ID
   systemId: ID
-  equipmentId: ID
+  unitId: ID
   location: String
   metadata: JSON
+}
+
+# SENSOR-MEDIUM-161: the one writer of a sensor's placement after registration.
+input RelocateSensorInput {
+  sensorId: ID!
+  siteId: ID!
+  departmentId: ID
+  systemId: ID
+  unitId: ID
 }
 
 input RegisterChildSensorInput {
@@ -360,6 +379,11 @@ type Query {
   ): ChannelSeriesResponse!
   seriesDisplayTimeZone(sensorIds: [ID!]!): SeriesDisplayTimeZone!
   channelDataBounds(sensorIds: [ID!]!): [ChannelDataBounds!]!
+}
+
+type Mutation {
+  relocateSensor(input: RelocateSensorInput!): RegisteredSensorType!
+  rotateSensorMqttCredentials(sensorId: ID!): SensorMqttCredentials!
 }
 
 scalar DateTime

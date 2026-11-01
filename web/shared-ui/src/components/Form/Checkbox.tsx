@@ -324,6 +324,12 @@ export interface RadioOption {
   label: string;
   description?: string;
   disabled?: boolean;
+  /** Kart varyantı: etiketin yanındaki kısa işaret (ör. seviye çipi) — erişilebilir adın parçası */
+  labelSuffix?: React.ReactNode;
+  /** Kart varyantı: metnin önündeki görsel (ör. avatar) — dekoratif, ekran okuyucudan gizli */
+  media?: React.ReactNode;
+  /** Kart varyantı: açıklamanın altındaki ek içerik (ör. yetenek çipleri) — görsel, ekran okuyucudan gizli */
+  details?: React.ReactNode;
 }
 
 export interface RadioGroupProps {
@@ -345,6 +351,12 @@ export interface RadioGroupProps {
   name: string;
   /** Devre dışı */
   disabled?: boolean;
+  /**
+   * Görünüm. 'list' (varsayılan) = metin satırı; 'card' = her seçenek bir kart (media, etiket +
+   * suffix, açıklama, details) ve kartın tamamı tıklama alanı. İkisi de aynı yerel radio'yu
+   * kullanır: klavye, form ve seçili durum platformundur.
+   */
+  variant?: 'list' | 'card';
   className?: string;
 }
 
@@ -373,6 +385,7 @@ export const RadioGroup: React.FC<RadioGroupProps> = ({
   size = 'md',
   name,
   disabled = false,
+  variant = 'list',
   className = '',
 }) => {
   const groupId = useId();
@@ -385,33 +398,99 @@ export const RadioGroup: React.FC<RadioGroupProps> = ({
         </legend>
       )}
       <div className={`${vertical ? 'space-y-2' : 'flex flex-wrap gap-4'}`}>
-        {options.map((option) => {
-          const optionId = `${groupId}-${option.value}`;
+        {options.map((option, index) => {
+          // Ids from the position, not the value: they are joined into aria-labelledby /
+          // aria-describedby id lists, where a value containing a space would split the reference.
+          const optionId = `${groupId}-${index}`;
+          const labelId = `${optionId}-label`;
+          const suffixId = `${optionId}-suffix`;
+          const descriptionId = option.description ? `${optionId}-description` : undefined;
           const isDisabled = disabled || option.disabled;
+          const checked = value === option.value;
+          const hasSuffix = option.labelSuffix !== undefined && option.labelSuffix !== null;
+
+          // One radio for both variants. Its name is the label (+ suffix) and its description
+          // the description — never the whole card, whose media and details are visual.
+          const radio = (
+            <input
+              type="radio"
+              id={optionId}
+              name={name}
+              value={option.value}
+              checked={checked}
+              disabled={isDisabled}
+              onChange={() => onChange?.(option.value)}
+              aria-labelledby={hasSuffix ? `${labelId} ${suffixId}` : labelId}
+              aria-describedby={descriptionId}
+              className={`
+                ${checkboxSizeStyles[size]}
+                text-primary-600
+                border-gray-300 dark:border-gray-600
+                focus:ring-primary-500 focus:ring-2
+                disabled:opacity-50 disabled:cursor-not-allowed
+                ${error ? 'border-error-500' : ''}
+              `}
+            />
+          );
+
+          if (variant === 'card') {
+            return (
+              <label
+                key={option.value}
+                htmlFor={optionId}
+                data-selected={checked}
+                className={`
+                  flex items-start gap-3 rounded-lg border p-3 transition-colors
+                  has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2
+                  has-[:focus-visible]:outline-primary-500
+                  ${
+                    checked
+                      ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20'
+                      : 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/50'
+                  }
+                  ${isDisabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
+                `}
+              >
+                <span className="flex items-center h-5 mt-0.5">{radio}</span>
+                {option.media && (
+                  <span className="flex shrink-0" aria-hidden="true">
+                    {option.media}
+                  </span>
+                )}
+                <span className="min-w-0 flex-1">
+                  <span className="flex flex-wrap items-center gap-1.5">
+                    <span
+                      id={labelId}
+                      className={`font-medium text-gray-900 dark:text-gray-100 ${labelSizeStyles[size]}`}
+                    >
+                      {option.label}
+                    </span>
+                    {hasSuffix && <span id={suffixId}>{option.labelSuffix}</span>}
+                  </span>
+                  {option.description && (
+                    <span
+                      id={descriptionId}
+                      className="mt-0.5 block text-sm text-gray-500 dark:text-gray-400"
+                    >
+                      {option.description}
+                    </span>
+                  )}
+                  {option.details && (
+                    <span className="mt-2 block" aria-hidden="true">
+                      {option.details}
+                    </span>
+                  )}
+                </span>
+              </label>
+            );
+          }
 
           return (
             <div key={option.value} className="flex items-start">
-              <div className="flex items-center h-5">
-                <input
-                  type="radio"
-                  id={optionId}
-                  name={name}
-                  value={option.value}
-                  checked={value === option.value}
-                  disabled={isDisabled}
-                  onChange={() => onChange?.(option.value)}
-                  className={`
-                    ${checkboxSizeStyles[size]}
-                    text-primary-600
-                    border-gray-300 dark:border-gray-600
-                    focus:ring-primary-500 focus:ring-2
-                    disabled:opacity-50 disabled:cursor-not-allowed
-                    ${error ? 'border-error-500' : ''}
-                  `}
-                />
-              </div>
+              <div className="flex items-center h-5">{radio}</div>
               <div className="ml-3">
                 <label
+                  id={labelId}
                   htmlFor={optionId}
                   className={`
                     font-medium text-gray-700 dark:text-gray-300
@@ -421,8 +500,11 @@ export const RadioGroup: React.FC<RadioGroupProps> = ({
                 >
                   {option.label}
                 </label>
+                {hasSuffix && <span id={suffixId}>{option.labelSuffix}</span>}
                 {option.description && (
-                  <p className="text-sm text-gray-500 dark:text-gray-400">{option.description}</p>
+                  <p id={descriptionId} className="text-sm text-gray-500 dark:text-gray-400">
+                    {option.description}
+                  </p>
                 )}
               </div>
             </div>

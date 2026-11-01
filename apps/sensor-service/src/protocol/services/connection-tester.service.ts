@@ -54,7 +54,28 @@ export class ConnectionTesterService {
     const { timeout = 10000, fetchSampleData = true } = options;
     const testedAt = new Date();
 
-    // Validate configuration first
+    // Only cloud-real protocols run a live adapter test. Stub/unsupported
+    // adapters would return a fabricated success, and edge-delegated protocols
+    // cannot be reached from the cloud — either would flip a never-contacted
+    // device to ACTIVE (SENSOR-CRITICAL-008). Fail honestly instead.
+    const implementationStatus = getProtocolImplementationStatus(protocolCode);
+    if (implementationStatus !== ProtocolImplementationStatus.CLOUD_REAL) {
+      const reason =
+        implementationStatus === ProtocolImplementationStatus.EDGE_DELEGATED
+          ? `Protocol ${protocolCode} runs on the edge gateway; a direct cloud connection test is not available.`
+          : implementationStatus === ProtocolImplementationStatus.PLATFORM_BROKER
+            ? `A ${protocolCode} sensor publishes to the platform broker with its own credential; the platform does not dial it, and its first data activates it.`
+            : `Protocol ${protocolCode} has no supported connection implementation.`;
+      return {
+        success: false,
+        protocolCode,
+        testedAt,
+        configUsed: redactProtocolSecrets(config),
+        error: reason,
+      };
+    }
+
+    // Validate the configuration of a protocol the cloud can test
     const validationResult = this.protocolValidator.validate(protocolCode, config);
     if (!validationResult.isValid) {
       return {
@@ -75,25 +96,6 @@ export class ConnectionTesterService {
         testedAt,
         configUsed: redactProtocolSecrets(config),
         error: `Unknown protocol: ${protocolCode}`,
-      };
-    }
-
-    // Only cloud-real protocols run a live adapter test. Stub/unsupported
-    // adapters would return a fabricated success, and edge-delegated protocols
-    // cannot be reached from the cloud — either would flip a never-contacted
-    // device to ACTIVE (SENSOR-CRITICAL-008). Fail honestly instead.
-    const implementationStatus = getProtocolImplementationStatus(protocolCode);
-    if (implementationStatus !== ProtocolImplementationStatus.CLOUD_REAL) {
-      const reason =
-        implementationStatus === ProtocolImplementationStatus.EDGE_DELEGATED
-          ? `Protocol ${protocolCode} runs on the edge gateway; a direct cloud connection test is not available.`
-          : `Protocol ${protocolCode} has no supported connection implementation.`;
-      return {
-        success: false,
-        protocolCode,
-        testedAt,
-        configUsed: redactProtocolSecrets(config),
-        error: reason,
       };
     }
 

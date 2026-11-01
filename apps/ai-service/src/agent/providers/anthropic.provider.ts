@@ -63,7 +63,9 @@ export class AnthropicProvider implements LlmProvider {
 
     let response: Anthropic.Message;
     try {
-      response = await client.messages.create({
+      // Streamed so the caller sees the text as it is written; finalMessage()
+      // is the same Message create() returns, so the mapping below is shared.
+      const stream = client.messages.stream({
         model: params.model,
         max_tokens: params.maxTokens,
         system: params.system,
@@ -77,6 +79,12 @@ export class AnthropicProvider implements LlmProvider {
           content: this.toAnthropicContent(m.content),
         })),
       });
+      stream.on('streamEvent', (event) => {
+        if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+          params.onText({ block: event.index, text: event.delta.text });
+        }
+      });
+      response = await stream.finalMessage();
     } catch (err) {
       if (
         err instanceof Anthropic.AuthenticationError ||

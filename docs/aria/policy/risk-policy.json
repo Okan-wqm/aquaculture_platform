@@ -89,6 +89,7 @@
         "**/*.integration.spec.ts",
         "**/*.postgres.spec.ts",
         "**/*.contract.spec.ts",
+        "**/*.mosquitto.spec.ts",
         "**/*.e2e-spec.ts",
         "**/*.invariant.spec.ts",
         "**/*-invariants.spec.ts",

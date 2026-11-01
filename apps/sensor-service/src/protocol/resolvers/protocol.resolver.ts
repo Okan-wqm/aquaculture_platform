@@ -47,8 +47,12 @@ class ProtocolInfoType {
   @Field() subcategory!: string;
   @Field() connectionType!: string;
   @Field(() => ProtocolCapabilitiesType) capabilities!: ProtocolCapabilitiesType;
-  // 'cloud-real' | 'edge-delegated' — UNSUPPORTED protocols are never returned.
+  // 'cloud-real' | 'edge-delegated' | 'platform-broker' — UNSUPPORTED
+  // protocols are never returned.
   @Field() implementationStatus!: string;
+  // ADR-047: the sensor's data activates it — no connection test, and its
+  // broker credential is issued at registration.
+  @Field() activatedByData!: boolean;
 }
 
 @ObjectType()

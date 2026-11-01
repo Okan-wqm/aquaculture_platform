@@ -77,11 +77,24 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       this.isProduction ? this.sanitizeMessage(message) : message,
       {
         extensions: {
-          code: this.getGraphQLErrorCode(statusCode),
+          code: this.domainCode(exception) ?? this.getGraphQLErrorCode(statusCode),
           statusCode,
         },
       },
     );
+  }
+
+  /**
+   * A domain refusal's own stable code — an HttpException thrown with a
+   * `{ message, code }` body (e.g. SENSOR_PLACEMENT_ERROR) — so a client can
+   * say in the user's language what was refused. Null for every other error,
+   * which keeps the status-derived code.
+   */
+  private domainCode(exception: unknown): string | null {
+    if (!(exception instanceof HttpException)) return null;
+    const response = exception.getResponse();
+    if (typeof response !== 'object' || response === null || !('code' in response)) return null;
+    return typeof response.code === 'string' ? response.code : null;
   }
 
   private parseException(exception: unknown): {

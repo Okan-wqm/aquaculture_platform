@@ -92,6 +92,7 @@ export type {
   ReadReceiptEnvelope,
   TypingEnvelope,
   PresenceEnvelope,
+  AiReplyDraftEnvelope,
   MessageSyncHintEnvelope,
   ChannelEventEnvelope,
   ChannelMemberRemovedEnvelope,
@@ -239,6 +240,8 @@ export {
   persistLocale,
   resolveInitialLocale,
   toIntlLocale,
+  en,
+  tr,
 } from './i18n';
 export {
   useGraphQLQuery,
@@ -254,6 +257,8 @@ export type { MutationFeedback, FeedbackMutationOptions } from './hooks/useFeedb
 export type { ToastOptions, ToastAction } from './hooks/useToast';
 export { useConfirm, usePrompt, ConfirmProvider } from './hooks/useConfirm';
 export { useClickOutside } from './hooks/useClickOutside';
+// A reply that arrives in chunks, shown as if typed (MSG-MEDIUM-089).
+export { useTypewriter } from './hooks/useTypewriter';
 export type { ConfirmOptions, PromptOptions, ConfirmFn, PromptFn } from './hooks/useConfirm';
 
 // ============================================================================

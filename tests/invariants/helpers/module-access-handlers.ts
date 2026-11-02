@@ -66,13 +66,6 @@ const ROOT_ROLES: Readonly<Record<string, HandlerRole>> = {
   ResolveReference: 'reference',
   ResolveField: 'field',
 };
-/** The decorators that name a GraphQL field, whose options may rename it (`{ name: 'tanks' }`). */
-const FIELD_DECORATORS: ReadonlySet<string> = new Set([
-  'Query',
-  'Mutation',
-  'Subscription',
-  'ResolveField',
-]);
 const REST_VERBS: ReadonlySet<string> = new Set([
   'Get',
   'Post',
@@ -131,6 +124,14 @@ function resolverTypeName(calls: readonly DecoratorCall[]): string | null {
   if (ts.isArrowFunction(arg) && ts.isIdentifier(arg.body)) return arg.body.text;
   return null;
 }
+
+/** The decorators that name a GraphQL field, whose options may rename it (`{ name: 'tanks' }`). */
+const FIELD_DECORATORS: ReadonlySet<string> = new Set([
+  'Query',
+  'Mutation',
+  'Subscription',
+  'ResolveField',
+]);
 
 function fieldNameOf(call: DecoratorCall | undefined, method: string): string {
   if (call === undefined) return method;

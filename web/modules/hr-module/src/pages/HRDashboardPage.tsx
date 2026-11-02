@@ -140,7 +140,13 @@ export function HRDashboardPage() {
   const { data: stats, isLoading: loadingStats } = useHRDashboardStats();
   // One row to preview; `total` counts the whole pending list the server resolves for the viewer.
   const { data: pendingLeaves, isLoading: loadingLeaves } = usePendingLeaveApprovals({ limit: 1 });
-  const { data: expiringCerts, isLoading: loadingCerts } = useExpiringCertifications(30);
+  // The service refuses the certification reads below MODULE_MANAGER: a lower role neither asks
+  // for them nor is shown the alert and cards they would have filled.
+  const { data: expiringCerts, isLoading: loadingCerts } = useExpiringCertifications(
+    30,
+    undefined,
+    { enabled: canManage },
+  );
   const { data: offshoreEmployees, isLoading: loadingOffshore } = useCurrentlyOffshore();
   const { data: departments, isLoading: loadingDepts } = useDepartments();
   const { data: workAreas } = useWorkAreas();
@@ -212,7 +218,7 @@ export function HRDashboardPage() {
       </div>
 
       {/* Alerts Section */}
-      {(pendingLeavesCount > 0 || expiringCertsCount > 0) && (
+      {(pendingLeavesCount > 0 || (canManage && expiringCertsCount > 0)) && (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           {pendingLeavesCount > 0 && (
             <div className="rounded-xl border border-warning-200 bg-warning-50 p-4 dark:border-warning-800 dark:bg-warning-900/20">
@@ -239,7 +245,7 @@ export function HRDashboardPage() {
             </div>
           )}
 
-          {expiringCertsCount > 0 && (
+          {canManage && expiringCertsCount > 0 && (
             <CertificationExpiryAlert
               onRenew={(certificationId) => {
                 // SEC-008: use navigate() with encodeURIComponent instead of window.location.href
@@ -362,13 +368,15 @@ export function HRDashboardPage() {
           color="bg-info-50 dark:bg-info-900/30"
           isLoading={loadingStats}
         />
-        <StatCard
-          title="Active Certifications"
-          value={expiringCertsCount}
-          icon={<Award className="h-6 w-6 text-gray-600 dark:text-gray-400" />}
-          color="bg-gray-50 dark:bg-gray-700"
-          isLoading={loadingCerts}
-        />
+        {canManage && (
+          <StatCard
+            title="Active Certifications"
+            value={expiringCertsCount}
+            icon={<Award className="h-6 w-6 text-gray-600 dark:text-gray-400" />}
+            color="bg-gray-50 dark:bg-gray-700"
+            isLoading={loadingCerts}
+          />
+        )}
         <StatCard
           title="Work Areas"
           value={workAreas?.length || 0}
@@ -377,15 +385,17 @@ export function HRDashboardPage() {
           icon={<Building2 className="h-6 w-6 text-gray-600 dark:text-gray-400" />}
           color="bg-gray-50 dark:bg-gray-700"
         />
-        <StatCard
-          title="Expiring Certs"
-          value={expiringCertsCount}
-          change="Within 30 days"
-          changeType={expiringCertsCount > 0 ? 'negative' : 'positive'}
-          icon={<AlertTriangle className="h-6 w-6 text-error-600 dark:text-error-400" />}
-          color="bg-error-50 dark:bg-error-900/30"
-          isLoading={loadingCerts}
-        />
+        {canManage && (
+          <StatCard
+            title="Expiring Certs"
+            value={expiringCertsCount}
+            change="Within 30 days"
+            changeType={expiringCertsCount > 0 ? 'negative' : 'positive'}
+            icon={<AlertTriangle className="h-6 w-6 text-error-600 dark:text-error-400" />}
+            color="bg-error-50 dark:bg-error-900/30"
+            isLoading={loadingCerts}
+          />
+        )}
       </div>
 
       {/* Analytics & Performance */}
@@ -455,7 +465,7 @@ export function HRDashboardPage() {
                 </div>
               )}
 
-              {expiringCerts && expiringCerts.length > 0 && (
+              {canManage && expiringCerts && expiringCerts.length > 0 && (
                 <div className="flex items-center gap-4">
                   <div className="rounded-lg bg-error-50 p-2 dark:bg-error-900/30">
                     <AlertTriangle className="h-4 w-4 text-error-600 dark:text-error-400" />

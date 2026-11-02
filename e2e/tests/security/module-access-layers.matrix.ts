@@ -227,6 +227,13 @@ export interface OperationGate {
   readonly isPublic: boolean;
   /** The `@Access` spec of the handler, else its class; null when none. */
   readonly spec: MemberAccessSpec | null;
+  /**
+   * The handler takes `@AccessCaller()`. Under `account-role` that parameter is the one place an
+   * `@Access` spec is decided (RolesGuard's account-role path never reads it): once the guard has
+   * admitted the global role, `resolveHandlerAccess` decides the spec with the handler's `@Roles`,
+   * exactly as RolesGuard does under `module-access`.
+   */
+  readonly takesAccessCaller: boolean;
 }
 
 export type CharacterizedRequest =
@@ -379,8 +386,10 @@ function decide(
  * Today's outcome of one gate for one viewer. `account-role` is `canActivateByAccountRole`
  * (libs/backend-common/src/guards/roles.guard.ts): `@Public` passes; no `@Roles` admits any
  * authenticated caller; otherwise one of the token's roles satisfies one listed role through the
- * one hierarchy. `module-access` is `resolveHandlerAccess`: no `@Access` denies, else
- * `decideAccess` with `@Roles` checked by kind.
+ * one hierarchy. A handler the guard admits that takes `@AccessCaller()` under an `@Access` spec
+ * is then decided by `resolveHandlerAccess` as well (hr pay, ADR-054 draft door 2).
+ * `module-access` is `resolveHandlerAccess`: no `@Access` denies, else `decideAccess` with
+ * `@Roles` checked by kind.
  */
 export function todayOutcome(
   gate: OperationGate,
@@ -389,11 +398,14 @@ export function todayOutcome(
 ): CellOutcome {
   if (gate.isPublic) return 'allowed';
   if (gate.enrolment === 'account-role') {
-    if (gate.roles.length === 0) return 'allowed';
-    const passes = viewer.roles.some((held) =>
-      gate.roles.some((required) => platformRoleSatisfies(held, required)),
-    );
-    return passes ? 'allowed' : 'FORBIDDEN';
+    const admitted =
+      gate.roles.length === 0 ||
+      viewer.roles.some((held) =>
+        gate.roles.some((required) => platformRoleSatisfies(held, required)),
+      );
+    if (!admitted) return 'FORBIDDEN';
+    if (gate.spec === null || !gate.takesAccessCaller) return 'allowed';
+    return decide(gate.spec, intent, gate.roles, viewer);
   }
   return gate.spec === null ? 'FORBIDDEN' : decide(gate.spec, intent, gate.roles, viewer);
 }

@@ -10,7 +10,12 @@
  */
 import type { Repository } from 'typeorm';
 
-import { OWNER_MODULE, type OwnerModuleCode } from '@aquaculture/shared-contracts';
+import {
+  ALL_MODULES_SCOPE,
+  OWNER_MODULE,
+  moduleScopeOf,
+  type OwnerModuleCode,
+} from '@aquaculture/shared-contracts';
 import type { Employee } from '../../hr/entities/employee.entity';
 import type { AttendanceRecord } from '../entities/attendance-record.entity';
 import { GetAttendanceRecordsQuery } from '../queries/get-attendance-records.query';
@@ -72,6 +77,21 @@ function expectScopedTo(
     expect.any(String),
     expect.any(String),
     { scopeModuleCode: moduleCode },
+  );
+}
+
+/** The server-derived workforce scope joins the employee's live department under these modules. */
+function expectWorkforceScopedTo(
+  queryBuilder: QueryBuilderDouble,
+  employeeAlias: string,
+  modules: readonly OwnerModuleCode[],
+): void {
+  expect(queryBuilder['innerJoin']).toHaveBeenCalledTimes(1);
+  expect(queryBuilder['innerJoin']).toHaveBeenCalledWith(
+    `${employeeAlias}.departmentHr`,
+    expect.any(String),
+    expect.stringContaining('IN (:...workforceModuleCodes)'),
+    { workforceModuleCodes: modules },
   );
 }
 
@@ -290,7 +310,7 @@ describe('attendance queries — module scope', () => {
         );
       });
 
-      it('lists every department for an approver placed in none', async () => {
+      it('returns an empty page, not every department, for an approver placed in none', async () => {
         const queryBuilder = await run(
           new GetPendingAttendanceApprovalsQuery(tenantId, approverId),
           {
@@ -299,7 +319,7 @@ describe('attendance queries — module scope', () => {
           },
         );
 
-        expect(queryBuilder['andWhere']).not.toHaveBeenCalledWith(...ownDepartmentNarrowing);
+        expect(queryBuilder['getManyAndCount']).not.toHaveBeenCalled();
       });
 
       it('returns an empty page, not other departments, for an approver id that is no employee', async () => {
@@ -311,9 +331,27 @@ describe('attendance queries — module scope', () => {
         expect(queryBuilder['getManyAndCount']).not.toHaveBeenCalled();
       });
 
-      // The tenant owner often has no employee record: nothing to narrow by, nothing of theirs to exclude.
-      it('neither narrows nor excludes own records for a viewer without an employee record', async () => {
+      // A manager with no employee record has no department to narrow to: an empty queue, never
+      // the whole tenant's. Only a tenant admin (narrowToOwnDepartment false) works without one.
+      it('returns an empty page for a manager without an employee record', async () => {
         const queryBuilder = await run(new GetPendingAttendanceApprovalsQuery(tenantId, null));
+
+        expect(approverLookup).not.toHaveBeenCalled();
+        expect(queryBuilder['getManyAndCount']).not.toHaveBeenCalled();
+      });
+
+      it('neither narrows nor excludes own records for a tenant admin without an employee record', async () => {
+        const queryBuilder = await run(
+          new GetPendingAttendanceApprovalsQuery(
+            tenantId,
+            null,
+            undefined,
+            20,
+            1,
+            undefined,
+            false,
+          ),
+        );
 
         expect(approverLookup).not.toHaveBeenCalled();
         expect(queryBuilder['andWhere']).not.toHaveBeenCalledWith(...ownDepartmentNarrowing);
@@ -368,16 +406,20 @@ describe('attendance queries — module scope', () => {
 
     it('counts the module employees and their attendance when a module is given', async () => {
       const { employees, records } = await run(
-        new GetDailyAttendanceOverviewQuery(tenantId, '2026-03-08', OWNER_MODULE.FARM),
+        new GetDailyAttendanceOverviewQuery(tenantId, '2026-03-08', moduleScopeOf([OWNER_MODULE.FARM]) ?? undefined),
       );
 
-      expectScopedTo(employees, 'employee', OWNER_MODULE.FARM);
-      expectScopedTo(records, 'employee', OWNER_MODULE.FARM);
+      expectWorkforceScopedTo(employees, 'employee', [OWNER_MODULE.FARM]);
+      expectWorkforceScopedTo(records, 'employee', [OWNER_MODULE.FARM]);
     });
 
     it('keeps both counts tenant-scoped beside the module scope', async () => {
       const { employees, records } = await run(
-        new GetDailyAttendanceOverviewQuery(tenantId, '2026-03-08', OWNER_MODULE.HYDROPONICS),
+        new GetDailyAttendanceOverviewQuery(
+          tenantId,
+          '2026-03-08',
+          moduleScopeOf([OWNER_MODULE.HYDROPONICS]) ?? undefined,
+        ),
       );
 
       expect(employees['where']).toHaveBeenCalledWith('employee.tenantId = :tenantId', {
@@ -386,18 +428,27 @@ describe('attendance queries — module scope', () => {
       expect(records['where']).toHaveBeenCalledWith('ar.tenantId = :tenantId', { tenantId });
     });
 
-    it('counts the whole tenant without a module (the Company view)', async () => {
+    it('counts the whole tenant for a caller whose scope is every module', async () => {
       const { employees, records } = await run(
-        new GetDailyAttendanceOverviewQuery(tenantId, '2026-03-08'),
+        new GetDailyAttendanceOverviewQuery(tenantId, '2026-03-08', ALL_MODULES_SCOPE),
       );
 
       expect(employees['innerJoin']).not.toHaveBeenCalled();
       expect(records['innerJoin']).not.toHaveBeenCalled();
     });
 
+    it('counts no one when no scope was decided (fail closed, never the whole tenant)', async () => {
+      const { employees, records } = await run(
+        new GetDailyAttendanceOverviewQuery(tenantId, '2026-03-08'),
+      );
+
+      expect(employees['andWhere']).toHaveBeenCalledWith('1 = 0');
+      expect(records['andWhere']).toHaveBeenCalledWith('1 = 0');
+    });
+
     it('derives absent and the rate from the scoped counts', async () => {
       const { overview } = await run(
-        new GetDailyAttendanceOverviewQuery(tenantId, '2026-03-08', OWNER_MODULE.FARM),
+        new GetDailyAttendanceOverviewQuery(tenantId, '2026-03-08', moduleScopeOf([OWNER_MODULE.FARM]) ?? undefined),
       );
 
       expect(overview).toEqual({

@@ -13,6 +13,7 @@
  * - Timezone handling
  */
 
+import { ALL_MODULES_SCOPE } from '@aquaculture/shared-contracts';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
@@ -848,7 +849,7 @@ describe('Daily Attendance Overview Query Tests', () => {
       attendanceStats({ present: '70', late: '10', onLeave: '5', offshore: '15', recorded: '85' }),
     );
 
-    const query = new GetDailyAttendanceOverviewQuery(tenantId, '2026-03-08');
+    const query = new GetDailyAttendanceOverviewQuery(tenantId, '2026-03-08', ALL_MODULES_SCOPE);
     const result = await handler.execute(query);
 
     expect(result.totalEmployees).toBe(100);
@@ -866,7 +867,7 @@ describe('Daily Attendance Overview Query Tests', () => {
       attendanceStats({ present: '0', late: '0', onLeave: '0', offshore: '0', recorded: '0' }),
     );
 
-    const query = new GetDailyAttendanceOverviewQuery(tenantId);
+    const query = new GetDailyAttendanceOverviewQuery(tenantId, undefined, ALL_MODULES_SCOPE);
     const result = await handler.execute(query);
 
     expect(result.totalEmployees).toBe(0);
@@ -881,7 +882,7 @@ describe('Daily Attendance Overview Query Tests', () => {
       attendanceStats({ present: '25', late: '5', onLeave: '0', offshore: '0', recorded: '30' }),
     );
 
-    const result = await handler.execute(new GetDailyAttendanceOverviewQuery(tenantId));
+    const result = await handler.execute(new GetDailyAttendanceOverviewQuery(tenantId, undefined, ALL_MODULES_SCOPE));
 
     expect(result.absent).toBe(20); // 50 - 30
     expect(result.attendanceRate).toBe(60); // (25+5)/50 * 100
@@ -893,7 +894,7 @@ describe('Daily Attendance Overview Query Tests', () => {
       attendanceStats({ present: '0', late: '0', onLeave: '0', offshore: '0', recorded: '0' }),
     );
 
-    await handler.execute(new GetDailyAttendanceOverviewQuery(tenantId));
+    await handler.execute(new GetDailyAttendanceOverviewQuery(tenantId, undefined, ALL_MODULES_SCOPE));
 
     // Verify the date was passed as a parameter to the attendance query
     expect(attendanceQb['andWhere']).toHaveBeenCalledWith(
@@ -909,7 +910,7 @@ describe('Daily Attendance Overview Query Tests', () => {
     );
 
     const specificTenant = 'specific-tenant-123';
-    await handler.execute(new GetDailyAttendanceOverviewQuery(specificTenant));
+    await handler.execute(new GetDailyAttendanceOverviewQuery(specificTenant, undefined, ALL_MODULES_SCOPE));
 
     // Both queries should use the tenant ID
     expect(employeeQb['where']).toHaveBeenCalledWith('employee.tenantId = :tenantId', { tenantId: specificTenant });
@@ -922,7 +923,7 @@ describe('Daily Attendance Overview Query Tests', () => {
       attendanceStats({ present: '20', late: '0', onLeave: '0', offshore: '5', recorded: '20' }),
     );
 
-    const result = await handler.execute(new GetDailyAttendanceOverviewQuery(tenantId));
+    const result = await handler.execute(new GetDailyAttendanceOverviewQuery(tenantId, undefined, ALL_MODULES_SCOPE));
 
     expect(result.absent).toBe(0);
     expect(result.attendanceRate).toBe(100);

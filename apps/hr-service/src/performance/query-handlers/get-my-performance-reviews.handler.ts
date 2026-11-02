@@ -12,14 +12,14 @@ export class GetMyPerformanceReviewsHandler implements IQueryHandler<GetMyPerfor
   ) {}
 
   async execute(query: GetMyPerformanceReviewsQuery): Promise<PerformanceReview[]> {
-    const { tenantId, userId, status } = query;
+    const { tenantId, employeeId, status } = query;
 
     const qb = this.reviewRepository
       .createQueryBuilder('pr')
       .leftJoinAndSelect('pr.employee', 'employee')
       .leftJoinAndSelect('pr.reviewer', 'reviewer')
       .where('pr.tenantId = :tenantId', { tenantId })
-      .andWhere('pr.employeeId = :userId', { userId })
+      .andWhere('pr.employeeId = :employeeId', { employeeId })
       .andWhere('pr.isDeleted = false')
       .orderBy('pr.periodEnd', 'DESC');
 

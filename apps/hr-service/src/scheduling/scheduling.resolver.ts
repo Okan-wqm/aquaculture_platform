@@ -5,8 +5,15 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import type { OwnerModuleCode } from '@aquaculture/shared-contracts';
 import { HR_MODULE_CODE_ENUM } from '../common/enums';
+import { workforceScopeOf } from '../common/workforce-scope';
 import { GqlAuthGuard } from '../common/guards/gql-auth.guard';
-import { Roles, Role } from '@aquaculture/backend-common/decorators';
+import {
+  Access,
+  AccessCaller,
+  Roles,
+  Role,
+  ModuleUserOrHigher,
+} from '@aquaculture/backend-common/decorators';
 import { StandardPaginatedResponse, IStandardPaginatedResult, fromCqrsPaginated } from '@aquaculture/backend-common/pagination';
 import { RolesGuard } from '@aquaculture/backend-common/guards';
 import { Employee } from '../hr/entities/employee.entity';
@@ -108,6 +115,8 @@ export class SchedulingResolver {
   // =====================
 
   @Query(() => WeeklyPlanConnection, { name: 'weeklyPlans' })
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async getWeeklyPlans(
     @Context() context: GraphQLContext,
     @Args('employeeId', { type: () => ID, nullable: true }) employeeId?: string,
@@ -139,6 +148,8 @@ export class SchedulingResolver {
   }
 
   @Query(() => WeeklyPlan, { name: 'weeklyPlan' })
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async getWeeklyPlan(
     @Args('id', { type: () => ID }) id: string,
     @Context() context: GraphQLContext,
@@ -148,7 +159,12 @@ export class SchedulingResolver {
   }
 
   @Query(() => TeamWeeklyOverview, { name: 'teamWeeklyOverview' })
+  @UseGuards(RolesGuard)
+  @ModuleUserOrHigher()
+  // scoped('workforce'): the roster covers the modules the caller's grants reach (HR-HIGH-066).
+  @Access.scoped('workforce')
   async getTeamWeeklyOverview(
+    @AccessCaller() workforce: AccessCaller,
     @Args('weekStartDate') weekStartDate: string,
     @Context() context: GraphQLContext,
     @Args('departmentId', { type: () => ID, nullable: true }) departmentId?: string,
@@ -157,11 +173,19 @@ export class SchedulingResolver {
   ): Promise<TeamWeeklyOverview> {
     const tenantId = this.getTenantId(context);
     return this.queryBus.execute(
-      new GetTeamWeeklyOverviewQuery(tenantId, weekStartDate, departmentId, siteId, moduleCode),
+      new GetTeamWeeklyOverviewQuery(
+        tenantId,
+        weekStartDate,
+        departmentId,
+        siteId,
+        workforceScopeOf(workforce, moduleCode),
+      ),
     );
   }
 
   @Query(() => SchedulingSettings, { name: 'schedulingSettings' })
+  @UseGuards(RolesGuard)
+  @ModuleUserOrHigher()
   async getSchedulingSettings(
     @Context() context: GraphQLContext,
   ): Promise<SchedulingSettings> {
@@ -170,6 +194,8 @@ export class SchedulingResolver {
   }
 
   @Query(() => WeeklyPlanConnection, { name: 'mySchedule' })
+  @UseGuards(RolesGuard)
+  @ModuleUserOrHigher()
   async getMySchedule(
     @Context() context: GraphQLContext,
     @Args('weekStartDate', { nullable: true }) weekStartDate?: string,
@@ -205,6 +231,8 @@ export class SchedulingResolver {
   }
 
   @Query(() => OvertimeSummary, { name: 'overtimeSummary' })
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async getOvertimeSummary(
     @Args('month', { type: () => Int }) month: number,
     @Args('year', { type: () => Int }) year: number,

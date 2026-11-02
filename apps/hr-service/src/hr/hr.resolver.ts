@@ -1,14 +1,15 @@
 import { Resolver, Query, Mutation, Args, ID, Context, Int, ObjectType } from '@nestjs/graphql';
 import { UnauthorizedException, UseGuards } from '@nestjs/common';
 import { GqlAuthGuard } from '../common/guards/gql-auth.guard';
-import { Roles, Role, AuditLog, CurrentUser, CurrentUserPayload } from '@aquaculture/backend-common/decorators';
+import { Access, AccessCaller, Roles, Role, AuditLog } from '@aquaculture/backend-common/decorators';
 import { StandardPaginatedResponse, IStandardPaginatedResult, fromCqrsPaginated } from '@aquaculture/backend-common/pagination';
 import { RolesGuard } from '@aquaculture/backend-common/guards';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
-import { Employee, EmployeeStatus, ContactInfo, Address } from './entities/employee.entity';
+import { Employee, EmployeeStatus } from './entities/employee.entity';
 import { DepartmentHR } from './entities/department.entity';
 import type { OwnerModuleCode } from '@aquaculture/shared-contracts';
 import { HR_MODULE_CODE_ENUM } from '../common/enums';
+import { workforceScopeOf } from '../common/workforce-scope';
 import { Payroll, PayrollStatus } from './entities/payroll.entity';
 import { CreateEmployeeInput } from './dto/create-employee.input';
 import { UpdateEmployeeInput } from './dto/update-employee.input';
@@ -73,85 +74,37 @@ export class HRResolver {
     return userId;
   }
 
-  // ── DB-PEOPLE-MEDIUM-001: employee contact-PII object-level authz ──
-  // The employee read queries are gated to MODULE_USER (the broad workforce
-  // role), so without this a MODULE_USER could fetch ANY colleague's home
-  // address, personal phone, and emergency contacts. Full contact PII is
-  // returned only to workforce managers (TENANT_ADMIN/MODULE_MANAGER) or the
-  // subject themselves (self); everyone else gets a redacted directory
-  // projection. (Direct-supervisor visibility for a MODULE_USER line manager is
-  // a tracked refinement — ORPHAN-MEDIUM-347 — needing a viewer-employee lookup.)
-  private readonly HR_PII_PRIVILEGED_ROLES: readonly Role[] = [
-    Role.TENANT_ADMIN,
-    Role.MODULE_MANAGER,
-  ];
-
-  private canViewEmployeeContactPii(employee: Employee, viewer: CurrentUserPayload): boolean {
-    if (viewer.roles?.some((r) => this.HR_PII_PRIVILEGED_ROLES.includes(r as Role))) {
-      return true;
-    }
-    return !!employee.userId && employee.userId === viewer.sub;
-  }
-
-  /** Redact home address + personal/emergency phone in place for unauthorized viewers. */
-  private maskEmployeeContactPii(employee: Employee, viewer: CurrentUserPayload): Employee {
-    if (this.canViewEmployeeContactPii(employee, viewer)) {
-      return employee;
-    }
-    const REDACTED = 'REDACTED';
-    // Keep the work email (already public via the top-level `email` field);
-    // redact personal + emergency phone and the full home address.
-    const maskedContact: ContactInfo = {
-      email: employee.contactInfo?.email,
-      phone: REDACTED,
-      emergencyContact: undefined,
-      emergencyPhone: undefined,
-    };
-    const maskedAddress: Address = {
-      street: REDACTED,
-      city: REDACTED,
-      state: REDACTED,
-      postalCode: REDACTED,
-      country: REDACTED,
-    };
-    employee.contactInfo = maskedContact;
-    employee.address = maskedAddress;
-    return employee;
-  }
-
-  private maskEmployeeList(employees: Employee[], viewer: CurrentUserPayload): Employee[] {
-    for (const employee of employees) {
-      this.maskEmployeeContactPii(employee, viewer);
-    }
-    return employees;
-  }
-
-  // Employee Queries
+  // Employee Queries. Both reads are scoped('workforce'): `@AccessCaller()` decides the modules
+  // whose people the caller may see from the verified grants, and the client's moduleCode only
+  // narrows that (common/workforce-scope.ts; HR-HIGH-066).
   @Query(() => Employee, { name: 'employee' })
   @UseGuards(RolesGuard)
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
+  @Access.scoped('workforce')
   async getEmployee(
+    @AccessCaller() workforce: AccessCaller,
     @Args('id', { type: () => ID }) id: string,
     @Context() context: GraphQLContext,
-    @CurrentUser() viewer: CurrentUserPayload,
   ): Promise<Employee> {
     const tenantId = this.getTenantId(context);
-    const employee: Employee = await this.queryBus.execute(new GetEmployeeQuery(tenantId, id));
-    return this.maskEmployeeContactPii(employee, viewer);
+    return this.queryBus.execute(new GetEmployeeQuery(tenantId, id, workforceScopeOf(workforce)));
   }
 
   @Query(() => EmployeeConnection, { name: 'employees' })
   @UseGuards(RolesGuard)
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
+  @Access.scoped('workforce')
   async getEmployees(
+    @AccessCaller() workforce: AccessCaller,
     @Args('filter', { nullable: true }) filter: EmployeeFilterInput,
     @Args('pagination', { nullable: true }) pagination: EmployeePaginationInput,
     @Context() context: GraphQLContext,
-    @CurrentUser() viewer: CurrentUserPayload,
   ): Promise<IStandardPaginatedResult<Employee>> {
     const tenantId = this.getTenantId(context);
-    const result = await this.queryBus.execute(new GetEmployeesQuery(tenantId, filter, pagination));
-    this.maskEmployeeList(result.data, viewer);
+    const scope = workforceScopeOf(workforce, filter?.moduleCode);
+    const result = await this.queryBus.execute(
+      new GetEmployeesQuery(tenantId, filter, pagination, scope),
+    );
     return fromCqrsPaginated(result);
   }
 
@@ -206,11 +159,21 @@ export class HRResolver {
     );
   }
 
+  // Payroll (owner decision D6; ADR-054 draft one-way door 2; HR-CRITICAL-065). Pay is hr module
+  // data: each operation declares `@Access.module('hr')` and takes `@AccessCaller()`, which decides
+  // that spec with the operation's `@Roles` against the verified `moduleAccess` claim. While
+  // hr-service is `account-role`, RolesGuard still admits by the global role first; the parameter
+  // then refuses everyone but TENANT_ADMIN (over a tenant with hr enabled) and the holder of an hr
+  // MODULE_MANAGER grant, so a farm or sensor manager no longer reads or approves pay.
+  // tests/invariants/hr-finance-module-boundary.spec.ts holds every pay operation to it.
+
   // Payroll Queries
   @Query(() => PayrollConnection, { name: 'payrolls' })
   @UseGuards(RolesGuard)
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @Access.module('hr')
   async getPayrolls(
+    @AccessCaller() _pay: AccessCaller,
     @Args('employeeId', { type: () => ID, nullable: true }) employeeId: string,
     @Args('status', { type: () => PayrollStatus, nullable: true }) status: PayrollStatus,
     @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit: number,
@@ -228,7 +191,9 @@ export class HRResolver {
   @Query(() => [Payroll], { name: 'pendingPayrolls' })
   @UseGuards(RolesGuard)
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @Access.module('hr')
   async getPendingPayrolls(
+    @AccessCaller() _pay: AccessCaller,
     @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit: number,
     @Args('page', { type: () => Int, nullable: true, defaultValue: 1 }) page: number,
     @Context() context: GraphQLContext,
@@ -244,8 +209,10 @@ export class HRResolver {
   @Mutation(() => Payroll)
   @UseGuards(RolesGuard)
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @Access.module('hr')
   @AuditLog({ action: 'CREATE_PAYROLL', resource: 'Payroll', description: 'Create a new payroll entry' })
   async createPayroll(
+    @AccessCaller() _pay: AccessCaller,
     @Args('input') input: CreatePayrollInput,
     @Context() context: GraphQLContext,
   ): Promise<Payroll> {
@@ -259,8 +226,10 @@ export class HRResolver {
   @Mutation(() => Payroll)
   @UseGuards(RolesGuard)
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @Access.module('hr')
   @AuditLog({ action: 'APPROVE_PAYROLL', resource: 'Payroll', description: 'Approve a payroll entry for payment' })
   async approvePayroll(
+    @AccessCaller() _pay: AccessCaller,
     @Args('id', { type: () => ID }) id: string,
     @Context() context: GraphQLContext,
   ): Promise<Payroll> {

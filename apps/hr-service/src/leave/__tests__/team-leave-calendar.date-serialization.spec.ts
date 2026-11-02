@@ -12,6 +12,7 @@
  * These tests hydrate a row exactly as PostgresDriver does and push the
  * GetTeamLeaveCalendarHandler result through the real DateTime scalar.
  */
+import { ALL_MODULES_SCOPE } from '@aquaculture/shared-contracts';
 import { GraphQLISODateTime } from '@nestjs/graphql';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
@@ -84,7 +85,7 @@ describe('LeaveRequest date columns → GraphQL DateTime (teamLeaveCalendar)', (
     const handler = await handlerReturning([hydratedLeaveRequest()]);
 
     const [entry] = await handler.execute(
-      new GetTeamLeaveCalendarQuery('tenant-1', undefined, '2026-10-16', '2026-10-16'),
+      new GetTeamLeaveCalendarQuery('tenant-1', undefined, '2026-10-16', '2026-10-16', ALL_MODULES_SCOPE),
     );
 
     expect(entry).toBeDefined();

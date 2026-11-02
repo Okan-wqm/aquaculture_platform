@@ -1,9 +1,16 @@
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { DataSource } from 'typeorm';
-import { NotFoundException, BadRequestException, Logger, InternalServerErrorException } from '@nestjs/common';
+import {
+  NotFoundException,
+  BadRequestException,
+  ForbiddenException,
+  Logger,
+  InternalServerErrorException,
+} from '@nestjs/common';
 import { ApproveAttendanceCommand } from '../commands/approve-attendance.command';
 import { AttendanceRecord, ApprovalStatus } from '../entities/attendance-record.entity';
 import { tenantManagerRepo } from '@aquaculture/backend-common/database';
+import { assertNotOwnRecord, findViewerEmployee } from '../../common/viewer';
 
 @CommandHandler(ApproveAttendanceCommand)
 export class ApproveAttendanceHandler implements ICommandHandler<ApproveAttendanceCommand> {
@@ -37,6 +44,16 @@ export class ApproveAttendanceHandler implements ICommandHandler<ApproveAttendan
         );
       }
 
+      // The record carries an HR employee id and `userId` is the auth user id, so the approver's
+      // employee is looked up first. A tenant owner with no employee record has no record of their
+      // own to approve.
+      const approver = await findViewerEmployee(queryRunner.manager, tenantId, { sub: userId });
+      assertNotOwnRecord(
+        approver,
+        attendanceRecord.employeeId,
+        'You cannot approve your own attendance record',
+      );
+
       attendanceRecord.approvalStatus = ApprovalStatus.MANAGER_APPROVED;
       attendanceRecord.approvedBy = userId;
       attendanceRecord.approvedAt = new Date();
@@ -57,7 +74,11 @@ export class ApproveAttendanceHandler implements ICommandHandler<ApproveAttendan
     } catch (error) {
       await queryRunner.rollbackTransaction();
 
-      if (error instanceof NotFoundException || error instanceof BadRequestException) {
+      if (
+        error instanceof NotFoundException ||
+        error instanceof BadRequestException ||
+        error instanceof ForbiddenException
+      ) {
         throw error;
       }
 

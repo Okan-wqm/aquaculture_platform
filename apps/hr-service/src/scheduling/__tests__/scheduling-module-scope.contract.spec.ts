@@ -6,7 +6,7 @@
  * optional) AND reach the query the handler runs; either half missing leaves
  * the page silently showing every module.
  */
-import { Role } from '@aquaculture/backend-common/decorators';
+import { AccessCaller, Role } from '@aquaculture/backend-common/decorators';
 import type { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { GraphQLSchemaBuilderModule, GraphQLSchemaFactory } from '@nestjs/graphql';
 import { Test } from '@nestjs/testing';
@@ -14,15 +14,24 @@ import { createPaginatedQueryResult } from '@platform/cqrs';
 import type { GraphQLSchema } from 'graphql';
 import type { Repository } from 'typeorm';
 
-import { OWNER_MODULE } from '@aquaculture/shared-contracts';
+import { ALL_MODULES_SCOPE, OWNER_MODULE, moduleScopeOf } from '@aquaculture/shared-contracts';
 import type { Employee } from '../../hr/entities/employee.entity';
 import { GetOvertimeSummaryQuery } from '../queries/get-overtime-summary.query';
 import { GetTeamWeeklyOverviewQuery } from '../queries/get-team-weekly-overview.query';
 import { GetWeeklyPlansQuery } from '../queries/get-weekly-plans.query';
+import { runGraphqlParamDecorator } from '../../common/__tests__/run-param-decorator';
 import { SchedulingResolver } from '../scheduling.resolver';
 
 const tenantId = 'tenant-uuid-001';
 const context = { req: { user: { sub: 'user-uuid-001', tenantId, roles: [Role.TENANT_ADMIN] } } };
+
+/**
+ * The workforce decision the handler's own @AccessCaller() makes for this request (a TENANT_ADMIN:
+ * every module), so a module the page names narrows it (common/workforce-scope.ts).
+ */
+function workforce(method: string): AccessCaller {
+  return runGraphqlParamDecorator(AccessCaller, SchedulingResolver, method, context.req) as AccessCaller;
+}
 
 describe('scheduling API — module scope contract', () => {
   describe('GraphQL schema', () => {
@@ -76,6 +85,7 @@ describe('scheduling API — module scope contract', () => {
 
     it('hands teamWeeklyOverview the module', async () => {
       await resolver.getTeamWeeklyOverview(
+        workforce('getTeamWeeklyOverview'),
         '2026-10-19',
         context,
         undefined,
@@ -89,7 +99,7 @@ describe('scheduling API — module scope contract', () => {
           '2026-10-19',
           undefined,
           undefined,
-          OWNER_MODULE.FARM,
+          moduleScopeOf([OWNER_MODULE.FARM]) ?? undefined,
         ),
       );
     });
@@ -145,10 +155,16 @@ describe('scheduling API — module scope contract', () => {
     });
 
     it('sends no module when the page names none (the Company view)', async () => {
-      await resolver.getTeamWeeklyOverview('2026-10-19', context);
+      await resolver.getTeamWeeklyOverview(workforce('getTeamWeeklyOverview'), '2026-10-19', context);
 
       expect(queryBus.execute).toHaveBeenCalledWith(
-        new GetTeamWeeklyOverviewQuery(tenantId, '2026-10-19', undefined, undefined, undefined),
+        new GetTeamWeeklyOverviewQuery(
+          tenantId,
+          '2026-10-19',
+          undefined,
+          undefined,
+          ALL_MODULES_SCOPE,
+        ),
       );
     });
   });

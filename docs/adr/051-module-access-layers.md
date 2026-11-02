@@ -578,3 +578,39 @@ packages that implement it and are checked in their review:
    `infrastructure/nats/services.yaml` has a REQUEST_ACCESS entry or appears in a frozen
    PRE_PLAN_UNGATED_SUBJECTS list with a reason. The section 6 amendment also moves PKG-06's
    managerId and permissions removal from R3 to R4 and adds PKG-06 PR2 and PKG-43 PR2 to R4.
+
+## Rollout notes
+
+### PKG-07 before enrolment: the hr-service step of the ADR-054 draft (PR-9), 2026-11-02
+
+hr-service stays `account-role`. Branch `authz/hr-enrolment` re-applies the open #2124 (every
+operation declares its gate; contact details redacted on the `Employee` type) on main and adds what
+can be decided before the flip, through `@AccessCaller()`, the one place an `@Access` spec is
+decided while a service is `account-role` (RolesGuard admits by the global role first):
+
+- D6 (ADR-054 draft one-way door 2): the four payroll operations and every HrFinanceResolver
+  operation are `@Access.module('hr')` and take `@AccessCaller()`, so only TENANT_ADMIN over a
+  tenant with hr enabled and the holder of an hr MODULE_MANAGER grant reach pay.
+  `tests/invariants/hr-finance-module-boundary.spec.ts` (Enforcement table above) now exists.
+- Server-derived workforce scope on the five people reads every member reaches (`employees`,
+  `employee(id)`, `dailyAttendanceOverview`, `teamLeaveCalendar`, `teamWeeklyOverview`):
+  `@Access.scoped('workforce')`, `moduleCode` only narrows (C2).
+- Contact details on the `Employee` type are decided by grant (hr manager, or a manager of the
+  employee's module), no longer by the global MODULE_MANAGER.
+- The characterization matrix models `@AccessCaller()` under `account-role`; the PR's cell diff is
+  hr.payrolls (three cells) and hr.employees (nine cells), nothing else.
+
+The flip (`MODULE_ACCESS_ENROLMENT['hr-service'] = 'module-access'`) is not part of it:
+
+- PKG-06 revocation (`setUserModuleAccess`) does not exist yet, and ADR-054 draft D-C makes it a
+  precondition of any enforcing flip.
+- Grants are unverified on the deployed data: the R1 backfill reports `hrDesignatedWithoutGrant`
+  (hr managers designated by `managerId` with no hr manager grant), and the R3 NOT NULL on
+  `user_module_assignments.role` is still open (ADR-054 draft door 7). The manager-only workforce
+  reads would lock such a manager out of approvals.
+- A token minted before R1 carries no `moduleAccess`; a flip waits at least one access-token
+  lifetime (`JWT_EXPIRES_IN`, 1h by default in the droplet compose) after R1 is deployed, which
+  this repository cannot show.
+- Flipping the entry today fails `tests/invariants/module-access-classification.spec.ts` with 148
+  hr-service violations: the operations not listed above carry no `@Access`, and the self
+  operations still carry `@ModuleUserOrHigher()`, which the `self` kind forbids.

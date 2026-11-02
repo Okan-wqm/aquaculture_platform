@@ -1411,6 +1411,13 @@ enforced server-side on creation and the explicit role contract is missing.
   @RequiresMobileFeature('leave') to createLeaveRequest and add a resolver spec that reads ROLES_KEY
   and MOBILE_FEATURE_KEY metadata for all four self-service mutations; the security-boundary adapter
   hit on createLeaveRequest then disappears.
+- Closure (hr enrolment step, branch `authz/hr-enrolment`): the re-applied #2124 gave
+  createLeaveRequest `@UseGuards(RolesGuard)` and `@ModuleUserOrHigher()`; this step adds
+  MobileFeatureGuard and `@RequiresMobileFeature('leave')`.
+  `apps/hr-service/src/leave/__tests__/leave-self-service-gates.spec.ts` reads the guards,
+  MOBILE_FEATURE_KEY and ROLES_KEY metadata of create, submit, cancel, update and withdraw (red on
+  create before, green after). A created request is a DRAFT that only the already-gated submit makes
+  PENDING, so no member who could file leave before loses it.
 
 ### SENSOR-LOW-205
 

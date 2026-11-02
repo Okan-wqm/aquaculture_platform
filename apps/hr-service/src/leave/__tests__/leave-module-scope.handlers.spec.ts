@@ -15,7 +15,12 @@
  */
 import type { Repository } from 'typeorm';
 
-import { OWNER_MODULE, type OwnerModuleCode } from '@aquaculture/shared-contracts';
+import {
+  ALL_MODULES_SCOPE,
+  OWNER_MODULE,
+  moduleScopeOf,
+  type OwnerModuleCode,
+} from '@aquaculture/shared-contracts';
 import type { Employee } from '../../hr/entities/employee.entity';
 import type { LeaveRequest } from '../entities/leave-request.entity';
 import { GetLeaveRequestsQuery } from '../queries/get-leave-requests.query';
@@ -73,6 +78,21 @@ function expectScopedTo(
     expect.any(String),
     expect.any(String),
     { scopeModuleCode: moduleCode },
+  );
+}
+
+/** The server-derived workforce scope joins the employee's live department under these modules. */
+function expectWorkforceScopedTo(
+  queryBuilder: QueryBuilderDouble,
+  employeeAlias: string,
+  modules: readonly OwnerModuleCode[],
+): void {
+  expect(queryBuilder['innerJoin']).toHaveBeenCalledTimes(1);
+  expect(queryBuilder['innerJoin']).toHaveBeenCalledWith(
+    `${employeeAlias}.departmentHr`,
+    expect.any(String),
+    expect.stringContaining('IN (:...workforceModuleCodes)'),
+    { workforceModuleCodes: modules },
   );
 }
 
@@ -189,6 +209,23 @@ describe('leave queries — module scope', () => {
       expect(queryBuilder['innerJoin']).not.toHaveBeenCalled();
     });
 
+    // "No department" must never read as "every department" (HR-HIGH-056).
+    it('returns an empty page, not every department, for a manager placed in none', async () => {
+      const queryBuilder = await run(new GetPendingApprovalsQuery(tenantId, approverId), {
+        id: approverId,
+        departmentHrId: null,
+      });
+
+      expect(queryBuilder['getManyAndCount']).not.toHaveBeenCalled();
+    });
+
+    it('returns an empty page for a manager who has no employee record', async () => {
+      const queryBuilder = await run(new GetPendingApprovalsQuery(tenantId, null));
+
+      expect(approverLookup).not.toHaveBeenCalled();
+      expect(queryBuilder['getManyAndCount']).not.toHaveBeenCalled();
+    });
+
     it('never narrows a tenant admin implicitly, even one with an employee record', async () => {
       const queryBuilder = await run(
         new GetPendingApprovalsQuery(tenantId, approverId, undefined, 20, 1, undefined, false),
@@ -233,20 +270,34 @@ describe('leave queries — module scope', () => {
           undefined,
           '2026-10-22',
           '2026-10-22',
-          OWNER_MODULE.FARM,
+          moduleScopeOf([OWNER_MODULE.FARM]) ?? undefined,
         ),
       );
 
       expect(queryBuilder['where']).toHaveBeenCalledWith('lr.tenantId = :tenantId', { tenantId });
-      expectScopedTo(queryBuilder, 'employee', OWNER_MODULE.FARM);
+      expectWorkforceScopedTo(queryBuilder, 'employee', [OWNER_MODULE.FARM]);
     });
 
-    it('is untouched without a module (the Company view)', async () => {
+    it('is untouched for a caller whose scope is every module', async () => {
+      const queryBuilder = await run(
+        new GetTeamLeaveCalendarQuery(
+          tenantId,
+          undefined,
+          '2026-10-22',
+          '2026-10-22',
+          ALL_MODULES_SCOPE,
+        ),
+      );
+
+      expect(queryBuilder['innerJoin']).not.toHaveBeenCalled();
+    });
+
+    it('shows no one when no scope was decided (fail closed)', async () => {
       const queryBuilder = await run(
         new GetTeamLeaveCalendarQuery(tenantId, undefined, '2026-10-22', '2026-10-22'),
       );
 
-      expect(queryBuilder['innerJoin']).not.toHaveBeenCalled();
+      expect(queryBuilder['andWhere']).toHaveBeenCalledWith('1 = 0');
     });
   });
 });

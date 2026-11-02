@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
 import { ObjectType, Field, Int, Float } from '@nestjs/graphql';
-import { applyEmployeeModuleScope } from '../../common/module-scope';
+import { applyEmployeeScope } from '../../common/module-scope';
 import { Employee } from '../../hr/entities/employee.entity';
 import { AttendanceRecord } from '../entities/attendance-record.entity';
 import { GetDailyAttendanceOverviewQuery } from '../queries/get-daily-attendance-overview.query';
@@ -52,27 +52,27 @@ export class GetDailyAttendanceOverviewHandler implements IQueryHandler<GetDaily
   ) {}
 
   async execute(query: GetDailyAttendanceOverviewQuery): Promise<DailyAttendanceOverview> {
-    const { tenantId, date, moduleCode } = query;
+    const { tenantId, date, scope } = query;
     const targetDate = date || new Date().toISOString().split('T')[0];
 
     // Both counts go through query builders so the module scope is the one
     // shared predicate (common/module-scope.ts), not a second spelling in SQL.
 
     // Total active employees
-    const totalEmployees = await applyEmployeeModuleScope(
+    const totalEmployees = await applyEmployeeScope(
       this.employeeRepository
         .createQueryBuilder('employee')
         .where('employee.tenantId = :tenantId', { tenantId })
         .andWhere("employee.status = 'active'")
         .andWhere('employee.isDeleted = false'),
       'employee',
-      moduleCode,
+      scope,
     ).getCount();
 
     // Attendance breakdown for the day. `employee` is joined only to give the
     // module scope its alias: a many-to-one on the primary key, so it never
     // changes a count by itself.
-    const stats = await applyEmployeeModuleScope(
+    const stats = await applyEmployeeScope(
       this.attendanceRepository
         .createQueryBuilder('ar')
         .leftJoin('ar.employee', 'employee')
@@ -85,7 +85,7 @@ export class GetDailyAttendanceOverviewHandler implements IQueryHandler<GetDaily
         .andWhere('ar.date = :targetDate', { targetDate })
         .andWhere('ar.isDeleted = false'),
       'employee',
-      moduleCode,
+      scope,
     ).getRawOne<AttendanceStatsRow>();
 
     // An aggregate without GROUP BY always yields exactly one row.

@@ -1,9 +1,14 @@
 /**
  * HrFinanceResolver — the HR finance tab's GraphQL surface.
  *
- * Financial data — role-gated to MODULE_MANAGER + TENANT_ADMIN (same
- * shape as the payroll queries on HRResolver). Settings + category
- * archival mutations are TENANT_ADMIN only.
+ * Financial data is hr module data (owner decision D6; ADR-054 draft one-way
+ * door 2; HR-CRITICAL-065): the class declares `@Access.module('hr')` and every
+ * operation takes `@AccessCaller()`, which decides that spec with the
+ * operation's `@Roles` against the verified `moduleAccess` claim. So beyond the
+ * global-role gate RolesGuard applies while hr-service is `account-role`, only
+ * TENANT_ADMIN (over a tenant with hr enabled) and the holder of an hr
+ * MODULE_MANAGER grant reach it, as on the payroll operations of HRResolver.
+ * Settings + category archival mutations stay TENANT_ADMIN only.
  *
  * The Personnel Table, Personnel Salary and Labour Cost surfaces are all
  * projections of the single `hrLabourCost` snapshot — the frontend reads
@@ -15,6 +20,8 @@ import { Args, Context, ID, Int, Mutation, Query, Resolver } from '@nestjs/graph
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 
 import {
+  Access,
+  AccessCaller,
   AuditLog,
   RequireTenantPermission,
   Role,
@@ -71,6 +78,7 @@ const MAX_ENTRY_PAGE = 200;
 const VIEW_SALARY_PERMISSION = 'hr_finance:view_salary';
 
 @UseGuards(GqlAuthGuard)
+@Access.module('hr')
 @Resolver(() => HrFinanceEntry)
 export class HrFinanceResolver {
   constructor(
@@ -106,7 +114,10 @@ export class HrFinanceResolver {
   @Query(() => HrPersonnelTable, { name: 'hrPersonnelTable' })
   @UseGuards(RolesGuard)
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
-  async hrPersonnelTable(@Context() ctx: GraphQLContext): Promise<HrPersonnelTable> {
+  async hrPersonnelTable(
+    @AccessCaller() _pay: AccessCaller,
+    @Context() ctx: GraphQLContext,
+  ): Promise<HrPersonnelTable> {
     return this.queryBus.execute(new GetHrPersonnelTableQuery(this.getTenantId(ctx)));
   }
 
@@ -120,6 +131,7 @@ export class HrFinanceResolver {
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @RequireTenantPermission(VIEW_SALARY_PERMISSION)
   async hrLabourCost(
+    @AccessCaller() _pay: AccessCaller,
     @Context() ctx: GraphQLContext,
     @Args('year', { type: () => Int, nullable: true }) year?: number,
   ): Promise<HrLabourCost> {
@@ -134,6 +146,7 @@ export class HrFinanceResolver {
   @UseGuards(RolesGuard)
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async hrFinanceSummary(
+    @AccessCaller() _pay: AccessCaller,
     @Context() ctx: GraphQLContext,
     @Args('from') from: Date,
     @Args('to') to: Date,
@@ -156,6 +169,7 @@ export class HrFinanceResolver {
   @UseGuards(RolesGuard)
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async hrFinanceCategories(
+    @AccessCaller() _pay: AccessCaller,
     @Context() ctx: GraphQLContext,
     @Args('includeArchived', { defaultValue: false }) includeArchived: boolean,
   ): Promise<HrFinanceCategory[]> {
@@ -168,6 +182,7 @@ export class HrFinanceResolver {
   @UseGuards(RolesGuard)
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async hrFinanceEntries(
+    @AccessCaller() _pay: AccessCaller,
     @Context() ctx: GraphQLContext,
     @Args('from', { nullable: true }) from?: Date,
     @Args('to', { nullable: true }) to?: Date,
@@ -191,7 +206,10 @@ export class HrFinanceResolver {
   @Query(() => PayrollCostSettings, { name: 'payrollCostSettings' })
   @UseGuards(RolesGuard)
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
-  async payrollCostSettings(@Context() ctx: GraphQLContext): Promise<PayrollCostSettings> {
+  async payrollCostSettings(
+    @AccessCaller() _pay: AccessCaller,
+    @Context() ctx: GraphQLContext,
+  ): Promise<PayrollCostSettings> {
     return this.queryBus.execute(new GetPayrollCostSettingsQuery(this.getTenantId(ctx)));
   }
 
@@ -204,6 +222,7 @@ export class HrFinanceResolver {
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @AuditLog({ action: 'CREATE_HR_FINANCE_ENTRY', resource: 'HrFinanceEntry', description: 'Book an HR finance entry' })
   async createHrFinanceEntry(
+    @AccessCaller() _pay: AccessCaller,
     @Context() ctx: GraphQLContext,
     @Args('input') input: CreateHrFinanceEntryInput,
   ): Promise<HrFinanceEntry> {
@@ -217,6 +236,7 @@ export class HrFinanceResolver {
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @AuditLog({ action: 'UPDATE_HR_FINANCE_ENTRY', resource: 'HrFinanceEntry', description: 'Update an HR finance entry' })
   async updateHrFinanceEntry(
+    @AccessCaller() _pay: AccessCaller,
     @Context() ctx: GraphQLContext,
     @Args('id', { type: () => ID }) id: string,
     @Args('input') input: UpdateHrFinanceEntryInput,
@@ -231,6 +251,7 @@ export class HrFinanceResolver {
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @AuditLog({ action: 'DELETE_HR_FINANCE_ENTRY', resource: 'HrFinanceEntry', description: 'Soft-delete an HR finance entry' })
   async deleteHrFinanceEntry(
+    @AccessCaller() _pay: AccessCaller,
     @Context() ctx: GraphQLContext,
     @Args('id', { type: () => ID }) id: string,
   ): Promise<boolean> {
@@ -244,6 +265,7 @@ export class HrFinanceResolver {
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @AuditLog({ action: 'CREATE_HR_FINANCE_CATEGORY', resource: 'HrFinanceCategory', description: 'Create an HR finance category' })
   async createHrFinanceCategory(
+    @AccessCaller() _pay: AccessCaller,
     @Context() ctx: GraphQLContext,
     @Args('input') input: CreateHrFinanceCategoryInput,
   ): Promise<HrFinanceCategory> {
@@ -257,6 +279,7 @@ export class HrFinanceResolver {
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @AuditLog({ action: 'UPDATE_HR_FINANCE_CATEGORY', resource: 'HrFinanceCategory', description: 'Update an HR finance category' })
   async updateHrFinanceCategory(
+    @AccessCaller() _pay: AccessCaller,
     @Context() ctx: GraphQLContext,
     @Args('id', { type: () => ID }) id: string,
     @Args('input') input: UpdateHrFinanceCategoryInput,
@@ -271,6 +294,7 @@ export class HrFinanceResolver {
   @Roles(Role.TENANT_ADMIN)
   @AuditLog({ action: 'ARCHIVE_HR_FINANCE_CATEGORY', resource: 'HrFinanceCategory', description: 'Archive an HR finance category' })
   async archiveHrFinanceCategory(
+    @AccessCaller() _pay: AccessCaller,
     @Context() ctx: GraphQLContext,
     @Args('id', { type: () => ID }) id: string,
   ): Promise<HrFinanceCategory> {
@@ -284,6 +308,7 @@ export class HrFinanceResolver {
   @Roles(Role.TENANT_ADMIN)
   @AuditLog({ action: 'RESTORE_HR_FINANCE_CATEGORY', resource: 'HrFinanceCategory', description: 'Restore an HR finance category' })
   async restoreHrFinanceCategory(
+    @AccessCaller() _pay: AccessCaller,
     @Context() ctx: GraphQLContext,
     @Args('id', { type: () => ID }) id: string,
   ): Promise<HrFinanceCategory> {
@@ -297,6 +322,7 @@ export class HrFinanceResolver {
   @Roles(Role.TENANT_ADMIN)
   @AuditLog({ action: 'UPDATE_PAYROLL_COST_SETTINGS', resource: 'PayrollCostSettings', description: 'Update payroll cost settings' })
   async updatePayrollCostSettings(
+    @AccessCaller() _pay: AccessCaller,
     @Context() ctx: GraphQLContext,
     @Args('input') input: UpdatePayrollCostSettingsInput,
   ): Promise<PayrollCostSettings> {

@@ -512,6 +512,13 @@ apps/hr-service/src/hr/hr.resolver.ts:209-211 (payrolls gated by Roles TENANT_AD
 apps/farm-service/src/common/authz/permission-matrix.ts:8-9 (farm's operation matrix maps operations to global roles only)
 ```
 
+Progress for hr (branch `authz/hr-enrolment`, ADR-054 draft PR-9). The example above no longer
+holds: `payrolls` and every pay and HR finance operation decide `@Roles` against the hr grant
+through `@AccessCaller()` (HR-CRITICAL-065), and five people reads take their scope from the grants
+(HR-HIGH-066). The mechanism itself stays open: every other hr operation, and every operation of the
+other `account-role` services, still meets a module's `@Roles(MODULE_MANAGER)` with a manager of any
+module until its service enrols.
+
 ## FE-MEDIUM-380
 
 Defect. An open console tab never learns that a new build is deployed: the shell has no build
@@ -843,6 +850,19 @@ apps/hr-service/src/finance/resolvers/hr-finance.resolver.ts:118-121 (only hrLab
 libs/backend-common/src/guards/roles.guard.ts:155-171 (RolesGuard, the only role decision hr registers at app.module.ts:394-399, matches global roles through the hierarchy)
 ```
 
+Closure (hr enrolment step, branch `authz/hr-enrolment`, ADR-054 draft PR-9 and one-way door 2).
+The 18 pay operations (the four payroll operations of HRResolver and every HrFinanceResolver
+operation) declare `@Access.module('hr')` and take `@AccessCaller()`. While hr-service is still
+`account-role`, that parameter is where the spec is decided: RolesGuard admits by the global role,
+then `decideAccess` refuses everyone but TENANT_ADMIN (over a tenant with hr enabled) and the holder
+of an hr MODULE_MANAGER grant, which only the hr primary-manager choice writes. `hrLabourCost` keeps
+`hr_finance:view_salary`. Pinned by `apps/hr-service/src/finance/__tests__/pay-module-access.spec.ts`
+(A, A′, a sensor manager, a non-primary hr manager, a pre-R1 token and a TENANT_ADMIN without hr are
+refused on every pay operation), `tests/invariants/hr-finance-module-boundary.spec.ts`, and the
+hr.payrolls cells of `e2e/tests/security/module-access-layers.expected.ts` (A′, B′ and the
+TENANT_ADMIN without hr move from `open-today` to `holds`). The hr-manager viewer whose global role
+is MODULE_USER stays `narrower-today` until hr-service enrols in `module-access`.
+
 ## HR-HIGH-066
 
 Defect. hr-service never derives a workforce scope from the caller: list reads are scoped only
@@ -885,6 +905,27 @@ apps/hr-service/src/training/training.resolver.ts:143-151 (employeeCertification
 apps/hr-service/src/performance/performance.resolver.ts:111-123 (performanceReviews: any employeeId, tenant-wide)
 ```
 
+Partly closed (hr enrolment step, branch `authz/hr-enrolment`, ADR-054 draft PR-9). The five people
+reads every staff member reaches, `employees`, `employee(id)`, `dailyAttendanceOverview`,
+`teamLeaveCalendar` and `teamWeeklyOverview`, declare `@Access.scoped('workforce')` and take
+`@AccessCaller()`. The scope comes from the verified grants (TENANT_ADMIN and any hr grant: every
+module; a farm or sensor grant: that module; no grant: FORBIDDEN), `moduleCode` only narrows it
+(`common/workforce-scope.ts`, a module outside the scope is FORBIDDEN), and the handlers apply it
+through `applyEmployeeScope` / `employeeScopeWhere`, which return nothing when no scope arrives.
+`employee(id)` of a tenant employee outside the scope is FORBIDDEN. Pinned by
+`apps/hr-service/src/common/__tests__/workforce-scope.spec.ts`, the handler and contract specs of
+the three modules, and the hr.employees cells of `e2e/tests/security/module-access-layers.expected.ts`
+(every cell now `holds`).
+
+Still open, with the reason: the manager-only reads (`attendanceRecords`, `pendingAttendanceApprovals`,
+`leaveRequests`, `pendingLeaveApprovals`, `weeklyPlans`, `overtimeSummary`, and the employeeId-keyed
+reads such as `employeeCertifications`, `performanceReviews`, `goals`, `workRotations`) still answer a
+global MODULE_MANAGER tenant-wide. Their `@Roles(TENANT_ADMIN, MODULE_MANAGER)` read through
+`decideAccess` takes the scope from manager grants only, and an hr manager grant comes only from the
+hr primary-manager choice, so scoping them now would also take workforce management away from an hr
+manager who was designated without being made primary (the backfill's `hrDesignatedWithoutGrant`
+list). They move with the hr-service flip to `module-access`, after that list is empty.
+
 ## HR-HIGH-067
 
 Defect. hr-service decides contact-PII visibility and attendance management from the global
@@ -923,6 +964,23 @@ apps/hr-service/src/hr/hr.resolver.ts:150-154 (employees leaves the whole tenant
 apps/hr-service/src/attendance/attendance.resolver.ts:127-129 (hasManagementRole is global TENANT_ADMIN or MODULE_MANAGER)
 apps/hr-service/src/attendance/attendance.resolver.ts:306-309 (a global manager receives the tenant's attendance; moduleCode is optional)
 ```
+
+Partly closed (hr enrolment step, branch `authz/hr-enrolment`). The PII half: the re-applied #2124
+moved the mask onto the `Employee` type (`EmployeeFieldsResolver.contactInfo` and `.address`), so it
+holds on every path that returns an employee, `EmployeeCertification.employee` included (ADR-054
+draft D-G). This step replaces its global-role tier: full contact details go to a tenant
+administrator, the employee, the hr manager (hr MODULE_MANAGER grant) and a manager of the
+employee's own module by grant, the module being the one of the employee's live department, read
+through the batched department loader. `managesModuleByGrant` (`common/viewer.ts`) decides it with
+`decideAccess` from the verified `moduleAccess` claim. Pinned by
+`apps/hr-service/src/hr/__tests__/employee-contact-privacy.spec.ts` (A′ reading a sensor employee,
+a sensor manager reading a farm employee, a grant-less global manager and a pre-R1 token see the
+directory projection; red on 10 of 21 cases before, green after).
+
+Still open: the attendance half. `todaysAttendance`, `attendanceRecords`, `attendanceSummary` and
+`pendingAttendanceApprovals` still treat a global MODULE_MANAGER as a manager of every module's
+attendance. They are manager-only workforce reads, which move with the hr-service flip for the reason
+the HR-HIGH-066 section gives.
 
 ## SEC-MEDIUM-205
 
@@ -1979,6 +2037,12 @@ apps/auth-service/src/modules/authentication/services/token.service.ts:593-598 (
 libs/backend-common/src/decorators/roles.decorator.ts:82-86 (the role hierarchy has no module dimension)
 apps/hr-service/src/hr/hr.resolver.ts:314-316 (for example, any global MODULE_MANAGER may update HR organisation units)
 ```
+
+Progress for hr (branch `authz/hr-enrolment`). A persisted global MODULE_MANAGER no longer reaches
+hr pay and HR finance (HR-CRITICAL-065), unmasked contact details outside their own module
+(HR-HIGH-067) or the people of another module through the five scoped reads (HR-HIGH-066): those
+read the grants. It still reaches the other manager-gated hr operations, `updateHRDepartment`
+included, and every other service. The finding stays open until PKG-46 demotes the rows.
 
 ## FARM-MEDIUM-470
 

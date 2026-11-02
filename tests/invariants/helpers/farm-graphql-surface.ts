@@ -39,6 +39,13 @@ export interface BackendResolverField {
   file: string;
   /** 1-based line of the decorator. */
   line: number;
+  /**
+   * The other decorators written on the method after the operation decorator, as `@Name(args)`,
+   * comments removed — `@Roles(...)`, `@UseGuards(...)`, `@AuditLog(...)`. A gate that lives in
+   * these is read here, from the same scan that names the field, so no second walk over the
+   * resolvers can disagree about which method a decorator belongs to.
+   */
+  decorators: string[];
 }
 
 /** git-tracked files under `root` matching `patterns`, filtered to existing. */
@@ -72,11 +79,16 @@ export function extractBackendResolverFields(
   // gap the farm harvest note documented — a comment between the decorator and
   // the method used to hide the field from the parity scan (a false "unresolved"
   // for any FE op naming it). hr-service places rationale comments there widely.
-  const interleaved = String.raw`(?:(?:@[A-Za-z]+\s*\((?:[^()]|\([^()]*\))*\)|\/\/[^\n]*|\/\*[\s\S]*?\*\/)\s*)*`;
+  // A decorator name may be dotted (`@Access.module('hr')`, ADR-051): the access decorators are
+  // members of a builder, and an undotted name stopped the scan at the first one, dropping the
+  // field from every gate that reads this surface.
+  const decoratorName = String.raw`@[A-Za-z]+(?:\.[A-Za-z]+)*`;
+  const interleaved = String.raw`(?:(?:${decoratorName}\s*\((?:[^()]|\([^()]*\))*\)|\/\/[^\n]*|\/\*[\s\S]*?\*\/)\s*)*`;
   const re = new RegExp(
-    String.raw`@(Query|Mutation|Subscription|ResolveField)\s*\((${decoratorArgs})\)\s*${interleaved}(?:async\s+)?([A-Za-z0-9_]+)\s*\(`,
+    String.raw`@(Query|Mutation|Subscription|ResolveField)\s*\((${decoratorArgs})\)\s*(${interleaved})(?:async\s+)?([A-Za-z0-9_]+)\s*\(`,
     'g',
   );
+  const decorator = new RegExp(String.raw`${decoratorName}\s*\(${decoratorArgs}\)`, 'g');
 
   for (const file of listFiles(sourceRoot, ['**/*.ts'])) {
     if (file.includes('.spec.') || file.includes('__tests__')) continue;
@@ -84,11 +96,15 @@ export function extractBackendResolverFields(
     let match: RegExpExecArray | null;
     while ((match = re.exec(src)) !== null) {
       const named = match[2]!.match(/name:\s*'([^']+)'/);
+      const withoutComments = match[3]!
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/(^|\s)\/\/.*$/gm, '$1');
       fields.push({
         kind: match[1]! as BackendResolverKind,
-        field: named ? named[1]! : match[3]!,
+        field: named ? named[1]! : match[4]!,
         file,
         line: src.slice(0, match.index).split('\n').length,
+        decorators: withoutComments.match(decorator) ?? [],
       });
     }
   }

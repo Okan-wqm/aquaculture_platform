@@ -112,6 +112,31 @@ export function ratchetSetsOf(handlers: readonly ScannedHandler[]): RatchetSets 
   return { ungated: ungated.sort(), moduleUserOnly: moduleUserOnly.sort(), public: open.sort() };
 }
 
+export interface RatchetDiff extends BaselineDiff {
+  /** Ungated in the baseline, MODULE_USER-gated now: same reach, now declared; the key moves. */
+  readonly moved: readonly string[];
+}
+
+/**
+ * One ratchet set against the baseline. A key new to `moduleUserOnly` that the baseline lists as
+ * `ungated` is a move, not growth: the operation reaches the same callers and now declares a
+ * gate. No other move is allowed: an operation that loses its gate grows `ungated`, and one that
+ * turns `@Public` grows `public` (open without a token).
+ */
+export function ratchetDiff(
+  set: keyof RatchetSets,
+  current: readonly string[],
+  frozen: RatchetSets,
+): RatchetDiff {
+  const { grown, shrunk } = baselineDiff(current, frozen[set]);
+  const movable = new Set(set === 'moduleUserOnly' ? frozen.ungated : []);
+  return {
+    grown: grown.filter((key) => !movable.has(key)),
+    moved: grown.filter((key) => movable.has(key)),
+    shrunk,
+  };
+}
+
 // ---------------------------------------------------------------------------------------------
 // D-F 2: the gateway surface
 // ---------------------------------------------------------------------------------------------

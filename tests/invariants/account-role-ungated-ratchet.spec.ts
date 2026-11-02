@@ -29,7 +29,11 @@
  *     above MODULE_USER, or `@Access` once its service enrols); adding the key to the baseline
  *     is a reviewed decision to ship one more open operation, never a way to silence this spec;
  *   - a key in the baseline and not in the code PASSES with a message: delete it from the
- *     baseline in the same PR, so the record keeps saying exactly what is open.
+ *     baseline in the same PR, so the record keeps saying exactly what is open;
+ *   - an `ungated` key that reappears as `moduleUserOnly` PASSES with a message to move it: it
+ *     reaches the same callers and now declares a gate (open PR #2124 gates hr operations with
+ *     `@ModuleUserOrHigher()` this way). Nothing moves the other way, and nothing moves into
+ *     `public`.
  *
  * "Ungated" means no role or access decision: these are the operations the classification guard
  * denies the day their service enrols unless they gain `@Access` or `@Public`. Another guard may
@@ -51,7 +55,12 @@ import {
   MODULE_ACCESS_ENROLMENT,
 } from '../../libs/backend-common/src/security/access-enrolment';
 
-import { baselineDiff, ratchetSetsOf, type RatchetSets } from './helpers/access-surface';
+import {
+  baselineDiff,
+  ratchetDiff,
+  ratchetSetsOf,
+  type RatchetSets,
+} from './helpers/access-surface';
 import { readRepoFile } from './helpers/module-dictionary-sources';
 import {
   productionSources,
@@ -62,6 +71,7 @@ import {
 
 const BASELINE_FILE = 'tests/invariants/account-role-ungated-ratchet.baseline.json';
 const SHARED_LIBS = 'shared-libs';
+const EMPTY_SETS: RatchetSets = { ungated: [], moduleUserOnly: [], public: [] };
 const SET_NAMES = [
   'ungated',
   'moduleUserOnly',
@@ -111,8 +121,19 @@ describe('INVARIANT: account-role services never grow the operations every membe
 
   describe.each(groups.map((group) => [group]))('%s', (group) => {
     it.each(SET_NAMES.map((set) => [set]))('%s does not grow', (set) => {
-      const frozen = baseline.services[group]?.[set] ?? [];
-      const { grown, shrunk } = baselineDiff(current[group]?.[set] ?? [], frozen);
+      const { grown, moved, shrunk } = ratchetDiff(
+        set,
+        current[group]?.[set] ?? [],
+        baseline.services[group] ?? EMPTY_SETS,
+      );
+      if (moved.length > 0) {
+        console.warn(
+          `${BASELINE_FILE}: ${group}: ${moved.length} ungated operation(s) gained a MODULE_USER ` +
+            `gate; move these keys from ungated to moduleUserOnly:\n${moved
+              .map((key) => `  ${key}`)
+              .join('\n')}`,
+        );
+      }
       if (shrunk.length > 0) {
         console.warn(
           `${BASELINE_FILE}: ${group}.${set} shrank by ${shrunk.length}; delete these keys from ` +
@@ -222,5 +243,24 @@ describe('ratchet sets — self-tests on fixture sources', () => {
       shrunk: ['gone'],
     });
     expect(baselineDiff(['a'], ['a', 'b'])).toEqual({ grown: [], shrunk: ['b'] });
+  });
+
+  it('an ungated key that gains a MODULE_USER gate moves; nothing moves back or into public', () => {
+    const frozen: RatchetSets = { ungated: ['u'], moduleUserOnly: ['m'], public: ['p'] };
+    expect(ratchetDiff('moduleUserOnly', ['m', 'u'], frozen)).toEqual({
+      grown: [],
+      moved: ['u'],
+      shrunk: [],
+    });
+    expect(ratchetDiff('ungated', ['u', 'm'], frozen)).toEqual({
+      grown: ['m'],
+      moved: [],
+      shrunk: [],
+    });
+    expect(ratchetDiff('public', ['p', 'u'], frozen)).toEqual({
+      grown: ['u'],
+      moved: [],
+      shrunk: [],
+    });
   });
 });

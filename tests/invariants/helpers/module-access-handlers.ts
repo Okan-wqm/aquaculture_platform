@@ -40,7 +40,10 @@ export interface ScannedHandler {
   readonly role: HandlerRole;
   /** The type `@Resolver(() => T)` names, for references and fields; null when none. */
   readonly typeName: string | null;
-  /** The GraphQL field name of a field resolver (its first string argument, `name:`, or the method). */
+  /**
+   * The GraphQL field name of a field resolver or root field (its first string argument, `name:`,
+   * or the method).
+   */
   readonly fieldName: string;
   readonly handlerAccess: AccessUse | null;
   readonly classAccess: AccessUse | null;
@@ -50,6 +53,10 @@ export interface ScannedHandler {
   readonly roles: readonly string[];
   /** Names of the parameter decorators, e.g. `Parent`, `AccessCaller`. */
   readonly params: readonly string[];
+  /** Names of the decorators on the handler, then on its class (`Roles`, `UseGuards`, …). */
+  readonly decorators: readonly string[];
+  /** Each argument of every `@UseGuards(...)` on the handler or its class, as written. */
+  readonly guards: readonly string[];
 }
 
 const ROOT_ROLES: Readonly<Record<string, HandlerRole>> = {
@@ -119,6 +126,14 @@ function resolverTypeName(calls: readonly DecoratorCall[]): string | null {
   return null;
 }
 
+/** The decorators that name a GraphQL field, whose options may rename it (`{ name: 'tanks' }`). */
+const FIELD_DECORATORS: ReadonlySet<string> = new Set([
+  'Query',
+  'Mutation',
+  'Subscription',
+  'ResolveField',
+]);
+
 function fieldNameOf(call: DecoratorCall | undefined, method: string): string {
   if (call === undefined) return method;
   for (const arg of call.args) {
@@ -177,7 +192,7 @@ export function scanSource(
           role,
           typeName,
           fieldName: fieldNameOf(
-            calls.find((call) => call.name === 'ResolveField'),
+            calls.find((call) => FIELD_DECORATORS.has(call.name)),
             method,
           ),
           handlerAccess: accessOf(calls),
@@ -188,6 +203,10 @@ export function scanSource(
           params: member.parameters.flatMap((parameter) =>
             decoratorCalls(parameter).map((call) => call.name),
           ),
+          decorators: [...calls, ...classCalls].map((call) => call.name),
+          guards: [...calls, ...classCalls]
+            .filter((call) => call.name === 'UseGuards')
+            .flatMap((call) => call.args.map((arg) => arg.getText())),
         });
       }
     }

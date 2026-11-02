@@ -352,6 +352,7 @@ The invariants are new and run on every PR (plan §7), except where a row names 
 | `tests/invariants/company-layer-projection.spec.ts`                                                             | No Company DTO contains a module-private field.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | PKG-33                                         |
 | `tests/invariants/contract-drop-orphan-first.spec.ts`                                                           | A dropped column is absent from the entities on the merge base.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | C4                                             |
 | `e2e/tests/security/module-access-layers.matrix.ts` → `module-access-layers.spec.ts`, `header-spoofing.spec.ts` | Generated cells: every root operation of the PKG-34 manifest × every §4 viewer, and every reference resolver the classification spec lists × every §4 viewer, sent as `_entities` to its subgraph with that viewer's gateway-signed assertion, as the router does (`PublicUserProfile` expects own-tenant results only); an invariant requires a cell for each. Forged `moduleAccess` rejected; after revocation FORBIDDEN within one access-token TTL, sockets dropped within 60 s.                                                                                                                         | PKG-05, 41                                     |
+| `tests/invariants/module-access-characterization.spec.ts` → `e2e/tests/security/module-access-layers.expected.ts` | Characterization before enrolment: one root operation per §4 row × every §4 viewer, today's outcome (from the gate in the code and the service's enrolment) and the target (`decideAccess` with the row's spec, checked against the §4 cells for A, B and TENANT_ADMIN), recorded with holes marked `open-today`. Any change to a cell fails until the expected file is updated in the same PR. | ADR-054 draft D-H (PR-1), then each enrolling package |
 
 **Pre-enrolment record.** The three rows marked "pre-enrolment record" come from the ADR-054
 draft (D-F 1-3, awaiting the owner; not yet in `docs/adr/`). They change no runtime behaviour and
@@ -375,6 +376,16 @@ readers by the PKG-45 allowlist spec and its auth-SQL invariant. PKG-41 adds han
 `e2e/tests/integration/module-access-layers.spec.ts` for roles A and B and TENANT_ADMIN on each of
 these surfaces (plan §7 mandatory cells). The invariants make each surface complete; the e2e cells
 prove it on the deployed stack.
+
+**Characterization before enrolment.** Until the PKG-34 manifest generates the root-operation
+cells, `CHARACTERIZED_OPERATIONS` in the matrix stands for each §4 row a root GraphQL field or
+gateway REST route serves, and `module-access-layers.expected.ts` records today's cells under
+`account-role`, holes included and marked `open-today` (from the ADR-054 draft, D-H, awaiting the
+owner; not yet in `docs/adr/`). The characterization invariant recomputes them from the code on
+every PR; `module-access-layers.spec.ts` runs them against a deployed stack and runs in no CI
+workflow yet, because none brings up a seeded stack. An enrolment package changes only the cells
+it means to close, and its diff of the expected file shows them. This leaves this record's status
+untouched and changes no runtime behaviour.
 
 After every deploy `module_access_denied_total` is read per service. A deny spike is fixed by
 granting access through PKG-06, never by loosening a guard. A service-caller deny is a defect in

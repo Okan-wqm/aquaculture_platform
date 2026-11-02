@@ -823,7 +823,9 @@ and analytics `Access.module('hr')`. No handler is then reachable without an hr 
 
 Pinned by the HR finance and payroll access specs (roles A and A′ get FORBIDDEN),
 `tests/invariants/hr-finance-module-boundary.spec.ts`, and the D6 cells of the §7 access matrix
-(only hr grants reach pay).
+(only hr grants reach pay). Until PKG-07, `e2e/tests/security/module-access-layers.expected.ts`
+records today's payroll cells, the global MODULE_MANAGER viewers A′ and B′ marked `open-today`,
+and `tests/invariants/module-access-characterization.spec.ts` keeps that record true.
 
 Rule broken. D6: salary and HR finance are visible only inside HR, that is only to holders of an
 hr grant.

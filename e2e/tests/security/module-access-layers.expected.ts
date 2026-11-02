@@ -8,7 +8,9 @@
  *     enrolment. The gates, read at 7a547f528: farm.tanks `@Roles(TENANT_ADMIN, MODULE_MANAGER,
  *     MODULE_USER)` (tank.resolver.ts:217); farm.archiveFinanceCategory `@Roles(TENANT_ADMIN)`
  *     (finance.resolver.ts:267); hr.payrolls `@Roles(TENANT_ADMIN, MODULE_MANAGER)`
- *     (hr.resolver.ts:210); hr.employees `@Roles(TENANT_ADMIN, MODULE_MANAGER, MODULE_USER)`
+ *     (hr.resolver.ts:210), since the hr enrolment step also `@Access.module('hr')` decided by its
+ *     `@AccessCaller()` parameter (D6, ADR-054 draft door 2: A′, B′ and the TENANT_ADMIN of a
+ *     tenant without hr moved from open-today to holds); hr.employees `@Roles(TENANT_ADMIN, MODULE_MANAGER, MODULE_USER)`
  *     (hr.resolver.ts:143); sensor.sensors no `@Roles` on it or its class
  *     (registration.resolver.ts:87); alert.alertHistory no `@Roles` (alert.resolver.ts:88);
  *     gateway.presignedUrl no role decision (upload.controller.ts:706; gateway-api's global
@@ -59,13 +61,13 @@ export const MODULE_ACCESS_EXPECTED_CELLS: Readonly<
   'hr.payrolls': {
     'role-a': { today: 'FORBIDDEN', target: 'FORBIDDEN', status: 'holds' },
     'role-b': { today: 'FORBIDDEN', target: 'FORBIDDEN', status: 'holds' },
-    'role-a-prime': { today: 'allowed', target: 'FORBIDDEN', status: 'open-today' },
-    'role-b-prime': { today: 'allowed', target: 'FORBIDDEN', status: 'open-today' },
+    'role-a-prime': { today: 'FORBIDDEN', target: 'FORBIDDEN', status: 'holds' },
+    'role-b-prime': { today: 'FORBIDDEN', target: 'FORBIDDEN', status: 'holds' },
     'farm-operator-s1': { today: 'FORBIDDEN', target: 'FORBIDDEN', status: 'holds' },
     'hr-manager': { today: 'FORBIDDEN', target: 'allowed', status: 'narrower-today' },
     'sensor-manager-s9': { today: 'FORBIDDEN', target: 'FORBIDDEN', status: 'holds' },
     'tenant-admin': { today: 'allowed', target: 'allowed', status: 'holds' },
-    'tenant-admin-without-hr': { today: 'allowed', target: 'FORBIDDEN', status: 'open-today' },
+    'tenant-admin-without-hr': { today: 'FORBIDDEN', target: 'FORBIDDEN', status: 'holds' },
   },
   'hr.employees': {
     'role-a': { today: 'allowed', target: 'allowed:farm', status: 'open-today' },

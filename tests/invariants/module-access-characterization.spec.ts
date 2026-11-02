@@ -37,6 +37,7 @@ import {
   MODULE_ACCESS_VIEWERS,
   characterizationCells,
   targetOutcome,
+  todayOutcome,
   type CharacterizedOperation,
   type OperationGate,
 } from '../../e2e/tests/security/module-access-layers.matrix';
@@ -119,6 +120,7 @@ function gateOf(operation: CharacterizedOperation, handler: ScannedHandler): Ope
     roles: platformRolesOf(handler),
     isPublic: handler.handlerPublic || handler.classPublic,
     spec: memberSpecOf(handler.handlerAccess ?? handler.classAccess),
+    takesAccessCaller: handler.params.includes('AccessCaller'),
   };
 }
 
@@ -192,5 +194,37 @@ describe('INVARIANT: the ADR-051 matrix under today’s enrolment changes only o
       };
     }
     expect(actual).toEqual(MODULE_ACCESS_EXPECTED_CELLS);
+  });
+});
+
+describe('todayOutcome — self-tests of the account-role model', () => {
+  const viewer = (id: string) => {
+    const found = MODULE_ACCESS_VIEWERS.find((candidate) => candidate.id === id);
+    if (found === undefined) throw new Error(`no §4 viewer ${id}`);
+    return found;
+  };
+  const hrPay: OperationGate = {
+    enrolment: 'account-role',
+    roles: ['TENANT_ADMIN', 'MODULE_MANAGER'],
+    isPublic: false,
+    spec: { kind: 'module', module: 'hr' },
+    takesAccessCaller: true,
+  };
+
+  it('an @Access spec decided by @AccessCaller() narrows what the global role admits', () => {
+    // A′: the guard admits the global MODULE_MANAGER, the hr decision refuses the farm grant.
+    expect(todayOutcome(hrPay, 'read', viewer('role-a-prime'))).toBe('FORBIDDEN');
+    expect(todayOutcome(hrPay, 'read', viewer('tenant-admin'))).toBe('allowed');
+    expect(todayOutcome(hrPay, 'read', viewer('tenant-admin-without-hr'))).toBe('FORBIDDEN');
+  });
+
+  it('the decision never widens the guard: a viewer the global role refuses stays refused', () => {
+    // The hr manager holds the grant, but its global role is MODULE_USER.
+    expect(todayOutcome(hrPay, 'read', viewer('hr-manager'))).toBe('FORBIDDEN');
+  });
+
+  it('an @Access spec nothing decides (no @AccessCaller()) changes nothing under account-role', () => {
+    const undecided: OperationGate = { ...hrPay, takesAccessCaller: false };
+    expect(todayOutcome(undecided, 'read', viewer('role-a-prime'))).toBe('allowed');
   });
 });

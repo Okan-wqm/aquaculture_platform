@@ -843,6 +843,19 @@ apps/hr-service/src/finance/resolvers/hr-finance.resolver.ts:118-121 (only hrLab
 libs/backend-common/src/guards/roles.guard.ts:155-171 (RolesGuard, the only role decision hr registers at app.module.ts:394-399, matches global roles through the hierarchy)
 ```
 
+Closure (hr enrolment step, branch `authz/hr-enrolment`, ADR-054 draft PR-9 and one-way door 2).
+The 18 pay operations (the four payroll operations of HRResolver and every HrFinanceResolver
+operation) declare `@Access.module('hr')` and take `@AccessCaller()`. While hr-service is still
+`account-role`, that parameter is where the spec is decided: RolesGuard admits by the global role,
+then `decideAccess` refuses everyone but TENANT_ADMIN (over a tenant with hr enabled) and the holder
+of an hr MODULE_MANAGER grant, which only the hr primary-manager choice writes. `hrLabourCost` keeps
+`hr_finance:view_salary`. Pinned by `apps/hr-service/src/finance/__tests__/pay-module-access.spec.ts`
+(A, A′, a sensor manager, a non-primary hr manager, a pre-R1 token and a TENANT_ADMIN without hr are
+refused on every pay operation), `tests/invariants/hr-finance-module-boundary.spec.ts`, and the
+hr.payrolls cells of `e2e/tests/security/module-access-layers.expected.ts` (A′, B′ and the
+TENANT_ADMIN without hr move from `open-today` to `holds`). The hr-manager viewer whose global role
+is MODULE_USER stays `narrower-today` until hr-service enrols in `module-access`.
+
 ## HR-HIGH-066
 
 Defect. hr-service never derives a workforce scope from the caller: list reads are scoped only

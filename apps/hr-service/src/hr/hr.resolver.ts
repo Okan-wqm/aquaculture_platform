@@ -1,7 +1,7 @@
 import { Resolver, Query, Mutation, Args, ID, Context, Int, ObjectType } from '@nestjs/graphql';
 import { UnauthorizedException, UseGuards } from '@nestjs/common';
 import { GqlAuthGuard } from '../common/guards/gql-auth.guard';
-import { Roles, Role, AuditLog } from '@aquaculture/backend-common/decorators';
+import { Access, AccessCaller, Roles, Role, AuditLog } from '@aquaculture/backend-common/decorators';
 import { StandardPaginatedResponse, IStandardPaginatedResult, fromCqrsPaginated } from '@aquaculture/backend-common/pagination';
 import { RolesGuard } from '@aquaculture/backend-common/guards';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
@@ -149,11 +149,21 @@ export class HRResolver {
     );
   }
 
+  // Payroll (owner decision D6; ADR-054 draft one-way door 2; HR-CRITICAL-065). Pay is hr module
+  // data: each operation declares `@Access.module('hr')` and takes `@AccessCaller()`, which decides
+  // that spec with the operation's `@Roles` against the verified `moduleAccess` claim. While
+  // hr-service is `account-role`, RolesGuard still admits by the global role first; the parameter
+  // then refuses everyone but TENANT_ADMIN (over a tenant with hr enabled) and the holder of an hr
+  // MODULE_MANAGER grant, so a farm or sensor manager no longer reads or approves pay.
+  // tests/invariants/hr-finance-module-boundary.spec.ts holds every pay operation to it.
+
   // Payroll Queries
   @Query(() => PayrollConnection, { name: 'payrolls' })
   @UseGuards(RolesGuard)
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @Access.module('hr')
   async getPayrolls(
+    @AccessCaller() _pay: AccessCaller,
     @Args('employeeId', { type: () => ID, nullable: true }) employeeId: string,
     @Args('status', { type: () => PayrollStatus, nullable: true }) status: PayrollStatus,
     @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit: number,
@@ -171,7 +181,9 @@ export class HRResolver {
   @Query(() => [Payroll], { name: 'pendingPayrolls' })
   @UseGuards(RolesGuard)
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @Access.module('hr')
   async getPendingPayrolls(
+    @AccessCaller() _pay: AccessCaller,
     @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit: number,
     @Args('page', { type: () => Int, nullable: true, defaultValue: 1 }) page: number,
     @Context() context: GraphQLContext,
@@ -187,8 +199,10 @@ export class HRResolver {
   @Mutation(() => Payroll)
   @UseGuards(RolesGuard)
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @Access.module('hr')
   @AuditLog({ action: 'CREATE_PAYROLL', resource: 'Payroll', description: 'Create a new payroll entry' })
   async createPayroll(
+    @AccessCaller() _pay: AccessCaller,
     @Args('input') input: CreatePayrollInput,
     @Context() context: GraphQLContext,
   ): Promise<Payroll> {
@@ -202,8 +216,10 @@ export class HRResolver {
   @Mutation(() => Payroll)
   @UseGuards(RolesGuard)
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @Access.module('hr')
   @AuditLog({ action: 'APPROVE_PAYROLL', resource: 'Payroll', description: 'Approve a payroll entry for payment' })
   async approvePayroll(
+    @AccessCaller() _pay: AccessCaller,
     @Args('id', { type: () => ID }) id: string,
     @Context() context: GraphQLContext,
   ): Promise<Payroll> {

@@ -22,14 +22,20 @@
  * tests/invariants/gateway-surface-access.baseline.json together with the `@Public()` set:
  *   - a surface missing from the baseline FAILS (name its decision; adding it to the baseline is
  *     a reviewed decision to ship one more undecided surface);
- *   - a baseline key the code no longer has PASSES with a message to delete it.
+ *   - a baseline key the code no longer has FAILS until the same PR deletes it (the message names
+ *     the keys), so the baseline is always exactly what is undecided.
  * An account-role `@Roles` (the health detail route) is not an access spec and stays an exception
  * until its package gives it one.
  *
  * Not seen: routes registered outside decorators (Express middleware in main.ts) and the
  * federated GraphQL plane, which the subgraphs decide. It changes no runtime behaviour.
  */
-import { baselineDiff, gatewaySurfaceOf, type GatewaySurfaceEntry } from './helpers/access-surface';
+import {
+  baselineDiff,
+  gatewaySurfaceOf,
+  staleKeysMessage,
+  type GatewaySurfaceEntry,
+} from './helpers/access-surface';
 import { productionSources } from './helpers/module-access-handlers';
 import { readRepoFile } from './helpers/module-dictionary-sources';
 
@@ -55,20 +61,17 @@ const declaredPublic = surface
 
 function check(set: 'undecided' | 'public', current: readonly string[]): void {
   const { grown, shrunk } = baselineDiff(current, baseline[set]);
-  if (shrunk.length > 0) {
-    console.warn(
-      `${BASELINE_FILE}: ${set} shrank by ${shrunk.length}; delete these keys from the baseline ` +
-        `in this PR:\n${shrunk.map((key) => `  ${key}`).join('\n')}`,
-    );
-  }
+  const problems: string[] = [];
   if (grown.length > 0) {
-    throw new Error(
+    problems.push(
       `gateway-api: ${grown.length} new ${set} surface(s).\n` +
         'Name the access decision (@Access.*, or an explicit device/service principal); do not add ' +
         `the key to ${BASELINE_FILE} to silence this spec.\n` +
         grown.map((key) => `  ${key}`).join('\n'),
     );
   }
+  if (shrunk.length > 0) problems.push(staleKeysMessage(BASELINE_FILE, `${set} key(s)`, shrunk));
+  if (problems.length > 0) throw new Error(problems.join('\n\n'));
 }
 
 describe('INVARIANT: every gateway-api surface names an access decision (ADR-054 D-F 2)', () => {

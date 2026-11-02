@@ -1,5 +1,5 @@
 {
-  "_comment": "Shrink-only baseline of tests/invariants/account-role-ungated-ratchet.spec.ts (ADR-054 draft D-F 1). Per account-role service: root operations with no @Roles/@Access/@Public (ungated), whose effective @Roles reaches MODULE_USER (moduleUserOnly), and that are @Public (public). A key in the code and not here fails the spec; a key here and not in the code passes with a message to delete it. Do NOT add a key to silence the spec: gate the operation.",
+  "_comment": "Shrink-only baseline of tests/invariants/account-role-ungated-ratchet.spec.ts (ADR-054 draft D-F 1). Per account-role service: root operations with no @Roles/@Access/@Public (ungated), whose effective @Roles reaches MODULE_USER (moduleUserOnly), and that are @Public (public). A key in the code and not here fails the spec; a key here and not in the code fails too, until the same PR deletes it; the one allowed move (ungated to moduleUserOnly) fails until the PR moves the key here. Do NOT add a key to silence the spec: gate the operation.",
   "generated_against": "origin/main @ 7a547f528 (2026-11-02)",
   "services": {
     "ai-service": {

@@ -21,15 +21,20 @@
  *   - `passes-representation-whole`: the representation object itself (or an alias, or a rest
  *     copy) is handed to a call or spread, where the callee could read its tenant out of sight.
  * Violations are frozen by key (`file#Class.method:rule`) in
- * tests/invariants/reference-resolver-tenant.baseline.json: a new one FAILS; a fixed one PASSES
- * with a message to delete its key.
+ * tests/invariants/reference-resolver-tenant.baseline.json: a new one FAILS; a fixed one FAILS
+ * too until the same PR deletes its key (the message names it), so the baseline is always exactly
+ * the violators.
  *
  * It does not prove that a resolver reads the tenant at all (one that relies on the tenant
  * context set from the request is correct); the ADR-051 classification invariant requires
  * `@AccessCaller()` on every reference resolver of an enrolled service. It changes no runtime
  * behaviour.
  */
-import { baselineDiff, referenceTenantViolationsOf } from './helpers/access-surface';
+import {
+  baselineDiff,
+  referenceTenantViolationsOf,
+  staleKeysMessage,
+} from './helpers/access-surface';
 import { productionSources } from './helpers/module-access-handlers';
 import { readRepoFile } from './helpers/module-dictionary-sources';
 
@@ -57,15 +62,10 @@ describe('INVARIANT: reference resolvers take the tenant only from the request (
       violations.map((violation) => violation.key),
       baseline.violations,
     );
-    if (shrunk.length > 0) {
-      console.warn(
-        `${BASELINE_FILE}: ${shrunk.length} violation(s) fixed; delete these keys from the ` +
-          `baseline in this PR:\n${shrunk.map((key) => `  ${key}`).join('\n')}`,
-      );
-    }
+    const problems: string[] = [];
     if (grown.length > 0) {
       const at = new Map(violations.map((violation) => [violation.key, violation.line]));
-      throw new Error(
+      problems.push(
         `${grown.length} new reference-resolver tenant violation(s). Take the tenant from the ` +
           'request (context.req.user.tenantId, or @AccessCaller()), as ' +
           'apps/sensor-service/src/sensor/resolvers/sensor.resolver.ts does; do not add the key to ' +
@@ -73,6 +73,10 @@ describe('INVARIANT: reference resolvers take the tenant only from the request (
           grown.map((key) => `  ${key} (line ${at.get(key) ?? '?'})`).join('\n'),
       );
     }
+    if (shrunk.length > 0) {
+      problems.push(staleKeysMessage(BASELINE_FILE, 'violation key(s)', shrunk));
+    }
+    if (problems.length > 0) throw new Error(problems.join('\n\n'));
   });
 
   it('the scan reads the real tree: it finds the reference resolvers of several services', () => {

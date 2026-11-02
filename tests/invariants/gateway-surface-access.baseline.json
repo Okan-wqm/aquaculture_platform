@@ -1,5 +1,5 @@
 {
-  "_comment": "Shrink-only baseline of tests/invariants/gateway-surface-access.spec.ts (ADR-054 draft D-F 2). undecided: gateway-api REST handlers, socket message handlers and socket connections that name no @Access spec, no explicit device/service principal (@ApiKeyAuth/@BasicAuth) and no @Public. public: those that are @Public. A new key fails the spec; a key the code no longer has passes with a message to delete it. Do NOT add a key to silence the spec: name the decision.",
+  "_comment": "Shrink-only baseline of tests/invariants/gateway-surface-access.spec.ts (ADR-054 draft D-F 2). undecided: gateway-api REST handlers, socket message handlers and socket connections that name no @Access spec, no explicit device/service principal (@ApiKeyAuth/@BasicAuth) and no @Public. public: those that are @Public. A new key fails the spec; a key the code no longer has fails too, until the same PR deletes it. Do NOT add a key to silence the spec: name the decision.",
   "generated_against": "origin/main @ 7a547f528 (2026-11-02)",
   "undecided": [
     "apps/gateway-api/src/health/health.controller.ts#HealthController.healthDetail",

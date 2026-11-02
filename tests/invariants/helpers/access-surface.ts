@@ -113,28 +113,61 @@ export function ratchetSetsOf(handlers: readonly ScannedHandler[]): RatchetSets 
 }
 
 export interface RatchetDiff extends BaselineDiff {
-  /** Ungated in the baseline, MODULE_USER-gated now: same reach, now declared; the key moves. */
+  /**
+   * Ungated in the baseline, MODULE_USER-gated in the code: the one allowed move (same reach, now
+   * declared). It fails like the rest until the PR records it by moving the key in the baseline.
+   */
   readonly moved: readonly string[];
 }
 
 /**
- * One ratchet set against the baseline. A key new to `moduleUserOnly` that the baseline lists as
- * `ungated` is a move, not growth: the operation reaches the same callers and now declares a
- * gate. No other move is allowed: an operation that loses its gate grows `ungated`, and one that
- * turns `@Public` grows `public` (open without a token).
+ * One ratchet set against the baseline, strict in both directions (as the dead-contract
+ * ratchet): every difference fails until the PR records it in the baseline, so the baseline is
+ * always exactly what is open. The three kinds differ only in what the PR must do:
+ *   - `grown`: a new open operation; gate it, never add it to the baseline to pass;
+ *   - `moved`: an ungated operation that gained a MODULE_USER gate, the one allowed move; move the
+ *     key from `ungated` to `moduleUserOnly`. It shows in both sets: in `moduleUserOnly` as the
+ *     key arriving, in `ungated` as the key leaving;
+ *   - `shrunk`: a key the code no longer has in this set; delete it.
+ * No other move exists: an operation that loses its gate grows `ungated`, and one that turns
+ * `@Public` grows `public` (open without a token).
  */
 export function ratchetDiff(
   set: keyof RatchetSets,
-  current: readonly string[],
+  current: RatchetSets,
   frozen: RatchetSets,
 ): RatchetDiff {
-  const { grown, shrunk } = baselineDiff(current, frozen[set]);
-  const movable = new Set(set === 'moduleUserOnly' ? frozen.ungated : []);
-  return {
-    grown: grown.filter((key) => !movable.has(key)),
-    moved: grown.filter((key) => movable.has(key)),
-    shrunk,
-  };
+  const { grown, shrunk } = baselineDiff(current[set], frozen[set]);
+  if (set === 'moduleUserOnly') {
+    const fromUngated = new Set(frozen.ungated);
+    return {
+      grown: grown.filter((key) => !fromUngated.has(key)),
+      moved: grown.filter((key) => fromUngated.has(key)),
+      shrunk,
+    };
+  }
+  if (set === 'ungated') {
+    const nowModuleUser = new Set(current.moduleUserOnly);
+    return {
+      grown,
+      moved: shrunk.filter((key) => nowModuleUser.has(key)),
+      shrunk: shrunk.filter((key) => !nowModuleUser.has(key)),
+    };
+  }
+  return { grown, moved: [], shrunk };
+}
+
+/** The message for baseline keys the code no longer has: the PR deletes them. */
+export function staleKeysMessage(
+  baselineFile: string,
+  what: string,
+  keys: readonly string[],
+): string {
+  return (
+    `${baselineFile}: ${keys.length} ${what} no longer in the code. Delete these keys from the ` +
+    'baseline in this PR, so it keeps saying exactly what is open:\n' +
+    keys.map((key) => `  ${key}`).join('\n')
+  );
 }
 
 // ---------------------------------------------------------------------------------------------

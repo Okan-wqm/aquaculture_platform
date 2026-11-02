@@ -24,16 +24,19 @@
  *     `@Public()` would otherwise be the way to leave the first set.
  * Precedence is the guard's: `getAllAndOverride([handler, class])`, so the handler's declaration
  * beats its class's and an empty `@Roles()` counts as none. Each set is compared by key
- * (`file#Class.method`) with tests/invariants/account-role-ungated-ratchet.baseline.json:
+ * (`file#Class.method`) with tests/invariants/account-role-ungated-ratchet.baseline.json, strictly
+ * in both directions (as dead-contract-fe-operations.spec.ts), so the baseline is always exactly
+ * what is open:
  *   - a key in the code and not in the baseline FAILS: gate the operation (`@Roles` with a role
  *     above MODULE_USER, or `@Access` once its service enrols); adding the key to the baseline
  *     is a reviewed decision to ship one more open operation, never a way to silence this spec;
- *   - a key in the baseline and not in the code PASSES with a message: delete it from the
- *     baseline in the same PR, so the record keeps saying exactly what is open;
- *   - an `ungated` key that reappears as `moduleUserOnly` PASSES with a message to move it: it
- *     reaches the same callers and now declares a gate (open PR #2124 gates hr operations with
- *     `@ModuleUserOrHigher()` this way). Nothing moves the other way, and nothing moves into
- *     `public`.
+ *   - a key in the baseline and not in the code FAILS until the same PR deletes it, and the
+ *     message names the keys to delete;
+ *   - an `ungated` key that reappears as `moduleUserOnly` is the one allowed move: it reaches the
+ *     same callers and now declares a gate (open PR #2124 gates hr operations with
+ *     `@ModuleUserOrHigher()` this way). It FAILS until the PR records it by moving the key from
+ *     `ungated` to `moduleUserOnly`; the message says which. Nothing moves the other way, and
+ *     nothing moves into `public`.
  *
  * "Ungated" means no role or access decision: these are the operations the classification guard
  * denies the day their service enrols unless they gain `@Access` or `@Public`. Another guard may
@@ -59,6 +62,7 @@ import {
   baselineDiff,
   ratchetDiff,
   ratchetSetsOf,
+  staleKeysMessage,
   type RatchetSets,
 } from './helpers/access-surface';
 import { readRepoFile } from './helpers/module-dictionary-sources';
@@ -110,38 +114,22 @@ describe('INVARIANT: account-role services never grow the operations every membe
     const listed = Object.keys(baseline.services).sort();
     const missing = groups.filter((group) => !listed.includes(group));
     expect({ missing }).toEqual({ missing: [] });
+    // A service that enrolled (or went away) leaves stale entries: the classification invariant
+    // binds it now, and the PR that flipped it deletes its entry.
     const enrolled = listed.filter((group) => !groups.includes(group));
-    if (enrolled.length > 0) {
-      console.warn(
-        `${BASELINE_FILE}: ${enrolled.join(', ')} left account-role mode (or no longer exists); ` +
-          'delete its entry, the classification invariant binds it now.',
-      );
-    }
+    expect({ enrolled }).toEqual({ enrolled: [] });
   });
 
   describe.each(groups.map((group) => [group]))('%s', (group) => {
-    it.each(SET_NAMES.map((set) => [set]))('%s does not grow', (set) => {
+    it.each(SET_NAMES.map((set) => [set]))('%s matches the baseline exactly', (set) => {
       const { grown, moved, shrunk } = ratchetDiff(
         set,
-        current[group]?.[set] ?? [],
+        current[group] ?? EMPTY_SETS,
         baseline.services[group] ?? EMPTY_SETS,
       );
-      if (moved.length > 0) {
-        console.warn(
-          `${BASELINE_FILE}: ${group}: ${moved.length} ungated operation(s) gained a MODULE_USER ` +
-            `gate; move these keys from ungated to moduleUserOnly:\n${moved
-              .map((key) => `  ${key}`)
-              .join('\n')}`,
-        );
-      }
-      if (shrunk.length > 0) {
-        console.warn(
-          `${BASELINE_FILE}: ${group}.${set} shrank by ${shrunk.length}; delete these keys from ` +
-            `the baseline in this PR:\n${shrunk.map((key) => `  ${key}`).join('\n')}`,
-        );
-      }
+      const problems: string[] = [];
       if (grown.length > 0) {
-        throw new Error(
+        problems.push(
           `${group}: ${grown.length} new ${set} operation(s) that every member${
             set === 'public' ? ', or anyone,' : ''
           } reaches under account-role.\n` +
@@ -150,6 +138,17 @@ describe('INVARIANT: account-role services never grow the operations every membe
             grown.map((key) => `  ${key}`).join('\n'),
         );
       }
+      if (moved.length > 0) {
+        problems.push(
+          `${BASELINE_FILE}: ${group}: ${moved.length} ungated operation(s) gained a MODULE_USER ` +
+            'gate (the one allowed move). Record it in this PR: move these keys from ungated to ' +
+            `moduleUserOnly:\n${moved.map((key) => `  ${key}`).join('\n')}`,
+        );
+      }
+      if (shrunk.length > 0) {
+        problems.push(staleKeysMessage(BASELINE_FILE, `${group}.${set} key(s)`, shrunk));
+      }
+      if (problems.length > 0) throw new Error(problems.join('\n\n'));
     });
   });
 
@@ -237,30 +236,39 @@ describe('ratchet sets — self-tests on fixture sources', () => {
     });
   });
 
-  it('a grown set fails and a shrunk set only asks for the baseline to shrink', () => {
+  it('every difference from the baseline is reported: grown, shrunk, and the one move', () => {
     expect(baselineDiff(['a', 'b', 'new'], ['a', 'b', 'gone'])).toEqual({
       grown: ['new'],
       shrunk: ['gone'],
     });
-    expect(baselineDiff(['a'], ['a', 'b'])).toEqual({ grown: [], shrunk: ['b'] });
+    const frozen: RatchetSets = { ungated: ['u', 'x'], moduleUserOnly: ['m'], public: ['p'] };
+    // `u` gained a MODULE_USER gate, `x` was deleted, `m` lost its gate, `n` and `q` are new.
+    const now: RatchetSets = { ungated: ['m'], moduleUserOnly: ['u', 'n'], public: ['p', 'q'] };
+    expect(ratchetDiff('ungated', now, frozen)).toEqual({
+      grown: ['m'],
+      moved: ['u'],
+      shrunk: ['x'],
+    });
+    expect(ratchetDiff('moduleUserOnly', now, frozen)).toEqual({
+      grown: ['n'],
+      moved: ['u'],
+      shrunk: ['m'],
+    });
+    expect(ratchetDiff('public', now, frozen)).toEqual({ grown: ['q'], moved: [], shrunk: [] });
   });
 
-  it('an ungated key that gains a MODULE_USER gate moves; nothing moves back or into public', () => {
-    const frozen: RatchetSets = { ungated: ['u'], moduleUserOnly: ['m'], public: ['p'] };
-    expect(ratchetDiff('moduleUserOnly', ['m', 'u'], frozen)).toEqual({
+  it('a recorded move passes, and nothing moves into public', () => {
+    const recorded: RatchetSets = { ungated: [], moduleUserOnly: ['u'], public: [] };
+    for (const set of SET_NAMES) {
+      expect(ratchetDiff(set, recorded, recorded)).toEqual({ grown: [], moved: [], shrunk: [] });
+    }
+    const frozen: RatchetSets = { ungated: ['u'], moduleUserOnly: [], public: [] };
+    const turnedPublic: RatchetSets = { ungated: [], moduleUserOnly: [], public: ['u'] };
+    expect(ratchetDiff('public', turnedPublic, frozen).grown).toEqual(['u']);
+    expect(ratchetDiff('ungated', turnedPublic, frozen)).toEqual({
       grown: [],
-      moved: ['u'],
-      shrunk: [],
-    });
-    expect(ratchetDiff('ungated', ['u', 'm'], frozen)).toEqual({
-      grown: ['m'],
       moved: [],
-      shrunk: [],
-    });
-    expect(ratchetDiff('public', ['p', 'u'], frozen)).toEqual({
-      grown: ['u'],
-      moved: [],
-      shrunk: [],
+      shrunk: ['u'],
     });
   });
 });

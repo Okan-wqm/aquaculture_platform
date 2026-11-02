@@ -1,4 +1,11 @@
-import { Roles, Role, AuditLog, ModuleUserOrHigher } from '@aquaculture/backend-common/decorators';
+import {
+  Access,
+  AccessCaller,
+  Roles,
+  Role,
+  AuditLog,
+  ModuleUserOrHigher,
+} from '@aquaculture/backend-common/decorators';
 import { mobileCommandEnvelopeFromInput } from '@aquaculture/backend-common/mobile-command';
 import {
   StandardPaginatedResponse,
@@ -19,6 +26,7 @@ import { Repository } from 'typeorm';
 
 import type { OwnerModuleCode } from '@aquaculture/shared-contracts';
 import { HR_MODULE_CODE_ENUM } from '../common/enums';
+import { workforceScopeOf } from '../common/workforce-scope';
 import {
   findViewerEmployee,
   isTenantAdmin,
@@ -349,14 +357,17 @@ export class AttendanceResolver {
   @Query(() => DailyAttendanceOverview, { name: 'dailyAttendanceOverview' })
   @UseGuards(RolesGuard)
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
+  // scoped('workforce'): the counts cover the modules the caller's grants reach (HR-HIGH-066).
+  @Access.scoped('workforce')
   async getDailyAttendanceOverview(
+    @AccessCaller() workforce: AccessCaller,
     @Context() context: GraphQLContext,
     @Args('date', { nullable: true }) date?: string,
     @Args('moduleCode', { type: () => HR_MODULE_CODE_ENUM, nullable: true }) moduleCode?: OwnerModuleCode,
   ): Promise<DailyAttendanceOverview> {
     const tenantId = this.getTenantId(context);
     return this.queryBus.execute<GetDailyAttendanceOverviewQuery, DailyAttendanceOverview>(
-      new GetDailyAttendanceOverviewQuery(tenantId, date, moduleCode),
+      new GetDailyAttendanceOverviewQuery(tenantId, date, workforceScopeOf(workforce, moduleCode)),
     );
   }
 

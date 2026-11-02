@@ -6,7 +6,7 @@
  * optional) AND reach the query the handler runs; either half missing leaves
  * the page silently showing every module.
  */
-import { Role } from '@aquaculture/backend-common/decorators';
+import { AccessCaller, Role } from '@aquaculture/backend-common/decorators';
 import type { CurrentUserPayload } from '@aquaculture/backend-common/decorators';
 import type { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { GraphQLSchemaBuilderModule, GraphQLSchemaFactory } from '@nestjs/graphql';
@@ -15,7 +15,8 @@ import { createPaginatedQueryResult } from '@platform/cqrs';
 import type { GraphQLSchema } from 'graphql';
 import type { EntityManager, Repository } from 'typeorm';
 
-import { OWNER_MODULE } from '@aquaculture/shared-contracts';
+import { ALL_MODULES_SCOPE, OWNER_MODULE, moduleScopeOf } from '@aquaculture/shared-contracts';
+import { runGraphqlParamDecorator } from '../../common/__tests__/run-param-decorator';
 import { Employee } from '../../hr/entities/employee.entity';
 import { LeaveResolver } from '../leave.resolver';
 import { GetLeaveRequestsQuery } from '../queries/get-leave-requests.query';
@@ -24,6 +25,14 @@ import { GetTeamLeaveCalendarQuery } from '../queries/get-team-leave-calendar.qu
 
 const tenantId = 'tenant-uuid-001';
 const context = { req: { user: { sub: 'user-uuid-001', tenantId, roles: [Role.TENANT_ADMIN] } } };
+
+/**
+ * The workforce decision the handler's own @AccessCaller() makes for this request (a TENANT_ADMIN:
+ * every module), so a module the page names narrows it (common/workforce-scope.ts).
+ */
+function workforce(method: string): AccessCaller {
+  return runGraphqlParamDecorator(AccessCaller, LeaveResolver, method, context.req) as AccessCaller;
+}
 
 /** The authenticated caller as the resolver receives it from @CurrentUser(). */
 function viewerWith(roles: string[]): CurrentUserPayload {
@@ -162,6 +171,7 @@ describe('leave API — module scope contract', () => {
 
     it('hands teamLeaveCalendar the module', async () => {
       await resolver.getTeamLeaveCalendar(
+        workforce('getTeamLeaveCalendar'),
         context,
         '2026-10-22',
         '2026-10-22',
@@ -175,16 +185,27 @@ describe('leave API — module scope contract', () => {
           undefined,
           '2026-10-22',
           '2026-10-22',
-          OWNER_MODULE.HYDROPONICS,
+          moduleScopeOf([OWNER_MODULE.HYDROPONICS]) ?? undefined,
         ),
       );
     });
 
-    it('sends no module when the page names none (the Company view)', async () => {
-      await resolver.getTeamLeaveCalendar(context, '2026-10-22', '2026-10-22');
+    it('sends the whole server scope when the page names no module (the Company view)', async () => {
+      await resolver.getTeamLeaveCalendar(
+        workforce('getTeamLeaveCalendar'),
+        context,
+        '2026-10-22',
+        '2026-10-22',
+      );
 
       expect(queryBus.execute).toHaveBeenCalledWith(
-        new GetTeamLeaveCalendarQuery(tenantId, undefined, '2026-10-22', '2026-10-22', undefined),
+        new GetTeamLeaveCalendarQuery(
+          tenantId,
+          undefined,
+          '2026-10-22',
+          '2026-10-22',
+          ALL_MODULES_SCOPE,
+        ),
       );
     });
   });

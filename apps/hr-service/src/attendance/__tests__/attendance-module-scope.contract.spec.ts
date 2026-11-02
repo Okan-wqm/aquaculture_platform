@@ -6,7 +6,7 @@
  * HRModuleCode`, optional) AND reach the query the handler runs; either half
  * missing leaves the page silently showing every module.
  */
-import { Role } from '@aquaculture/backend-common/decorators';
+import { AccessCaller, Role } from '@aquaculture/backend-common/decorators';
 import type { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { GraphQLSchemaBuilderModule, GraphQLSchemaFactory } from '@nestjs/graphql';
 import { Test } from '@nestjs/testing';
@@ -14,7 +14,8 @@ import { createPaginatedQueryResult } from '@platform/cqrs';
 import type { GraphQLSchema } from 'graphql';
 import type { EntityManager, Repository } from 'typeorm';
 
-import { OWNER_MODULE } from '@aquaculture/shared-contracts';
+import { ALL_MODULES_SCOPE, OWNER_MODULE, moduleScopeOf } from '@aquaculture/shared-contracts';
+import { runGraphqlParamDecorator } from '../../common/__tests__/run-param-decorator';
 import { Employee } from '../../hr/entities/employee.entity';
 import { AttendanceResolver } from '../attendance.resolver';
 import { GetAttendanceRecordsQuery } from '../queries/get-attendance-records.query';
@@ -24,6 +25,14 @@ import { GetTodaysAttendanceQuery } from '../queries/get-todays-attendance.query
 
 const tenantId = 'tenant-uuid-001';
 const context = { req: { user: { sub: 'user-uuid-001', tenantId, roles: [Role.TENANT_ADMIN] } } };
+
+/**
+ * The workforce decision the handler's own @AccessCaller() makes for this request (a TENANT_ADMIN:
+ * every module), so a module the page names narrows it (common/workforce-scope.ts).
+ */
+function workforce(method: string): AccessCaller {
+  return runGraphqlParamDecorator(AccessCaller, AttendanceResolver, method, context.req) as AccessCaller;
+}
 
 /** A request authenticated as `user-uuid-001` (an AUTH user id, never an HR employee id) with these roles. */
 function contextWith(roles: Role[]): typeof context {
@@ -100,11 +109,32 @@ describe('attendance API — module scope contract', () => {
       );
     });
 
-    it('hands dailyAttendanceOverview the module', async () => {
-      await resolver.getDailyAttendanceOverview(context, '2026-10-22', OWNER_MODULE.SENSOR);
+    it('hands dailyAttendanceOverview the server scope, narrowed to the module', async () => {
+      await resolver.getDailyAttendanceOverview(
+        workforce('getDailyAttendanceOverview'),
+        context,
+        '2026-10-22',
+        OWNER_MODULE.SENSOR,
+      );
 
       expect(queryBus.execute).toHaveBeenCalledWith(
-        new GetDailyAttendanceOverviewQuery(tenantId, '2026-10-22', OWNER_MODULE.SENSOR),
+        new GetDailyAttendanceOverviewQuery(
+          tenantId,
+          '2026-10-22',
+          moduleScopeOf([OWNER_MODULE.SENSOR]) ?? undefined,
+        ),
+      );
+    });
+
+    it('hands dailyAttendanceOverview the whole server scope when the page names no module', async () => {
+      await resolver.getDailyAttendanceOverview(
+        workforce('getDailyAttendanceOverview'),
+        context,
+        '2026-10-22',
+      );
+
+      expect(queryBus.execute).toHaveBeenCalledWith(
+        new GetDailyAttendanceOverviewQuery(tenantId, '2026-10-22', ALL_MODULES_SCOPE),
       );
     });
 

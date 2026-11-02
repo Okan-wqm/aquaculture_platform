@@ -9,6 +9,7 @@ import { Employee, EmployeeStatus } from './entities/employee.entity';
 import { DepartmentHR } from './entities/department.entity';
 import type { OwnerModuleCode } from '@aquaculture/shared-contracts';
 import { HR_MODULE_CODE_ENUM } from '../common/enums';
+import { workforceScopeOf } from '../common/workforce-scope';
 import { Payroll, PayrollStatus } from './entities/payroll.entity';
 import { CreateEmployeeInput } from './dto/create-employee.input';
 import { UpdateEmployeeInput } from './dto/update-employee.input';
@@ -73,28 +74,37 @@ export class HRResolver {
     return userId;
   }
 
-  // Employee Queries
+  // Employee Queries. Both reads are scoped('workforce'): `@AccessCaller()` decides the modules
+  // whose people the caller may see from the verified grants, and the client's moduleCode only
+  // narrows that (common/workforce-scope.ts; HR-HIGH-066).
   @Query(() => Employee, { name: 'employee' })
   @UseGuards(RolesGuard)
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
+  @Access.scoped('workforce')
   async getEmployee(
+    @AccessCaller() workforce: AccessCaller,
     @Args('id', { type: () => ID }) id: string,
     @Context() context: GraphQLContext,
   ): Promise<Employee> {
     const tenantId = this.getTenantId(context);
-    return this.queryBus.execute(new GetEmployeeQuery(tenantId, id));
+    return this.queryBus.execute(new GetEmployeeQuery(tenantId, id, workforceScopeOf(workforce)));
   }
 
   @Query(() => EmployeeConnection, { name: 'employees' })
   @UseGuards(RolesGuard)
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
+  @Access.scoped('workforce')
   async getEmployees(
+    @AccessCaller() workforce: AccessCaller,
     @Args('filter', { nullable: true }) filter: EmployeeFilterInput,
     @Args('pagination', { nullable: true }) pagination: EmployeePaginationInput,
     @Context() context: GraphQLContext,
   ): Promise<IStandardPaginatedResult<Employee>> {
     const tenantId = this.getTenantId(context);
-    const result = await this.queryBus.execute(new GetEmployeesQuery(tenantId, filter, pagination));
+    const scope = workforceScopeOf(workforce, filter?.moduleCode);
+    const result = await this.queryBus.execute(
+      new GetEmployeesQuery(tenantId, filter, pagination, scope),
+    );
     return fromCqrsPaginated(result);
   }
 

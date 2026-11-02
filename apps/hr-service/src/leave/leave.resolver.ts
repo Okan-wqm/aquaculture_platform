@@ -1,4 +1,6 @@
 import {
+  Access,
+  AccessCaller,
   Roles,
   Role,
   ModuleUserOrHigher,
@@ -38,6 +40,7 @@ import { Repository } from 'typeorm';
 
 import type { OwnerModuleCode } from '@aquaculture/shared-contracts';
 import { HR_MODULE_CODE_ENUM } from '../common/enums';
+import { workforceScopeOf } from '../common/workforce-scope';
 import { findViewerEmployee, isTenantAdmin } from '../common/viewer';
 import { GqlAuthGuard } from '../common/guards/gql-auth.guard';
 import { RolesGuard } from '@aquaculture/backend-common/guards';
@@ -311,7 +314,10 @@ export class LeaveResolver {
   @Query(() => [LeaveCalendarEntry], { name: 'teamLeaveCalendar' })
   @UseGuards(RolesGuard)
   @ModuleUserOrHigher()
+  // scoped('workforce'): the calendar covers the modules the caller's grants reach (HR-HIGH-066).
+  @Access.scoped('workforce')
   async getTeamLeaveCalendar(
+    @AccessCaller() workforce: AccessCaller,
     @Context() context: GraphQLContext,
     @Args('startDate') startDate: string,
     @Args('endDate') endDate: string,
@@ -321,7 +327,13 @@ export class LeaveResolver {
   ): Promise<LeaveCalendarEntry[]> {
     const tenantId = this.getTenantId(context);
     return this.queryBus.execute<GetTeamLeaveCalendarQuery, LeaveCalendarEntry[]>(
-      new GetTeamLeaveCalendarQuery(tenantId, departmentId, startDate, endDate, moduleCode),
+      new GetTeamLeaveCalendarQuery(
+        tenantId,
+        departmentId,
+        startDate,
+        endDate,
+        workforceScopeOf(workforce, moduleCode),
+      ),
     );
   }
 

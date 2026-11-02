@@ -898,6 +898,27 @@ apps/hr-service/src/training/training.resolver.ts:143-151 (employeeCertification
 apps/hr-service/src/performance/performance.resolver.ts:111-123 (performanceReviews: any employeeId, tenant-wide)
 ```
 
+Partly closed (hr enrolment step, branch `authz/hr-enrolment`, ADR-054 draft PR-9). The five people
+reads every staff member reaches, `employees`, `employee(id)`, `dailyAttendanceOverview`,
+`teamLeaveCalendar` and `teamWeeklyOverview`, declare `@Access.scoped('workforce')` and take
+`@AccessCaller()`. The scope comes from the verified grants (TENANT_ADMIN and any hr grant: every
+module; a farm or sensor grant: that module; no grant: FORBIDDEN), `moduleCode` only narrows it
+(`common/workforce-scope.ts`, a module outside the scope is FORBIDDEN), and the handlers apply it
+through `applyEmployeeScope` / `employeeScopeWhere`, which return nothing when no scope arrives.
+`employee(id)` of a tenant employee outside the scope is FORBIDDEN. Pinned by
+`apps/hr-service/src/common/__tests__/workforce-scope.spec.ts`, the handler and contract specs of
+the three modules, and the hr.employees cells of `e2e/tests/security/module-access-layers.expected.ts`
+(every cell now `holds`).
+
+Still open, with the reason: the manager-only reads (`attendanceRecords`, `pendingAttendanceApprovals`,
+`leaveRequests`, `pendingLeaveApprovals`, `weeklyPlans`, `overtimeSummary`, and the employeeId-keyed
+reads such as `employeeCertifications`, `performanceReviews`, `goals`, `workRotations`) still answer a
+global MODULE_MANAGER tenant-wide. Their `@Roles(TENANT_ADMIN, MODULE_MANAGER)` read through
+`decideAccess` takes the scope from manager grants only, and an hr manager grant comes only from the
+hr primary-manager choice, so scoping them now would also take workforce management away from an hr
+manager who was designated without being made primary (the backfill's `hrDesignatedWithoutGrant`
+list). They move with the hr-service flip to `module-access`, after that list is empty.
+
 ## HR-HIGH-067
 
 Defect. hr-service decides contact-PII visibility and attendance management from the global

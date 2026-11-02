@@ -10,7 +10,12 @@
  */
 import type { Repository } from 'typeorm';
 
-import { OWNER_MODULE, type OwnerModuleCode } from '@aquaculture/shared-contracts';
+import {
+  ALL_MODULES_SCOPE,
+  OWNER_MODULE,
+  moduleScopeOf,
+  type OwnerModuleCode,
+} from '@aquaculture/shared-contracts';
 import type { Employee } from '../../hr/entities/employee.entity';
 import type { WeeklyPlan } from '../entities/weekly-plan.entity';
 import { GetOvertimeSummaryQuery } from '../queries/get-overtime-summary.query';
@@ -69,6 +74,21 @@ function expectScopedTo(
   );
 }
 
+/** The server-derived workforce scope joins the employee's live department under these modules. */
+function expectWorkforceScopedTo(
+  queryBuilder: QueryBuilderDouble,
+  employeeAlias: string,
+  modules: readonly OwnerModuleCode[],
+): void {
+  expect(queryBuilder['innerJoin']).toHaveBeenCalledTimes(1);
+  expect(queryBuilder['innerJoin']).toHaveBeenCalledWith(
+    `${employeeAlias}.departmentHr`,
+    expect.any(String),
+    expect.stringContaining('IN (:...workforceModuleCodes)'),
+    { workforceModuleCodes: modules },
+  );
+}
+
 describe('scheduling queries — module scope', () => {
   describe('GetTeamWeeklyOverviewHandler', () => {
     const run = async (
@@ -91,12 +111,12 @@ describe('scheduling queries — module scope', () => {
           '2026-10-19',
           undefined,
           undefined,
-          OWNER_MODULE.FARM,
+          moduleScopeOf([OWNER_MODULE.FARM]) ?? undefined,
         ),
       );
 
       expect(employeeQb['where']).toHaveBeenCalledWith('e.tenantId = :tenantId', { tenantId });
-      expectScopedTo(employeeQb, 'e', OWNER_MODULE.FARM);
+      expectWorkforceScopedTo(employeeQb, 'e', [OWNER_MODULE.FARM]);
     });
 
     it('plans only the scoped employees, so totals and day counts follow the module', async () => {
@@ -106,7 +126,7 @@ describe('scheduling queries — module scope', () => {
           '2026-10-19',
           undefined,
           undefined,
-          OWNER_MODULE.SENSOR,
+          moduleScopeOf([OWNER_MODULE.SENSOR]) ?? undefined,
         ),
         [{ id: 'emp-1', firstName: 'Ada', lastName: 'Lovelace' }],
       );
@@ -116,10 +136,24 @@ describe('scheduling queries — module scope', () => {
       });
     });
 
-    it('is untouched without a module (the Company view)', async () => {
-      const { employeeQb } = await run(new GetTeamWeeklyOverviewQuery(tenantId, '2026-10-19'));
+    it('is untouched for a caller whose scope is every module', async () => {
+      const { employeeQb } = await run(
+        new GetTeamWeeklyOverviewQuery(
+          tenantId,
+          '2026-10-19',
+          undefined,
+          undefined,
+          ALL_MODULES_SCOPE,
+        ),
+      );
 
       expect(employeeQb['innerJoin']).not.toHaveBeenCalled();
+    });
+
+    it('lists no one when no scope was decided (fail closed)', async () => {
+      const { employeeQb } = await run(new GetTeamWeeklyOverviewQuery(tenantId, '2026-10-19'));
+
+      expect(employeeQb['andWhere']).toHaveBeenCalledWith('1 = 0');
     });
   });
 

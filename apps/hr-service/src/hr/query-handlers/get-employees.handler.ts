@@ -4,7 +4,7 @@ import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
 import { PaginatedQueryResult, createPaginatedQueryResult } from '@platform/cqrs';
 import { GetEmployeesQuery } from '../queries/get-employees.query';
 import { Employee } from '../entities/employee.entity';
-import { employeeModuleWhere, isModuleScoped } from '../../common/module-scope';
+import { employeeScopeWhere } from '../../common/module-scope';
 
 @QueryHandler(GetEmployeesQuery)
 export class GetEmployeesHandler implements IQueryHandler<GetEmployeesQuery, PaginatedQueryResult<Employee>> {
@@ -14,9 +14,17 @@ export class GetEmployeesHandler implements IQueryHandler<GetEmployeesQuery, Pag
   ) {}
 
   async execute(query: GetEmployeesQuery): Promise<PaginatedQueryResult<Employee>> {
-    const { tenantId, filter, pagination } = query;
+    const { tenantId, filter, pagination, scope } = query;
+    const page = pagination?.page ?? 1;
+    const limit = Math.min(Math.max(pagination?.limit ?? 20, 1), 100);
+    const offset = (page - 1) * limit;
 
-    const where: FindOptionsWhere<Employee> = { tenantId, isDeleted: false };
+    // The workforce scope, decided on the server and already narrowed by filter.moduleCode
+    // (common/workforce-scope.ts). No scope: the caller sees no one.
+    const scoped = employeeScopeWhere(scope);
+    if (scoped === null) return createPaginatedQueryResult([], page, limit, 0);
+
+    const where: FindOptionsWhere<Employee> = { tenantId, isDeleted: false, ...scoped };
 
     if (filter?.status) {
       where.status = filter.status;
@@ -26,10 +34,6 @@ export class GetEmployeesHandler implements IQueryHandler<GetEmployeesQuery, Pag
     }
     if (filter?.departmentHrId) {
       where.departmentHrId = filter.departmentHrId;
-    }
-    const moduleCode = filter?.moduleCode;
-    if (isModuleScoped(moduleCode)) {
-      where.departmentHr = employeeModuleWhere(moduleCode);
     }
     if (filter?.farmId) {
       where.farmId = filter.farmId;
@@ -43,10 +47,6 @@ export class GetEmployeesHandler implements IQueryHandler<GetEmployeesQuery, Pag
     if (filter?.seaWorthy !== undefined && filter?.seaWorthy !== null) {
       where.seaWorthy = filter.seaWorthy;
     }
-
-    const page = pagination?.page ?? 1;
-    const limit = Math.min(Math.max(pagination?.limit ?? 20, 1), 100);
-    const offset = (page - 1) * limit;
 
     const [items, total] = await this.employeeRepository.findAndCount({
       where,

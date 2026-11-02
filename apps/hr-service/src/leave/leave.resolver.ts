@@ -491,8 +491,12 @@ export class LeaveResolver {
   // Leave Request Mutations
   // =====================
   @Mutation(() => LeaveRequest)
-  @UseGuards(RolesGuard)
+  // HR-MEDIUM-074 / SEC-HIGH-052: the same gate as submit, cancel, update and withdraw. Without
+  // @RequiresMobileFeature MobileFeatureGuard is a no-op, so a member whose 'leave' entitlement was
+  // switched off could still create a request.
+  @UseGuards(RolesGuard, MobileFeatureGuard)
   @ModuleUserOrHigher()
+  @RequiresMobileFeature('leave')
   @AuditLog({
     action: 'CREATE_LEAVE_REQUEST',
     resource: 'LeaveRequest',

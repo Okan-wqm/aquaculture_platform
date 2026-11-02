@@ -1,0 +1,40 @@
+{
+  "_comment": "Shrink-only baseline of tests/invariants/gateway-surface-access.spec.ts (ADR-054 draft D-F 2). undecided: gateway-api REST handlers, socket message handlers and socket connections that name no @Access spec, no explicit device/service principal (@ApiKeyAuth/@BasicAuth) and no @Public. public: those that are @Public. A new key fails the spec; a key the code no longer has passes with a message to delete it. Do NOT add a key to silence the spec: name the decision.",
+  "generated_against": "origin/main @ 7a547f528 (2026-11-02)",
+  "undecided": [
+    "apps/gateway-api/src/health/health.controller.ts#HealthController.healthDetail",
+    "apps/gateway-api/src/routes/marine.routes.ts#MarineRoutesController.legacyEndpoint",
+    "apps/gateway-api/src/routes/marine.routes.ts#MarineRoutesController.pointQuery",
+    "apps/gateway-api/src/routes/marine.routes.ts#MarineRoutesController.render",
+    "apps/gateway-api/src/routes/marine.routes.ts#MarineRoutesController.tile",
+    "apps/gateway-api/src/upload/upload.controller.ts#UploadController.deleteBatchDocument",
+    "apps/gateway-api/src/upload/upload.controller.ts#UploadController.deleteChemicalDocument",
+    "apps/gateway-api/src/upload/upload.controller.ts#UploadController.getPresignedUrl",
+    "apps/gateway-api/src/upload/upload.controller.ts#UploadController.uploadBatchDocument",
+    "apps/gateway-api/src/upload/upload.controller.ts#UploadController.uploadChemicalDocument",
+    "apps/gateway-api/src/websocket/ai-chat.gateway.ts#AiChatGateway.handleChat",
+    "apps/gateway-api/src/websocket/ai-chat.gateway.ts#AiChatGateway.handleConnection",
+    "apps/gateway-api/src/websocket/farm.gateway.ts#FarmGateway.handleConnection",
+    "apps/gateway-api/src/websocket/messaging.gateway.ts#MessagingGateway.handleConnection",
+    "apps/gateway-api/src/websocket/messaging.gateway.ts#MessagingGateway.handleJoinChannel",
+    "apps/gateway-api/src/websocket/messaging.gateway.ts#MessagingGateway.handleLeaveChannel",
+    "apps/gateway-api/src/websocket/messaging.gateway.ts#MessagingGateway.handleReAuthResponse",
+    "apps/gateway-api/src/websocket/messaging.gateway.ts#MessagingGateway.handleResolveNotificationRef",
+    "apps/gateway-api/src/websocket/messaging.gateway.ts#MessagingGateway.handleTyping",
+    "apps/gateway-api/src/websocket/sensor-readings.gateway.ts#SensorReadingsGateway.handleConnection",
+    "apps/gateway-api/src/websocket/sensor-readings.gateway.ts#SensorReadingsGateway.handleSubscribe",
+    "apps/gateway-api/src/websocket/sensor-readings.gateway.ts#SensorReadingsGateway.handleSubscribeEdgeIo",
+    "apps/gateway-api/src/websocket/sensor-readings.gateway.ts#SensorReadingsGateway.handleUnsubscribe",
+    "apps/gateway-api/src/websocket/sensor-readings.gateway.ts#SensorReadingsGateway.handleUnsubscribeEdgeIo",
+    "apps/gateway-api/src/websocket/st-language.gateway.ts#STLanguageGateway.handleConnection",
+    "apps/gateway-api/src/websocket/st-language.gateway.ts#STLanguageGateway.handleStRequest"
+  ],
+  "public": [
+    "apps/gateway-api/src/csp-report/csp-report.controller.ts#CspReportController.cspReport",
+    "apps/gateway-api/src/health/health.controller.ts#HealthController.health",
+    "apps/gateway-api/src/health/health.controller.ts#HealthController.liveness",
+    "apps/gateway-api/src/health/health.controller.ts#HealthController.ping",
+    "apps/gateway-api/src/health/health.controller.ts#HealthController.readiness",
+    "apps/gateway-api/src/metrics/metrics.controller.ts#GatewayMetricsController.getMetrics"
+  ]
+}

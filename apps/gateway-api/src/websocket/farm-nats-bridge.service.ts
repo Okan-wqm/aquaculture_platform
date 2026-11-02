@@ -48,25 +48,21 @@
  * Multi-pod broadcast across replicas requires the Redis Socket.IO adapter
  * (configured in MessagingGateway / handled by Phase D for parity).
  *
- * # Reconnect handling
+ * # Connection
  *
- * On NATS reconnect, the previous batch of subscriptions is explicitly
- * unsubscribed and the array cleared BEFORE re-subscribing. The leak in
- * MessagingNatsBridgeService — where each reconnect doubled the array
- * without cleanup — is avoided here from day one.
+ * PersistentNatsConnection (PLAT-HIGH-939) owns the connection: it keeps
+ * trying until the broker answers, and the client carries the subscriptions
+ * across reconnects, so they are made once per connection and never again.
  *
  * @see Phase B of farm domain real-time visibility plan.
  */
 
 import { TENANT_ID_REGEX } from '@aquaculture/backend-common/constants';
-import { buildNatsConnectionOptions } from '@aquaculture/backend-common/nats';
-// NATS v3 (@nats-io/* 3.x). The v2 monolithic `nats` package split into
-// nats-core (connection + Msg/Subscription primitives) and transport-node
-// (Node `connect`). StringCodec was REMOVED — decode an inbound message via
-// msg.string() instead of sc.decode(msg.data). The wire bytes are UTF-8
-// either way, so this is byte-for-byte compatible with v2 producers.
-import type { NatsConnection, Subscription, ConnectionOptions } from '@nats-io/nats-core';
-import { connect } from '@nats-io/transport-node';
+import { PersistentNatsConnection } from '@aquaculture/backend-common/nats';
+// NATS v3 (@nats-io/* 3.x): StringCodec was REMOVED — decode an inbound
+// message via msg.string() instead of sc.decode(msg.data). The wire bytes are
+// UTF-8 either way, so this is byte-for-byte compatible with v2 producers.
+import type { NatsConnection } from '@nats-io/nats-core';
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { validateFarmEvent } from '@platform/event-contracts';
@@ -167,8 +163,10 @@ const FARM_QUEUE_GROUP = 'gateway-farm';
 @Injectable()
 export class FarmNatsBridgeService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(FarmNatsBridgeService.name);
-  private connection: NatsConnection | null = null;
-  private subscriptions: Subscription[] = [];
+  private readonly nats = new PersistentNatsConnection({
+    name: 'gateway-api-farm-bridge',
+    onConnected: (connection) => this.subscribeToFarmEvents(connection),
+  });
 
   constructor(
     @Inject(ConfigService) private readonly configService: ConfigService,
@@ -182,36 +180,14 @@ export class FarmNatsBridgeService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
-    await this.connect();
+    this.nats.open();
   }
 
   async onModuleDestroy(): Promise<void> {
-    await this.disconnect();
+    await this.nats.close();
   }
 
-  private async connect(): Promise<void> {
-    /** Use the shared NATS connection factory for consistent auth across all services. */
-    const connectionOptions: ConnectionOptions = {
-      ...buildNatsConnectionOptions('gateway-api-farm-bridge'),
-    };
-
-    try {
-      this.connection = await connect(connectionOptions);
-      this.logger.log(`Farm bridge connected to NATS at ${connectionOptions.servers}`);
-
-      this.subscribeToFarmEvents();
-      this.handleConnectionEvents();
-    } catch (error) {
-      this.logger.error(`Failed to connect Farm bridge to NATS: ${(error as Error).message}`);
-      // Don't re-throw — the bridge will reconnect via the status loop, and
-      // failing fast here would crash the entire gateway-api which is wrong:
-      // sensor + messaging bridges should keep working.
-    }
-  }
-
-  private subscribeToFarmEvents(): void {
-    if (!this.connection) return;
-
+  private subscribeToFarmEvents(connection: NatsConnection): void {
     for (const subject of FARM_SUBJECTS) {
       // ── Subscription-time known event type ──────────────────────────
       // The subscription pattern is `events.*.{EventType}` — every message
@@ -230,10 +206,9 @@ export class FarmNatsBridgeService implements OnModuleInit, OnModuleDestroy {
         continue;
       }
 
-      const sub = this.connection.subscribe(subject, {
+      const sub = connection.subscribe(subject, {
         queue: FARM_QUEUE_GROUP,
       });
-      this.subscriptions.push(sub);
       this.logger.log(`Subscribed to ${subject} (queue: ${FARM_QUEUE_GROUP})`);
 
       (async () => {
@@ -487,80 +462,8 @@ export class FarmNatsBridgeService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  /**
-   * NATS connection lifecycle handler.
-   *
-   * On reconnect we explicitly drain and clear the previous subscription
-   * array BEFORE re-subscribing. The MessagingNatsBridgeService has a known
-   * bug where reconnect cycles double the subscription count (HIGH-5 in the
-   * domain audit) — this bridge avoids that from day one. Phase D will
-   * apply the same fix to the messaging and sensor bridges.
-   */
-  private handleConnectionEvents(): void {
-    if (!this.connection) return;
-
-    const connection = this.connection;
-    (async () => {
-      for await (const status of connection.status()) {
-        // v3: Status is a discriminated union on `type`; the error variant
-        // carries `error: Error` (v2's `status.data` field was removed).
-        switch (status.type) {
-          case 'disconnect':
-            this.logger.warn('Farm NATS bridge disconnected');
-            break;
-          case 'reconnect':
-            this.logger.log(
-              'Farm NATS bridge reconnected — draining stale subscriptions then re-subscribing',
-            );
-            // Drain and clear previous subscriptions BEFORE creating new ones.
-            // This prevents the "subscription leak on reconnect" defect that
-            // affects the messaging and sensor bridges.
-            for (const sub of this.subscriptions) {
-              try {
-                sub.unsubscribe();
-              } catch (error) {
-                this.logger.debug(`Stale subscription cleanup error: ${(error as Error).message}`);
-              }
-            }
-            this.subscriptions = [];
-            this.subscribeToFarmEvents();
-            break;
-          case 'error':
-            this.logger.error(`Farm NATS error: ${String(status.error)}`);
-            break;
-        }
-      }
-    })().catch((error) => {
-      this.logger.error(`Farm NATS status loop error: ${(error as Error).message}`);
-    });
-  }
-
-  private async disconnect(): Promise<void> {
-    for (const sub of this.subscriptions) {
-      try {
-        sub.unsubscribe();
-      } catch (error) {
-        this.logger.debug(
-          `Subscription unsubscribe error during shutdown: ${(error as Error).message}`,
-        );
-      }
-    }
-    this.subscriptions = [];
-
-    if (this.connection) {
-      try {
-        await this.connection.drain();
-        this.logger.log('Farm NATS bridge connection drained and closed');
-      } catch (error) {
-        this.logger.warn(`Farm NATS bridge drain error: ${(error as Error).message}`);
-      } finally {
-        this.connection = null;
-      }
-    }
-  }
-
   /** Health probe — true when the bridge holds an open NATS connection. */
   isConnected(): boolean {
-    return this.connection !== null && !this.connection.isClosed();
+    return this.nats.isConnected();
   }
 }

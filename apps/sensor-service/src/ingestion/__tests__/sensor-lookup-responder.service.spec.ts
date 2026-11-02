@@ -19,7 +19,6 @@
  */
 
 import type { Msg } from '@nats-io/nats-core';
-import { ConfigService } from '@nestjs/config';
 
 import { SensorLookupResponderService } from '../sensor-lookup-responder.service';
 import { SensorMetaCacheService } from '../sensor-meta-cache.service';
@@ -118,12 +117,8 @@ function makeMsg(body: unknown, hasReply = true): Msg & { _replies: string[] } {
 }
 
 function makeService(cache: CacheStub): SensorLookupResponderService {
-  const config = {
-    get: jest.fn().mockReturnValue('nats://localhost:4222'),
-  } as unknown as ConfigService;
   return new SensorLookupResponderService(
     cache as unknown as SensorMetaCacheService,
-    config,
   );
 }
 
@@ -344,12 +339,22 @@ describe('SensorLookupResponderService', () => {
   });
 
   describe('lifecycle', () => {
-    it('onModuleInit logs warn (does NOT throw) when broker is unreachable', async () => {
-      const cache = makeCache();
-      const svc = makeService(cache);
-      // The unit-test env does not have a NATS broker — connect()
-      // will reject. The contract: degrade gracefully.
-      await expect(svc.onModuleInit()).resolves.toBeUndefined();
+    it('onModuleInit returns without waiting for an unreachable broker, and onModuleDestroy stops the retries', async () => {
+      // PLAT-HIGH-939: boot does not wait for the broker; the connection
+      // keeps trying in the background until shutdown.
+      const savedUrl = process.env['NATS_URL'];
+      process.env['NATS_URL'] = 'nats://127.0.0.1:1';
+      try {
+        const svc = makeService(makeCache());
+        expect(svc.onModuleInit()).toBeUndefined();
+        await expect(svc.onModuleDestroy()).resolves.toBeUndefined();
+      } finally {
+        if (savedUrl === undefined) {
+          delete process.env['NATS_URL'];
+        } else {
+          process.env['NATS_URL'] = savedUrl;
+        }
+      }
     });
 
     it('onModuleDestroy is a no-op when not connected', async () => {

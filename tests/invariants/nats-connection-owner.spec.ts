@@ -21,6 +21,10 @@
  *    from the environment and really writes onto its options, so a new credential variable or
  *    field cannot reach the factory without reaching the rule. The oracle is a read of the
  *    factory's own text, not the module under test.
+ * 4. PLAT-HIGH-939: in runtime code (apps, libs, platform) only the four connection owners dial
+ *    the broker. A long-lived subscriber takes `PersistentNatsConnection`, which retries until the
+ *    broker answers; a component that called `connect()` itself connected once at boot and stayed
+ *    disconnected after a failure there.
  *
  * Why this lives here and not in tools/gates: the pre-commit hook runs every tools/gates spec
  * (tools/gates/run-all.mjs), so a red spec there cannot be committed. The owner module itself is
@@ -117,5 +121,38 @@ describe('the NATS connection factory owner on this checkout', () => {
 
   it('owns the credential fields the factory writes from them', () => {
     expect([...NATS_CREDENTIAL_FIELDS].sort()).toEqual(unique(/\boptions\.(\w+) = auth[A-Z]\w*;/g));
+  });
+});
+
+describe('the modules that dial the NATS broker (PLAT-HIGH-939)', () => {
+  // The event bus, the Nest client and server transports, and the long-lived subscriber's
+  // connection. Operator scripts (scripts/, tools/) run once and are outside this rule.
+  const DIALERS = [
+    'libs/backend-common/src/nats/nats-v3-client.proxy.ts',
+    'libs/backend-common/src/nats/nats-v3-server.strategy.ts',
+    'libs/backend-common/src/nats/persistent-nats-connection.ts',
+    'platform/libs/event-bus/src/nats/nats-event-bus.ts',
+  ];
+
+  it('are the connection owners only', () => {
+    const importers = execFileSync(
+      'git',
+      [
+        '-C',
+        REPO_ROOT,
+        'grep',
+        '-l',
+        '-z',
+        '@nats-io/transport-node',
+        '--',
+        'apps',
+        'libs',
+        'platform',
+      ],
+      { encoding: 'utf8', env: hermeticGitEnv(), maxBuffer: 64 * 1024 * 1024 },
+    )
+      .split('\0')
+      .filter((path) => /\.ts$/.test(path) && !/\.(?:spec|test|d)\.ts$|\/__tests__\//.test(path));
+    expect(importers.sort()).toEqual(DIALERS);
   });
 });

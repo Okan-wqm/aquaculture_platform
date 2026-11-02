@@ -1,18 +1,14 @@
-import { buildNatsConnectionOptions } from '@aquaculture/backend-common/nats';
-// NATS v3 (@nats-io/* 3.x). The v2 monolithic `nats` package split into
-// nats-core (connection + Msg/Subscription primitives) and transport-node
-// (Node connect). StringCodec was REMOVED — encode a string by passing it
-// directly to respond(), decode via msg.string(). The wire bytes are UTF-8
-// either way, so this stays byte-for-byte compatible with the Rust sidecar.
+import { PersistentNatsConnection } from '@aquaculture/backend-common/nats';
+// NATS v3 (@nats-io/* 3.x): StringCodec was REMOVED — encode a string by
+// passing it directly to respond(), decode via msg.string(). The wire bytes
+// are UTF-8 either way, so this stays byte-for-byte compatible with the Rust sidecar.
 import type { Msg, NatsConnection, Subscription } from '@nats-io/nats-core';
-import { connect } from '@nats-io/transport-node';
 import {
   Injectable,
   Logger,
   OnModuleDestroy,
   OnModuleInit,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 
 import { SensorMetaCacheService } from './sensor-meta-cache.service';
 
@@ -42,9 +38,9 @@ import { SensorMetaCacheService } from './sensor-meta-cache.service';
  *   Mirrors `automation/compiler/nats-handlers/st-language.handler.ts`
  *   — JetStream is for persistent pub/sub, NOT request-reply. Raw NATS
  *   is the right primitive for a lookup that has no "deliver later"
- *   semantic. The connection is established on `onModuleInit` and
- *   drained on `onModuleDestroy`; subscriptions are tracked in an
- *   array so shutdown is deterministic.
+ *   semantic. PersistentNatsConnection (PLAT-HIGH-939) keeps trying
+ *   from `onModuleInit` until the broker answers and drains the
+ *   connection, with its subscription, on `onModuleDestroy`.
  *
  * WHY the SEC-M01 tenant cross-check:
  *   The lookup request carries the requesting tenant's id alongside
@@ -88,58 +84,26 @@ export class SensorLookupResponderService
    */
   private static readonly QUEUE_GROUP = 'sensor-lookup-responders';
 
-  private connection: NatsConnection | null = null;
-  private readonly subscriptions: Subscription[] = [];
-  private readonly natsUrl: string;
+  private readonly nats = new PersistentNatsConnection({
+    name: `sensor-service-lookup-responder-${process.pid}`,
+    onConnected: (connection) => this.subscribe(connection),
+  });
 
-  constructor(
-    private readonly cacheService: SensorMetaCacheService,
-    private readonly configService: ConfigService,
-  ) {
-    this.natsUrl = this.configService.get<string>(
-      'NATS_URL',
-      'nats://localhost:4222',
-    );
-  }
+  constructor(private readonly cacheService: SensorMetaCacheService) {}
 
-  async onModuleInit(): Promise<void> {
-    try {
-      await this.connectAndSubscribe();
-    } catch (error) {
-      // Mirrors STLanguageHandler's posture: a NATS-unavailable boot
-      // must not crash the app. Operators see the warn; the responder
-      // re-attempts on next process restart (NATS is a hard
-      // dependency in production but local dev / unit-test runs may
-      // not have a broker).
-      this.logger.warn(
-        `Failed to connect NATS for sensor lookup responder: ${(error as Error).message}. ` +
-          'Cache-miss requests from the Rust sidecar will go unanswered until NATS is reachable.',
-      );
-    }
+  onModuleInit(): void {
+    this.nats.open();
   }
 
   async onModuleDestroy(): Promise<void> {
-    for (const sub of this.subscriptions) {
-      sub.unsubscribe();
-    }
-    this.subscriptions.length = 0;
-    if (this.connection) {
-      try {
-        await this.connection.drain();
-      } catch (error) {
-        this.logger.warn(
-          `NATS drain failed at shutdown: ${(error as Error).message}`,
-        );
-      }
-      this.connection = null;
-    }
+    await this.nats.close();
   }
 
   /**
    * Public for the spec — the test feeds a synthetic NATS `Msg` so we
    * can pin the wire shape without spinning a broker. Production
    * callers reach this via the subscription loop in
-   * {@link connectAndSubscribe}.
+   * {@link subscribe}.
    *
    * The method NEVER throws; every failure mode logs + replies with
    * the JSON literal `null` so the Rust client sees a single shape
@@ -270,36 +234,16 @@ export class SensorLookupResponderService
     this.respond(msg, reply);
   }
 
-  private async connectAndSubscribe(): Promise<void> {
-    /** SEC-H01: shared NATS connection factory for consistent auth. */
-    // Hold the connection in a local so it narrows to non-null for subscribe()
-    // below — the intervening logger.log() call resets TS property narrowing on
-    // the `NatsConnection | null` field.
-    const connection = await connect({
-      ...buildNatsConnectionOptions(
-        `sensor-service-lookup-responder-${process.pid}`,
-      ),
-      maxReconnectAttempts: -1,
+  private subscribe(connection: NatsConnection): void {
+    const sub = connection.subscribe(SensorLookupResponderService.SUBJECT, {
+      queue: SensorLookupResponderService.QUEUE_GROUP,
     });
-    this.connection = connection;
-    this.logger.log(
-      `Connected to NATS for sensor.lookup.by-topic responder (url=${this.natsUrl})`,
-    );
-
-    const sub = connection.subscribe(
-      SensorLookupResponderService.SUBJECT,
-      {
-        queue: SensorLookupResponderService.QUEUE_GROUP,
-      },
-    );
-    this.subscriptions.push(sub);
     this.logger.log(
       `Subscribed to ${SensorLookupResponderService.SUBJECT} (queue=${SensorLookupResponderService.QUEUE_GROUP})`,
     );
 
-    // Spawn the request loop in the background; awaiting here would
-    // block onModuleInit forever (the loop only ends when the broker
-    // closes the subscription on shutdown).
+    // The request loop runs in the background; it ends when the connection
+    // is drained on shutdown.
     void this.runSubscriptionLoop(sub);
   }
 

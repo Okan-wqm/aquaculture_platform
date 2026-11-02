@@ -1,15 +1,11 @@
-import { buildNatsConnectionOptions } from '@aquaculture/backend-common/nats';
-// NATS v3 (@nats-io/* 3.x). The v2 monolithic `nats` package split into
-// transport-node (Node connect) and nats-core (connection + Msg primitives).
-// StringCodec was REMOVED — publish a string directly and decode via
+import { PersistentNatsConnection } from '@aquaculture/backend-common/nats';
+// NATS v3 (@nats-io/* 3.x): StringCodec was REMOVED — decode via
 // msg.string(). The wire bytes stay UTF-8, so this is byte-for-byte
 // compatible with the v2 sensor-service producer during a rolling deploy.
-import type { ConnectionOptions, NatsConnection, Subscription } from '@nats-io/nats-core';
-import { connect } from '@nats-io/transport-node';
+import type { NatsConnection } from '@nats-io/nats-core';
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createDefaultRegistry, EventUpcasterRegistry } from '@platform/event-contracts';
-import * as fs from 'fs';
 
 import { SensorReadingsGateway } from './sensor-readings.gateway';
 
@@ -60,8 +56,20 @@ interface NatsEvent {
 @Injectable()
 export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(NatsBridgeService.name);
-  private connection: NatsConnection | null = null;
-  private subscription: Subscription | null = null;
+  /**
+   * PLAT-HIGH-939: keeps trying until the broker answers. Options come only
+   * from the factory (INFRA-HIGH-238: no TLS or credentials of the bridge's
+   * own), and the client carries the subscriptions across reconnects, so they
+   * are made once per connection (PLAT-MEDIUM-940).
+   */
+  private readonly nats = new PersistentNatsConnection({
+    name: 'gateway-api-websocket-bridge',
+    onConnected: (connection) => {
+      this.subscribeToSensorEvents(connection);
+      this.subscribeToEdgeIoEvents(connection);
+      this.subscribeToEdgeAlarmEvents(connection);
+    },
+  });
   /** ARCH-C01: Raw NATS doesn't use NatsEventBus — apply upcasters manually */
   private readonly upcasterRegistry: EventUpcasterRegistry = createDefaultRegistry();
 
@@ -78,91 +86,24 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
-    await this.connect();
+    this.nats.open();
   }
 
   async onModuleDestroy(): Promise<void> {
-    await this.disconnect();
+    await this.nats.close();
   }
 
-  private async connect(): Promise<void> {
-    /** SEC-H01: Use shared NATS connection factory for consistent auth across all services. */
-    const baseOptions = buildNatsConnectionOptions('gateway-api-websocket-bridge');
-
-    const connectionOptions: ConnectionOptions = {
-      ...baseOptions,
-    };
-
-    // SECURITY: Add TLS configuration if enabled
-    const tlsEnabled = this.configService.get<string>('NATS_TLS_ENABLED', 'false') === 'true';
-    if (tlsEnabled) {
-      const tlsCaPath = this.configService.get<string>('NATS_TLS_CA');
-      const tlsCertPath = this.configService.get<string>('NATS_TLS_CERT');
-      const tlsKeyPath = this.configService.get<string>('NATS_TLS_KEY');
-
-      connectionOptions.tls = {
-        ...(tlsCaPath ? { ca: fs.readFileSync(tlsCaPath, 'utf8') } : {}),
-        ...(tlsCertPath ? { cert: fs.readFileSync(tlsCertPath, 'utf8') } : {}),
-        ...(tlsKeyPath ? { key: fs.readFileSync(tlsKeyPath, 'utf8') } : {}),
-      };
-      this.logger.log('NATS TLS enabled for WebSocket bridge');
-    }
-
-    // SECURITY: Add authentication if configured
-    const authToken = this.configService.get<string>('NATS_AUTH_TOKEN');
-    const authUser = this.configService.get<string>('NATS_AUTH_USER');
-    const authPass = this.configService.get<string>('NATS_AUTH_PASS');
-
-    if (authToken) {
-      connectionOptions.token = authToken;
-    } else if (authUser && authPass) {
-      connectionOptions.user = authUser;
-      connectionOptions.pass = authPass;
-    }
-
-    // SECURITY: Production warnings
-    const isProduction = this.configService.get<string>('NODE_ENV') === 'production';
-    if (isProduction && !tlsEnabled) {
-      this.logger.warn('⚠️  NATS TLS is disabled in production!');
-    }
-
-    try {
-      this.connection = await connect(connectionOptions);
-
-      this.logger.log(`Connected to NATS at ${connectionOptions.servers}`);
-
-      // Subscribe to sensor reading events
-      this.subscribeToSensorEvents();
-
-      // Subscribe to edge device I/O data events
-      this.subscribeToEdgeIoEvents();
-
-      // Subscribe to edge device alarm events
-      this.subscribeToEdgeAlarmEvents();
-
-      // Handle connection events
-      this.handleConnectionEvents();
-    } catch (error) {
-      this.logger.error(`Failed to connect to NATS: ${(error as Error).message}`);
-    }
-  }
-
-  private subscribeToSensorEvents(): void {
-    if (!this.connection) return;
-
+  private subscribeToSensorEvents(connection: NatsConnection): void {
     // Task 2 (SENSOR-HIGH-092): SensorReading is a high-rate telemetry type
     // routed to the telemetry root (AQUACULTURE_TELEMETRY). The previous
     // 2-segment `events.SensorReading` subject matched NOTHING the sensor
     // subgraph publishes (3-segment events.{tenant}.SensorReading) — the
     // bridge was silently blind; the routed wildcard fixes both at once.
-    this.subscription = this.connection.subscribe('telemetry.*.SensorReading');
+    const subscription = connection.subscribe('telemetry.*.SensorReading');
 
     this.logger.log('Subscribed to sensor reading events');
 
     // Process incoming messages
-    const subscription = this.subscription;
-    if (!subscription) return;
-
     // SECURITY: Attach .catch() to prevent unhandled rejection on iterator error.
     // Without this, any thrown error becomes an unhandled rejection and the
     // subscription loop terminates silently -- all WebSocket clients stop
@@ -195,12 +136,10 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
-  private subscribeToEdgeIoEvents(): void {
-    if (!this.connection) return;
-
+  private subscribeToEdgeIoEvents(connection: NatsConnection): void {
     // SECURITY: Subscribe to tenant-scoped wildcard subject.
     // NatsEventBus.deriveSubject() publishes to events.{tenantId}.EdgeDeviceIoData
-    const sub = this.connection.subscribe('events.*.EdgeDeviceIoData');
+    const sub = connection.subscribe('events.*.EdgeDeviceIoData');
     this.logger.log('Subscribed to edge device I/O data events (tenant-scoped wildcard)');
 
     (async () => {
@@ -239,12 +178,10 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
-  private subscribeToEdgeAlarmEvents(): void {
-    if (!this.connection) return;
-
+  private subscribeToEdgeAlarmEvents(connection: NatsConnection): void {
     // SECURITY: Subscribe to tenant-scoped wildcard subject.
     // NatsEventBus.deriveSubject() publishes to events.{tenantId}.EdgeDeviceAlarm
-    const sub = this.connection.subscribe('events.*.EdgeDeviceAlarm');
+    const sub = connection.subscribe('events.*.EdgeDeviceAlarm');
     this.logger.log('Subscribed to edge device alarm events (tenant-scoped wildcard)');
 
     (async () => {
@@ -320,48 +257,6 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
-  private handleConnectionEvents(): void {
-    if (!this.connection) return;
-
-    const connection = this.connection;
-    (async () => {
-      for await (const status of connection.status()) {
-        // v3: Status is a discriminated union on `type`; switching on it
-        // narrows each case. The error variant carries `error: Error` (v2's
-        // untyped `status.data` field was removed).
-        switch (status.type) {
-          case 'disconnect':
-            this.logger.warn('NATS disconnected');
-            break;
-          case 'reconnect':
-            this.logger.log('NATS reconnected - re-subscribing to events');
-            // Re-subscribe after reconnect; the previous subscription's
-            // async iterator terminates on disconnect.
-            this.subscribeToSensorEvents();
-            this.subscribeToEdgeIoEvents();
-            this.subscribeToEdgeAlarmEvents();
-            break;
-          case 'error':
-            this.logger.error(`NATS error: ${String(status.error)}`);
-            break;
-        }
-      }
-    })().catch((error) => {
-      this.logger.error(`NATS status loop error: ${(error as Error).message}`);
-    });
-  }
-
-  private async disconnect(): Promise<void> {
-    if (this.subscription) {
-      this.subscription.unsubscribe();
-    }
-
-    if (this.connection) {
-      await this.connection.drain();
-      this.logger.log('NATS connection closed');
-    }
-  }
-
   /**
    * Validate that a parsed NATS event has all required fields.
    * JSON.parse + `as NatsEvent` is only a type cast, not runtime validation.
@@ -381,6 +276,6 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
    * Check if connected to NATS
    */
   isConnected(): boolean {
-    return this.connection !== null && !this.connection.isClosed();
+    return this.nats.isConnected();
   }
 }

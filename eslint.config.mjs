@@ -282,6 +282,13 @@ const perProjectBlocks = PROJECT_LINT_OVERRIDES.flatMap((p) => {
 // only the parser `project` is narrowed.
 const NON_PROVENANCE_TS_PROJECTS = [
   'e2e',
+  // ORPHAN-MEDIUM-093: these two libs fell through to the repo-wide node-resolution
+  // project. @nats-io/transport-node re-exports `@nats-io/nats-core/internal`, a
+  // subpath that exists only in an `exports` map, so there `connect()` returned the
+  // error type and correctly-typed NATS code reported no-unsafe-*. Their own
+  // tsconfig.eslint.json resolves with `moduleResolution: Bundler`, as tools/scripts does.
+  'libs/backend-common',
+  'platform/libs/event-bus',
   'libs/aquaculture-engines',
   'libs/farm-shared',
   'libs/migration-harness',
@@ -798,45 +805,38 @@ export default [
     },
   },
 
-  // ── A3 (NATS v3): the event-bus connect() call trips no-unsafe-assignment because
-  //    @nats-io/* exports-only ESM does not type-resolve in the event-bus lib's
-  //    standalone eslint project context (ORPHAN-MEDIUM-093 — a verified false
-  //    positive; platform-wide type-check + build + unit tests all pass). Carried
-  //    from the .eslintrc.json override A3 added (A2's flat cutover deleted that
-  //    file), so the migration preserves A3's lint behavior byte-for-byte. Override
-  //    last so it wins for this one file; removable once the parserOptions.project
-  //    ordering fix (ORPHAN-MEDIUM-093) lands. ──
+  // ── PR-C (PLAT-HIGH-003): the sensor-ingest equivalence e2e uses @nats-io v3, and
+  //    the e2e project still resolves with node10, where @nats-io/transport-node's
+  //    `@nats-io/nats-core/internal` re-export does not resolve, so its @nats-io values
+  //    are the error type (ORPHAN-MEDIUM-093). libs/backend-common and
+  //    platform/libs/event-bus resolve with Bundler in their own lint projects
+  //    (NON_PROVENANCE_TS_PROJECTS), so their NATS code needs no exception for that. ──
   {
-    files: ['platform/libs/event-bus/src/nats/nats-event-bus.ts'],
-    rules: {
-      '@typescript-eslint/no-unsafe-assignment': 'off',
-    },
-  },
-
-  // ── PR-B (PLAT-HIGH-003): the @nats-io/* v3 packages ship exports-only ESM whose
-  //    types do not resolve under the type-aware lint's project context for
-  //    libs/backend-common, so every @nats-io value (Msg, NatsConnection, Payload,
-  //    Subscription) degrades to `any` and trips the no-unsafe-* family — the same
-  //    ORPHAN-MEDIUM-093 root cause as the event-bus override above. The service
-  //    tsconfigs DO resolve @nats-io (type-check + build pass), so these are false
-  //    positives. The Server base's abstract `on` is also Function-typed by the Nest
-  //    framework (EventsMap = Record<string, Function>). Scoped to the two v3
-  //    transport files; removable once the parserOptions.project ordering fix
-  //    (ORPHAN-MEDIUM-093) lands. ──
-  {
-    files: [
-      'libs/backend-common/src/nats/nats-v3-server.strategy.ts',
-      'libs/backend-common/src/nats/nats-v3-client.proxy.ts',
-      // PR-C: the sensor-ingest equivalence e2e migrated to @nats-io v3 and hits the
-      // same ORPHAN-MEDIUM-093 @nats-io-resolves-to-any false positive.
-      'e2e/tests/sensor-ingest-equivalence.e2e.spec.ts',
-    ],
+    files: ['e2e/tests/sensor-ingest-equivalence.e2e.spec.ts'],
     rules: {
       '@typescript-eslint/no-unsafe-argument': 'off',
       '@typescript-eslint/no-unsafe-assignment': 'off',
       '@typescript-eslint/no-unsafe-call': 'off',
       '@typescript-eslint/no-unsafe-member-access': 'off',
       '@typescript-eslint/no-unsafe-return': 'off',
+      '@typescript-eslint/no-unsafe-function-type': 'off',
+    },
+  },
+
+  // ── PR-B (PLAT-HIGH-003): the two v3 transports implement Nest's ClientProxy and
+  //    Server, whose packet types are `any` (ReadPacket<any>, WritePacket<any>, the
+  //    `pattern`/`data` they carry) and whose EventsMap is Record<string, Function>.
+  //    With @nats-io resolving (above) these four rules are what still fires, all on
+  //    values Nest hands in. ──
+  {
+    files: [
+      'libs/backend-common/src/nats/nats-v3-server.strategy.ts',
+      'libs/backend-common/src/nats/nats-v3-client.proxy.ts',
+    ],
+    rules: {
+      '@typescript-eslint/no-unsafe-argument': 'off',
+      '@typescript-eslint/no-unsafe-assignment': 'off',
+      '@typescript-eslint/no-unsafe-member-access': 'off',
       '@typescript-eslint/no-unsafe-function-type': 'off',
     },
   },

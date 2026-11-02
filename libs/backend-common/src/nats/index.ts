@@ -16,6 +16,9 @@ export type { TenantValidationResult } from './tenant-validating-consumer';
 export { NatsV3Server } from './nats-v3-server.strategy';
 export type { NatsV3ServerOptions } from './nats-v3-server.strategy';
 export { NatsV3Client } from './nats-v3-client.proxy';
+// PLAT-HIGH-939: the connection of a long-lived subscriber (bridges, responders).
+export { PersistentNatsConnection } from './persistent-nats-connection';
+export type { PersistentNatsConnectionOptions } from './persistent-nats-connection';
 export type { NatsV3ClientOptions } from './nats-v3-client.proxy';
 export {
   NatsV3RequestSerializer,

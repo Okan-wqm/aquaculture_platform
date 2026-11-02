@@ -1,5 +1,6 @@
 import { CurrentUser } from '@aquaculture/backend-common/decorators';
 import type { CurrentUserPayload } from '@aquaculture/backend-common/decorators';
+import type { OwnerModuleCode } from '@aquaculture/shared-contracts';
 import { Parent, ResolveField, Resolver } from '@nestjs/graphql';
 
 import { EmployeeDepartmentDataLoader } from './dataloaders/employee-department.dataloader';
@@ -20,7 +21,10 @@ import {
  * - `departmentHr` is resolved from `departmentHrId` here and nowhere else: every operation that
  *   returns an employee, directly or nested, answers it the same way.
  * - `contactInfo` and `address` are redacted for a viewer who may not read them, on every path
- *   that returns an employee, so no operation has to remember to mask (HR-HIGH-056).
+ *   that returns an employee, so no operation has to remember to mask (HR-HIGH-056, ADR-054 draft
+ *   D-G). Who may read them is decided by grant, keyed on the employee's module
+ *   (services/employee-contact-privacy.ts, HR-HIGH-067); the module comes through the same batched
+ *   department loader as `departmentHr`, so a list costs one department query, not one per row.
  */
 @Resolver(() => Employee)
 export class EmployeeFieldsResolver {
@@ -33,20 +37,33 @@ export class EmployeeFieldsResolver {
     return this.departments.load(employee.departmentHrId);
   }
 
-  /** Phone numbers and emergency contacts: full for a workforce manager or the employee. */
+  /** Phone numbers and emergency contacts: full for a viewer who may read them. */
   @ResolveField(() => ContactInfo)
-  contactInfo(
+  async contactInfo(
     @Parent() employee: Employee,
     @CurrentUser() viewer: CurrentUserPayload,
-  ): ContactInfo {
-    return canViewEmployeeContact(employee, viewer)
+  ): Promise<ContactInfo> {
+    return canViewEmployeeContact(employee, await this.moduleOf(employee), viewer)
       ? employee.contactInfo
       : redactContactInfo(employee.contactInfo);
   }
 
-  /** Home address: full for a workforce manager or the employee. */
+  /** Home address: full for a viewer who may read it. */
   @ResolveField(() => Address)
-  address(@Parent() employee: Employee, @CurrentUser() viewer: CurrentUserPayload): Address {
-    return canViewEmployeeContact(employee, viewer) ? employee.address : redactAddress();
+  async address(
+    @Parent() employee: Employee,
+    @CurrentUser() viewer: CurrentUserPayload,
+  ): Promise<Address> {
+    return canViewEmployeeContact(employee, await this.moduleOf(employee), viewer)
+      ? employee.address
+      : redactAddress();
+  }
+
+  /** The module of the employee's live department (common/module-scope.ts); null for none. */
+  private async moduleOf(employee: Employee): Promise<OwnerModuleCode | null> {
+    if (!employee.departmentHrId) return null;
+    const department = await this.departments.load(employee.departmentHrId);
+    if (department === null || department.isDeleted) return null;
+    return department.moduleCode ?? null;
   }
 }

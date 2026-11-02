@@ -958,6 +958,23 @@ apps/hr-service/src/attendance/attendance.resolver.ts:127-129 (hasManagementRole
 apps/hr-service/src/attendance/attendance.resolver.ts:306-309 (a global manager receives the tenant's attendance; moduleCode is optional)
 ```
 
+Partly closed (hr enrolment step, branch `authz/hr-enrolment`). The PII half: the re-applied #2124
+moved the mask onto the `Employee` type (`EmployeeFieldsResolver.contactInfo` and `.address`), so it
+holds on every path that returns an employee, `EmployeeCertification.employee` included (ADR-054
+draft D-G). This step replaces its global-role tier: full contact details go to a tenant
+administrator, the employee, the hr manager (hr MODULE_MANAGER grant) and a manager of the
+employee's own module by grant, the module being the one of the employee's live department, read
+through the batched department loader. `managesModuleByGrant` (`common/viewer.ts`) decides it with
+`decideAccess` from the verified `moduleAccess` claim. Pinned by
+`apps/hr-service/src/hr/__tests__/employee-contact-privacy.spec.ts` (A′ reading a sensor employee,
+a sensor manager reading a farm employee, a grant-less global manager and a pre-R1 token see the
+directory projection; red on 10 of 21 cases before, green after).
+
+Still open: the attendance half. `todaysAttendance`, `attendanceRecords`, `attendanceSummary` and
+`pendingAttendanceApprovals` still treat a global MODULE_MANAGER as a manager of every module's
+attendance. They are manager-only workforce reads, which move with the hr-service flip for the reason
+the HR-HIGH-066 section gives.
+
 ## SEC-MEDIUM-205
 
 Defect. The shared AuditLogInterceptor redacts arguments only by a fixed key-name list, so the

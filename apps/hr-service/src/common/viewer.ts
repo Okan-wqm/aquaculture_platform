@@ -17,13 +17,21 @@
 import { ForbiddenException } from '@nestjs/common';
 import { PLATFORM_ROLES, Role, hasAnyRole } from '@aquaculture/backend-common/decorators';
 import type { CurrentUserPayload } from '@aquaculture/backend-common/decorators';
+import {
+  MalformedCallerError,
+  PLATFORM_ROLE,
+  decideAccess,
+  userCaller,
+  type OwnerModuleCode,
+  type UserCaller,
+} from '@aquaculture/shared-contracts';
 import type { EntityManager } from 'typeorm';
 
 import { Employee } from '../hr/entities/employee.entity';
 
 /** The claims every check reads; both `@CurrentUser()` and `context.req.user` satisfy it. */
 export type ViewerClaims = Pick<CurrentUserPayload, 'sub'> &
-  Partial<Pick<CurrentUserPayload, 'role' | 'roles'>>;
+  Partial<Pick<CurrentUserPayload, 'role' | 'roles' | 'tenantId' | 'moduleAccess'>>;
 
 /** The viewer's own HR employee record, reduced to what the scope rules need. */
 export type ViewerEmployee = Pick<Employee, 'id' | 'departmentHrId'>;
@@ -51,6 +59,35 @@ export function isTenantAdmin(viewer: ViewerClaims): boolean {
 /** A workforce manager: a tenant administrator or a module manager. */
 export function isWorkforceManager(viewer: ViewerClaims): boolean {
   return holdsAny(viewer, [Role.TENANT_ADMIN, Role.MODULE_MANAGER]);
+}
+
+/** A manager of the module by its grant: `decideAccess` as `module(m)` with `@Roles(MODULE_MANAGER)`. */
+const MODULE_MANAGEMENT = [PLATFORM_ROLE.MODULE_MANAGER] as const;
+
+/**
+ * Whether the viewer holds a MODULE_MANAGER grant in `module`, decided by `decideAccess` from the
+ * verified `moduleAccess` claim and never from the tenant-wide `users.role` (ADR-051 §1; HR-HIGH-067).
+ * A claim that is malformed, or absent (a token minted before the claim existed), grants nothing.
+ * SUPER_ADMIN keeps its platform pass, as on every module decision.
+ */
+export function managesModuleByGrant(viewer: ViewerClaims, module: OwnerModuleCode): boolean {
+  let caller: UserCaller;
+  try {
+    caller = userCaller({
+      userId: viewer.sub,
+      tenantId: viewer.tenantId ?? null,
+      roles: claimedRoles(viewer),
+      moduleAccess: viewer.moduleAccess,
+    });
+  } catch (error: unknown) {
+    if (error instanceof MalformedCallerError) return false;
+    throw error;
+  }
+  return decideAccess(caller, {
+    spec: { kind: 'module', module },
+    intent: 'read',
+    roles: MODULE_MANAGEMENT,
+  }).allowed;
 }
 
 /** Whether a record that carries an auth user id belongs to the viewer. */

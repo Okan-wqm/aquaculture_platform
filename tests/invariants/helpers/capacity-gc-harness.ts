@@ -35,8 +35,13 @@ export const CAPACITY_GC_FIXTURE_IMAGE_PREFIX = 'ghcr.io/example/aqua';
 export interface CapacityAutoGcScenario {
   initialFreeBytes: string;
   reclaimedPerImageBytes: string;
-  projectedPullBytes: string;
+  /** Fixed pull estimate; omitted, the script computes it from the services and estimates below. */
+  projectedPullBytes?: string;
   projectedReserveGib: string;
+  /** Selective deploy service list (default `svc-a svc-b svc-c`). */
+  deployServices?: string;
+  /** FULL_PULL_ESTIMATE_GIB and SERVICE_PULL_ESTIMATE_GIB, when the script computes the estimate. */
+  pullEstimateGib?: { full: string; perService: string };
   /** `repository tag id` rows listed ahead of the default svc-a/b/c rows. */
   extraInventory?: readonly string[];
   /** Catalog image services; `null` means the catalog file is absent. */
@@ -172,8 +177,16 @@ export function runCapacityAutoGcScenario(scenario: CapacityAutoGcScenario): Cap
           IMAGE_PREFIX: CAPACITY_GC_FIXTURE_IMAGE_PREFIX,
           DEPLOY_SHA: 'ffffffffffffffffffffffffffffffffffffffff',
           FULL_DEPLOY: 'false',
-          DEPLOY_SERVICES: 'svc-a svc-b svc-c',
-          DEPLOY_PROJECTED_PULL_BYTES: scenario.projectedPullBytes,
+          DEPLOY_SERVICES: scenario.deployServices ?? 'svc-a svc-b svc-c',
+          ...(scenario.projectedPullBytes === undefined
+            ? {}
+            : { DEPLOY_PROJECTED_PULL_BYTES: scenario.projectedPullBytes }),
+          ...(scenario.pullEstimateGib === undefined
+            ? {}
+            : {
+                FULL_PULL_ESTIMATE_GIB: scenario.pullEstimateGib.full,
+                SERVICE_PULL_ESTIMATE_GIB: scenario.pullEstimateGib.perService,
+              }),
           SELECTIVE_HARD_FREE_GIB: '0',
           SELECTIVE_WARN_FREE_GIB: '3',
           SELECTIVE_HARD_FREE_PERCENT: '0',

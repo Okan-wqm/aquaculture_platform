@@ -820,12 +820,17 @@ projected_pull_bytes() {
   if [ "${FULL_DEPLOY}" = "true" ]; then
     echo $((FULL_PULL_ESTIMATE_GIB * GIB))
   else
-    local count
+    local count selective full
     count="$(service_count)"
     if [ "${count}" -eq 0 ]; then
       echo 0
     else
-      echo $((count * SERVICE_PULL_ESTIMATE_GIB * GIB))
+      # DEPLOY-HIGH-034: a selective deploy pulls a subset of the images a full deploy pulls,
+      # so its estimate never exceeds the full one. Uncapped, a change to a shared library
+      # (26 services x 2 GiB = 52 GiB) was refused against a full-deploy worst case of 17 GiB.
+      selective=$((count * SERVICE_PULL_ESTIMATE_GIB * GIB))
+      full=$((FULL_PULL_ESTIMATE_GIB * GIB))
+      echo $((selective < full ? selective : full))
     fi
   fi
 }

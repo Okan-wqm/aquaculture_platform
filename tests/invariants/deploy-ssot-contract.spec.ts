@@ -579,6 +579,27 @@ describe('deploy SSOT contract', () => {
     expect((safeImageGcBlock.match(/CAPACITY_DISK_USAGE_MODE=deep/g) ?? []).length).toBe(1);
   });
 
+  // DEPLOY-HIGH-034: a selective deploy pulls a subset of a full deploy's images, so its
+  // projected pull is capped by the full estimate. Uncapped, 26 services x 2 GiB refused a
+  // deploy that a full-deploy worst case (17 GiB) fits.
+  it.each([
+    ['many services, capped at the full estimate', 'svc-a svc-b svc-c svc-d svc-e', 2147483648, 0],
+    ['one service, at its own estimate', 'svc-a', 1073741824, 0],
+  ])('projects a selective pull for %s', (_name, deployServices, projected, status) => {
+    const result = runCapacityAutoGcScenario({
+      initialFreeBytes: '4294967296',
+      reclaimedPerImageBytes: '0',
+      projectedReserveGib: '1',
+      deployServices,
+      pullEstimateGib: { full: '2', perService: '1' },
+    });
+
+    expect(result.stdout).toContain(`projected_pull_bytes=${projected}`);
+    expect(result.stdout).not.toContain('disk_preflight_projected_low');
+    expect(result.removals).toEqual([]);
+    expect(result.status).toBe(status);
+  });
+
   it('stops automatic image GC once a hard verdict becomes warning-only', () => {
     const result = runCapacityAutoGcScenario({
       initialFreeBytes: '1610612736',

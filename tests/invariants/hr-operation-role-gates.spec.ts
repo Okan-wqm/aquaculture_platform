@@ -51,7 +51,8 @@ const HR_SOURCE_ROOT = 'apps/hr-service/src';
  *  - catalog: tenant-wide reference or configuration data; nothing about an individual.
  *  - team:    what colleagues need to see of one another (a roster, a directory, headcounts); a
  *             nested employee is redacted by the type, and nothing about pay, performance or health.
- *             (HR-MEDIUM-065 tracks the drafts, overtime and pending leave two of them still show.)
+ *             (docs/reviews/hr-expert/2026-10-26-hr-role-gates.md tracks the drafts, overtime and
+ *             pending leave two of them still show.)
  */
 type StaffReason = 'self' | 'catalog' | 'team';
 

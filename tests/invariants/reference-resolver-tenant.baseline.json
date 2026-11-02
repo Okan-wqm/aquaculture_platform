@@ -1,0 +1,7 @@
+{
+  "_comment": "Shrink-only baseline of tests/invariants/reference-resolver-tenant.spec.ts (ADR-054 draft D-F 3): @ResolveReference handlers that read the tenant from the federation representation (or hand the whole representation on). A new key fails the spec; a fixed one fails too, until the same PR deletes its key. ADR-054 PR-3 removes the farm entry.",
+  "generated_against": "origin/main @ 7a547f528 (2026-11-02)",
+  "violations": [
+    "apps/farm-service/src/farm/resolvers/farm.resolver.ts#FarmResolver.resolveReference:reads-tenant-from-representation"
+  ]
+}

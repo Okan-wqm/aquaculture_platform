@@ -452,7 +452,9 @@ fields, @ResolveReference handlers and REST handlers in enrolled services. Every
 the metric `module_access_denied_total`. Each service's enrolment package (PKG-07, PKG-08, PKG-11,
 PKG-12) closes its own instances, such as HR-HIGH-056.
 
-Pinned by. A classification spec and roles.guard.access.spec.ts.
+Pinned by. A classification spec and roles.guard.access.spec.ts. Until each service enrols,
+`tests/invariants/account-role-ungated-ratchet.spec.ts` freezes its operations with no `@Roles`,
+`@Access` or `@Public`, and those open to every MODULE_USER, as a baseline that may only shrink.
 
 Rule broken. Plan PKG-05 goal (unclassified operations fail closed) and the repo hierarchy
 impossible &gt; automatic &gt; detectable
@@ -1229,7 +1231,9 @@ target entity. A caller without a farm grant, or outside the entity's site, is r
 byte is stored or deleted.
 
 Pinned by the upload access spec (role B gets 403 on /api/upload/) and the REST /api/upload rows
-of the §7 access matrix.
+of the §7 access matrix. Until then `tests/invariants/gateway-surface-access.spec.ts` freezes every
+gateway-api route, socket message and socket connection that names no access decision, upload
+included, as a baseline that may only shrink.
 
 Rule broken. D2 (farm-private data is written only by farm grant holders) and the plan's decided
 default that a site assignment is a physical restriction for MODULE_USER callers.

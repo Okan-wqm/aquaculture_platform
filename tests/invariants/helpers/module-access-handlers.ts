@@ -59,7 +59,7 @@ const ROOT_ROLES: Readonly<Record<string, HandlerRole>> = {
   ResolveReference: 'reference',
   ResolveField: 'field',
 };
-const REST_VERBS: ReadonlySet<string> = new Set([
+export const REST_VERBS: ReadonlySet<string> = new Set([
   'Get',
   'Post',
   'Put',
@@ -70,12 +70,13 @@ const REST_VERBS: ReadonlySet<string> = new Set([
   'All',
 ]);
 
-interface DecoratorCall {
+export interface DecoratorCall {
   readonly name: string;
   readonly args: readonly ts.Expression[];
 }
 
-function decoratorCalls(node: ts.Node): DecoratorCall[] {
+/** The decorators of one node, by callee text (`Access.module`, `Roles`, …) and arguments. */
+export function decoratorCalls(node: ts.Node): DecoratorCall[] {
   const decorators = ts.canHaveDecorators(node) ? (ts.getDecorators(node) ?? []) : [];
   return decorators.map((decorator) => {
     const expression = decorator.expression;
@@ -198,7 +199,12 @@ export function scanSource(
 
 /** Production sources of a service: no specs, test helpers, fixtures or migrations. */
 export function serviceSources(service: string): string[] {
-  return trackedFiles([`apps/${service}/src`]).filter(
+  return productionSources([`apps/${service}/src`]);
+}
+
+/** Tracked production TypeScript under the pathspecs, filtered as `serviceSources` is. */
+export function productionSources(pathspecs: readonly string[]): string[] {
+  return trackedFiles(pathspecs).filter(
     (file) =>
       file.endsWith('.ts') &&
       !file.endsWith('.d.ts') &&

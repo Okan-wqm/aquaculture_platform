@@ -512,6 +512,13 @@ apps/hr-service/src/hr/hr.resolver.ts:209-211 (payrolls gated by Roles TENANT_AD
 apps/farm-service/src/common/authz/permission-matrix.ts:8-9 (farm's operation matrix maps operations to global roles only)
 ```
 
+Progress for hr (branch `authz/hr-enrolment`, ADR-054 draft PR-9). The example above no longer
+holds: `payrolls` and every pay and HR finance operation decide `@Roles` against the hr grant
+through `@AccessCaller()` (HR-CRITICAL-065), and five people reads take their scope from the grants
+(HR-HIGH-066). The mechanism itself stays open: every other hr operation, and every operation of the
+other `account-role` services, still meets a module's `@Roles(MODULE_MANAGER)` with a manager of any
+module until its service enrols.
+
 ## FE-MEDIUM-380
 
 Defect. An open console tab never learns that a new build is deployed: the shell has no build
@@ -2030,6 +2037,12 @@ apps/auth-service/src/modules/authentication/services/token.service.ts:593-598 (
 libs/backend-common/src/decorators/roles.decorator.ts:82-86 (the role hierarchy has no module dimension)
 apps/hr-service/src/hr/hr.resolver.ts:314-316 (for example, any global MODULE_MANAGER may update HR organisation units)
 ```
+
+Progress for hr (branch `authz/hr-enrolment`). A persisted global MODULE_MANAGER no longer reaches
+hr pay and HR finance (HR-CRITICAL-065), unmasked contact details outside their own module
+(HR-HIGH-067) or the people of another module through the five scoped reads (HR-HIGH-066): those
+read the grants. It still reaches the other manager-gated hr operations, `updateHRDepartment`
+included, and every other service. The finding stays open until PKG-46 demotes the rows.
 
 ## FARM-MEDIUM-470
 

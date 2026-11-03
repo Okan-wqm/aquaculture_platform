@@ -44,6 +44,38 @@ FOUR VERDICTS, and why ``unknown`` is a first-class one:
                          score a system can improve by looking away is
                          worse than no score.
 
+THREE METRICS (F3.3b). ``finding_recurrence`` asks whether the defect
+came back, ``experiment_rerun_hold`` whether the change's own experiment
+still runs green, and ``closure_by_any_author`` whether the finding the
+change was made for was CLOSED BY THAT MERGE. The third reads only the
+finding store: a ``finding_status_changed`` row to RESOLVED, recorded
+after the merge, whose ``closes_in_commit`` is exactly the merge sha the
+merged row recorded (``finding_closure`` writes that row only when the
+finding's own detector says the defect is absent at that commit). It is
+bound to the MERGE, not to a time window and not to an author: a finding
+with two change chains is closed once, and "closed after my merge" would
+credit every earlier merge. "Any author" means any closer or merger, so
+the resolver never filters on ``actor``. It answers ``gain`` or
+``unavailable`` and never ``no_gain``/``regression``: a finding that is
+still open is silence, not a measurement. Every metric is also
+PARTITIONED (``METRIC_PARTITION``): ``reality`` readings decide the
+verdict, a ``board`` reading is recorded beside them and never moves it,
+so the Board's agreement is measured against reality and never the
+reverse.
+
+PRECONDITION on ``gain_confirmed`` (F3.3b, D3): no F4.1 counter, episode,
+lift or any other learning reader may rely on it before F3.3c
+(``post_merge_ci`` and ``reverted``) lands. #1906 was red after its merge
+and reads ``gain_confirmed`` through ``closure_by_any_author`` while
+those two metrics are still unread. One reader ALREADY exists:
+``convention_usefulness.measure_convention_lift`` counts ``gain_confirmed``
+as a success and runs nightly through ``fitness`` into the operator inbox, so
+a reconciler-closed merge of the #1906 shape counts as a success there from
+this change. The impact is bounded today (the lift needs three matched
+requests, none of the recorded requests carried a convention, and the report
+is observational); it is registered as a finding with this change and F3.3c
+closes it.
+
 The aggregate lands in ``cycles_rejected`` — the column after
 ``cycles_merged`` in ``knowledge-graph/pressure-source-effectiveness
 .jsonl`` — through the EXISTING writer ``record_pressure_source_outcome``.
@@ -59,7 +91,7 @@ import json
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
 from .budget import _parse_instant, read_cost_attribution
 from .change_ledger import (
@@ -181,6 +213,9 @@ class EvaluationContext:
     finding_id: str
     plan_id: str
     commit_sha: str
+    # The merge commit the merged row recorded ("" when it names none): the
+    # identity a closure is bound to. Not ``commit_sha``, the change's own.
+    merge_sha: str
     merged_at: datetime
     evaluated_at: datetime
     repo_root: Path
@@ -247,6 +282,21 @@ def _outcome_path(tools_root: Path) -> Path:
 # ---------------------------- metrics ----------------------------
 
 
+def _finding_event_rows(ctx: EvaluationContext) -> list[dict[str, Any]]:
+    """The finding store's rows — the ONE read both finding resolvers share.
+
+    A captured context serves its own captured rows (the assessment never
+    reopens a file); a live one reads the declared surface, and a store that
+    does not exist yet holds no rows.
+    """
+    if isinstance(ctx, _AssessmentCapture):
+        return ctx._rows("repo_finding_events")
+    events_path = _finding_events_path(ctx.repo_root)
+    if not events_path.exists():
+        return []
+    return load_declared_jsonl(events_path, expected_surface="repo_finding_events")
+
+
 def _metric_finding_recurrence(ctx: EvaluationContext) -> MetricReading:
     """Did the defect the change named come back after the merge?
 
@@ -285,23 +335,16 @@ def _metric_finding_recurrence(ctx: EvaluationContext) -> MetricReading:
 
     reproduced: list[str] = []
     verified: list[str] = []
-    if captured:
-        finding_rows = ctx._rows("repo_finding_events")
-    else:
-        events_path = _finding_events_path(ctx.repo_root)
-        finding_rows = (load_declared_jsonl(events_path, expected_surface="repo_finding_events")
-                        if events_path.exists() else [])
-    if finding_rows:
-        for row in finding_rows:
-            if str(row.get("finding_id") or "") != ctx.finding_id:
-                continue
-            ts = _parse_instant(str(row.get("recorded_at") or ""))
-            if ts is None or ts <= ctx.merged_at or (captured and ts > ctx.evaluated_at):
-                continue
-            if row.get("event") == "finding_reproduced":
-                reproduced.append(str(row.get("event_id") or ""))
-            elif row.get("event") == "finding_fix_verified":
-                verified.append(str(row.get("event_id") or ""))
+    for row in _finding_event_rows(ctx):
+        if str(row.get("finding_id") or "") != ctx.finding_id:
+            continue
+        ts = _parse_instant(str(row.get("recorded_at") or ""))
+        if ts is None or ts <= ctx.merged_at or (captured and ts > ctx.evaluated_at):
+            continue
+        if row.get("event") == "finding_reproduced":
+            reproduced.append(str(row.get("event_id") or ""))
+        elif row.get("event") == "finding_fix_verified":
+            verified.append(str(row.get("event_id") or ""))
 
     observed = {
         "regression_events": len(regressions),
@@ -397,19 +440,116 @@ def _metric_experiment_rerun_hold(ctx: EvaluationContext) -> MetricReading:
     )
 
 
+def _metric_closure_by_any_author(ctx: EvaluationContext) -> MetricReading:
+    """Was the finding this change was made for closed BY THIS MERGE?
+
+    One ledger fact, not the change's own claim: a ``finding_status_changed``
+    row to RESOLVED for ``ctx.finding_id``, recorded after the merge, whose
+    ``closes_in_commit`` equals the merge sha the merged row recorded. The
+    bind is by identity (exact string equality of the full sha; an absent,
+    abbreviated or differently-cased sha names no merge) and never by time
+    alone, so a closure credits the one merge it names and not every earlier
+    chain on the same finding. ``actor`` is never read: any closer counts.
+
+    Answers ``gain`` or ``unavailable`` only. An open finding is the weak
+    ``detector_silence`` class, not a ``no_gain``; ``finding_fix_verified``
+    stays with ``finding_recurrence`` (one reader per event type). An id the
+    finding store does not own (a ``plan:<id>`` pseudo id, a registry-form
+    id) is unavailable without reading anything.
+    """
+    from .finding import FINDING_ID_RE
+
+    candidates: list[dict[str, Any]] = []
+    bound: list[dict[str, Any]] = []
+    if FINDING_ID_RE.fullmatch(ctx.finding_id) is None:
+        signal, reason = "unavailable", "finding_id_not_in_the_finding_store"
+    elif not ctx.merge_sha:
+        signal, reason = "unavailable", "merge_sha_unrecorded"
+    else:
+        captured = isinstance(ctx, _AssessmentCapture)
+        for row in _finding_event_rows(ctx):
+            if (row.get("event") != "finding_status_changed"
+                    or row.get("to_status") != "RESOLVED"
+                    or str(row.get("finding_id") or "") != ctx.finding_id):
+                continue
+            ts = _parse_instant(str(row.get("recorded_at") or ""))
+            if ts is not None and ts > ctx.merged_at and (not captured or ts <= ctx.evaluated_at):
+                candidates.append(row)
+        bound = [row for row in candidates if row.get("closes_in_commit") == ctx.merge_sha]
+        if bound:
+            signal, reason = "gain", "finding_resolved_by_this_merge"
+        elif candidates:
+            signal, reason = "unavailable", "finding_resolved_by_another_commit"
+        else:
+            signal, reason = "unavailable", "finding_not_resolved_after_the_merge"
+    return MetricReading(
+        metric_id="closure_by_any_author", signal=signal,
+        evidence_sources=("repo_finding_events",),
+        evidence_refs=tuple(str(row.get("event_id") or "") for row in candidates),
+        observed={
+            "merge_sha": ctx.merge_sha,
+            "resolved_events_after_merge": len(candidates),
+            "bound_to_this_merge": len(bound),
+            "closing_commits": sorted({str(row.get("closes_in_commit") or "") for row in candidates} - {""}),
+            "actors": sorted({str(row.get("actor") or "") for row in candidates} - {""}),
+        },
+        reason=reason,
+    )
+
+
 # The registry. Adding a metric is adding a resolver here — and the
 # emit-time evidence check is what stops the next one from being the
 # proposal's own claim wearing a metric's name.
 BENEFIT_METRICS: dict[str, Callable[[EvaluationContext], MetricReading]] = {
+    "closure_by_any_author": _metric_closure_by_any_author,
     "finding_recurrence": _metric_finding_recurrence,
     "experiment_rerun_hold": _metric_experiment_rerun_hold,
 }
 
+# Which side of the line each metric measures: ``reality`` is what the
+# ledgers recorded happening to the change, ``board`` is what the Board
+# judged about it. Only ``reality`` decides the verdict; a ``board``
+# reading is recorded beside it, so the Board's agreement is measured
+# against reality and never the reverse. No ``board`` metric exists yet.
+METRIC_PARTITION: dict[str, str] = {
+    "closure_by_any_author": "reality",
+    "finding_recurrence": "reality",
+    "experiment_rerun_hold": "reality",
+}
+_PARTITION_SIDES: frozenset[str] = frozenset({"reality", "board"})
+
+
+def _assert_every_metric_is_partitioned(
+    metrics: Mapping[str, Callable[[EvaluationContext], MetricReading]],
+) -> None:
+    """Every metric names its side, and every named side has a metric.
+
+    A metric with no side would either decide the verdict by default or
+    silently never count; an entry with no metric is a side nothing can
+    produce. Both are refused before a row is written.
+    """
+    unpartitioned = sorted(set(metrics) - set(METRIC_PARTITION))
+    metricless = sorted(set(METRIC_PARTITION) - set(metrics))
+    bad_side = sorted(
+        metric for metric, side in METRIC_PARTITION.items() if side not in _PARTITION_SIDES
+    )
+    if unpartitioned or metricless or bad_side:
+        raise GovernanceError(
+            f"change_outcome_metric_not_partitioned: metrics without a "
+            f"partition entry {unpartitioned}, partition entries without a "
+            f"metric {metricless}, entries whose side is not in "
+            f"{sorted(_PARTITION_SIDES)} {bad_side}"
+        )
+
+
+_assert_every_metric_is_partitioned(BENEFIT_METRICS)
+
 
 def fold_outcome_verdict(readings: list[MetricReading]) -> str:
-    """Worst supported verdict wins; nothing supported → ``unknown``."""
+    """Worst supported ``reality`` verdict wins; nothing supported → ``unknown``."""
     verdicts = {
-        _SIGNAL_VERDICT[r.signal] for r in readings if r.signal in _SIGNAL_VERDICT
+        _SIGNAL_VERDICT[r.signal] for r in readings
+        if r.signal in _SIGNAL_VERDICT and METRIC_PARTITION.get(r.metric_id) == "reality"
     }
     for verdict in OUTCOME_VERDICTS:
         if verdict in verdicts:
@@ -438,6 +578,7 @@ def _metric_readings(ctx: EvaluationContext) -> list[MetricReading]:
                 f"({sorted(LEDGER_EVIDENCE_SOURCES)}), never from what the "
                 f"proposal claimed the change would do"
             )
+    _assert_every_metric_is_partitioned(BENEFIT_METRICS)
     return readings
 
 
@@ -519,6 +660,7 @@ def recompute_change_outcome(
         finding_id=str(planned.get("finding_id") or ""),
         plan_id=str(planned.get("plan_id") or ""),
         commit_sha=str(committed.get("commit_sha") or ""),
+        merge_sha=str(merge_row.get("merge_sha") or ""),
         merged_at=merged_at,
         evaluated_at=evaluated_at,
         repo_root=repo_path,
@@ -930,7 +1072,8 @@ def _capture_assessment_inputs(
     }
     return _AssessmentCapture(
         change_id=change_id, finding_id=planned["finding_id"], plan_id=planned["plan_id"],
-        commit_sha=committed["commit_sha"], merged_at=merged_at, evaluated_at=evaluated_at,
+        commit_sha=committed["commit_sha"], merge_sha=str(merges[0].get("merge_sha") or ""),
+        merged_at=merged_at, evaluated_at=evaluated_at,
         repo_root=repo, tools_root=tools, _native_sources=tuple(native_sources),
         _verified_sources=tuple((name, json.dumps(rows, sort_keys=True, separators=(",", ":")).encode("utf-8"))
                                 for name, rows in source_rows.items()),

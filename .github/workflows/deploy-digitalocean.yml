@@ -867,7 +867,7 @@ jobs:
 
       - name: Download backend artifacts
         # SEC-CI-002: pinned to SHA
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: backend-dist
           path: dist/
@@ -989,7 +989,7 @@ jobs:
       # fail-closed: missing artifacts indicate a broken build chain.
       - name: Download frontend artifacts
         # SEC-CI-002: pinned to SHA
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: frontend-dist
           path: web

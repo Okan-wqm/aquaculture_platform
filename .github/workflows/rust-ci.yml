@@ -158,7 +158,7 @@ jobs:
           toolchain: 1.88.0
           components: clippy
       - name: Cache cargo registry + target
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           shared-key: rust-ci
           save-if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/agentic' }}
@@ -186,7 +186,7 @@ jobs:
         with:
           toolchain: 1.88.0
       - name: Cache cargo registry + target
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           shared-key: rust-ci
           save-if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/agentic' }}
@@ -200,7 +200,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: cargo-deny check (advisories, bans, licenses, sources)
-        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        uses: EmbarkStudios/cargo-deny-action@17aeb3c839e42274e2b8adf721c8c65edfdc74dd # v2.1.3
         with:
           command: check advisories bans licenses sources
           rust-version: "1.88.0"
@@ -215,7 +215,7 @@ jobs:
       # requires rustc >= 1.89 (smol_str 0.3.6 transitive). taiki-e/install-action
       # ships precompiled binaries — no MSRV treadmill, no source build, ~5s.
       - name: Install cargo-audit (precompiled)
-        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2.90.6
         with:
           tool: cargo-audit
       # Advisory ignores live in .cargo/audit.toml (mirrors deny.toml
@@ -242,7 +242,7 @@ jobs:
         with:
           toolchain: 1.88.0
       - name: Cache cargo registry + target
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           shared-key: rust-ci
           save-if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/agentic' }}
@@ -285,7 +285,7 @@ jobs:
         with:
           toolchain: 1.88.0
       - name: Cache cargo registry + target
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           shared-key: rust-ci
           save-if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/agentic' }}
@@ -325,11 +325,11 @@ jobs:
         # no cargo install from source, no MSRV surprises, ~5s. The
         # pinned SHA matches the one the audit job uses so every binary
         # we pull is from the same verified release chain.
-        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2.90.6
         with:
           tool: cross
       - name: Cache cargo registry + target
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           shared-key: rust-cross-${{ matrix.target }}
           save-if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/agentic' }}
